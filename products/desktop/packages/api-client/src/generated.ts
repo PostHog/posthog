@@ -3468,6 +3468,7 @@ export namespace Schemas {
         | "Visitors"
         | "Views"
         | "AvgTimeOnPage"
+        | "SessionDuration"
         | "Clicks"
         | "BounceRate"
         | "AverageScrollPercentage"
@@ -3539,6 +3540,7 @@ export namespace Schemas {
         includeHost?: (boolean | null) | undefined;
         includeRevenue?: (boolean | null) | undefined;
         includeScrollDepth?: (boolean | null) | undefined;
+        includeSessionDuration?: (boolean | null) | undefined;
         includeTrafficMetrics?: (boolean | null) | undefined;
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
@@ -16778,6 +16780,47 @@ export namespace Schemas {
         string,
         Array<string>
     >;
+    /**
+     * * `visitors` - visitors
+     * * `new_visitors` - new_visitors
+     * * `new_visitor_share` - new_visitor_share
+     * * `sessions` - sessions
+     * * `pageviews` - pageviews
+     * * `session_duration` - session_duration
+     * * `pages_per_session` - pages_per_session
+     * * `pages_per_visitor` - pages_per_visitor
+     * * `sessions_per_visitor` - sessions_per_visitor
+     * * `bounce_rate` - bounce_rate
+     * * `returning_visitors` - returning_visitors
+     * * `return_rate_7d` - return_rate_7d
+     * * `return_rate_30d` - return_rate_30d
+     * * `median_return_days` - median_return_days
+     * * `conversions` - conversions
+     * * `conversion_rate` - conversion_rate
+     * * `conversion_value` - conversion_value
+     * * `avg_conversion_value` - avg_conversion_value
+     * * `revenue` - revenue
+     */
+    export type MarketingAnalyticsOverviewMetricChoicesEnum =
+        | "visitors"
+        | "new_visitors"
+        | "new_visitor_share"
+        | "sessions"
+        | "pageviews"
+        | "session_duration"
+        | "pages_per_session"
+        | "pages_per_visitor"
+        | "sessions_per_visitor"
+        | "bounce_rate"
+        | "returning_visitors"
+        | "return_rate_7d"
+        | "return_rate_30d"
+        | "median_return_days"
+        | "conversions"
+        | "conversion_rate"
+        | "conversion_value"
+        | "avg_conversion_value"
+        | "revenue";
     export type SourceMap = Partial<{
         ad_group_id: string | null;
         ad_group_name: string | null;
@@ -19939,6 +19982,7 @@ export namespace Schemas {
         campaign_name_mappings: MarketingAnalyticsCampaignNameMappings;
         custom_source_mappings: MarketingAnalyticsCustomSourceMappings;
         campaign_field_preferences: MarketingAnalyticsCampaignFieldPreferences;
+        overview_metrics: Array<MarketingAnalyticsOverviewMetricChoicesEnum>;
     }>;
     export type TeamCustomerAnalyticsPinnedAccountProperty = {
         /**

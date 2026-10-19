@@ -39,12 +39,41 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * @summary Apply a validated conversion goal
+ */
+export const MarketingAnalyticsConversionGoalsApplyCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
  * Add one conversion goal to the project. The server assigns conversion_goal_id and appends the goal to the end of the list, leaving existing goals untouched.
  * @summary Create conversion goal
  */
 export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Calculate conversion counts, summed value, and journey attribution coverage without saving a goal. Uses attribution-table semantics with channel breakdown, not Ad performance's direct UTM matching. Supports events, actions, warehouse tables, and saved views for periods up to 31 days. Returns evaluation limits and checks not performed; it does not certify the business definition. Query execution is bounded and fails rather than returning partial results on timeout.
+ * @summary Preview an unsaved conversion goal
+ */
+export const MarketingAnalyticsConversionGoalsPreviewCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * @summary Start a conversion recommendation analysis
+ */
+export const marketingAnalyticsConversionRecommendationsStartCreateBodyRefreshDefault = false
+
+export const MarketingAnalyticsConversionRecommendationsStartCreateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(marketingAnalyticsConversionRecommendationsStartCreateBodyRefreshDefault)
+        .describe(
+            'False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request.'
+        ),
+})
 
 export const MarketingAnalyticsConversionRecordingsListBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())

@@ -12850,6 +12850,14 @@
                     "$ref": "#/definitions/integer",
                     "description": "How many breakdown values were folded into 'Other', so the table can say so."
                 },
+                "overallMedianReturnDays": {
+                    "description": "Median over all observed returners, before grouping into breakdowns. Only populated in summary mode.",
+                    "type": ["number", "null"]
+                },
+                "previousOverallMedianReturnDays": {
+                    "description": "Overall median for the previous acquisition period. Only populated when comparing in summary mode.",
+                    "type": ["number", "null"]
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -35725,6 +35733,13 @@
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
+                "overview_metrics": {
+                    "description": "Ordered Overview cards. Empty or unset means the default set: every metric, in enum order.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsOverviewMetric"
+                    },
+                    "type": "array"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -35802,6 +35817,31 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+        },
+        "MarketingAnalyticsOverviewMetric": {
+            "description": "The Overview shows one card per slot: acquisition, engagement, retention, conversion, other. `overview_metrics` is a list of five, one per slot in that order.",
+            "enum": [
+                "visitors",
+                "new_visitors",
+                "new_visitor_share",
+                "sessions",
+                "pageviews",
+                "session_duration",
+                "pages_per_session",
+                "pages_per_visitor",
+                "sessions_per_visitor",
+                "bounce_rate",
+                "returning_visitors",
+                "return_rate_7d",
+                "return_rate_30d",
+                "median_return_days",
+                "conversions",
+                "conversion_rate",
+                "conversion_value",
+                "avg_conversion_value",
+                "revenue"
+            ],
+            "type": "string"
         },
         "MarketingAnalyticsRetentionCell": {
             "additionalProperties": false,
@@ -35958,6 +35998,14 @@
                 "otherBreakdownCount": {
                     "$ref": "#/definitions/integer",
                     "description": "How many breakdown values were folded into 'Other', so the table can say so."
+                },
+                "overallMedianReturnDays": {
+                    "description": "Median over all observed returners, before grouping into breakdowns. Only populated in summary mode.",
+                    "type": ["number", "null"]
+                },
+                "previousOverallMedianReturnDays": {
+                    "description": "Overall median for the previous acquisition period. Only populated when comparing in summary mode.",
+                    "type": ["number", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -44661,6 +44709,14 @@
                         "otherBreakdownCount": {
                             "$ref": "#/definitions/integer",
                             "description": "How many breakdown values were folded into 'Other', so the table can say so."
+                        },
+                        "overallMedianReturnDays": {
+                            "description": "Median over all observed returners, before grouping into breakdowns. Only populated in summary mode.",
+                            "type": ["number", "null"]
+                        },
+                        "previousOverallMedianReturnDays": {
+                            "description": "Overall median for the previous acquisition period. Only populated when comparing in summary mode.",
+                            "type": ["number", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -57479,6 +57535,7 @@
                 "Visitors",
                 "Views",
                 "AvgTimeOnPage",
+                "SessionDuration",
                 "Clicks",
                 "BounceRate",
                 "AverageScrollPercentage",
@@ -58736,6 +58793,10 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeSessionDuration": {
+                    "description": "Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal.",
                     "type": "boolean"
                 },
                 "includeTrafficMetrics": {

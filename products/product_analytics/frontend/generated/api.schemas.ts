@@ -3519,6 +3519,7 @@ export const WebAnalyticsOrderByFieldsApi = {
     Visitors: 'Visitors',
     Views: 'Views',
     AvgTimeOnPage: 'AvgTimeOnPage',
+    SessionDuration: 'SessionDuration',
     Clicks: 'Clicks',
     BounceRate: 'BounceRate',
     AverageScrollPercentage: 'AverageScrollPercentage',
@@ -3608,6 +3609,8 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    /** Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal. */
+    includeSessionDuration?: boolean | null
     includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null

@@ -11,14 +11,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ApplySetupOpsApi,
     ApplySetupOpsResponseApi,
+    ConversionGoalApplyApi,
+    ConversionGoalPreviewApi,
+    ConversionGoalPreviewResponseApi,
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
+    ConversionRecommendationStartApi,
+    ConversionRecommendationStateApi,
     ConversionRecordingsRequestApi,
     ConversionRecordingsResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
     GoalExplanationApi,
+    InitialConversionGoalsResponseApi,
     MarketingAnalyticsDataSourcesRetrieveParams,
     MarketingAnalyticsDiagnoseRetrieveParams,
     MarketingAnalyticsExplainConversionGoalRetrieveParams,
@@ -123,6 +129,26 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdate = async (
     )
 }
 
+export const getMarketingAnalyticsConversionGoalsApplyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/apply/`
+}
+
+/**
+ * @summary Apply a validated conversion goal
+ */
+export const marketingAnalyticsConversionGoalsApplyCreate = async (
+    projectId: string,
+    conversionGoalApplyApi: ConversionGoalApplyApi,
+    options?: RequestInit
+): Promise<ConversionGoalWriteResponseApi> => {
+    return apiMutator<ConversionGoalWriteResponseApi>(getMarketingAnalyticsConversionGoalsApplyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversionGoalApplyApi),
+    })
+}
+
 export const getMarketingAnalyticsConversionGoalsCreateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/marketing_analytics/conversion_goals/create/`
 }
@@ -142,6 +168,94 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversionGoalWriteApi),
     })
+}
+
+export const getMarketingAnalyticsConversionGoalsInitializeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/initialize/`
+}
+
+/**
+ * Create up to three suggested event goals once for an unconfigured project. Existing goals and deleted initial goals are never recreated.
+ * @summary Initialize conversion goals
+ */
+export const marketingAnalyticsConversionGoalsInitializeCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InitialConversionGoalsResponseApi> => {
+    return apiMutator<InitialConversionGoalsResponseApi>(
+        getMarketingAnalyticsConversionGoalsInitializeCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionGoalsPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/preview/`
+}
+
+/**
+ * Calculate conversion counts, summed value, and journey attribution coverage without saving a goal. Uses attribution-table semantics with channel breakdown, not Ad performance's direct UTM matching. Supports events, actions, warehouse tables, and saved views for periods up to 31 days. Returns evaluation limits and checks not performed; it does not certify the business definition. Query execution is bounded and fails rather than returning partial results on timeout.
+ * @summary Preview an unsaved conversion goal
+ */
+export const marketingAnalyticsConversionGoalsPreviewCreate = async (
+    projectId: string,
+    conversionGoalPreviewApi: ConversionGoalPreviewApi,
+    options?: RequestInit
+): Promise<ConversionGoalPreviewResponseApi> => {
+    return apiMutator<ConversionGoalPreviewResponseApi>(
+        getMarketingAnalyticsConversionGoalsPreviewCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(conversionGoalPreviewApi),
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionRecommendationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recommendations/`
+}
+
+/**
+ * @summary Read persisted conversion recommendations
+ */
+export const marketingAnalyticsConversionRecommendationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ConversionRecommendationStateApi> => {
+    return apiMutator<ConversionRecommendationStateApi>(
+        getMarketingAnalyticsConversionRecommendationsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionRecommendationsStartCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recommendations/start/`
+}
+
+/**
+ * @summary Start a conversion recommendation analysis
+ */
+export const marketingAnalyticsConversionRecommendationsStartCreate = async (
+    projectId: string,
+    conversionRecommendationStartApi?: ConversionRecommendationStartApi,
+    options?: RequestInit
+): Promise<ConversionRecommendationStateApi> => {
+    return apiMutator<ConversionRecommendationStateApi>(
+        getMarketingAnalyticsConversionRecommendationsStartCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(conversionRecommendationStartApi),
+        }
+    )
 }
 
 export const getMarketingAnalyticsConversionRecordingsListUrl = (projectId: string) => {
