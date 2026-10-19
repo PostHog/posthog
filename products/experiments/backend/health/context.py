@@ -46,14 +46,40 @@ class BucketingChange:
     after: str | int | bool | None
 
 
+@frozen
+class ReleaseCondition:
+    # The group type and property filters of the condition, as a signature that is equal for two conditions
+    # that match the same people under the flag-level aggregation of their save. The rollout is not part of it.
+    criteria: str
+    # The group type index that the condition matches, None for persons, and the keys of its property filters.
+    # The flag page's history pairs two conditions that share them as one condition edited.
+    aggregation: int | None
+    property_keys: frozenset[str]
+    rollout: float
+    variant: str | None
+
+
+@frozen
+class ConditionsChange:
+    changed_at: datetime
+    before: tuple[ReleaseCondition, ...]
+    after: tuple[ReleaseCondition, ...]
+
+
 # A change of the flag after launch that can move exposed people. A new kind needs its class here, an
 # `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
 # `inputs_payload.py`, and its check.
-FlagChange = SplitChange | BucketingChange
+FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
 def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C]) -> tuple[C, ...]:
     return tuple(change for change in changes if isinstance(change, kind))
+
+
+@frozen
+class ChangeWindow:
+    start: datetime
+    end: datetime
 
 
 @frozen
@@ -73,6 +99,12 @@ class FlagHistory:
     # Whether anyone was exposed between the first and the last counted change of a kind. Asked only when the last
     # sets back what the first changed, so a kind that was not asked is absent. None when unknown.
     exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None]
+    # The flag's release conditions now. A save that no kind counts can renumber them after the last change, and
+    # the findings and the traffic number the conditions as they are now.
+    release_conditions: tuple[ReleaseCondition, ...]
+    # Whether anyone was exposed while an override was set and removed again, or removed and set back. A user
+    # exposed only outside that window got the same variant throughout. None when unknown.
+    exposed_during_overrides: Mapping[ChangeWindow, bool | None]
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -89,6 +121,14 @@ class FlagHistoryNotCheckedReason(StrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EXPOSURE_ACTION = "exposure_action"
     EXPOSURE_CRITERIA = "exposure_criteria"
+    # The history is not read past these bounds, because the work grows with the saves and the conditions, and the
+    # experiment page asks on every load.
+    TOO_MANY_SAVES = "too_many_saves"
+    TOO_MANY_CONDITIONS = "too_many_conditions"
+
+
+MAX_FLAG_SAVES = 100
+MAX_RELEASE_CONDITIONS = 100
 
 
 @frozen
