@@ -313,15 +313,15 @@ class TestTableRebuildAcrossAttempts:
         assert schema.sync_type_config.get("table_rebuild_run_uuid") == expected_record
 
 
-class TestPreWriteMaintenanceBeforeAnAppendRestore:
+class TestPreWriteCompactionBeforeAnAppendRestore:
     @pytest.mark.parametrize(
-        "loader_restores, expected_maintained",
+        "loader_restores, expected_compaction",
         [(True, False), (False, True)],
         ids=["restore_pending", "no_restore"],
     )
     @pytest.mark.asyncio
-    async def test_the_pre_write_pass_is_skipped_when_the_first_batch_restores_the_table(
-        self, loader_restores: bool, expected_maintained: bool
+    async def test_the_pre_write_compaction_is_skipped_when_the_first_batch_restores_the_table(
+        self, loader_restores: bool, expected_compaction: bool
     ) -> None:
         pipeline = _make_pipeline()
         pipeline._attempt = 2
@@ -352,7 +352,7 @@ class TestPreWriteMaintenanceBeforeAnAppendRestore:
             await pipeline.run()
 
         append_runs.return_value.restores_before_first_batch.assert_called_once_with("run-abc-a2")
-        assert maintenance.return_value.run_scheduled.called is expected_maintained
+        assert maintenance.return_value.run_scheduled.call_args.kwargs["compact"] is expected_compaction
 
 
 class TestExtractionFailureDoesNotCleanupS3:

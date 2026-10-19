@@ -185,6 +185,18 @@ def _failed_mid_run(loader: _Loader) -> None:
     loader.fail(job, "connection to the source was lost")
 
 
+def _old_marker_behind_a_completed_job(loader: _Loader) -> None:
+    failed_job = loader.new_job()
+    loader.load(loader.messages(failed_job, [[3, 4]], final=False))
+    old_marker = loader.config()[APPEND_RUN_MARKER_KEY]
+    loader.fail(failed_job, "failed")
+    loader.load(loader.messages(loader.new_job(), [[5, 6]], final=True))
+    # A loader from before the marker completes a run and leaves the old marker in place.
+    config = loader.config()
+    config[APPEND_RUN_MARKER_KEY] = old_marker
+    ExternalDataSchema.objects.filter(id=loader.schema.id).update(sync_type_config=config)
+
+
 def _failed_twice(loader: _Loader) -> None:
     _cancelled(loader)
     _failed_mid_run(loader)
@@ -305,9 +317,9 @@ class TestUnfinishedAppendRun:
             (lambda loader, job: _failed_mid_run(loader), 1, True),
             (lambda loader, job: loader.load(loader.messages(job, [[3, 4]], final=False)), 2, True),
             (lambda loader, job: loader.load(loader.messages(job, [[3, 4]], final=False)), 1, False),
-            (lambda loader, job: loader.load(loader.messages(loader.new_job(), [[3, 4]], final=True)), 1, False),
+            (lambda loader, job: _old_marker_behind_a_completed_job(loader), 1, False),
         ],
-        ids=["failed_job", "earlier_attempt", "same_attempt", "completed_job"],
+        ids=["failed_job", "earlier_attempt", "same_attempt", "old_marker_behind_a_completed_job"],
     )
     def test_the_pre_load_check_predicts_the_restore(
         self, loader: _Loader, before: Any, attempt: int, restores: bool
