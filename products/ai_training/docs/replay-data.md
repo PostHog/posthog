@@ -349,28 +349,28 @@ include    = percentage < SESSION_RECORDING_ML_V4_SAMPLE_PERCENTAGE
 
 ### Keys
 
-v4 copies the v3 key design with a day in place of the month:
+v4 copies the v3 key design: one key per team and UTC month, and one key per session.
 
-| Row          | `pk`                       | `sk`                   | Attributes                                                                        |
-| ------------ | -------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| Team day key | `team:{team_id}`           | `day:{YYYY-MM-DD}`     | `team_id` (N), `key_day` (S), `wrapped_key` (B), `expires_at` (N)                 |
-| Session key  | `team:{team_id}:shard:{n}` | `session:{session_id}` | `team_id` (N), `key_day` (S), `sealed_key` (B), `key_nonce` (B), `expires_at` (N) |
+| Row            | `pk`                       | `sk`                   | Attributes                                                                          |
+| -------------- | -------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| Team month key | `team:{team_id}`           | `month:{YYYY-MM}`      | `team_id` (N), `key_month` (S), `wrapped_key` (B), `expires_at` (N)                 |
+| Session key    | `team:{team_id}:shard:{n}` | `session:{session_id}` | `team_id` (N), `key_month` (S), `sealed_key` (B), `key_nonce` (B), `expires_at` (N) |
 
 - `n` is the v3 shard: the first 8 hex digits of `sha256(session_id)` as an integer, modulo 32.
-- `key_day` is the UTC day on which the recorder first stored data for the team or session. A session keeps its key on later days.
-- KMS wraps a team day key with the encryption context `{"purpose": "ai-research-v4", "team_id": ..., "key_day": ...}`.
-- A session key is sealed under the team day key with HKDF-SHA256 (empty salt, info `ml-session-key-wrap`) and AES-256-GCM. The additional authenticated data is the canonical JSON of `{"key_day", "purpose": "ai-research-v4", "session_id", "team_id"}`.
-- `expires_at` is the start of day `key_day + 90`, in epoch seconds. DynamoDB TTL removes the row after that. A session writes for at most about 15 days after its key day, so the raw window can grow to about 75 days without a key change.
+- `key_month` is the UTC month in which the recorder first stored data for the team or session. A session keeps its key in later months.
+- KMS wraps a team month key with the encryption context `{"purpose": "ai-research-v4", "team_id": ..., "key_month": ...}`.
+- A session key is sealed under the team month key with HKDF-SHA256 (empty salt, info `ml-session-key-wrap`) and AES-256-GCM. The additional authenticated data is the canonical JSON of `{"key_month", "purpose": "ai-research-v4", "session_id", "team_id"}`.
+- `expires_at` is the start of the fifth month after `key_month`, in epoch seconds: key month 2026-10 expires at 2027-03-01. DynamoDB TTL removes the row after that. A session writes for at most about 15 days after its key month ends, and an object lives at most 98 days, so every key outlives the objects that use it.
 - A row past `expires_at` that DynamoDB has not removed yet is not used.
 - Writers store keys before the objects that use them, as in v3.
-- Only the recorder creates keys. The image fetcher only reads them, and it drops a job whose team day row is missing or deleted.
+- Only the recorder creates keys. The image fetcher only reads them, and it drops a job whose team month row is missing or deleted.
 
-The recorder derives two more keys from the team day key with HKDF-SHA256 and an empty salt:
+The recorder derives two more keys from the team month key with HKDF-SHA256 and an empty salt:
 
 - The image content key, with info `ml-image-content-key`, keys the HMAC of an inline image.
 - The image URL key, with info `ml-image-url-key`, keys the HMAC of a remote image URL.
 
-Image and URL references therefore cannot be compared across teams or days.
+Image and URL references therefore stay the same for a whole month, and cannot be compared across teams or months.
 
 ### Deletion
 
@@ -383,23 +383,23 @@ UpdateItem  SET deleted = :true REMOVE wrapped_key, sealed_key, key_nonce
 ```
 
 - A session tombstone makes every block of that session unreadable.
-- A team day tombstone makes every session key sealed under that day unreadable, and every image of that team and day.
-- To delete a team, tombstone every team day row of the team (query `pk = team:{team_id}`), and also create a tombstone for the current day so the recorder cannot create a key for it. Rows older than the raw window matter too: a session keeps its first key day while it records, so new objects can use a key day up to about 15 days old.
+- A team month tombstone makes every session key sealed under that month unreadable, and every image of that team and month.
+- To delete a team, tombstone every team month row of the team (query `pk = team:{team_id}`), and also create a tombstone for the current month so the recorder cannot create a key for it. A session keeps its first key month while it records, so new objects can use the previous month's key for about 15 days.
 - A conditional put cannot replace a tombstone, so no writer creates a new key for a deleted row. A writer that meets a tombstone drops the data.
-- A tombstone keeps its `expires_at`. After 90 days no session of that day can be admitted again.
-- A process that already holds a key can use it until its cache entry expires: 5 minutes for a session row, one hour for a team day row.
+- A tombstone keeps its `expires_at`. By then no session of that month can be admitted again.
+- A process that already holds a key can use it until its cache entry expires: 5 minutes for a session row, one hour for a team month row.
 
 ### Envelope
 
 v4 objects use the v3 `AISR03` frame.
 The additional authenticated data is the canonical JSON of `{"v": 4, "context": ...}`, so a v3 reader never opens a v4 object.
 
-| Object                 | Key          | `context`                                                                                       |
-| ---------------------- | ------------ | ----------------------------------------------------------------------------------------------- |
-| Session block          | session key  | `teamId`, `sessionId`, `keyDay`, `kind: "rrweb"`, `codec: "zstd"`, `ref` (the block object key) |
-| Inline image in a pack | team day key | `teamId`, `keyDay`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)               |
-| Fetched image          | team day key | `teamId`, `keyDay`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)       |
-| Sealed index value     | session key  | `teamId`, `sessionId`, `keyDay`, `kind: "index"`, `ref` (the column name)                       |
+| Object                 | Key            | `context`                                                                                         |
+| ---------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "zstd"`, `ref` (the block object key) |
+| Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)               |
+| Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)       |
+| Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                       |
 
 A sealed index value uses the v3 JSON envelope with `"v": 4`.
 `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector-v4.json` pins one frame of each sealed object kind, so a reader in another language can check its own bytes.
@@ -410,25 +410,30 @@ A block holds the replay messages of one session from one Kafka partition in one
 The recorder streams each block into the encoder, so the zstd frame does not state its decompressed size. Read a block as a stream.
 
 - posthog-js compresses some fields of an event and marks the event `cv: "2024-10"`. The recorder expands those fields to plain JSON and removes the `cv` key, as the replay player does, because the gzip strings do not compress again. An event that does not decode stays exactly as it arrived.
-- An inline image becomes `image:v4:{team_id}:{YYYY-MM-DD}:{hash}` in the block, where the date is its key day.
+- An inline image becomes `image:v4:{team_id}:{YYYY-MM}:{hash}` in the block, where the month is its key month.
 - The recorder takes base64 PNG, JPEG, GIF and WebP data URIs in any letter case and with parameters, under the v3 size limits. It also takes the image frames of the posthog-js canvas recorder. Anything else stays inline in the sealed block, for example SVG or line-wrapped base64.
-- A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM-DD}:{hash}` in the fetch job.
+- A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the fetch job.
 - `hash` is the first 22 characters of the base64url HMAC-SHA256, as in v3.
 
 ### Layout
 
-Every raw prefix is partitioned by the UTC day of the write.
+Every prefix that the recorder writes is partitioned by the UTC day of the write.
+Fetched images are partitioned by the key month of their reference.
 
-| Bucket      | Prefix                                 | Contents                                                                        |
-| ----------- | -------------------------------------- | ------------------------------------------------------------------------------- |
-| `rrweb-v4`  | `blocks/dt={day}/`                     | One object per recorder flush: sealed blocks, each found by byte range          |
-| `rrweb-v4`  | `index/blocks/dt={day}/`               | Parquet, one row per block                                                      |
-| `rrweb-v4`  | `index/images/dt={day}/`               | Parquet, one row per stored inline image                                        |
-| `images-v4` | `images/packs/dt={day}/{team_id}/`     | One object per recorder flush and team: sealed images, each found by byte range |
-| `images-v4` | `images/url/dt={day}/{team_id}/{hash}` | One sealed fetched image, under the day of its reference                        |
+| Bucket      | Prefix                                        | Contents                                                                        |
+| ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
+| `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
+| `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
+| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
+| `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
+| `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
-Both buckets expire every object after 7 days.
-The lifecycle rounds up to midnight and runs late, so plan for data to stay readable for 8 to 10 days.
+S3 expires an object a fixed time after the object was written: 90 days in `rrweb-v4` and 98 days in `images-v4`.
+The lifecycle rounds up to midnight and runs late, so plan for data to stay readable for up to 2 days more.
+A block can use an image only while that image outlives the block:
+
+- A block finds each inline image in a pack that the same flush wrote, so the pack lives at least as long as the block.
+- The image fetcher copies a fetched image onto itself when a job refers to it and the copy is more than 7 days old. The copy restarts the image's expiry, so an image lives at least 90 days after the last block that refers to it.
 
 ### Block index
 
@@ -454,7 +459,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 
 | Group       | Columns                                                                                                                                                                                                                                               |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Location    | `team_id`, `session_id`, `key_day`, `block_s3_key`, `block_byte_start`, `block_byte_end`                                                                                                                                                              |
+| Location    | `team_id`, `session_id`, `key_month`, `block_s3_key`, `block_byte_start`, `block_byte_end`                                                                                                                                                            |
 | Kafka       | `topic`, `partition`, `start_offset` (the flush's first offset on the partition), `end_offset` (the block's last offset), `flush_id`, `flushed_at_ms`                                                                                                 |
 | Time        | `first_ts_ms`, `last_ts_ms`, `event_count`, `byte_size`                                                                                                                                                                                               |
 | Source      | `snapshot_source`, `snapshot_library`, `host`                                                                                                                                                                                                         |
@@ -477,5 +482,16 @@ The recorder sends each remote image URL to the `session_replay_image_fetch_v4` 
 It collects URLs from image sources, `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher applies the v3 fetch policy with its own consumer groups and a share of the v3 per-host limits.
-It stores each image, sealed and unscrubbed, under `images/url/`.
-It drops a job whose day is older than the raw window, and it does not send images to the scrub lane.
+It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane.
+
+The fetcher keeps a crawl history per URL reference, so per team and month, with the v3 fetch interval and conditional requests:
+
+- The first job for a reference fetches the image from its origin.
+- A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher copies it onto itself. Otherwise it drops the job.
+- A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy by a copy onto itself, and a `200` replaces it.
+- The history item expires with the key row of its month.
+
+A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
+Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
+The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
+The fetcher drops a job whose team month row is missing, expired or deleted.
