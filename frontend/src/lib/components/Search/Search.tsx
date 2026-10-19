@@ -493,12 +493,10 @@ function SearchRoot({
         const orderedCategories = ['suggested', TOP_MATCH_CATEGORY, 'recents', 'starred', 'tools', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
-        if (hasSearchValue) {
-            const { topMatches, rest } = splitTopMatches(categoryMap.get('tools') ?? [], searchValue)
-            if (topMatches.length > 0) {
-                categoryMap.set(TOP_MATCH_CATEGORY, topMatches)
-                categoryMap.set('tools', rest)
-            }
+        const { topMatches, rest } = splitTopMatches(categoryMap.get('tools') ?? [], searchValue)
+        if (topMatches.length > 0) {
+            categoryMap.set(TOP_MATCH_CATEGORY, topMatches)
+            categoryMap.set('tools', rest)
         }
 
         for (const category of orderedCategories) {

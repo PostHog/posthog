@@ -71,7 +71,7 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
 /** Group key of the pinned row above the fixed sections. */
 export const TOP_MATCH_CATEGORY = 'top-match'
 /** A short query can name many products, so only this many pin and the rest stay in Products. */
-export const TOP_MATCH_LIMIT = 3
+const TOP_MATCH_LIMIT = 3
 
 /**
  * Sections keep a fixed order, so a product the person names can render below weaker matches in
