@@ -190,6 +190,14 @@ TASK_RUN_FAILED_TOTAL = Counter(
     ],
 )
 
+# Counted once per run on the terminal status write. TASK_RUN_FAILED_TOTAL only sees failures
+# that raise, so it misses runs the workflow fails directly, such as an agent lost mid-turn.
+TASK_RUN_TERMINAL_TOTAL = Counter(
+    "posthog_tasks_task_run_terminal_total",
+    "TaskRun terminal status transitions",
+    labelnames=["origin_product", "run_environment", "status", "error_type", "termination_reason"],
+)
+
 CUSTOM_IMAGE_BUILD_TOTAL = Counter(
     "posthog_tasks_custom_image_build_total",
     "Custom sandbox image build lifecycle events",
@@ -695,6 +703,17 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
 
 
 _WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def observe_task_run_terminal(task_run: "TaskRun", *, error_type: str | None, termination_reason: str | None) -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_TERMINAL_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        run_environment=labels["run_environment"],
+        status=_metric_label(task_run.status),
+        error_type=_failure_metric_label(error_type),
+        termination_reason=_metric_label(termination_reason),
+    ).inc()
 
 
 def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
