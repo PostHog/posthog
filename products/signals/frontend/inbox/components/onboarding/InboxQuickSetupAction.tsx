@@ -11,18 +11,31 @@ import { IntegrationAccessRequest } from 'scenes/integrations/components/Integra
 import { urls } from 'scenes/urls'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalHost'
 
 export function InboxQuickSetupAction(): JSX.Element {
-    const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup } = useActions(inboxSetupLogic)
-    const { hasGithubIntegration, integrationsLoading, quickSetupReady, saving, error, shouldResumeQuickSetup } =
-        useValues(inboxSetupLogic)
+    const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
+    const {
+        hasGithubIntegration,
+        integrationsLoading,
+        quickSetupReady,
+        saving,
+        error,
+        shouldResumeQuickSetup,
+        failedOperation,
+    } = useValues(inboxSetupLogic)
+    const scoutDisabledReason = useScoutCreateDisabledReason()
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
 
     useEffect(() => startSetup(), [startSetup])
-    useEffect(() => resumeQuickSetup(), [shouldResumeQuickSetup, resumeQuickSetup])
+    useEffect(() => {
+        if (!restrictionReason && !scoutDisabledReason) {
+            resumeQuickSetup()
+        }
+    }, [shouldResumeQuickSetup, resumeQuickSetup, restrictionReason, scoutDisabledReason])
 
     return (
         <div className="flex w-full flex-col items-start gap-3">
@@ -36,6 +49,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                     loading={saving}
                     disabledReason={
                         restrictionReason ||
+                        scoutDisabledReason ||
                         (!quickSetupReady ? 'Loading your available sources and general scout' : undefined)
                     }
                     data-attr="inbox-quick-activate"
@@ -63,8 +77,15 @@ export function InboxQuickSetupAction(): JSX.Element {
                     {error}
                     <LemonButton
                         size="small"
-                        onClick={quickSetupReady ? activateQuickSetup : startSetup}
+                        onClick={
+                            failedOperation === 'scouts' || failedOperation === 'sources'
+                                ? retry
+                                : quickSetupReady
+                                  ? activateQuickSetup
+                                  : startSetup
+                        }
                         loading={saving}
+                        disabledReason={restrictionReason || scoutDisabledReason}
                     >
                         Retry
                     </LemonButton>
