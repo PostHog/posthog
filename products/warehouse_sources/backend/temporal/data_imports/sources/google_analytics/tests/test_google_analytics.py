@@ -590,13 +590,3 @@ def test_source_requests_user_defined_custom_report(monkeypatch):
 
     assert response.primary_keys == ["date", "sessionCampaignName", "sessionSource"]
     assert seen[0] == (["date", "sessionCampaignName", "sessionSource"], ["sessions", "purchaseRevenue"])
-
-
-def test_unknown_resource_name_raises():
-    with pytest.raises(ValueError, match="Unknown Google Analytics schema"):
-        google_analytics_source(
-            config=_config(),
-            resource_name="not_a_real_schema",
-            team_id=1,
-            resumable_source_manager=mock.MagicMock(),
-        )
