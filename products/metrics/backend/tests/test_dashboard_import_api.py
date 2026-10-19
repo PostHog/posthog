@@ -157,7 +157,7 @@ class TestDashboardImportAPI(APIBaseTest):
         body = self._start(source="grafana", grafana_json=json.dumps(grafana))
 
         tiles = DashboardTile.objects.filter(dashboard_id=body["dashboard_id"], insight__isnull=False)
-        assert {(tile.insight.name, tile.show_description) for tile in tiles} == {
+        assert {(tile.insight.name if tile.insight else None, tile.show_description) for tile in tiles} == {
             ("Panel 2", False),
             ("Panel 3", None),
         }
