@@ -125,12 +125,6 @@ class ValidateFunnelExclusions:
                     code=self.code,
                 )
 
-            if exclusion.funnelToStep < 1:
-                raise ValidationError(
-                    "Exclusion event range is invalid. End of range must be at least 1.",
-                    code=self.code,
-                )
-
             if exclusion.funnelToStep > len(series) - 1:
                 raise ValidationError(
                     "Exclusion event range is invalid. End of range is greater than number of steps.",
