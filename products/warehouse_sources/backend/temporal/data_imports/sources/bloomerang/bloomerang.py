@@ -33,9 +33,9 @@ class BloomerangResumeConfig:
 def _flatten_audit_trail(item: dict[str, Any]) -> dict[str, Any]:
     """Promote AuditTrail.CreatedDate/LastModifiedDate onto the row root.
 
-    Constituents, Transactions, and Interactions nest their timestamps under an `AuditTrail`
-    object; flattening them makes `CreatedDate` usable as a partition key and `LastModifiedDate`
-    usable as the incremental cursor column.
+    Constituents, Transactions, Interactions, Refunds, SoftCredits, and Households nest their
+    timestamps under an `AuditTrail` object; flattening them makes `CreatedDate` usable as a
+    partition key and `LastModifiedDate` usable as the incremental cursor column.
     """
     audit_trail = item.pop("AuditTrail", None)
     if isinstance(audit_trail, dict):
@@ -69,7 +69,7 @@ def _build_params(
         # Explicit stable sort even for full refresh: Bloomerang's own default order direction
         # varies by endpoint (Transactions defaults to Desc), so an unstated default can't be
         # relied on to keep page boundaries stable as rows are inserted mid-sync.
-        return {"orderBy": "Id", "orderDirection": "Asc"}
+        return {"orderBy": config.sort_field, "orderDirection": "Asc"}
     return {}
 
 

@@ -32494,6 +32494,10 @@ export namespace Schemas {
      * * `Northbeam` - Northbeam
      * * `NaverAds` - NaverAds
      * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33886,6 +33890,10 @@ export namespace Schemas {
       Northbeam: 'Northbeam',
       NaverAds: 'NaverAds',
       ChannelIO: 'ChannelIO',
+      Airship: 'Airship',
+      Creem: 'Creem',
+      Leantime: 'Leantime',
+      Testomatio: 'Testomatio',
     } as const;
 
     /**
@@ -35291,7 +35299,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37941,7 +37953,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -50036,7 +50052,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -51462,7 +51482,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -58383,9 +58407,11 @@ export namespace Schemas {
     }
 
     export interface MetricsVariableValue {
-      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`. */
+      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets every option of the variable. */
       all?: boolean | null;
       allValue?: string | null;
+      /** The definition of a variable set to All, so that a SQL query can load its options. */
+      definition?: MetricsDashboardVariable | null;
       values: string[];
     }
 
@@ -67669,6 +67695,22 @@ export namespace Schemas {
       MeanSumOrAvg: 'mean_sum_or_avg',
       Ratio: 'ratio',
       Retention: 'retention',
+    } as const;
+
+    /**
+     * * `custom` - custom
+     * * `promql` - promql
+     * * `sql` - sql
+     * * `textbox` - textbox
+     */
+    export type MetricVariableSourceEnum = typeof MetricVariableSourceEnum[keyof typeof MetricVariableSourceEnum];
+
+
+    export const MetricVariableSourceEnum = {
+      Custom: 'custom',
+      Promql: 'promql',
+      Sql: 'sql',
+      Textbox: 'textbox',
     } as const;
 
     export interface MetricsCreatedDashboard {
@@ -105504,7 +105546,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -106961,7 +107007,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -108385,7 +108435,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -117855,6 +117909,77 @@ export namespace Schemas {
     export interface _MetricSamplesResponse {
       /** Raw emissions ordered by timestamp descending. */
       results: _MetricEventSample[];
+    }
+
+    export interface _MetricVariableSelection {
+      /**
+         * Variable name. Queries refer to it as `$name`.
+         * @maxLength 128
+         * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * The selected values. When `all` is true, the options that All stands for.
+         * @maxItems 1000
+         * @items.maxLength 1024
+         */
+      values: string[];
+      /** True when the variable is set to All. */
+      all?: boolean;
+      /**
+         * The text that All puts in a PromQL query. `.*` when it is empty.
+         * @maxLength 1024
+         * @nullable
+         */
+      allValue?: string | null;
+    }
+
+    export interface _MetricVariableOptionsRequest {
+      /** Where the options come from: a static list, a PromQL query, a SQL query, or free text.
+       *
+       * * `custom` - custom
+       * * `promql` - promql
+       * * `sql` - sql
+       * * `textbox` - textbox */
+      source: MetricVariableSourceEnum;
+      /**
+         * The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.
+         * @maxLength 10000
+         * @nullable
+         */
+      query?: string | null;
+      /**
+         * The options when `source` is `custom`.
+         * @maxItems 1000
+         * @nullable
+         * @items.maxLength 1024
+         */
+      customValues?: string[] | null;
+      /**
+         * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
+         * @maxLength 1024
+         * @nullable
+         */
+      regex?: string | null;
+      /** The current selection of the other dashboard variables that the query can refer to. */
+      variables?: _MetricVariableSelection[];
+      /**
+         * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+         * @maxLength 64
+         * @nullable
+         */
+      dateFrom?: string | null;
+      /**
+         * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+         * @maxLength 64
+         * @nullable
+         */
+      dateTo?: string | null;
+    }
+
+    export interface _MetricVariableOptionsResponse {
+      /** The options of the variable, at most 1,000. */
+      results: string[];
     }
 
     export interface _MetricsOverviewService {

@@ -4569,7 +4569,6 @@ export interface FeatureFlagRulesV2PercentageRolloutRule
 
 export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'experiment'
-    experiment_id: number
     paused: boolean
     variants: { key: string; weight: number; value: JsonType }[]
     holdout?: { id: number; seed: string; exclusion_percentage: number }
