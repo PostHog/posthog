@@ -513,14 +513,11 @@ def list_metric_variable_options(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> list[str]:
-    """List the options of one metrics dashboard variable.
+    """`variables` are the selections of the other variables, which the query can refer to as `$name`.
 
-    `variables` are the other dashboard variables with their current selection. The query can refer
-    to them as `$name`, which is how one variable depends on another. `date_from` and `date_to` are a
-    dashboard date filter, such as `-7d`, which resolves to the same window as the tiles. Returns at
-    most 1,000 options. Raises `ValueError` for a bad query, a bad or too wide window, or for a
-    reference to a variable that has no value. Raises `ConcurrencyLimitExceeded` when too many
-    queries of the organization are running.
+    `date_from` and `date_to` are a dashboard date filter, such as `-7d`, and resolve as they do for tiles.
+    Raises `ValueError` for a bad query or window, and `ConcurrencyLimitExceeded` when the organization
+    runs too many queries.
     """
     try:
         window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))

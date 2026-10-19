@@ -239,11 +239,7 @@ def fill_all_values(
     date_to: dt.datetime,
     slot: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> dict[str, Variable]:
-    """Give each variable that is set to All the values of every option, for SQL, which cannot match everything.
-
-    A dashboard does not store the options of All, so that its URL stays short. They come from the
-    variable's own list or query.
-    """
+    """SQL cannot match everything, so each variable set to All gets the values of all its options."""
     check_options_window(date_from, date_to)
     expansion = _Expansion(filled=dict(variables))
     _expand(

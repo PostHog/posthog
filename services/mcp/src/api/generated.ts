@@ -58383,7 +58383,7 @@ export namespace Schemas {
     }
 
     export interface MetricsVariableValue {
-      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`, which the dashboard fills with every option of the variable. */
+      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets every option of the variable. */
       all?: boolean | null;
       allValue?: string | null;
       /** The definition of a variable set to All, so that a SQL query can load its options. */

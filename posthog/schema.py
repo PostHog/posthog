@@ -7139,8 +7139,8 @@ class MetricsVariableValue(BaseModel):
         default=None,
         description=(
             "True when the variable is set to All. PromQL gets `allValue` or `.*`,"
-            " builder filters drop the filter, and SQL gets `values`, which the"
-            " dashboard fills with every option of the variable."
+            " builder filters drop the filter, and SQL gets every option of the"
+            " variable."
         ),
     )
     allValue: str | None = None
