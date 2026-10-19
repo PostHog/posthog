@@ -69,36 +69,57 @@ async fn table(dir: &std::path::Path) -> TableHandle {
         .unwrap()
 }
 
-async fn upsert(handle: &mut TableHandle, keys: &[String], v: i64, isolate: bool) -> UpsertStats {
+fn opts() -> UpsertOptions {
+    UpsertOptions {
+        primary_keys: vec!["pk".to_string()],
+        partition_key: Some("p".to_string()),
+        limits: Arc::new(ProcessLimits::with_fetch(8, 16, 256 << 20, 256 << 20)),
+        ..Default::default()
+    }
+}
+
+async fn upsert_with(
+    handle: &mut TableHandle,
+    keys: &[String],
+    v: i64,
+    opts: UpsertOptions,
+) -> UpsertStats {
     handle
         .upsert(
             vec![rows(keys, v)],
             schema(),
-            UpsertOptions {
-                primary_keys: vec!["pk".to_string()],
-                partition_key: Some("p".to_string()),
-                isolate_source_rows: isolate,
-                limits: Arc::new(ProcessLimits::with_fetch(8, 16, 256 << 20, 256 << 20)),
-                ..Default::default()
-            },
+            opts,
             MultipartConfig::default(),
         )
         .await
         .unwrap()
 }
 
+async fn upsert(handle: &mut TableHandle, keys: &[String], v: i64, isolate: bool) -> UpsertStats {
+    let opts = UpsertOptions {
+        isolate_source_rows: isolate,
+        ..opts()
+    };
+    upsert_with(handle, keys, v, opts).await
+}
+
+async fn file_bytes(handle: &TableHandle, path: &str) -> Bytes {
+    handle
+        .table()
+        .object_store()
+        .get(&Path::parse(path).unwrap())
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap()
+}
+
 /// Every live row as (pk, v, payload), sorted.
 async fn read_rows(handle: &TableHandle) -> Vec<(String, i64, String)> {
-    let store = handle.table().object_store();
     let mut out = Vec::new();
     for f in handle.files().unwrap() {
-        let bytes: Bytes = store
-            .get(&Path::parse(&f.path).unwrap())
-            .await
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
+        let bytes = file_bytes(handle, &f.path).await;
         for batch in ParquetRecordBatchReaderBuilder::try_new(bytes)
             .unwrap()
             .build()
@@ -193,4 +214,62 @@ async fn isolate_source_rows_adds_no_file_to_an_insert_only_upsert() {
         (1, 0, 0),
         "{stats:?}"
     );
+}
+
+/// Rows per row group of each file the upsert added, with `read_batch_size = 100` so the
+/// writer sees batches of at most 100 rows. A cap of one byte closes a row group after
+/// every batch, on the survivor path (an update) and on the source path (an insert).
+#[tokio::test]
+async fn max_row_group_bytes_closes_row_groups_between_batches() {
+    // (case, keys, row groups per added file without a cap, then with a one-byte cap)
+    type Case = (&'static str, Vec<String>, Vec<usize>, Vec<usize>);
+    let cases: [Case; 2] = [
+        (
+            "update: survivors of 10 batches, the first missing 10 rows, then 10 source rows",
+            keys("old", 0..10),
+            vec![1000],
+            vec![90, 100, 100, 100, 100, 100, 100, 100, 100, 100, 10],
+        ),
+        (
+            "insert: 250 source rows",
+            keys("new", 0..250),
+            vec![250],
+            vec![100, 100, 50],
+        ),
+    ];
+    for (case, batch, uncapped, capped) in cases {
+        let mut got = Vec::new();
+        for cap in [None, Some(1)] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut handle = table(dir.path()).await;
+            let before: Vec<String> = handle
+                .files()
+                .unwrap()
+                .into_iter()
+                .map(|f| f.path)
+                .collect();
+            let o = UpsertOptions {
+                read_batch_size: 100,
+                max_row_group_bytes: cap,
+                ..opts()
+            };
+            upsert_with(&mut handle, &batch, 1, o).await;
+            let mut groups = Vec::new();
+            for f in handle.files().unwrap() {
+                if before.contains(&f.path) {
+                    continue;
+                }
+                let meta =
+                    ParquetRecordBatchReaderBuilder::try_new(file_bytes(&handle, &f.path).await)
+                        .unwrap()
+                        .metadata()
+                        .clone();
+                groups.extend(meta.row_groups().iter().map(|rg| rg.num_rows() as usize));
+            }
+            got.push((groups, read_rows(&handle).await));
+        }
+        assert_eq!(got[0].0, uncapped, "{case}, no cap");
+        assert_eq!(got[1].0, capped, "{case}, one-byte cap");
+        assert_eq!(got[0].1, got[1].1, "{case}: the cap changed the rows");
+    }
 }

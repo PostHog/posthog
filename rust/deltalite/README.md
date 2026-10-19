@@ -115,6 +115,7 @@ Per-call (arguments to `DeltaLiteTable.upsert`): `max_parallel_partitions` (2),
 `target_file_size` (table's `delta.targetFileSize`, else delta-rs's 100 MiB),
 `isolate_source_rows` (off: the batch's rows share an output file with the copied
 survivors; on: they get their own files),
+`max_row_group_bytes` (`None`: row groups close only at the encoder's row cap),
 `max_source_bytes` (2 GiB guard), `multipart_threshold` (64 MiB) /
 `multipart_part_size` (16 MiB), `commit_max_retries` (15).
 
