@@ -513,6 +513,15 @@ def test_an_all_value_keeps_its_grafana_text(expr: str, all_value: str) -> None:
     assert variables.definitions() == []
 
 
+def test_a_panel_that_formats_a_listed_all_keeps_the_saved_values() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "env", "type": "custom", "query": "prod,dev", "includeAll": True, "current": {"value": "$__all"}}]
+    )
+
+    assert variables.template('up{env="${env:csv}"}') is None
+    assert variables.template('up{env=~"$env"}') == 'up{env=~"$env"}'
+
+
 def test_a_listed_all_matches_only_the_listed_values() -> None:
     variables = TemplateVariables.from_templating(
         [{"name": "env", "type": "custom", "query": "prod,dev", "includeAll": True, "current": {"value": "$__all"}}]

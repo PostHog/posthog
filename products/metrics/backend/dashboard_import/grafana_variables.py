@@ -13,9 +13,11 @@ from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSel
 
 from products.metrics.backend.variable_options import re2_pattern
 from products.metrics.backend.variables import (
+    REFERENCE,
     VARIABLE_NAME,
     Substitution,
     Variable,
+    reference_name,
     referenced_names,
     regex_escape,
     substitute_promql,
@@ -364,5 +366,12 @@ class TemplateVariables:
         """
         if not any(name in self._live for name in referenced_names(expr)):
             return None
+        # A list set to All gets an alternation as its all value, which a format such as `csv` does not change.
+        for match in REFERENCE.finditer(expr):
+            name = reference_name(match)
+            definition = self._live.get(name)
+            formatted = match.group("braced_format") or match.group("bracketed_format")
+            if formatted and definition is not None and definition.allValue != self._variables[name].all_value:
+                return None
         substitution = substitute_promql(expr, self._variables, keep=self._live)
         return None if substitution.unresolved else substitution.text
