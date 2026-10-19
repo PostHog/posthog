@@ -782,13 +782,11 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     })
                     .optional(),
                 deviceTypes: zod
-                    .array(
-                        zod
-                            .enum(['Desktop', 'Mobile', 'Tablet'])
-                            .describe('\* `Desktop` - Desktop\n\* `Mobile` - Mobile\n\* `Tablet` - Tablet')
-                    )
+                    .array(zod.string())
                     .optional()
-                    .describe('Device types that should match for this survey to be shown.'),
+                    .describe(
+                        "Device types that should match for this survey to be shown. Canonical values are 'Desktop', 'Mobile' and 'Tablet'. Any string or regex pattern is accepted and is matched with deviceTypesMatchType."
+                    ),
                 deviceTypesMatchType: zod
                     .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
@@ -1711,13 +1709,11 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                     })
                     .optional(),
                 deviceTypes: zod
-                    .array(
-                        zod
-                            .enum(['Desktop', 'Mobile', 'Tablet'])
-                            .describe('\* `Desktop` - Desktop\n\* `Mobile` - Mobile\n\* `Tablet` - Tablet')
-                    )
+                    .array(zod.string())
                     .optional()
-                    .describe('Device types that should match for this survey to be shown.'),
+                    .describe(
+                        "Device types that should match for this survey to be shown. Canonical values are 'Desktop', 'Mobile' and 'Tablet'. Any string or regex pattern is accepted and is matched with deviceTypesMatchType."
+                    ),
                 deviceTypesMatchType: zod
                     .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
@@ -2642,13 +2638,11 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     })
                     .optional(),
                 deviceTypes: zod
-                    .array(
-                        zod
-                            .enum(['Desktop', 'Mobile', 'Tablet'])
-                            .describe('\* `Desktop` - Desktop\n\* `Mobile` - Mobile\n\* `Tablet` - Tablet')
-                    )
+                    .array(zod.string())
                     .optional()
-                    .describe('Device types that should match for this survey to be shown.'),
+                    .describe(
+                        "Device types that should match for this survey to be shown. Canonical values are 'Desktop', 'Mobile' and 'Tablet'. Any string or regex pattern is accepted and is matched with deviceTypesMatchType."
+                    ),
                 deviceTypesMatchType: zod
                     .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(

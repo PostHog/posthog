@@ -192,10 +192,8 @@
                 {
                     "properties": {
                         "deviceTypes": {
-                            "description": "Device types that should match for this survey to be shown.",
+                            "description": "Device types that should match for this survey to be shown. Canonical values are 'Desktop', 'Mobile' and 'Tablet'. Any string or regex pattern is accepted and is matched with deviceTypesMatchType.",
                             "items": {
-                                "description": "* `Desktop` - Desktop\n* `Mobile` - Mobile\n* `Tablet` - Tablet",
-                                "enum": ["Desktop", "Mobile", "Tablet"],
                                 "type": "string"
                             },
                             "type": "array"
