@@ -45,7 +45,7 @@ _SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 _TIME_FILTER_PARAM = {"updated_at": "updated_after", "created_at": "created_after"}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WorkableResumeConfig:
     # Full `paging.next` URL to fetch next. `None` means start the endpoint from its first page.
     next_url: str | None = None
@@ -155,6 +155,10 @@ def _client_config(subdomain: str, api_token: str) -> ClientConfig:
         # and raised error messages; only the non-secret Accept header is set here.
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_token},
+        # Pin every request, including `paging.next` follow-ups and resume URLs, so a crafted next
+        # link can't send the bearer token elsewhere. Workable's next links may point at
+        # `www.workable.com/spi/v3/accounts/<subdomain>/...` rather than the account subdomain host.
+        "allowed_hosts": ["www.workable.com"],
     }
 
 

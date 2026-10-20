@@ -19,7 +19,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class WorkableEndpointConfig:
     name: str
     # Path under the `/spi/v3` base (e.g. `/jobs`).

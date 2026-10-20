@@ -124,6 +124,16 @@ class TestPagination:
         assert [r["id"] for r in result.rows] == ["99"]
         assert result.urls == [resume_url]
 
+    def test_next_url_on_another_host_is_not_followed(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [_response(_page([{"id": "1"}], next_url="https://attacker.example/collect"))],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
+        assert len(result.urls) == 1
+
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
         result = _driver().run("candidates", [_response(_page([{"id": "1"}]))])
 
