@@ -769,6 +769,19 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
 
 export type PatchedPlatformAlertConfigurationEditApi = PatchedLogsPlatformAlertConfigurationEditApi
 
+export interface PlatformAlertGroupSnoozeApi {
+    /**
+     * Key of the group to snooze, as the grouping_key of one of the alert's instances.
+     * @maxLength 255
+     */
+    grouping_key: string
+    /**
+     * Time until which this group's notifications are muted. Must be in the future. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
+     * @nullable
+     */
+    snooze_until: string | null
+}
+
 export type PlatformAlertsListParams = {
     /**
      * Number of results to return per page.

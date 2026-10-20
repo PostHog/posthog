@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -389,3 +391,82 @@ class TestPlatformAlertAPI(APIBaseTest):
             configuration.refresh_from_db()
         assert (configuration.check_status, configuration.consecutive_failures) == ("ok", 0)
         assert configuration.next_check_at is not None
+
+    def _grouped_configuration(self, owner: str = "platform") -> PlatformAlertConfiguration:
+        configuration = self._create_configuration(self.team, "API errors", owner=owner)
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                grouping={"mode": "by_result_labels", "keys": ["service_name"]}
+            )
+            for key in ("checkout", "api"):
+                PlatformAlert.objects.create(
+                    team=self.team, configuration=configuration, grouping_key=key, state=PlatformAlert.State.FIRING
+                )
+        return configuration
+
+    def _snoozes(self, configuration: PlatformAlertConfiguration) -> dict[str, datetime | None]:
+        with team_scope(self.team.id):
+            return dict(
+                PlatformAlert.objects.filter(configuration=configuration).values_list("grouping_key", "snooze_until")
+            )
+
+    def test_snoozing_a_group_mutes_only_that_group_and_clearing_it_unmutes(self) -> None:
+        self._set_flag(True)
+        configuration = self._grouped_configuration()
+        url = f"{self._edit_url(configuration)}snooze_group/"
+        until = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        # A key rather than a session, because a custom action without a declared scope refuses keys.
+        self.client.logout()
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['alert:write', 'logs:write'])}"
+        )
+
+        with time_machine.travel(datetime(2026, 10, 1, 10, tzinfo=UTC), tick=False):
+            snoozed = self.client.post(url, {"grouping_key": "checkout", "snooze_until": until}, format="json")
+
+        assert snoozed.status_code == status.HTTP_200_OK, snoozed.json()
+        assert (snoozed.json()["grouping_key"], snoozed.json()["snooze_until"]) == ("checkout", "2026-10-01T12:00:00Z")
+        assert self._snoozes(configuration) == {"checkout": until, "api": None}
+        with team_scope(self.team.id):
+            assert set(PlatformAlert.objects.filter(configuration=configuration).values_list("state", flat=True)) == {
+                "firing"
+            }
+
+        cleared = self.client.post(url, {"grouping_key": "checkout", "snooze_until": None}, format="json")
+
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert self._snoozes(configuration) == {"checkout": None, "api": None}
+
+    @parameterized.expand(
+        [
+            ("owned_by_its_source", {"owner": "source"}, {}, status.HTTP_409_CONFLICT, None),
+            ("unknown_group", {}, {"grouping_key": "web"}, status.HTTP_404_NOT_FOUND, None),
+            (
+                "time_in_the_past",
+                {},
+                {"snooze_until": "2026-10-01T09:00:00Z"},
+                status.HTTP_400_BAD_REQUEST,
+                "snooze_until",
+            ),
+            ("ungrouped_alert", {"grouped": False}, {}, status.HTTP_400_BAD_REQUEST, "grouping_key"),
+        ]
+    )
+    def test_a_refused_group_snooze_changes_nothing(
+        self, _name: str, setup: dict[str, Any], body: dict[str, Any], expected: int, field: str | None
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._grouped_configuration(owner=setup.get("owner", "platform"))
+        if setup.get("grouped") is False:
+            with team_scope(self.team.id):
+                PlatformAlertConfiguration.objects.filter(id=configuration.id).update(grouping={"mode": "single"})
+        url = f"{self._edit_url(configuration)}snooze_group/"
+
+        with time_machine.travel(datetime(2026, 10, 1, 10, tzinfo=UTC), tick=False):
+            response = self.client.post(
+                url, {"grouping_key": "checkout", "snooze_until": "2026-10-01T12:00:00Z", **body}, format="json"
+            )
+
+        assert response.status_code == expected, response.json()
+        if field is not None:
+            assert response.json()["attr"] == field
+        assert self._snoozes(configuration) == {"checkout": None, "api": None}

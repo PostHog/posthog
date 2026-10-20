@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
+    PlatformAlertSnapshot,
     PlatformAlertUpsert,
     PlatformHandback,
     PlatformOwnershipHandover,
@@ -147,6 +148,30 @@ def update_configuration(
     """
     return platform_writes.update_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
+    )
+
+
+def snooze_group(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    grouping_key: str,
+    snooze_until: datetime | None,
+) -> PlatformAlertSnapshot | None:
+    """Mutes one group of a configuration the platform owns until `snooze_until`, or clears the mute
+    when it is None. Returns the group, or None when the caller cannot read the configuration.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, `UnknownPlatformAlertGroup`
+    for a key with no instance, and `InvalidPlatformAlertEdit` for a time not in the future or an
+    alert that is not grouped.
+    """
+    return platform_writes.snooze_group(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        snooze_until=snooze_until,
     )
 
 

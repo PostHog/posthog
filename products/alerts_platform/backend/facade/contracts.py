@@ -848,6 +848,10 @@ class PlatformAlertNotEditable(Exception):
     """A configuration the platform does not own, so its source's own API writes it."""
 
 
+class UnknownPlatformAlertGroup(LookupError):
+    """A grouping key the configuration has no instance for."""
+
+
 class SourceEditMirror(Protocol):
     """Writes an edit made through the platform API onto the source's own row.
 

@@ -318,3 +318,21 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Minimum minutes between notifications for the same alert.'),
     })
     .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.')
+
+/**
+ * @summary Snooze one group of a grouped alert
+ */
+export const platformAlertsSnoozeGroupCreateBodyGroupingKeyMax = 255
+
+export const PlatformAlertsSnoozeGroupCreateBody = /* @__PURE__ */ zod.object({
+    grouping_key: zod
+        .string()
+        .max(platformAlertsSnoozeGroupCreateBodyGroupingKeyMax)
+        .describe("Key of the group to snooze, as the grouping_key of one of the alert's instances."),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe(
+            "Time until which this group's notifications are muted. Must be in the future. Null clears the group's snooze. The group keeps being checked, and its firing stays open."
+        ),
+})

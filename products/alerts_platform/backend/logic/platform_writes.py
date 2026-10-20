@@ -20,16 +20,19 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     Grouping,
+    GroupingMode,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     PlatformAlertNotEditable,
+    PlatformAlertSnapshot,
     SourceKind,
+    UnknownPlatformAlertGroup,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import control_plane, platform_lifecycle, platform_reads, source_configs
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
 class MissingPlatformCopy(Exception):
@@ -124,6 +127,58 @@ def update_configuration(
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
+
+
+def snooze_group(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    grouping_key: str,
+    snooze_until: datetime | None,
+) -> PlatformAlertSnapshot | None:
+    """Sets or clears the mute of one group of a configuration the platform owns.
+
+    None when the configuration does not exist or its kind is not among `source_kinds`.
+
+    Unlike a snooze of the whole alert, this leaves the group's firing open and the schedule alone.
+    The alert's other groups still need their checks, so this group's checks go on too. Ending the
+    firing would send a resolve now, and a breach that goes on would trigger a new incident at the
+    next check. The mute holds the group's messages, and its incident edges still go out.
+    """
+    now = django_timezone.now()
+    if snooze_until is not None and snooze_until <= now:
+        raise InvalidPlatformAlertEdit("snooze_until", "Pick a time in the future, or send null to unsnooze.")
+    with transaction.atomic():
+        # The configuration before its instance, the order `record_outcomes` locks them in.
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+            .select_for_update()
+            .filter(id=configuration_id, source_kind__in=list(source_kinds))
+            .first()
+        )
+        if configuration is None:
+            return None
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise PlatformAlertNotEditable(
+                f"This alert is managed by the {configuration.source_kind} product, so its groups cannot be "
+                "snoozed here. Snooze the whole alert there instead."
+            )
+        # The one instance of an ungrouped alert is the whole alert, whose snooze also ends the firing.
+        if Grouping.from_stored(configuration.grouping).mode == GroupingMode.SINGLE:
+            raise InvalidPlatformAlertEdit(
+                "grouping_key", "This alert is not grouped, so it has no group to snooze. Snooze the whole alert."
+            )
+        alert = (
+            PlatformAlert.objects.for_team(team_id, canonical=True)
+            .filter(configuration=configuration, grouping_key=grouping_key)
+            .first()
+        )
+        if alert is None:
+            raise UnknownPlatformAlertGroup(grouping_key)
+        alert.snooze_until = snooze_until
+        alert.save(update_fields=["snooze_until"])
+    return platform_reads.instance_view(alert, configuration)
 
 
 def update_owned_copy(

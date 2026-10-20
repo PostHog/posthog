@@ -11,8 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PaginatedPlatformAlertConfigurationListApi,
     PatchedPlatformAlertConfigurationEditApi,
+    PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationEditApi,
+    PlatformAlertGroupSnoozeApi,
     PlatformAlertsListParams,
 } from './api.schemas'
 
@@ -91,5 +93,26 @@ export const platformAlertsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedPlatformAlertConfigurationEditApi),
+    })
+}
+
+export const getPlatformAlertsSnoozeGroupCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/snooze_group/`
+}
+
+/**
+ * @summary Snooze one group of a grouped alert
+ */
+export const platformAlertsSnoozeGroupCreate = async (
+    projectId: string,
+    id: string,
+    platformAlertGroupSnoozeApi: PlatformAlertGroupSnoozeApi,
+    options?: RequestInit
+): Promise<PlatformAlertApi> => {
+    return apiMutator<PlatformAlertApi>(getPlatformAlertsSnoozeGroupCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(platformAlertGroupSnoozeApi),
     })
 }

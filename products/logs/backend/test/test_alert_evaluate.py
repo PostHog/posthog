@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -21,7 +22,13 @@ from posthog.models.team import Team
 from posthog.temporal.alerts.admission import admit_evaluation_slots
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import due_checks, list_configurations, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import (
+    due_checks,
+    list_configurations,
+    record_outcomes,
+    slot_of,
+    snooze_group,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -468,6 +475,33 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert (outcome.groups, outcome.disable, copy.enabled) == ((), True, False)
         assert open_group is not None and open_group.state == "firing"
         assert ungrouped is None
+
+    def test_a_snoozed_group_holds_its_resolve_while_the_other_group_announces(self) -> None:
+        configuration = self._configuration(owner="platform", grouping=_BY_SERVICE.to_stored())
+        self._add_incident_destination(configuration)
+        self._record(self._run_grouped(configuration, {"checkout": 500, "api": 500}))
+        checkout, api = (grouping_key_of({"service_name": service}) for service in ("checkout", "api"))
+        with time_machine.travel(self.cutoff, tick=False):
+            snooze_group(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                configuration_id=configuration.id,
+                grouping_key=checkout,
+                snooze_until=self.cutoff + timedelta(hours=2),
+            )
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+
+        cleared = self._run_grouped(configuration, {})
+
+        (outcome,) = cleared.outcomes
+        assert {g.grouping_key: (g.kind, g.muted_notification) for g in outcome.groups} == {
+            checkout: (AlertEventKind.CHECK, "resolve"),
+            api: (AlertEventKind.RESOLVED, ""),
+        }
+        # The snooze left the firing open, so the clear check closes the incident it opened.
+        (delivery,) = cleared.deliveries
+        assert delivery.incident_actions == {checkout: IncidentAction.RESOLVE, api: IncidentAction.RESOLVE}
 
     @parameterized.expand(
         [
