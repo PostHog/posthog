@@ -15,6 +15,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { detectedSourcesLogic } from 'products/marketing_analytics/frontend/dashboard/detectedSourcesLogic'
 import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashboard/SearchConsoleSource'
 import { SourceOnboardingScan } from 'products/marketing_analytics/frontend/dashboard/SourceOnboardingScan'
+import { DashboardSetupPrompt } from 'products/marketing_analytics/frontend/setup/DashboardSetupPrompt'
 
 import { SourceCatalog } from './SourceCatalog'
 
@@ -48,32 +49,39 @@ export function SourceOnboarding({ completeOnboarding }: { completeOnboarding: (
     }
 
     return (
-        <div className="space-y-4">
-            <MarketingAnalyticsSourceStatusBanner />
-            {!sourceOnboardingEnabled || showManualSources ? (
-                <SourceCatalog
-                    onContinue={handleComplete}
-                    hasSources={hasSources}
-                    onBack={sourceOnboardingEnabled ? () => setShowManualSources(false) : undefined}
-                />
-            ) : (
-                <SourceOnboardingScan
-                    loading={setupPlanLoading && !setupPlan}
-                    failed={!setupPlan && !setupPlanLoading}
-                    suggestions={visibleSuggestions.filter(
-                        (suggestion) =>
-                            suggestion.kind === 'connect_source' && suggestion.apply?.op === 'open_source_wizard'
+        <DashboardSetupPrompt kind="sources">
+            {(dismissButton) => (
+                <>
+                    <MarketingAnalyticsSourceStatusBanner />
+                    {!sourceOnboardingEnabled || showManualSources ? (
+                        <SourceCatalog
+                            headerAction={dismissButton}
+                            onContinue={handleComplete}
+                            hasSources={hasSources}
+                            onBack={sourceOnboardingEnabled ? () => setShowManualSources(false) : undefined}
+                        />
+                    ) : (
+                        <SourceOnboardingScan
+                            headerAction={dismissButton}
+                            loading={setupPlanLoading && !setupPlan}
+                            failed={!setupPlan && !setupPlanLoading}
+                            suggestions={visibleSuggestions.filter(
+                                (suggestion) =>
+                                    suggestion.kind === 'connect_source' &&
+                                    suggestion.apply?.op === 'open_source_wizard'
+                            )}
+                            dismissed={dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')}
+                            onRestore={restoreAllDismissed}
+                            onManual={() => setShowManualSources(true)}
+                            onContinue={handleComplete}
+                            onRescan={rescanSources}
+                            rescanLoading={setupPlanLoading}
+                            rescanDisabledReason={sourceScanDisabledReason}
+                        />
                     )}
-                    dismissed={dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')}
-                    onRestore={restoreAllDismissed}
-                    onManual={() => setShowManualSources(true)}
-                    onContinue={handleComplete}
-                    onRescan={rescanSources}
-                    rescanLoading={setupPlanLoading}
-                    rescanDisabledReason={sourceScanDisabledReason}
-                />
+                    <SearchConsoleSource />
+                </>
             )}
-            <SearchConsoleSource />
-        </div>
+        </DashboardSetupPrompt>
     )
 }

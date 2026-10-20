@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -18,7 +19,15 @@ import { detectedSourcesLogic } from './detectedSourcesLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceSetupPanel } from './SourceSetupPanel'
 
-export function DetectedSources({ compact = false }: { compact?: boolean }): JSX.Element | null {
+export function DetectedSources({
+    compact = false,
+    showRescan = true,
+    headerAction,
+}: {
+    compact?: boolean
+    showRescan?: boolean
+    headerAction?: ReactNode
+}): JSX.Element | null {
     const {
         visibleSuggestions,
         dismissedSuggestions,
@@ -67,6 +76,7 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
             <>
                 <MarketingAnalyticsSourceStatusBanner />
                 <SourceCatalog
+                    headerAction={headerAction}
                     hasSources={connections.length > 0 || hasSyncedMarketingSources}
                     onBack={() => setShowIntegrations(false)}
                 />
@@ -85,6 +95,7 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
                 hiddenSourceIds={pendingConnections.map((connection) => connection.id)}
             />
             <SourceSetupPanel
+                headerAction={headerAction}
                 compact={compact || hasSyncedMarketingSources}
                 state={
                     pendingConnections.length
@@ -101,7 +112,7 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
                 }
                 suggestions={sources}
                 connections={pendingConnections}
-                onRetry={rescanSources}
+                onRetry={showRescan ? rescanSources : undefined}
                 rescanLoading={setupPlanLoading}
                 rescanDisabledReason={sourceScanDisabledReason}
                 onDismiss={dismissSource}

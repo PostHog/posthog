@@ -7,6 +7,7 @@ import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 import { IntegrationSettingsModal } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/IntegrationSettingsModal'
 import {
     SetupSection,
@@ -18,6 +19,7 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 
 import { conversionGoalFormLogic } from 'products/marketing_analytics/frontend/setup/conversionGoalFormLogic'
 import { ConversionGoalRecommendations } from 'products/marketing_analytics/frontend/setup/ConversionGoalRecommendations'
+import { dashboardSetupPromptsLogic } from 'products/marketing_analytics/frontend/setup/dashboardSetupPromptsLogic'
 
 import { runNavigateOp } from './navigateOps'
 import { suggestionsForSection } from './sectionRouting'
@@ -48,7 +50,13 @@ function SectionBadge({
 
 export function SetupTab(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { selectRecommendation } = useActions(conversionGoalFormLogic({ projectId: currentTeamId ?? -1 }))
+    const { user } = useValues(userLogic)
+    const promptsLogic = dashboardSetupPromptsLogic({ projectId: currentTeamId ?? -1, userId: user?.uuid })
+    const { dismissed } = useValues(promptsLogic)
+    const { restore } = useActions(promptsLogic)
+    const { selectRecommendation, requestFormFocus } = useActions(
+        conversionGoalFormLogic({ projectId: currentTeamId ?? -1 })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const { setupSection } = useValues(marketingAnalyticsLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
@@ -84,6 +92,12 @@ export function SetupTab(): JSX.Element {
     }, [])
 
     const active = sections.find((section) => section.key === setupSection) ?? sections[0]
+    const dismissedPrompt =
+        active.key === SetupSection.SOURCES && dismissed.sources
+            ? 'sources'
+            : active.key === SetupSection.CONVERSION_GOALS && dismissed['conversion-goals']
+              ? 'conversion-goals'
+              : null
 
     useEffect(() => {
         posthog.capture('marketing analytics setup section viewed', {
@@ -124,13 +138,29 @@ export function SetupTab(): JSX.Element {
                     <h2 className="mb-1">{active.label}</h2>
                     {active.description && <p className="text-secondary mb-0">{active.description}</p>}
                 </div>
+                {dismissedPrompt && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => restore(dismissedPrompt)}
+                        data-attr="marketing-restore-dashboard-suggestions"
+                    >
+                        Show suggestions on dashboard
+                    </LemonButton>
+                )}
                 {/* Skipped for "Suggested setup", which renders the whole ranked list
                     itself and would otherwise show everything twice. */}
-                {active.key !== SetupSection.SUGGESTIONS && <SectionSuggestions section={active.key} />}
+                {active.key !== SetupSection.SUGGESTIONS &&
+                    !(
+                        active.key === SetupSection.SOURCES &&
+                        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]
+                    ) && <SectionSuggestions section={active.key} />}
                 {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI] &&
                     (active.key === SetupSection.SUGGESTIONS || active.key === SetupSection.CONVERSION_GOALS) && (
                         <ConversionGoalRecommendations
-                            onConfigureGoals={() => setSetupSection(SetupSection.CONVERSION_GOALS)}
+                            onConfigureGoals={() => {
+                                setSetupSection(SetupSection.CONVERSION_GOALS)
+                                requestFormFocus()
+                            }}
                             onUseSuggestion={(recommendation) => {
                                 selectRecommendation(recommendation)
                                 setSetupSection(SetupSection.CONVERSION_GOALS)

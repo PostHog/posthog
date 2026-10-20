@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import { IconArrowRight, IconCheckCircle, IconExternal, IconInfo } from '@posthog/icons'
@@ -35,9 +36,10 @@ interface SourceCatalogProps {
     onContinue?: () => void
     hasSources: boolean
     onBack?: () => void
+    headerAction?: ReactNode
 }
 
-export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogProps): JSX.Element {
+export function SourceCatalog({ onContinue, hasSources, onBack, headerAction }: SourceCatalogProps): JSX.Element {
     const { manualSourceSearch } = useValues(marketingOnboardingLogic)
     const { setManualSourceSearch } = useActions(marketingOnboardingLogic)
     const { validExternalTables, validNativeSources } = useValues(marketingAnalyticsLogic)
@@ -113,6 +115,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
                         </p>
                     </div>
                     <HedgehogMoney className="w-20 shrink-0" />
+                    {headerAction}
                 </div>
 
                 <LemonInput

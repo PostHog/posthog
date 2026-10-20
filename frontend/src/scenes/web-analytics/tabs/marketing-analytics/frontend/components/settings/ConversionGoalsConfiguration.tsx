@@ -75,20 +75,22 @@ export function ConversionGoalsConfiguration({
         recommendation,
         editingGoalId: reviewingGoalId,
         duplicateGoal,
+        formFocusRequested,
         isFormValid,
         isSaving,
         currentTeamLoading,
         saveError,
     } = useValues(formLogic)
-    const { setName, setFilter, saveGoal, clearDraft, reviewGoal } = useActions(formLogic)
+    const { setName, setFilter, saveGoal, clearDraft, reviewGoal, formFocused } = useActions(formLogic)
     const formRef = useRef<HTMLDivElement>(null)
     const nameInputRef = useRef<HTMLInputElement>(null)
     useEffect(() => {
-        if (recommendation || reviewingGoalId) {
+        if (formFocusRequested) {
             formRef.current?.scrollIntoView({ block: 'nearest' })
             nameInputRef.current?.focus({ preventScroll: true })
+            formFocused()
         }
-    }, [recommendation, reviewingGoalId])
+    }, [formFocusRequested, formFocused])
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
     const restrictedReason = useRestrictedArea({

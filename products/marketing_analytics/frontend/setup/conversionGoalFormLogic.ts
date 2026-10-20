@@ -39,6 +39,7 @@ export interface conversionGoalFormLogicValues {
     editingGoalId: string | null
     filter: ConversionGoalFilter
     findExistingGoal: (recommendation: ConversionRecommendationApi) => ConversionGoalFilter | undefined
+    formFocusRequested: boolean
     isFormValid: boolean
     isSaving: boolean
     name: string
@@ -53,6 +54,12 @@ export interface conversionGoalFormLogicActions {
         conversionGoal: ConversionGoalFilter
     } // marketingAnalyticsSettingsLogic
     clearDraft: () => {
+        value: true
+    }
+    formFocused: () => {
+        value: true
+    }
+    requestFormFocus: () => {
         value: true
     }
     reviewGoal: (goalId: string) => {
@@ -135,11 +142,22 @@ export const conversionGoalFormLogic: LogicWrapper<conversionGoalFormLogicType> 
         setName: (name: string) => ({ name }),
         setFilter: (filter: ConversionGoalFilter) => ({ filter }),
         clearDraft: true,
+        requestFormFocus: true,
+        formFocused: true,
         saveGoal: true,
         saveStarted: (goal: ConversionGoalFilter) => ({ goal }),
         saveFinished: (error: string | null) => ({ error }),
     }),
     reducers({
+        formFocusRequested: [
+            false,
+            {
+                requestFormFocus: () => true,
+                setDraft: () => true,
+                formFocused: () => false,
+                clearDraft: () => false,
+            },
+        ],
         filter: [
             defaultConversionGoalFilter,
             {

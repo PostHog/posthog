@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Spinner, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -39,6 +39,8 @@ import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashb
 import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboard/SourceSetupPanel'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
+import { DashboardConversionRecommendations } from 'products/marketing_analytics/frontend/setup/DashboardConversionRecommendations'
+import { DashboardSetupPrompt } from 'products/marketing_analytics/frontend/setup/DashboardSetupPrompt'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -175,19 +177,20 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
     if (!dataWarehouseSources) {
         return (
             <>
-                <h2 className="max-w-3xl w-full mx-auto mt-6 mb-0">Ad performance</h2>
-                {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ? (
-                    <SourceSetupPanel
-                        state={sourcesLoadError ? 'error' : 'checking'}
-                        onRetry={loadSources}
-                        rescanLoading={loading}
-                    />
-                ) : (
-                    <div className="flex justify-center p-8">
-                        <Spinner />
-                    </div>
-                )}
-                <SearchConsoleSource />
+                <DashboardSetupPrompt kind="sources">
+                    {(dismissButton) => (
+                        <>
+                            <SourceSetupPanel
+                                headerAction={dismissButton}
+                                state={sourcesLoadError ? 'error' : 'checking'}
+                                onRetry={loadSources}
+                                rescanLoading={loading}
+                            />
+                            <SearchConsoleSource />
+                        </>
+                    )}
+                </DashboardSetupPrompt>
+                <DashboardConversionRecommendations />
             </>
         )
     }
@@ -196,6 +199,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
         return (
             <>
                 <Onboarding completeOnboarding={completeOnboarding} />
+                <DashboardConversionRecommendations />
             </>
         )
     }
@@ -222,10 +226,23 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
             >
                 Ad performance
             </h2>
-            <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} />
-            {!dataWarehouseSources?.results.some((source) =>
-                ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-            ) && <SearchConsoleSource />}
+            <DashboardSetupPrompt kind="sources">
+                {(dismissButton) => (
+                    <DetectedSources
+                        compact={hasSearchConsole && !hasSyncedMarketingSources}
+                        headerAction={dismissButton}
+                    />
+                )}
+            </DashboardSetupPrompt>
+            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+                !dataWarehouseSources?.results.some((source) =>
+                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
+                ) && (
+                    <DashboardSetupPrompt kind="sources">
+                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
+                    </DashboardSetupPrompt>
+                )}
+            <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
                     {marketingTiles?.map((tile, i) => (
