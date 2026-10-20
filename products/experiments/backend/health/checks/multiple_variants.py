@@ -30,7 +30,7 @@ def multiple_variants_share(ctx: HealthContext) -> ExperimentHealthFinding | Non
     if percentage <= MULTIPLE_VARIANTS_SHARE_THRESHOLD:
         return None
     # The flag gives every member of a group the same variant, so the causes of a person's several IDs do not apply.
-    if exposures.group_type_index is not None:
+    if exposures.counts_groups:
         title = "Many groups were exposed to multiple variants"
         detail = (
             f"{percentage:.1f}% of groups ({multiple}) were exposed to multiple variants, so the results leave them "

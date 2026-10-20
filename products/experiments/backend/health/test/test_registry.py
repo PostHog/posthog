@@ -21,7 +21,7 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
     hours_since_launch=72,
-    group_type_index=None,
+    counts_groups=False,
 )
 
 RUNNING_UNEVEN_SPLIT = replace(
@@ -125,14 +125,12 @@ class TestEvaluate(TestCase):
 
     @parameterized.expand(
         [
-            ("persons", None, "Many users were exposed to multiple variants"),
-            ("groups", 0, "Many groups were exposed to multiple variants"),
+            ("persons", False, "Many users were exposed to multiple variants"),
+            ("groups", True, "Many groups were exposed to multiple variants"),
         ]
     )
-    def test_multiple_variants_share_names_the_counted_unit(
-        self, _name: str, group_type_index: int | None, title: str
-    ) -> None:
-        exposures = replace(_totals_with_multiple(60, 1000), group_type_index=group_type_index)
+    def test_multiple_variants_share_names_the_counted_unit(self, _name: str, counts_groups: bool, title: str) -> None:
+        exposures = replace(_totals_with_multiple(60, 1000), counts_groups=counts_groups)
         findings = evaluate(replace(RUNNING_UNEVEN_SPLIT, **ENDED, exposures=exposures), (multiple_variants_share,))
 
         self.assertEqual([finding.title for finding in findings], [title])
