@@ -390,11 +390,23 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         if status is not None:
             assert "utm_params" not in self._email_config(flow)
 
-    def test_apply_utm_defaults_reloads_workers_and_signals_editors_once_for_the_whole_apply(self) -> None:
+    @parameterized.expand(
+        [
+            ("the reload succeeds", None, 1),
+            ("the reload fails once", [ConnectionError("redis down"), None], 2),
+            ("the reload keeps failing", ConnectionError("redis down"), 2),
+        ]
+    )
+    def test_apply_utm_defaults_reloads_workers_and_signals_editors_once_for_the_whole_apply(
+        self, _name: str, reload_side_effect: Any, expected_reload_calls: int
+    ) -> None:
         flows = [self._flow(f"Flow {i}", HogFlow.State.ACTIVE) for i in range(3)]
 
         with (
-            patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as mock_reload,
+            patch(
+                "products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers",
+                side_effect=reload_side_effect,
+            ) as mock_reload,
             patch("products.workflows.backend.presentation.views.hog_flow.publish_resources_edited") as mock_publish,
         ):
             applied = self.client.post(
@@ -403,7 +415,8 @@ class TestHogFlowUtmDefaults(APIBaseTest):
 
         assert applied.status_code == 200, applied.json()
         assert applied.json()["workflows_updated"] == 3
-        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=sorted(str(flow.id) for flow in flows))
+        assert mock_reload.call_count == expected_reload_calls
+        mock_reload.assert_called_with(team_id=self.team.id, hog_flow_ids=sorted(str(flow.id) for flow in flows))
         mock_publish.assert_called_once()
         assert sorted(edit[0] for edit in mock_publish.call_args.kwargs["edits"]) == sorted(
             str(flow.id) for flow in flows

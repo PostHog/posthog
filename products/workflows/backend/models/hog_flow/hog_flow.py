@@ -10,6 +10,7 @@ from django.utils.functional import Promise
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -321,7 +322,20 @@ def defer_hog_flow_reloads() -> Iterator[None]:
         for team_id, hog_flow_ids in pending.items():
             ordered = sorted(hog_flow_ids)
             for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
-                reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=ordered[start : start + RELOAD_BATCH_SIZE])
+                _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+
+
+def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
+    # The saves have already committed, so a failed publish must not fail the request that made them.
+    # Workers also expire their cached workflows on a timer, so a lost reload only delays the change.
+    for attempt in range(2):
+        try:
+            reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=hog_flow_ids)
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.exception("hog_flow_deferred_reload_failed", team_id=team_id, hog_flow_count=len(hog_flow_ids))
+                capture_exception(e)
 
 
 @receiver(post_save, sender=HogFlow)
