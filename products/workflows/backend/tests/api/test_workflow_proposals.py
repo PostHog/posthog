@@ -760,31 +760,41 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too few sends", True, {"email_sent": 12}, 72, False, 12),
-            ("untracked sends do not count", True, {"email_sent": 25, "email_untracked": 10}, 72, False, 15),
-            ("a version live under two days", True, {"email_sent": 30}, 24, False, 30),
-            ("enough sends on a settled version", True, {"email_sent": 30}, 72, True, 30),
-            ("too few sends before suggestions are on", False, {"email_sent": 4}, 72, False, 4),
+            ("too few sends", True, (12, 0), 72, 72, False, 12),
+            ("untracked sends do not count", True, (25, 10), 72, 72, False, 15),
+            ("a version live under two days", True, (30, 0), 24, 24, False, 30),
+            ("a draft activated under two days ago", True, (30, 0), 72, 24, False, 30),
+            ("enough sends on a settled version", True, (30, 0), 72, 72, True, 30),
+            ("too few sends before suggestions are on", False, (4, 0), 72, 72, False, 4),
         ]
     )
     def test_optimization_reports_the_sample_floor_of_the_live_version(
-        self, _mock_flag, _name: str, optimize: bool, totals: dict, hours_live: int, reached: bool, tracked_sends: int
+        self,
+        _mock_flag,
+        _name: str,
+        optimize: bool,
+        sends: tuple[int, int],
+        hours_since_created: int,
+        hours_since_first_send: int,
+        reached: bool,
+        tracked_sends: int,
     ):
         flow_id = self._create_active_flow(optimize=optimize)
         flow = HogFlow.objects.get(pk=flow_id)
+        now = timezone.now() + timedelta(hours=hours_since_created)
+        first_send = now - timedelta(hours=hours_since_first_send)
         with (
-            time_machine.travel(timezone.now() + timedelta(hours=hours_live), tick=False),
-            patch("products.workflows.backend.services.suggestions_scout.fetch_app_metric_totals") as mock_totals,
+            time_machine.travel(now, tick=False),
+            patch("products.workflows.backend.services.suggestions_scout.sync_execute") as mock_execute,
         ):
-            mock_totals.return_value = SimpleNamespace(totals=totals)
+            mock_execute.return_value = [("email_1", *sends, first_send)]
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
 
         assert response.status_code == 200, response.json()
         sample = response.json()["sample"]
         assert (sample["reached"], sample["tracked_sends"], sample["required_sends"]) == (reached, tracked_sends, 20)
-        assert {(call.kwargs["app_source_id"], call.kwargs["instance_id"]) for call in mock_totals.call_args_list} == {
-            (f"{flow_id}/{flow.version}", "email_1")
-        }
+        args = mock_execute.call_args.args[1]
+        assert (args["app_source_id"], args["step_ids"]) == (f"{flow_id}/{flow.version}", ["email_1"])
 
     @parameterized.expand(
         [("scout in dry run", {"emit": False}), ("scout paused", {"enabled": False, "status": "paused_by_user"})]
@@ -797,12 +807,12 @@ class TestWorkflowProposals(APIBaseTest):
             **scout_change
         )
 
-        with patch("products.workflows.backend.services.suggestions_scout.fetch_app_metric_totals") as mock_totals:
+        with patch("products.workflows.backend.services.suggestions_scout.sync_execute") as mock_execute:
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
 
         assert response.status_code == 200, response.json()
         assert response.json()["sample"] is None
-        mock_totals.assert_not_called()
+        mock_execute.assert_not_called()
 
     @parameterized.expand(
         [

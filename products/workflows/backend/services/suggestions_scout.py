@@ -5,14 +5,14 @@ none gains nothing from its runs. The first live opted-in workflow switches the 
 project, and losing the last one, by opting out, archiving or deleting it, removes it again.
 """
 
-from datetime import timedelta
+from datetime import UTC, timedelta
 from uuid import UUID
 
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Team, User
 
 from products.signals.backend.facade.api import (
@@ -40,6 +40,24 @@ SAMPLE_WINDOW = timedelta(days=7)
 SAMPLE_MIN_VERSION_AGE = timedelta(hours=48)
 # Arbitrary, fixed namespace for the per-project advisory lock that serializes reconciliation.
 _LOCK_NAMESPACE = 72_031
+_SAMPLE_QUERY_TIMEOUT_SECONDS = 5
+# Bounds compare on the hour because the table collapses rows per clock hour and keeps one arbitrary timestamp.
+_STEP_SENDS_QUERY = """
+    SELECT
+        instance_id,
+        sumIf(count, metric_name = %(sent)s AND toStartOfHour(timestamp) >= toDateTime64(%(after)s, 6)
+            AND toStartOfHour(timestamp) < toDateTime64(%(before)s, 6)) AS sent,
+        sumIf(count, metric_name = %(untracked)s AND toStartOfHour(timestamp) >= toDateTime64(%(after)s, 6)
+            AND toStartOfHour(timestamp) < toDateTime64(%(before)s, 6)) AS untracked,
+        min(toStartOfHour(timestamp)) AS first_send
+    FROM app_metrics2
+    WHERE team_id = %(team_id)s
+    AND app_source = %(app_source)s
+    AND app_source_id = %(app_source_id)s
+    AND instance_id IN %(step_ids)s
+    AND metric_name IN (%(sent)s, %(untracked)s)
+    GROUP BY instance_id
+"""
 
 
 def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: bool) -> None:
@@ -115,29 +133,37 @@ def suggestions_sample(*, team_id: int, hog_flow_id: UUID) -> SuggestionsSample 
     ]
     if not step_ids:
         return None
-    revision = (
-        HogFlowRevision.objects.for_team(team_id)
-        .filter(hog_flow=flow, version=flow.version)
-        .values_list("created_at", flat=True)
-    )
-    # A flow with no revision for its version predates revision tracking, so it has been live at least since creation.
-    live_since = revision.first() or flow.created_at
     now = timezone.now()
-    tracked_sends = 0
-    for step_id in step_ids:
-        totals = fetch_app_metric_totals(
-            team_id=team_id,
-            app_source=HOG_FLOW_VERSION_APP_SOURCE,
-            app_source_id=f"{flow.id}/{flow.version}",
-            breakdown_by="name",
-            after=now - SAMPLE_WINDOW,
-            instance_id=step_id,
-            name=[TARGET_SEND_METRIC, TARGET_UNTRACKED_METRIC],
-        ).totals
-        sent = int(totals.get(TARGET_SEND_METRIC, 0)) - int(totals.get(TARGET_UNTRACKED_METRIC, 0))
-        tracked_sends = max(tracked_sends, sent)
-        if tracked_sends >= MIN_EVIDENCE_SAMPLE:
-            break
+    # The scout reads whole UTC days that have closed, so the window ends at the last midnight.
+    window_end = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = sync_execute(
+        _STEP_SENDS_QUERY,
+        {
+            "team_id": team_id,
+            "app_source": HOG_FLOW_VERSION_APP_SOURCE,
+            "app_source_id": f"{flow.id}/{flow.version}",
+            "step_ids": step_ids,
+            "sent": TARGET_SEND_METRIC,
+            "untracked": TARGET_UNTRACKED_METRIC,
+            "after": (window_end - SAMPLE_WINDOW).strftime("%Y-%m-%dT%H:%M:%S"),
+            "before": window_end.strftime("%Y-%m-%dT%H:%M:%S"),
+        },
+        settings={"max_execution_time": _SAMPLE_QUERY_TIMEOUT_SECONDS},
+        team_id=team_id,
+    )
+    tracked_sends = max((int(sent) - int(untracked) for _, sent, untracked, _ in rows), default=0)
+    first_sends = [first_send for *_, first_send in rows]
+    if first_sends:
+        # Activating a draft does not create a revision, so the version's first send is when it went live.
+        live_since = min(first_sends)
+    else:
+        # A flow with no revision for its version predates revision tracking, so it has been live at least since creation.
+        revision = (
+            HogFlowRevision.objects.for_team(team_id)
+            .filter(hog_flow=flow, version=flow.version)
+            .values_list("created_at", flat=True)
+        )
+        live_since = revision.first() or flow.created_at
     return SuggestionsSample(
         reached=tracked_sends >= MIN_EVIDENCE_SAMPLE and now - live_since >= SAMPLE_MIN_VERSION_AGE,
         tracked_sends=tracked_sends,
