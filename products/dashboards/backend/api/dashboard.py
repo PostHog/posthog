@@ -222,8 +222,11 @@ def _normalized_group_key(group_key: str) -> str:
     return group_key
 
 
-def _stored_group(group_settings: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in group_settings.items() if key != "title" or value}
+def _stored_group(group_settings: Any) -> dict[str, Any]:
+    # Validate on its own because a PATCH validates nested serializers as partial, and partial skips field defaults.
+    group = DashboardTileGroupSerializer(data=group_settings)
+    group.is_valid(raise_exception=True)
+    return {key: value for key, value in group.validated_data.items() if key != "title" or value}
 
 
 def _valid_groups(customization: Any) -> dict[str, dict[str, Any]]:
@@ -242,11 +245,11 @@ def _valid_groups(customization: Any) -> dict[str, dict[str, Any]]:
             continue
         try:
             group_key = _normalized_group_key(key)
+            group = _stored_group(group_settings)
         except serializers.ValidationError:
             continue
-        group = DashboardTileGroupSerializer(data=group_settings)
-        if group_key and group.is_valid():
-            valid_groups[group_key] = _stored_group(group.validated_data)
+        if group_key:
+            valid_groups[group_key] = group
     return valid_groups
 
 
