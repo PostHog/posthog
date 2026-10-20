@@ -11,6 +11,7 @@ from posthog.schema import MultipleVariantHandling
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
+from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.context import ExposureTotals, FlagState, FlagVariant, HealthContext
 from products.experiments.backend.health.registry import EXPOSURE_HEALTH_CHECKS, evaluate
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
@@ -20,6 +21,7 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
     hours_since_launch=72,
+    group_type_index=None,
 )
 
 RUNNING_UNEVEN_SPLIT = replace(
@@ -120,6 +122,20 @@ class TestEvaluate(TestCase):
         findings = evaluate(replace(RUNNING_UNEVEN_SPLIT, **changes), EXPOSURE_HEALTH_CHECKS)
 
         self.assertEqual([finding.code for finding in findings], expected)
+
+    @parameterized.expand(
+        [
+            ("persons", None, "Many users were exposed to multiple variants"),
+            ("groups", 0, "Many groups were exposed to multiple variants"),
+        ]
+    )
+    def test_multiple_variants_share_names_the_counted_unit(
+        self, _name: str, group_type_index: int | None, title: str
+    ) -> None:
+        exposures = replace(_totals_with_multiple(60, 1000), group_type_index=group_type_index)
+        findings = evaluate(replace(RUNNING_UNEVEN_SPLIT, **ENDED, exposures=exposures), (multiple_variants_share,))
+
+        self.assertEqual([finding.title for finding in findings], [title])
 
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:
         with patch.object(registry, "capture_exception") as capture:

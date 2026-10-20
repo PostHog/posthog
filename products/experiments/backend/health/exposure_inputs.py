@@ -89,6 +89,7 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
             sample_ratio_mismatch_p_value=srm.p_value if srm else None,
             # The checks read the hours at computation, not now.
             hours_since_launch=(computed_at - experiment.start_date).total_seconds() / 3600 if computed_at else None,
+            group_type_index=runner.group_type_index,
         ),
         findings=tuple(response.health_findings or ()),
         error=calculation_error,

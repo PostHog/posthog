@@ -301,7 +301,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
         exposureCheck(
             'multiple_variants_share',
             ['exposures'],
-            'The finding needs more than 5% and at least 5 users in multiple variants, under Exclude only.'
+            'The finding needs more than 5% and at least 5 users or groups in multiple variants, under Exclude only.'
         ),
     ]
 }

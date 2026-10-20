@@ -396,6 +396,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 multiple_variant_handling=multiple_variant_handling,
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
                 hours_since_launch=self.experiment.hours_since_launch,
+                group_type_index=self.group_type_index,
             )
         )
 
