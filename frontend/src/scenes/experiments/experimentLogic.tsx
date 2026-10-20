@@ -2454,7 +2454,11 @@ export const experimentLogic = kea<experimentLogicType>([
             null as ExperimentHealthApi | null,
             {
                 loadExperimentHealth: async (trigger: ExperimentHealthLoadTrigger, breakpoint) => {
-                    if (typeof values.experimentId !== 'number' || values.currentProjectId === null) {
+                    if (
+                        typeof values.experimentId !== 'number' ||
+                        values.experimentMissing ||
+                        values.currentProjectId === null
+                    ) {
                         return null
                     }
                     if (trigger === 'experiment_update') {
