@@ -399,6 +399,24 @@ def compile_hogql_to_trino_sql(
             trino_output.type.columns = named_columns
         for output_type in output_types:
             output_type.columns = named_columns
+
+        # The output can read a derived table by column name, as the incremental guard does. Trino
+        # does not name an unaliased expression, so give each one the name the resolver referenced.
+        derived = trino_output.select_from.table if trino_output.select_from is not None else None
+        while isinstance(derived, ast.SelectSetQuery):
+            derived = derived.initial_select_query
+        if isinstance(derived, ast.SelectQuery) and isinstance(derived.type, ast.SelectQueryType):
+            resolved_names = {id(column_type): name for name, column_type in derived.type.columns.items()}
+            derived.select = [
+                ast.Alias(
+                    alias=resolved_names[id(column.type)],
+                    expr=column,
+                    type=ast.FieldAliasType(alias=resolved_names[id(column.type)], type=column.type),
+                )
+                if not isinstance(column, ast.Alias) and column.type is not None and id(column.type) in resolved_names
+                else column
+                for column in derived.select
+            ]
         return prepared
 
     trino_sql, _ = prepare_and_print_ast(

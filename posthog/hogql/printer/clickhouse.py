@@ -49,6 +49,7 @@ from posthog.hogql.restricted_properties import (
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
@@ -1327,8 +1328,11 @@ class ClickHousePrinter(BasePrinter):
         return [self.visit(column) for column, _ in self._prepare_select_columns(columns)]
 
     def select_column_names(self, query: ast.SelectQuery) -> list[str]:
+        # ClickHouse names an unaliased expression after the SQL it receives, with bound values inlined.
         return [
-            column.alias if isinstance(column, ast.Alias) and not column.hidden else self.visit(column)
+            column.alias
+            if isinstance(column, ast.Alias) and not column.hidden
+            else substitute_params(self.visit(column), self.context.values)
             for column, _ in self._prepare_select_columns(query.select)
         ]
 

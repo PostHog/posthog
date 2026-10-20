@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 from typing import Any
 from uuid import UUID, uuid4
@@ -225,6 +226,30 @@ class TestTrinoShadowMaterialization(BaseTest):
                 None,
                 ("x", "1"),
             ),
+            (
+                "guard_names_inner_columns",
+                "SELECT event, count(), max(timestamp), timestamp AS ts FROM events GROUP BY event, timestamp",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("count()", "max(timestamp)"),
+            ),
+            (
+                "string_constant",
+                "SELECT event, 'hello', max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("'hello'",),
+            ),
+            (
+                "question_mark_full_build",
+                "SELECT event, countIf(match(event, 'sign.?up')), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("countIf(match(event, 'sign.?up'))",),
+            ),
+            (
+                "question_mark_merge_stage",
+                "SELECT event, countIf(match(event, 'sign.?up')), timestamp AS ts FROM events GROUP BY event, timestamp",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("countIf(match(event, 'sign.?up'))",),
+            ),
         ]
     )
     def test_names_unaliased_columns_in_create_table_as(
@@ -271,6 +296,12 @@ class TestTrinoShadowMaterialization(BaseTest):
         for expected_name in expected_names:
             assert f'AS "{expected_name}"' in write
         assert ("__ph_incremental_stage" in write) == (since is not None)
+        if since is not None:
+            guarded = write[write.index("FROM (") :]
+            references = re.findall(r'"__ph_incremental"\.("(?:[^"]|"")*")', write)
+            assert references
+            for reference in references:
+                assert f"AS {reference}" in guarded or f".{reference}," in guarded
 
     def test_compilation_failure_does_not_connect_or_write(self) -> None:
         with (
