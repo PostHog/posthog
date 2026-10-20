@@ -3925,20 +3925,20 @@ Note: Extracted every GET path from the official Python SDK operation index and 
 
 ## DoIt — **thin**
 
-Today: report tables are discovered from the user's account at sync time, alongside the fixed `Budgets`, `Insights`, `Anomalies`, and `Invoices` tables.
+Today: report tables are discovered from the user's account at sync time, alongside the fixed `Budgets`, `Insights`, `InsightResourceResults`, `Anomalies`, `Invoices`, `Assets`, `Annotations`, and `SupportTickets` tables.
 
 Diffed against: <https://developer.doit.com/openapi/doit-api.yaml>
 
-- [ ] `Assets (GET /billing/v1/assets)` — identify billing accounts and licensed subscriptions referenced in saved cloud cost reports (high)
+- [x] `Assets (GET /billing/v1/assets)` — identify billing accounts and licensed subscriptions referenced in saved cloud cost reports (high)
 - [x] `Invoices (GET /billing/v1/invoices)` — reconcile cloud spending with actual invoices, outstanding balances, and payment status (high)
 - [x] `Anomalies (GET /anomalies/v1)` — measure unexpected cloud spending, severity, and anomaly costs (high)
 - [x] `Budgets (GET /analytics/v1/budgets)` — compare budget limits with current utilization, forecasts, and risk status (high)
 - [x] `Insights (GET /insights/v1/results)` — track optimization opportunities, estimated savings, and operational risks (high)
-- [ ] `Insight resource results (GET /insights/v1/results/source/{sourceID}/insight/{insightKey}/resource-results)` — identify cloud resources responsible for savings opportunities and risks (medium)
+- [x] `Insight resource results (GET /insights/v1/results/source/{sourceID}/insight/{insightKey}/resource-results)` — identify cloud resources responsible for savings opportunities and risks (medium)
 - [ ] `Commitments (GET /analytics/v1/commitment-manager)` — compare contractual cloud commitments with current attainment and forecast spending (medium)
 - [ ] `Allocations (GET /analytics/v1/allocations)` — explain how cloud spending is assigned to teams, products, and cost centers (medium)
-- [ ] `Annotations (GET /analytics/v1/annotations)` — relate spending changes to recorded operational events and report annotations (medium)
-- [ ] `Support requests (GET /support/v1/tickets)` — analyze support demand, resolution times, and ticket status alongside cloud spending (medium)
+- [x] `Annotations (GET /analytics/v1/annotations)` — relate spending changes to recorded operational events and report annotations (medium)
+- [x] `Support requests (GET /support/v1/tickets)` — analyze support demand, resolution times, and ticket status alongside cloud spending (medium)
 
 Note: Parsed every GET operation in the official OpenAPI document and checked selected billing and analytics schemas. Source code creates one table per accessible saved report, using its normalized name; no static names exist without credentials. The source lists reports for discovery and imports their result rows, so today remains empty. Insight resources need parent fan-out; IAM, themes, auth, write operations, and partner provisioning were excluded.
 
