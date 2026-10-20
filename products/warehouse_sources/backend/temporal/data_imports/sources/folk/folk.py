@@ -75,10 +75,10 @@ class FolkResumeConfig:
     # Full next-page URL from the response's `data.pagination.nextLink` field (omitted on the last
     # page). It carries the opaque cursor and the limit, so following it resumes the walk exactly.
     next_url: str | None = None
-    # Group fan-out position: the groups still to sync (the head is in progress) and the child
-    # (custom field entity type or object type) in progress within the head group.
+    # Group fan-out position: the groups still to sync and, within the head group, the children
+    # (custom field entity types or object types) still to sync. The head of each list is in progress.
     remaining_group_ids: list[str] | None = None
-    child_key: str | None = None
+    remaining_child_keys: list[str] | None = None
 
 
 def probe_credentials(api_key: str, endpoint: str | None = None) -> int | None:
@@ -212,21 +212,29 @@ def _paginate(
     )
 
 
-def _object_type_names(client: RESTClient, group_id: str) -> list[str]:
+def _object_type_names(
+    client: RESTClient, manager: ResumableSourceManager[FolkResumeConfig], group_id: str
+) -> list[str]:
     """Folk documents the group's person custom fields of type `objectField` as the way to list its
     object types (Deals and any other custom object type)."""
     names: list[str] = []
     for page in _paginate(client, f"/v1/groups/{group_id}/custom-fields/person"):
         names.extend(field["name"] for field in page if field.get("type") == "objectField")
+        manager.safe_point()
     return names
 
 
-def _group_children(client: RESTClient, config: FolkEndpointConfig, group_id: str) -> list[_GroupChild]:
+def _group_children(
+    client: RESTClient,
+    manager: ResumableSourceManager[FolkResumeConfig],
+    config: FolkEndpointConfig,
+    group_id: str,
+) -> list[_GroupChild]:
     path = config.path.replace("{groupId}", group_id)
     if config.group_fanout == "members":
         return [_GroupChild(key="", path=path, row_fields={"groupId": group_id})]
     if config.group_fanout == "custom_fields":
-        entity_types = [*FOLK_BUILTIN_ENTITY_TYPES, *_object_type_names(client, group_id)]
+        entity_types = [*FOLK_BUILTIN_ENTITY_TYPES, *_object_type_names(client, manager, group_id)]
         return [
             _GroupChild(
                 key=entity_type,
@@ -241,7 +249,7 @@ def _group_children(client: RESTClient, config: FolkEndpointConfig, group_id: st
             path=path.replace("{objectType}", quote(object_type, safe="")),
             row_fields={"groupId": group_id, "objectType": object_type},
         )
-        for object_type in _object_type_names(client, group_id)
+        for object_type in _object_type_names(client, manager, group_id)
     ]
 
 
@@ -261,9 +269,11 @@ def _stage_position(
 ) -> None:
     """Stage the position of the page after the one about to be yielded."""
     if has_next and state:
-        position = FolkResumeConfig(next_url=state["next_url"], remaining_group_ids=group_ids, child_key=keys[index])
+        position = FolkResumeConfig(
+            next_url=state["next_url"], remaining_group_ids=group_ids, remaining_child_keys=keys[index:]
+        )
     elif index + 1 < len(keys):
-        position = FolkResumeConfig(remaining_group_ids=group_ids, child_key=keys[index + 1])
+        position = FolkResumeConfig(remaining_group_ids=group_ids, remaining_child_keys=keys[index + 1 :])
     else:
         position = FolkResumeConfig(remaining_group_ids=group_ids[1:])
     manager.save_state(position)
@@ -277,32 +287,34 @@ def _iter_group_fanout(
     resume = manager.load_state() if manager.can_resume() else None
     if resume is not None and resume.remaining_group_ids is not None:
         group_ids = list(resume.remaining_group_ids)
-        child_key, next_url = resume.child_key, resume.next_url
+        child_keys, next_url = resume.remaining_child_keys, resume.next_url
     else:
         group_ids = []
         for page in _paginate(client, "/v1/groups"):
             group_ids.extend(group["id"] for group in page)
             manager.safe_point()
-        child_key, next_url = None, None
+        child_keys, next_url = None, None
 
     while group_ids:
         # Every row before this position is already yielded, so the run can hand off here.
-        manager.save_state(FolkResumeConfig(next_url=next_url, remaining_group_ids=group_ids, child_key=child_key))
+        manager.save_state(
+            FolkResumeConfig(next_url=next_url, remaining_group_ids=group_ids, remaining_child_keys=child_keys)
+        )
         manager.safe_point()
         try:
-            children = _group_children(client, config, group_ids[0])
+            children = _group_children(client, manager, config, group_ids[0])
         except HTTPError as error:
             _raise_unless_not_found(error)
             children = []
+        if child_keys is not None:
+            # Keep only the children the saved position had left, and skip any deleted since.
+            by_key = {child.key: child for child in children}
+            if not child_keys or child_keys[0] not in by_key:
+                next_url = None
+            children = [by_key[key] for key in child_keys if key in by_key]
         keys = [child.key for child in children]
-        if child_key in keys:
-            start = keys.index(child_key)
-        else:
-            # The resumed child is gone, so its saved page URL no longer applies.
-            start, next_url = 0, None
 
-        for index in range(start, len(children)):
-            child = children[index]
+        for index, child in enumerate(children):
             try:
                 for page in _paginate(
                     client,
@@ -319,4 +331,4 @@ def _iter_group_fanout(
             next_url = None
 
         group_ids = group_ids[1:]
-        child_key = None
+        child_keys = None

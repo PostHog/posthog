@@ -128,7 +128,7 @@ class TestGroupFanout:
         ]
         assert result.saved_states == [
             FolkResumeConfig(remaining_group_ids=["grp_1", "grp_2"]),
-            FolkResumeConfig(next_url=second, remaining_group_ids=["grp_1", "grp_2"], child_key=""),
+            FolkResumeConfig(next_url=second, remaining_group_ids=["grp_1", "grp_2"], remaining_child_keys=[""]),
             FolkResumeConfig(remaining_group_ids=["grp_2"]),
             FolkResumeConfig(remaining_group_ids=["grp_2"]),
             FolkResumeConfig(remaining_group_ids=[]),
@@ -190,20 +190,31 @@ class TestGroupFanout:
             ("Deals", "Amount"),
         ]
 
-    def test_resumes_inside_a_group_without_relisting_groups(self) -> None:
-        resume_url = "https://api.folk.app/v1/groups/grp_2/Deals?limit=100&cursor=o3"
+    @parameterized.expand(
+        [
+            # The resumed type still exists: continue its walk at the saved page.
+            ("continues_saved_page", ["Deals"], "Deals", "o3"),
+            # The resumed type was deleted: skip it, and do not re-read types finished before it.
+            ("skips_deleted_type", ["Gone", "Projects"], "Projects", None),
+        ]
+    )
+    def test_resumes_inside_a_group_without_relisting_groups(
+        self, _name: str, child_keys: list[str], expected_type: str, expected_cursor: str | None
+    ) -> None:
+        resume_url = f"https://api.folk.app/v1/groups/grp_2/{child_keys[0]}?limit=100&cursor=o3"
+        object_types = [{"name": "Deals", "type": "objectField"}, {"name": "Projects", "type": "objectField"}]
         result = _driver().run(
             "custom_objects",
-            [
-                _page([{"name": "Deals", "type": "objectField"}]),
-                _page([{"id": "obj_9"}]),
-            ],
-            resume_state=FolkResumeConfig(next_url=resume_url, remaining_group_ids=["grp_2"], child_key="Deals"),
+            [_page(object_types), _page([{"id": "obj_9"}])],
+            resume_state=FolkResumeConfig(
+                next_url=resume_url, remaining_group_ids=["grp_2"], remaining_child_keys=child_keys
+            ),
         )
 
         assert result.raised is None
-        assert result.urls == [f"{FOLK_BASE_URL}/v1/groups/grp_2/custom-fields/person?limit=100", resume_url]
-        assert result.rows == [{"id": "obj_9", "groupId": "grp_2", "objectType": "Deals"}]
+        assert result.paths == ["/v1/groups/grp_2/custom-fields/person", f"/v1/groups/grp_2/{expected_type}"]
+        assert result.params("cursor")[1] == expected_cursor
+        assert result.rows == [{"id": "obj_9", "groupId": "grp_2", "objectType": expected_type}]
 
 
 class TestUnknownEndpoint:
