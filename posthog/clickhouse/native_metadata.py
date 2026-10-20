@@ -71,6 +71,15 @@ def _submit_metadata(job: dict[str, Any], *, native: bool, polling: bool, deadli
     return future
 
 
+def _failure_summary(output: str) -> str:
+    try:
+        failure = json.loads(output)
+    except ValueError:
+        return "no details"
+    summary = str(failure.get("error", "no details"))
+    return f"{summary} (code {failure['code']})" if failure.get("code") is not None else summary
+
+
 def _run_metadata_process(payload: str, deadline: float) -> Any:
     # A Future timeout cannot stop DNS or a stuck driver. Only the child performs network IO;
     # kill and reap it before releasing capacity, including when the supervising thread fails.
@@ -87,7 +96,7 @@ def _run_metadata_process(payload: str, deadline: float) -> Any:
                 raise TimeoutError("ClickHouse metadata deadline exceeded")
             output, _ = process.communicate(payload, timeout=remaining)
             if process.returncode:
-                raise RuntimeError("ClickHouse metadata operation failed")
+                raise RuntimeError(f"ClickHouse metadata operation failed: {_failure_summary(output)}")
             return json.loads(output)["result"]
         except subprocess.TimeoutExpired:
             raise TimeoutError("ClickHouse metadata deadline exceeded") from None
