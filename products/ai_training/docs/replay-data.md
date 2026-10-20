@@ -336,7 +336,8 @@ It consumes the replay topic and its overflow topic.
 ### Gate
 
 ```text
-hash       = md5(session_id) as lowercase hex
+id         = lowercase(session_id) if it has the UUID shape, else session_id
+hash       = md5(id) as lowercase hex
 value      = integer of the first 8 hex digits
 percentage = (value % 10000) / 100
 include    = percentage < SESSION_RECORDING_ML_V4_SAMPLE_PERCENTAGE
@@ -345,6 +346,7 @@ include    = percentage < SESSION_RECORDING_ML_V4_SAMPLE_PERCENTAGE
 - A percentage of 100 or more includes every session, and 0 or less includes none. The default is 0.
 - The gate is the same function as the session feature recorder's rollout gate, so at the same percentage the two lanes select the same sessions.
 - Capture keys every replay message with the session ID, so the recorder applies the gate to the Kafka key before it reads the payload.
+- Capture keeps the session ID as the SDK sent it. The replay lanes lower-case an ID with the UUID shape (8-4-4-4-12 hex digits), so the gate does too, and every casing of one session gets the same verdict.
 - Raising the percentage keeps every session that a lower percentage includes.
 
 ### Keys
