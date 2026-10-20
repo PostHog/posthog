@@ -389,6 +389,14 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
+NEVER_ENQUEUED_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
+    {
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    }
+)
+
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,

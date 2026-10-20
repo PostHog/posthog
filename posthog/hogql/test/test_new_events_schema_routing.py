@@ -8,6 +8,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    ActorsQuery,
     EventsNode,
     GroupsQuery,
     HogQLQuery,
@@ -67,6 +68,11 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 ),
             ),
             ("hogql_workload_unknown_before_printing", HogQLQuery(query="SELECT * FROM logs LIMIT 10"), None),
+            (
+                "nested_hogql_workload_unknown_before_printing",
+                ActorsQuery(source=HogQLQuery(query="SELECT * FROM logs LIMIT 10")),
+                None,
+            ),
             ("unsupported_kind", GroupsQuery(group_type_index=0), None),
             (
                 "explicit_schema_choice",
@@ -100,17 +106,12 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         self.assertEqual(modifiers, expected)
 
     @parameterized.expand(
-        [
-            ("personal_api_key", True, {}, True),
-            ("project_schema_choice", False, {"useNewEventsSchema": False}, True),
-            ("queued_before_async_is_enabled", False, {}, False),
-        ]
+        [("personal_api_key", True, {}), ("project_schema_choice", False, {"useNewEventsSchema": False})]
     )
     def test_rollout_flag_leaves_api_traffic_and_project_schema_choices_alone(
-        self, _name: str, is_query_service: bool, team_modifiers: dict[str, bool], async_enabled: bool
+        self, _name: str, is_query_service: bool, team_modifiers: dict[str, bool]
     ) -> None:
         self.team.modifiers = team_modifiers
-        self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = async_enabled
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         with patch(
             "posthog.api.services.query.posthoganalytics.feature_enabled",
@@ -124,6 +125,34 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             )
         self.assertIsNone(modifiers)
+
+    @parameterized.expand(
+        [
+            (ExecutionMode.CALCULATE_BLOCKING_ALWAYS, True),
+            (ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, True),
+            (ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, True),
+            (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, False),
+            (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS, False),
+            (ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, False),
+            (ExecutionMode.CALCULATE_ASYNC_ALWAYS, False),
+        ]
+    )
+    def test_rollout_flag_skips_queued_modes_until_async_is_enabled(
+        self, execution_mode: ExecutionMode, native: bool
+    ) -> None:
+        self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = False
+        with patch(
+            "posthog.api.services.query.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+        ):
+            modifiers = native_events_cluster_modifiers_for_user(
+                self.team,
+                self.user,
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                is_query_service=False,
+                execution_mode=execution_mode,
+            )
+        self.assertEqual(modifiers is not None and modifiers.useNewEventsCluster, native)
 
     def _enqueue(self, runner: QueryRunner) -> dict[str, Any]:
         with (

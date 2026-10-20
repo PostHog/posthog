@@ -5,8 +5,6 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional, overload
 
-from django.contrib.auth.models import AnonymousUser
-
 import structlog
 import pydantic_core
 import posthoganalytics
@@ -63,6 +61,7 @@ from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import (
     NATIVE_EVENTS_CLUSTER_QUERY_TYPES,
+    NEVER_ENQUEUED_EXECUTION_MODES,
     CacheMissResponse,
     ExecutionMode,
     QueryResponse,
@@ -80,16 +79,13 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from common.hogvm.python.debugger import color_bytecode
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+
     from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
 NATIVE_EVENTS_CLUSTER_USER_FLAG = "native-events-cluster-queries"
-_NEVER_ENQUEUED_EXECUTION_MODES = (
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-)
 
 
 @frozen
@@ -482,17 +478,22 @@ def process_query_dict(
 
 def native_events_cluster_modifiers_for_user(
     team: Team,
-    user: User | AnonymousUser | None,
+    user: User | AnonymousUser,
     query: BaseModel,
     *,
     is_query_service: bool,
     execution_mode: ExecutionMode,
 ) -> HogQLQueryModifiers | None:
     # The flag covers app queries only. Personal API key traffic keeps its usual cluster.
-    if is_query_service or not isinstance(user, User) or isinstance(query, HogQLQuery):
+    if is_query_service or not isinstance(user, User):
         return None
+    node: object = query
+    while isinstance(node, BaseModel):
+        if isinstance(node, HogQLQuery):
+            return None
+        node = getattr(node, "source", None)
     # A queued query would fail while async native execution is off, so it keeps the legacy cluster.
-    if execution_mode not in _NEVER_ENQUEUED_EXECUTION_MODES and not native_events_async_enabled():
+    if execution_mode not in NEVER_ENQUEUED_EXECUTION_MODES and not native_events_async_enabled():
         return None
     if isinstance(team.modifiers, dict) and team.modifiers.get("useNewEventsSchema") is not None:
         return None
