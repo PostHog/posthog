@@ -118,6 +118,30 @@ export function SingleOccurrence(): JSX.Element {
     )
 }
 
+export function MarkerBesideFullRolloutStep(): JSX.Element {
+    return (
+        <div className="max-w-3xl">
+            <ScheduleTimeline
+                occurrences={[
+                    coveredRolloutStep(1, 25),
+                    occurrence(
+                        2,
+                        { operation: ScheduledChangeOperationType.UpdateStatus, value: false },
+                        { active: false, rolloutPercentage: 100, variantCount: null }
+                    ),
+                    occurrence(
+                        30,
+                        { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
+                        { active: true, rolloutPercentage: 100, variantCount: null }
+                    ),
+                ]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        </div>
+    )
+}
+
 export function CoveredRolloutRamp(): JSX.Element {
     return (
         <div className="max-w-3xl">
