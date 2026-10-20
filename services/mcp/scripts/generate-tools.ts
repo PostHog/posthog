@@ -464,6 +464,7 @@ function operationIdToPascal(operationId: string): string {
 const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
+    'object-json-string': 'castObjectToJsonString',
 } as const
 
 interface SchemaComposition {
