@@ -30,7 +30,6 @@ _ATTRIBUTE_SEPARATOR = ":"
 # patterns are a single character class or a class run before one literal, which cannot
 # backtrack, and the scanners move past each match so no character is searched twice.
 _BARE_RUN_END = re.compile(r'[\s;"]')
-_QUOTE_OR_ESCAPE = re.compile(r'["\\]')
 _ATTRIBUTE_KEY = re.compile(r"[a-zA-Z0-9_-]*=")
 
 
@@ -40,27 +39,29 @@ class ElementAttribute:
     value: str
 
 
-def _find_closing_quote(chain: str, opening: int) -> int:
-    """Returns the index of the quote that closes the value opened at `opening`, or -1.
+def _find_closing_quote(text: str, value_start: int) -> int:
+    """Returns the index of the quote that closes the value starting at `value_start`, or -1.
 
-    A backslash escapes the character after it, so an escaped quote never closes the value.
+    Serializers escape a quote inside a value with a backslash and escape nothing else, so
+    a quote preceded by a backslash never closes the value. The value may be empty.
     """
-    position = opening + 1
+    position = value_start
     while True:
-        match = _QUOTE_OR_ESCAPE.search(chain, position)
-        if match is None:
+        closing = text.find(_QUOTE, position)
+        if closing == -1:
             return -1
-        if match.group() == _QUOTE:
-            return match.start()
-        position = match.end() + 1
+        if text[closing - 1] != _ESCAPE:
+            return closing
+        position = closing + 1
 
 
 def split_elements_chain(chain: str) -> list[str]:
     """Splits an elements chain into one string per element.
 
     Elements are separated by whitespace or semicolons outside quoted attribute values.
-    Inside a quoted value both are literal and a backslash escapes the next character.
-    A quote with no closing quote ends the current element and is dropped. This is a
+    Inside a quoted value both are literal and a quote preceded by a backslash is escaped.
+    A quote with no closing quote ends the current element and is dropped, unless the
+    chain ends with an escaped quote, which then closes the value. This is a
     single left-to-right pass over client-supplied input: no input shape can make it
     scan a character twice.
     """
@@ -88,7 +89,11 @@ def split_elements_chain(chain: str) -> list[str]:
         if boundary_start > position and token_start == -1:
             token_start = position
         if boundary.group() == _QUOTE:
-            closing = _find_closing_quote(chain, boundary_start) if closing_quotes_remain else -1
+            closing = _find_closing_quote(chain, boundary_start + 1) if closing_quotes_remain else -1
+            if closing == -1 and length - 1 > boundary_start and chain.endswith(_ESCAPE + _QUOTE):
+                # Serializers escape quotes but not backslashes, so a value that ends in a
+                # backslash at the end of the chain reads as unterminated. It closes there.
+                closing = length - 1
             if closing == -1:
                 closing_quotes_remain = False
                 end_token(boundary_start)
@@ -134,52 +139,23 @@ def _split_tag_and_attributes(el_string: str) -> _ElementParts:
         line_start = line_end + 1
 
 
-def _find_attribute_value_end(attrs: str, value_start: int) -> int:
-    """Returns the index of the quote that closes the value starting at `value_start`, or -1.
-
-    A backslash escapes the character after it, except a newline, which cannot be escaped.
-    The value may be empty.
-    """
-    position = value_start
-    length = len(attrs)
-    while True:
-        match = _QUOTE_OR_ESCAPE.search(attrs, position)
-        if match is None:
-            return -1
-        if match.group() == _QUOTE:
-            return match.start()
-        escaped = match.end()
-        if escaped >= length or attrs[escaped] == _NEWLINE:
-            return -1
-        position = escaped + 1
-
-
 def iter_element_attributes(attrs: str) -> Iterator[ElementAttribute]:
     """Yields the attributes found in the attributes part of one element string.
 
-    Each attribute is key="value". The key runs from the end of the previous attribute
-    to the next =" on the same line. A failed search for a closing quote skipped every
-    later quote as escaped, so the same search from any later =" fails too: scanning
-    resumes after the newline that stopped it, or ends. This keeps the scan to a single
-    pass over client-supplied input.
+    Each attribute is key="value". The key runs from the end of the previous attribute to
+    the next =". A failed search for a closing quote skipped every later quote as escaped,
+    so the same search from any later =" fails too and the scan ends. This keeps the scan
+    to a single pass over client-supplied input.
     """
     start = 0
     while True:
         separator = attrs.find('="', start)
         if separator == -1:
             return
-        newline = attrs.find(_NEWLINE, start, separator)
-        if newline != -1:
-            start = newline + 1
-            continue
         value_start = separator + 2
-        closing = _find_attribute_value_end(attrs, value_start)
+        closing = _find_closing_quote(attrs, value_start)
         if closing == -1:
-            newline = attrs.find(_ESCAPE + _NEWLINE, value_start)
-            if newline == -1:
-                return
-            start = newline + 2
-            continue
+            return
         yield ElementAttribute(key=attrs[start:separator], value=attrs[value_start:closing])
         start = closing + 1
 

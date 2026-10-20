@@ -137,6 +137,7 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
             ("long backslash run", 'a:text="' + "\\" * 5000, ["a", "\\" * 5000]),
             ("quote at the end of the chain", 'button:nth-child="1"text="unclosed', ["button", "unclosed"]),
             ("long run of escaped quotes", '"\\' * 100_000, ["\\"] * 100_000),
+            ("escaped quote with no value before it", 'a\\"', ["a\\"]),
         ]
     )
     def test_chain_to_element_dicts_ends_element_at_unterminated_quote(
@@ -145,6 +146,19 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
         element_dicts = chain_to_element_dicts(chain)
         assert [element["tag_name"] for element in element_dicts] == expected_tag_names
         assert all(element["text"] is None for element in element_dicts)
+
+    @parameterized.expand(
+        [
+            ("href", 'button:nth-child="2";a:href="C:\\"', ["button", "a"], {"href": None, "nth_child": None}),
+            ("text", 'a:nth-child="1"text="ends with \\"', ["a"], {"text": None, "nth_child": 1}),
+        ]
+    )
+    def test_chain_to_element_dicts_drops_a_value_that_ends_in_a_backslash_at_the_end_of_the_chain(
+        self, _name: str, chain: str, expected_tag_names: list[str], expected_last: dict
+    ) -> None:
+        element_dicts = chain_to_element_dicts(chain)
+        assert [element["tag_name"] for element in element_dicts] == expected_tag_names
+        assert {field: element_dicts[-1][field] for field in expected_last} == expected_last
 
     def test_chain_to_element_dicts_finds_the_tag_past_a_newline_in_a_value(self) -> None:
         element_dicts = chain_to_element_dicts('text="' + "a" * 200_000 + '\nb:href="/a"')
