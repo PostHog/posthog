@@ -21,6 +21,7 @@ defs = dagster.Definitions(
     ],
     sensors=[
         groups_backfill.duckling_groups_full_backfill_sensor,
+        groups_backfill.duckling_groups_daily_backfill_sensor,
         events_backfill_to_duckling.duckling_events_daily_backfill_sensor,
         events_backfill_to_duckling.duckling_events_full_backfill_sensor,
         events_backfill_to_duckling.duckling_persons_daily_backfill_sensor,
