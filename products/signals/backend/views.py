@@ -207,6 +207,7 @@ from products.signals.backend.report_read_state import (
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
+    PULL_REQUEST_RUN_ACTIVE_DETAIL,
     ReportActionState,
     ReportTaskActionContext,
     ReportTaskActionStartError,
@@ -3218,7 +3219,7 @@ class SignalReportViewSet(
             capture("limited", "report_action_run_active")
             return self._task_action_error(
                 "report_action_run_active",
-                "A run is already working on this report's pull request. Follow that run instead.",
+                PULL_REQUEST_RUN_ACTIVE_DETAIL,
                 status.HTTP_409_CONFLICT,
                 task_id=active.task_id,
                 run_id=active.run_id,

@@ -77,7 +77,7 @@ REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS = "The opening question has a separate, 
 
 MERGE_PR_WORK_INSTRUCTIONS = "Read the report first and find its open, approved pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Fix failing CI checks with the smallest change that keeps what the reviewer approved. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them, then run the affected tests. Then merge it with the repository's own merge process: read its contribution guide and agent instructions first, and use its merge queue when it has one. This request approves the merge of this pull request only. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, a new review that requests changes, a failure that this PR did not cause, or a merge rule that needs a person. Do not change the report state: the merge resolves the report."
 
-FIX_CI_WORK_INSTRUCTIONS = "Read the report first and find its open pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state."
+FIX_CI_WORK_INSTRUCTIONS = "Read the report first and find its open pull request whose CI checks fail with the inbox MCP tools. If more than one open pull request has failing checks, ask the person which one to fix. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state."
 
 
 def merge_pr_intro(report_url: str) -> str:
@@ -116,8 +116,9 @@ def _is_open(pr: ImplementationPr) -> bool:
 
 
 def _open_pull_requests_ci_failing(team_id: int, prs: list[ImplementationPr]) -> bool:
-    """Whether CI fails on any open pull request. Reads GitHub only when one is open, and reads
-    False when GitHub cannot answer, so the action stays unavailable rather than guess."""
+    """Whether CI fails on any open pull request. Reads False when GitHub cannot answer, so the
+    action stays unavailable rather than guess. It can wait on GitHub, so callers run it after
+    every cheaper gate."""
     references = [
         parsed for pr in prs if _is_open(pr) if (parsed := GitHubIntegration.parse_pull_request_url(pr.url)) is not None
     ]
@@ -135,7 +136,6 @@ class ReportActionState:
     already_addressed: bool | None
     pull_requests: tuple[ImplementationPr, ...]
     suggested_prompts: tuple[str, ...]
-    ci_failing: bool = False
 
     @classmethod
     def read(cls, report: SignalReport) -> ReportActionState:
@@ -152,7 +152,6 @@ class ReportActionState:
             already_addressed=judgment.already_addressed,
             pull_requests=tuple(prs),
             suggested_prompts=tuple(prompt for prompt in prompts if isinstance(prompt, str)),
-            ci_failing=_open_pull_requests_ci_failing(report.team_id, prs),
         )
 
     @property
@@ -252,10 +251,10 @@ def make_it_green_action(
     disabled_reason = context.ai_consent_disabled_reason
     if disabled_reason is None and not state.has_open_pull_request:
         disabled_reason = MAKE_IT_GREEN_NO_PR_DISABLED_REASON
-    if disabled_reason is None and not state.ci_failing:
-        disabled_reason = MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON
     if disabled_reason is None and not context.pr_actions_flag_enabled():
         disabled_reason = MAKE_IT_GREEN_FLAG_DISABLED_REASON
+    if disabled_reason is None and not _open_pull_requests_ci_failing(report.team_id, list(state.pull_requests)):
+        disabled_reason = MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON
     # The fix pushes to the PR, so a trial org gets the same refusal as Create PR.
     if disabled_reason is None and self_driving_free_trial_enabled(context.team):
         disabled_reason = FREE_TRIAL_PR_MESSAGE
@@ -351,6 +350,13 @@ class ActiveReportRun:
 # same branch.
 PULL_REQUEST_RUN_REQUESTS = (MERGE_PR_REQUEST, FIX_CI_REQUEST)
 
+PULL_REQUEST_RUN_ACTIVE_DETAIL = "A run is already working on this report's pull request. Follow that run instead."
+
+
+def is_pull_request_run_request(description: str | None) -> bool:
+    """Whether a task's description ends with a request that pushes to the report's pull request."""
+    return (description or "").rstrip().endswith(PULL_REQUEST_RUN_REQUESTS)
+
 
 def active_pull_request_run(*, team_id: int, report_id: str) -> ActiveReportRun | None:
     """The report's run that pushes to its pull request and is still working, if any.
@@ -368,7 +374,7 @@ def active_pull_request_run(*, team_id: int, report_id: str) -> ActiveReportRun 
     pull_request_task_ids = [
         str(task.id)
         for task in tasks_facade.get_tasks_by_ids(discussion_task_ids, [team_id])
-        if (task.description or "").rstrip().endswith(PULL_REQUEST_RUN_REQUESTS)
+        if is_pull_request_run_request(task.description)
     ]
     for task_id, run in tasks_facade.get_latest_run_by_task(pull_request_task_ids).items():
         if not run.is_terminal:

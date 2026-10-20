@@ -216,7 +216,7 @@ function discussReportInstructions(
     if (intent === 'fix_ci' && report !== null && hasActiveReportPullRequest(report)) {
         return [
             `A person asked you to make CI green on the pull request of the PostHog Inbox report at ${reportUrl}, without merging it, in the message after this block.`,
-            `Read the report first and find its open pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state.`,
+            `Read the report first and find its open pull request whose CI checks fail with the inbox MCP tools. If more than one open pull request has failing checks, ask the person which one to fix. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state.`,
             NO_CHECKOUT_INSTRUCTIONS,
         ]
     }
@@ -797,7 +797,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // run endpoint enforces no consent of its own.
             const disabledReason =
                 values.aiConsentDisabledReason ??
-                (intent === 'check_metrics' ? values.metricCheckReplacementDisabledReason : null)
+                (intent === 'check_metrics' ? values.metricCheckReplacementDisabledReason : null) ??
+                (intent === 'merge_pr' || intent === 'fix_ci' ? values.freeTrialDisabledReason : null)
             if (disabledReason) {
                 lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({

@@ -334,9 +334,9 @@ export interface inboxReportDetailLogicValues {
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
-    prChecksFailing: boolean
     prChecksConsecutiveFailures: number
     prChecksError: PrChecksError | null
+    prChecksFailing: boolean
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
@@ -688,11 +688,11 @@ export interface inboxReportDetailLogicMeta {
         shouldPollReportTasks: (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null) => boolean
         selectedPullRequest: (report: SignalReport | null, selectedPullRequestUrl: string | null) => ReportPullRequest
         hasImplementationPr: (report: SignalReport | null) => boolean
-        prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         prChecksFailing: (
             selectedPullRequest: ReportPullRequest,
             prChecks: readonly PullRequestCheckApi[] | null
         ) => boolean
+        prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
         inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>

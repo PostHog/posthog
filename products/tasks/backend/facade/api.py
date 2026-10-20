@@ -7766,6 +7766,9 @@ def create_task(
     """
     from posthog.models import Team  # noqa: PLC0415
 
+    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        is_pull_request_run_request,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
@@ -7920,7 +7923,12 @@ def create_task(
                     {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
             report_reservation = (
-                _reserve_report_warm_activation(team, warm_task, relationship=signal_report_task_relationship)
+                _reserve_report_warm_activation(
+                    team,
+                    warm_task,
+                    relationship=signal_report_task_relationship,
+                    description=validated_data.get("description"),
+                )
                 if report_discussion
                 else None
             )
@@ -8073,9 +8081,12 @@ def create_task(
     )
     if signal_report_id:
         enforce_self_driving_pr_quota(team, report_id=signal_report_id)
-        # Only Create PR is held back on a trial. Discuss keeps working, and a Discuss run can still
-        # open a PR that billing never counts. That is an accepted risk of a sales trial.
-        if signal_report_task_relationship in (None, "implementation"):
+        # Create PR and the discussions that push to the report's PR are held back on a trial. Other
+        # discussions keep working, and one can still open a PR that billing never counts. That is
+        # an accepted risk of a sales trial.
+        if signal_report_task_relationship in (None, "implementation") or is_pull_request_run_request(
+            validated_data.get("description")
+        ):
             enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
@@ -8090,6 +8101,7 @@ def create_task(
                 team_id=team_id,
                 report_id=signal_report_id,
                 relationship=signal_report_task_relationship,
+                description=validated_data.get("description"),
             )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
@@ -8892,7 +8904,12 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
     return integration.id if integration is not None else None
 
 
-def _reserve_report_warm_activation(team: Team, task: Task, *, relationship: str | None) -> Model:
+def _reserve_report_warm_activation(
+    team: Team, task: Task, *, relationship: str | None, description: str | None = None
+) -> Model:
+    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        is_pull_request_run_request,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
@@ -8900,8 +8917,12 @@ def _reserve_report_warm_activation(team: Team, task: Task, *, relationship: str
 
     report_id = str(task.signal_report_id)
     enforce_self_driving_pr_quota(team, report_id=report_id)
+    if is_pull_request_run_request(description):
+        enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
-        enforce_report_task_cap(team_id=task.team_id, report_id=report_id, relationship=relationship)
+        enforce_report_task_cap(
+            team_id=task.team_id, report_id=report_id, relationship=relationship, description=description
+        )
         return record_report_task(
             team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
         )
