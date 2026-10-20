@@ -5171,11 +5171,11 @@ Today (5): `cdn_requests`, `cdn_traffic`, `origin_groups`, `resources`, `ssl_cer
 
 Diffed against: <https://docs.gcore.com/api-reference/services_docs_mintlify_enriched/cdn_api.yaml>
 
-- [ ] `Get CDN logs (GET /cdn/advanced/v1/logs)` — analyze individual requests, status codes, client locations, and paths beyond hourly request totals (high)
-- [ ] `Aggregated statistics (GET /cdn/statistics/aggregate/stats)` — compare cache efficiency, error rates, and traffic across countries and regions (high)
+- [x] `Get CDN logs (GET /cdn/advanced/v1/logs)` — analyze individual requests, status codes, client locations, and paths beyond hourly request totals (high)
+- [x] `Aggregated statistics (GET /cdn/statistics/aggregate/stats)` — compare cache efficiency, error rates, and traffic across countries and regions (high)
 - [ ] `Origin shielding usage statistics (GET /cdn/statistics/shield_usage/series)` — measure shielding usage and its contribution to delivery costs (medium)
-- [ ] `Get CDN activity logs (GET /cdn/activity_log/requests)` — correlate resource changes and operator actions with delivery problems (medium)
-- [ ] `Get purges history list (GET /cdn/purge_statuses)` — analyze cache purge frequency and failures by CDN resource (medium)
+- [x] `Get CDN activity logs (GET /cdn/activity_log/requests)` — correlate resource changes and operator actions with delivery problems (medium)
+- [x] `Get purges history list (GET /cdn/purge_statuses)` — analyze cache purge frequency and failures by CDN resource (medium)
 
 Note: Parsed every collection GET in the official CDN OpenAPI file and inspected statistics parameters and grouping options. Current statistics tables request only requests and sent_bytes, grouped by resource. Request logs cover only the latest three days; aggregate statistics omit the latest two hours. Excluded resource settings, certificates already synced, log uploader configuration, and other Gcore products outside the CDN source.
 
