@@ -387,9 +387,15 @@ Read `references/runs-and-debugging.md` when you need a complete flag table, JSO
 
 ## Test Results and Timing-Based Splitting
 
-Use `depot tests` to inspect parsed JUnit results. Use `depot tests split`, `depot tests run`, or `depot tests report` to balance tests with historical timings and upload new reports. These three subcommands run only inside Depot CI or Depot GitHub Actions runner jobs.
+Use `depot tests` to inspect parsed JUnit results.
 
-For candidate identity rules, matrix behavior, reporting requirements, and command examples, read `references/test-splitting.md`.
+<!-- PostHog-local section. Keep it when resyncing from upstream; see UPSTREAM.md. -->
+
+PostHog does not use `depot tests split`, `depot tests run` or `depot tests report`.
+Backend shards come from `.test_durations`, and Trunk Flaky Tests tracks flaky and quarantined tests.
+See `/fixing-flaky-tests` and `/debugging-ci-failures`.
+
+<!-- End PostHog-local section. -->
 
 ## Compatibility with GitHub Actions
 
