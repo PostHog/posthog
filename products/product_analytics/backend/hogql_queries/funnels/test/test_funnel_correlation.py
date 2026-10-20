@@ -2592,6 +2592,11 @@ class TestNativeEventsActorRouting(SimpleTestCase):
 
 
 class TestActorExecutionUserContext(APIBaseTest):
+    def test_insight_actors_runner_builds_from_a_dict(self) -> None:
+        source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")])
+        runner = get_query_runner(InsightActorsQuery(source=source).model_dump(), self.team, user=self.user)
+        self.assertIsInstance(runner.query, InsightActorsQuery)
+
     @parameterized.expand(
         [("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("FunnelCorrelationQuery",)]
     )
