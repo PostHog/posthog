@@ -77,10 +77,11 @@ It also prints every ClickHouse row of the key (lightweight-deleted ones include
 
 ## Unfinished deletions
 
-`python manage.py person_deletion stuck --output F` lists delete tasks the Celery broker never saw acknowledged. It only reads the broker.
-`python manage.py person_deletion requeue --input F` re-queues the persons that still resolve, through the persons API path. Add `--recordings-only` to keep profiles.
-A delete task that runs out of retries logs `delete_persons_async gave up` with every person it left undeleted; those fields are valid `requeue` input.
-Both are dry runs unless `--apply` is passed.
+A delete task that runs out of retries logs `delete_persons_async gave up` with every person it left undeleted and the time it gave up.
+Export those lines as JSONL, then run `python manage.py person_deletion requeue --input F`. It is a dry run unless `--apply` is passed.
+It re-queues the persons that still resolve, through the persons API path, and skips any person deleted after the give-up time, because new events revived it. Add `--recordings-only` to keep profiles.
+The same line lists unmatched distinct ids. They only feed the AI training deletion, so `requeue` does not queue them; hand them to the AI training owners.
+Do not requeue from the Celery broker's unacknowledged list: the broker redelivers those, or their tasks already re-ran.
 
 ## Safety rules
 
