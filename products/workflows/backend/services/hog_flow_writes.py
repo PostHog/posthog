@@ -141,14 +141,16 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
     if "exit_condition" in derived:
         # validate forces exit_only_at_end when the trigger it read is row-scoped. Apply that rule to the
         # locked trigger instead. When only the old trigger forced the value, keep the locked row's value.
-        if (derived.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        locked_type = (derived.get("trigger") or {}).get("type")
+        read_type = (validated_data.get("trigger") or {}).get("type")
+        if locked_type in ROW_SCOPED_TRIGGER_TYPES:
             derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
-        elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        elif read_type in ROW_SCOPED_TRIGGER_TYPES or (locked_type == "event" and read_type != "event"):
+            # The read trigger may have rewritten the value, and the locked event trigger can run any
+            # exit condition, so keep the locked row's value instead.
             del derived["exit_condition"]
         else:
-            derived["exit_condition"] = exit_condition_that_runs(
-                (derived.get("trigger") or {}).get("type"), derived["exit_condition"]
-            )
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, derived["exit_condition"])
     if "billable_action_types" in derived:
         derived["billable_action_types"] = sorted(
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}

@@ -4995,10 +4995,26 @@ class TestHogFlowAPI(APIBaseTest):
                 {"exit_condition": "exit_on_trigger_not_matched"},
                 "exit_only_at_end",
             ),
+            (
+                "locked_trigger_becomes_an_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_trigger_not_matched",
+                {"name": "Renamed"},
+                "exit_on_trigger_not_matched",
+                "exit_on_trigger_not_matched",
+            ),
         ]
     )
     def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
-        self, _name, initial_trigger_type, concurrent_trigger_type, concurrent_exit_condition, payload, expected
+        self,
+        _name,
+        initial_trigger_type,
+        concurrent_trigger_type,
+        concurrent_exit_condition,
+        payload,
+        expected,
+        stored_exit_condition=None,
     ):
         trigger_configs = {
             "event": {
@@ -5022,6 +5038,9 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
+        if stored_exit_condition:
+            # A row saved before non-event triggers stored the exit condition they can run.
+            HogFlow.objects.filter(pk=flow_id).update(exit_condition=stored_exit_condition)
 
         def update_after_concurrent_trigger_change(**kwargs):
             HogFlow.objects.filter(pk=flow_id).update(
