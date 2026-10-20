@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -7,10 +9,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import PersonsOnEventsMode
+from posthog.schema import PersonsOnEventsMode, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.session_recordings.queries.sub_queries.events_subquery import UNSESSIONED_EVENTS_FLAG
+from posthog.session_recordings.queries.sub_queries.events_subquery import (
+    UNSESSIONED_EVENTS_FLAG,
+    ReplayFiltersEventsSubQuery,
+)
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import assert_query_matches_session_ids
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
@@ -55,8 +60,8 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         timestamp: datetime,
         session_id: str | None = None,
         properties: dict | None = None,
-    ) -> None:
-        _create_event(
+    ) -> str:
+        return _create_event(
             team=self.team,
             event="order paid",
             distinct_id=distinct_id,
@@ -65,16 +70,26 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             properties={**({"$session_id": session_id} if session_id else {}), **(properties or {})},
         )
 
-    def _assert_matches(
-        self, events: list[dict], expected: list[str], flag_enabled: bool = True, properties: list | None = None
-    ) -> None:
+    @contextmanager
+    def _flag(self, enabled: bool) -> Iterator[None]:
         with patch(
             "posthog.session_recordings.queries.sub_queries.events_subquery.feature_enabled_or_false",
-            side_effect=lambda flag, *args, **kwargs: flag_enabled and flag == UNSESSIONED_EVENTS_FLAG,
+            side_effect=lambda flag, *args, **kwargs: enabled and flag == UNSESSIONED_EVENTS_FLAG,
         ):
+            yield
+
+    def _assert_matches(
+        self,
+        events: list[dict],
+        expected: list[str],
+        flag_enabled: bool = True,
+        properties: list | None = None,
+        query_overrides: dict | None = None,
+    ) -> None:
+        with self._flag(flag_enabled):
             assert_query_matches_session_ids(
                 team=self.team,
-                query={"date_from": "-3d", "events": events, "properties": properties or []},
+                query={"date_from": "-3d", "events": events, "properties": properties or [], **(query_overrides or {})},
                 expected=expected,
             )
 
@@ -187,3 +202,45 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             ["recording-of-user-1"] if expected_match else [],
             properties=[{"key": "plan", "value": ["pro"], "operator": "exact", "type": "event"}],
         )
+
+    @parameterized.expand(
+        [
+            ("inside_margin_before_the_recording", RECORDING_START - timedelta(seconds=30), True),
+            ("outside_margin_after_the_recording", RECORDING_END + timedelta(minutes=3), False),
+        ]
+    )
+    def test_explicit_session_ids_without_date_from(
+        self, _name: str, event_time: datetime, expected_match: bool
+    ) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1"])
+        self._produce_recording("recording-of-user-1", "user-1")
+        self._create_order_paid("user-1", person.uuid, event_time)
+        flush_persons_and_events()
+
+        self._assert_matches(
+            [ORDER_PAID],
+            ["recording-of-user-1"] if expected_match else [],
+            query_overrides={"date_from": None, "session_ids": ["recording-of-user-1"]},
+        )
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_matching_events_include_events_without_session_id_inside_the_window(
+        self, _name: str, flag_enabled: bool
+    ) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1", "anon-1"])
+        other = create_person(team=self.team, distinct_ids=["user-2"])
+        self._produce_recording("recording-of-user-1", "user-1")
+        sessioned = self._create_order_paid(
+            "user-1", person.uuid, RECORDING_START + timedelta(minutes=1), "recording-of-user-1"
+        )
+        backend = self._create_order_paid("anon-1", person.uuid, INSIDE_WINDOW)
+        self._create_order_paid("anon-1", person.uuid, RECORDING_END + timedelta(hours=2))
+        self._create_order_paid("user-2", other.uuid, INSIDE_WINDOW)
+        flush_persons_and_events()
+
+        query = RecordingsQuery.model_validate({"session_ids": ["recording-of-user-1"], "events": [ORDER_PAID]})
+        with self._flag(flag_enabled):
+            result = ReplayFiltersEventsSubQuery(team=self.team, query=query).get_event_ids_for_session()
+
+        expected = [sessioned, backend] if flag_enabled else [sessioned]
+        assert sorted(str(row[0]) for row in result.results) == sorted(str(uuid) for uuid in expected)

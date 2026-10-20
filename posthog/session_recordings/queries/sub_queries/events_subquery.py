@@ -68,6 +68,7 @@ COMBINED_EVENT_FILTERS_FLAG = "replay-combined-event-filters"
 # carries no $session_id, as server-side events usually do.
 UNSESSIONED_EVENTS_FLAG = "replay-match-unsessioned-events"
 EVENTS_SUBQUERY_ROW_LIMIT = 1_000_000
+MATCHING_EVENTS_LIMIT = 10_000
 
 # Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
 # a person merge instead of reporting whoever the event was attributed to at ingest.
@@ -251,36 +252,84 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _unsessioned_person_mapping(self) -> ast.SelectQuery:
-        """The current person of every distinct id that may share a person with a recording in scope.
+    def _unsessioned_candidate_distinct_ids(self) -> ast.SelectQuery:
+        """Every distinct id that may share a person with a recording in scope.
 
         The raw rows nominate candidates without resolving versions, so the set can only be too
-        wide. The latest-version resolution then runs over those candidates only, not over the
-        team's whole mapping. No table is sorted by person id, so the nomination reads the team's
-        whole mapping once. Only the events side needs it.
+        wide. No table is sorted by person id, so the nomination reads the team's whole mapping once.
         """
         recorded_persons = parse_select(
             "SELECT person_id FROM raw_person_distinct_ids WHERE {recorded}",
             placeholders={"recorded": self._global_in("distinct_id", self._recorded_distinct_ids())},
         )
-        candidates = parse_select(
-            "SELECT distinct_id FROM raw_person_distinct_ids WHERE {persons}",
-            placeholders={"persons": self._global_in("person_id", cast(ast.SelectQuery, recorded_persons))},
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                "SELECT distinct_id FROM raw_person_distinct_ids WHERE {persons}",
+                placeholders={"persons": self._global_in("person_id", cast(ast.SelectQuery, recorded_persons))},
+            ),
         )
-        return self._current_persons(cast(ast.SelectQuery, candidates))
 
-    def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
-        """One row per person and minute with matching events that carry no session id.
+    def _unsessioned_person_mapping(self) -> ast.SelectQuery:
+        """The current person of every candidate distinct id.
 
-        The join to the person mapping both resolves the event's current person and limits the scan
-        to distinct ids of persons with a recording in scope. The minute grouping bounds the join to
-        the recording windows for busy persons. There is no row cap here: the only cap applies to
-        matched sessions.
+        The latest-version resolution runs over the candidates only, not over the team's whole
+        mapping. Only the events side needs it.
+        """
+        return self._current_persons(self._unsessioned_candidate_distinct_ids())
+
+    def _recording_time_bounds(self) -> list[ast.Expr]:
+        """Bound the events scan to the recordings in scope, plus the margin.
+
+        A query with explicit session ids can have no date range, and then nothing else bounds the
+        scan. ClickHouse runs each scalar subquery once, so the bounds reach the primary key.
+        """
+        bounds: list[ast.Expr] = []
+        for op, aggregate in (
+            (ast.CompareOperationOp.GtEq, "subtractMinutes(min(s.min_first_timestamp), {margin})"),
+            (ast.CompareOperationOp.LtEq, "addMinutes(max(s.max_last_timestamp), {margin})"),
+        ):
+            bound = parse_select(
+                f"SELECT {aggregate} FROM raw_session_replay_events AS s WHERE {{scope}}",
+                placeholders={
+                    "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
+                    "scope": self._recording_scope(),
+                },
+            )
+            bounds.append(ast.CompareOperation(op=op, left=ast.Field(chain=["timestamp"]), right=bound))
+        return bounds
+
+    def _unsessioned_events_join(self) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            next_join=ast.JoinExpr(
+                # GLOBAL: the initiator builds the mapping once and ships it to each shard.
+                join_type="GLOBAL INNER JOIN",
+                table=self._unsessioned_person_mapping(),
+                alias="event_person",
+                constraint=ast.JoinConstraint(
+                    expr=parse_expr("event_person.mapped_distinct_id = events.distinct_id"),
+                    constraint_type="ON",
+                ),
+            ),
+        )
+
+    def _unsessioned_event_predicates(self, filter_expr: ast.Expr) -> ast.And:
+        """Events without a session id that match `filter_expr`, from persons with a recording in scope.
+
+        The join to the person mapping does not limit the scan, so an explicit distinct id
+        predicate keeps unrelated events of the team out of it.
         """
         exprs: list[ast.Expr] = [
             # coalesce, because an absent session id reads as NULL and empty(NULL) is not true.
             parse_expr("coalesce(properties.$session_id, '') = ''"),
             parse_expr("timestamp <= now()"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GlobalIn,
+                left=ast.Field(chain=["events", "distinct_id"]),
+                right=self._unsessioned_candidate_distinct_ids(),
+            ),
+            *self._recording_time_bounds(),
             clone_expr(filter_expr),
         ]
         events_date_from = self._events_date_from()
@@ -295,6 +344,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     placeholders={"date_to": ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1))},
                 )
             )
+        return ast.And(exprs=exprs)
+
+    def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
+        """One row per person and minute with matching events that carry no session id.
+
+        The join to the person mapping resolves the event's current person. The minute grouping
+        bounds the join to the recording windows for busy persons. There is no row cap here: the
+        only cap applies to matched sessions.
+        """
         return ast.SelectQuery(
             select=[
                 ast.Alias(alias="event_person_id", expr=ast.Field(chain=["event_person", "mapped_person_id"])),
@@ -303,32 +361,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 # A row covers one minute, so it falls in one hour.
                 ast.Alias(alias="hour_bucket", expr=parse_expr("intDiv(toUnixTimestamp(min(timestamp)), 3600)")),
             ],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                next_join=ast.JoinExpr(
-                    # GLOBAL: the initiator builds the mapping once and ships it to each shard.
-                    join_type="GLOBAL INNER JOIN",
-                    table=self._unsessioned_person_mapping(),
-                    alias="event_person",
-                    constraint=ast.JoinConstraint(
-                        expr=parse_expr("event_person.mapped_distinct_id = events.distinct_id"),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
-            where=ast.And(exprs=exprs),
+            select_from=self._unsessioned_events_join(),
+            where=self._unsessioned_event_predicates(filter_expr),
             group_by=[
                 ast.Field(chain=["event_person", "mapped_person_id"]),
                 parse_expr("toStartOfMinute(timestamp)"),
             ],
         )
 
-    def _unsessioned_recordings_query(self) -> ast.SelectQuery:
-        """One row per recording, person, and hour that its window (plus the margin) touches.
-
-        The hour key bounds the join to the event minutes: a person with many recordings and
-        many event minutes only pairs the ones in the same hour.
-        """
+    def _unsessioned_recording_windows(self) -> ast.SelectQuery:
+        """One row per recording in scope and person, with the recording window."""
         windows = parse_select(
             """
             SELECT s.session_id AS session_id,
@@ -349,6 +391,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         assert windows.select_from is not None and windows.select_from.next_join is not None
         # GLOBAL: the initiator builds the mapping once and ships it to each shard.
         windows.select_from.next_join.join_type = "GLOBAL INNER JOIN"
+        return windows
+
+    def _unsessioned_recordings_query(self) -> ast.SelectQuery:
+        """One row per recording, person, and hour that its window (plus the margin) touches.
+
+        The hour key bounds the join to the event minutes: a person with many recordings and
+        many event minutes only pairs the ones in the same hour.
+        """
         query = parse_select(
             """
             SELECT session_id, person_id, window_start, window_end,
@@ -358,7 +408,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                    )) AS hour_bucket
             FROM {windows}
             """,
-            placeholders={"windows": windows, "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)},
+            placeholders={
+                "windows": self._unsessioned_recording_windows(),
+                "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
+            },
         )
         assert isinstance(query, ast.SelectQuery)
         return query
@@ -388,6 +441,41 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 "recording": self._unsessioned_recordings_query(),
                 "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
                 "limit": ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _unsessioned_matching_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
+        """The ids of events without a session id that put a recording in scope in the listing.
+
+        An event qualifies when it falls inside the recording window (plus the margin) of the
+        same person, as in `_unsessioned_sessions_query`.
+        """
+        events = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="uuid", expr=ast.Field(chain=["events", "uuid"])),
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=["events", "timestamp"])),
+                ast.Alias(alias="event_person_id", expr=ast.Field(chain=["event_person", "mapped_person_id"])),
+            ],
+            select_from=self._unsessioned_events_join(),
+            where=self._unsessioned_event_predicates(filter_expr),
+        )
+        query = parse_select(
+            """
+            SELECT unsessioned.uuid AS uuid, any(unsessioned.timestamp) AS timestamp
+            FROM {events} AS unsessioned
+            INNER JOIN {recording} AS recording ON recording.person_id = unsessioned.event_person_id
+            WHERE unsessioned.timestamp >= subtractMinutes(recording.window_start, {margin})
+              AND unsessioned.timestamp <= addMinutes(recording.window_end, {margin})
+            GROUP BY unsessioned.uuid
+            LIMIT {limit}
+            """,
+            placeholders={
+                "events": events,
+                "recording": self._unsessioned_recording_windows(),
+                "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
+                "limit": ast.Constant(value=MATCHING_EVENTS_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -792,25 +880,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             limit=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT * (len(predicates) if is_or else 1)),
         )
 
-    def _get_queries_for_matching(
-        self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
-    ) -> list[ast.SelectQuery]:
+    def _gathered_exprs(self, union_entities: bool) -> tuple[list[ast.Expr], Optional[ast.SelectQuery]]:
         """
-        takes each filter in the query that can be queried from the events table
-        and makes a separate query for each
-        this might be slower than the previous approach of having one huge event query
-        but that approach is horribly complex, and we keep getting bug reports
-        that are avoidable with a simpler approach
-        `get_session_id_match_plan` can combine a narrow set of positive filters behind a release flag.
-
         `union_entities` merges the event/action filters into a single subquery, for callers that
         intersect the subqueries by event id rather than by session id (see
         `get_query_for_event_id_matching`).
         """
-        gathered_exprs, hybrid_query = self._gathered_exprs(union_entities)
-        return self._separate_queries(select_expr, group_by, gathered_exprs, hybrid_query)
-
-    def _gathered_exprs(self, union_entities: bool) -> tuple[list[ast.Expr], Optional[ast.SelectQuery]]:
         gathered_exprs: list[ast.Expr] = []
         event_where_exprs = self._event_predicates(self.entities, self._team)
         if event_where_exprs:
@@ -897,6 +972,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         gathered_exprs: list[ast.Expr],
         hybrid_query: Optional[ast.SelectQuery],
     ) -> list[ast.SelectQuery]:
+        """
+        takes each filter in the query that can be queried from the events table
+        and makes a separate query for each
+        this might be slower than the previous approach of having one huge event query
+        but that approach is horribly complex, and we keep getting bug reports
+        that are avoidable with a simpler approach
+        `get_session_id_match_plan` can combine a narrow set of positive filters behind a release flag.
+        """
         queries: list[ast.SelectQuery] = []
 
         # Add hybrid query first if we used it for person properties
@@ -1031,14 +1114,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         (that's a question about the session, which `get_queries_for_session_id_matching`
         answers), it names the events that made the session relevant.
         """
+        # The subqueries are intersected by event id below, and an event has exactly one name,
+        # so keeping one subquery per entity would match nothing as soon as there are two.
+        gathered_exprs, hybrid_query = self._gathered_exprs(union_entities=True)
         # Subqueries only need to return uuid for the GlobalIn comparison
-        select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
+        select_queries: list[ast.SelectQuery] = self._separate_queries(
             select_expr=ast.Field(chain=["uuid"]),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
-            # The subqueries are intersected by event id below, and an event has exactly one name,
-            # so keeping one subquery per entity would match nothing as soon as there are two.
-            union_entities=True,
+            gathered_exprs=gathered_exprs,
+            hybrid_query=hybrid_query,
         )
         select_exprs: list[ast.Expr] = []
         for q in select_queries:
@@ -1058,13 +1143,23 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         where_expr: ast.Expr = (
             self.wrapped_with_query_operand(exprs=select_exprs) if select_exprs else ast.Constant(value=False)
         )
-        return self._select_from_events(
+        query = self._select_from_events(
             select_expr=[ast.Field(chain=["uuid"]), ast.Call(name="any", args=[ast.Field(chain=["timestamp"])])],
             where_expr=where_expr,
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
-            limit_expr=ast.Constant(value=10000),
+            limit_expr=ast.Constant(value=MATCHING_EVENTS_LIMIT),
         )
+        if not self._matches_unsessioned_events():
+            return query
+        # The merged event and action predicate comes first, then one per top-level event property,
+        # the same filters the listing matches by person and time. Match is off with any negative
+        # property, so these are all positive.
+        unsessioned_count = 1 + len(self._emitted_event_properties())
+        unsessioned = self._unsessioned_matching_events_query(
+            self.wrapped_with_query_operand(exprs=gathered_exprs[:unsessioned_count])
+        )
+        return ast.SelectSetQuery.create_from_queries([query, unsessioned], "UNION ALL")
 
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
         query = self.get_query_for_event_id_matching()
