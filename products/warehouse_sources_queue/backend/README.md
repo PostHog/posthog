@@ -195,6 +195,10 @@ The `run_warehouse_scheduler` command runs the tick loop.
 Each scheduled kind declares its queue lane and its overlap policy; `sync.extract` uses `SKIP` on lane `extract`.
 The scheduler decides overlap from the live jobs in `queuejob`, never from `ExternalDataJob` rows.
 The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
+The tick leader drains due schedules.
+The fleet-wide refresh runs in a separate loop with its own sentinel row, so a slow refresh does not delay the drain.
+Each drain batch locks the tick sentinel row with `JobsTable.lock_live_lease` and stops when the row is no longer this pod's.
+A new leader waits for that lock, so two pods never drain at the same time.
 It starts no syncs.
 The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
 It counts an unmatched decision as `temporal_overlap_skip`, not `shadow_only`, when a job for that schema was in progress at the due time and was created at most 7 days before it.
