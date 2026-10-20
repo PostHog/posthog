@@ -11436,10 +11436,10 @@ Today (4): `assets`, `components`, `repositories`, `tasks`
 
 Diffed against: <https://help.sonatype.com/en/api-reference.html>
 
-- [ ] `security/users` — user inventory with source realm and assigned roles; the only way to attribute repository access (medium)
-- [ ] `security/roles` — lookup resolving the role IDs referenced by users (medium)
-- [ ] `security/privileges` — lookup resolving the privilege IDs referenced by roles (medium)
-- [ ] `blobstores (list + {name}/quota-status)` — storage footprint and quota headroom per blob store - the capacity metric behind component/asset growth (medium)
+- [x] `security/users` — user inventory with source realm and assigned roles; the only way to attribute repository access (medium)
+- [x] `security/roles` — lookup resolving the role IDs referenced by users (medium)
+- [x] `security/privileges` — lookup resolving the privilege IDs referenced by roles (medium)
+- [x] `blobstores (list + {name}/quota-status)` — storage footprint and quota headroom per blob store - the capacity metric behind component/asset growth (medium)
 
 Note: Source targets Nexus Repository Manager 3 only (/service/rest/v1), not IQ Server / Lifecycle. The Nexus Repository API surface is genuinely small and mostly configuration (capabilities, cleanup-policies, email, http-configuration, licensing, lifecycle, log-management, nodes, read-only, script, status, support) - components/assets/repositories/tasks already cover the bulk of queryable data, so coverage is close to proportionate.
 
