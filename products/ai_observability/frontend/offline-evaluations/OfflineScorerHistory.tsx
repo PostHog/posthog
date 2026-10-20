@@ -13,6 +13,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
@@ -86,7 +87,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                 ) : !definition ? (
                     <Spinner />
                 ) : (
-                    <div className="space-y-4 min-w-0">
+                    <div className="space-y-4 min-w-0 @container/scorer-history">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center flex-wrap gap-2">
                                 <LemonTag>{definition.kind}</LemonTag>
@@ -133,6 +134,10 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                         { value: 'not_specified', label: 'Not specified' },
                                     ]}
                                 />
+                            </div>
+                            <div>
+                                <LemonLabel>Tags</LemonLabel>
+                                <ResourceTagFilter filters={filters} onChange={setFilters} />
                             </div>
                             <div>
                                 <LemonLabel>Version</LemonLabel>

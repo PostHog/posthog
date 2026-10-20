@@ -194,7 +194,7 @@ const personsRetrieve = (): ToolBase<
             'created_at',
             'last_seen_at',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/persons/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/persons/${filtered.uuid}`)
     },
 })
 

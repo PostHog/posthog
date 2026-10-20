@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import cast
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -234,6 +235,10 @@ QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
 # Below the replica's cap of 2,500 distinct IDs per person, so a person that returns this many may have more.
 TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT = 100
 
+# A retried or redelivered deletion task finishes within an hour, so an older "deleted" entry is an earlier
+# deletion of a revived person, and this deletion gets its own entry.
+DELETION_LOG_DEDUPE_WINDOW = timedelta(hours=24)
+
 
 def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.list[str]) -> int:
     """Like tombstone_and_publish_persons, but read distinct IDs in batches, page heavy persons, and bound each RPC."""
@@ -411,9 +416,8 @@ def _queue_training_deletion_isolating_failures(
 ) -> builtins.list[Person]:
     """Queue training deletion for ``persons`` and return the ones it succeeded for.
 
-    Each call scans replay events for the distinct IDs it is given, so the batch goes out as one
-    flattened call. Only when that raises are the persons retried one at a time, which pins the
-    failure on the person that causes it instead of blocking the whole batch.
+    The batch goes out as one flattened call, which only queues the replay lookup. Only when that
+    raises are the persons retried one at a time, so a failure is pinned on the persons it affects.
     """
     try:
         queue_person_training_deletion(
@@ -523,7 +527,7 @@ def _tombstone_and_delete_persons(
     if organization_id is not None and deleted:
         try:
             # Person reads are eventually consistent, so a retry can resolve and delete a person
-            # that an earlier attempt already removed. Skip persons that already have a deleted
+            # that an earlier attempt already removed. Skip persons that already have a recent deleted
             # entry so the audit trail does not record the same deletion twice.
             already_logged = set(
                 ActivityLog.objects.filter(
@@ -531,6 +535,7 @@ def _tombstone_and_delete_persons(
                     scope="Person",
                     activity="deleted",
                     item_id__in=[str(person.pk) for person in deleted],
+                    created_at__gte=timezone.now() - DELETION_LOG_DEDUPE_WINDOW,
                 ).values_list("item_id", flat=True)
             )
             bulk_log_activity(

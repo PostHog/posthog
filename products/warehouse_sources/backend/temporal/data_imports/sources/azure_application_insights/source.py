@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,6 +51,54 @@ APP_ERROR = "Application Insights could not find the resource. Check the applica
 class AzureApplicationInsightsSource(
     ResumableSource[AzureApplicationInsightsSourceConfig, AzureApplicationInsightsResumeConfig]
 ):
+    codebase_detection = detect(
+        env=(
+            "^(AZURE_APPLICATION_INSIGHTS|AZUREAPPLICATIONINSIGHTS)_",
+            "^APPLICATIONINSIGHTS_",
+            "^APPINSIGHTS_INSTRUMENTATIONKEY$",
+        ),
+        script_hosts=("js.monitor.azure.com", "az416426.vo.msecnd.net"),
+        npm=(
+            "applicationinsights",
+            "@microsoft/applicationinsights-web",
+            "@microsoft/applicationinsights-react-js",
+            "@azure/monitor-opentelemetry",
+            "@azure/monitor-opentelemetry-exporter",
+        ),
+        pypi=(
+            "azure-monitor-opentelemetry",
+            "azure-monitor-opentelemetry-exporter",
+            "opencensus-ext-azure",
+            "applicationinsights",
+        ),
+        go=("github.com/microsoft/ApplicationInsights-Go",),
+        maven=(
+            "com.microsoft.azure:applicationinsights-core",
+            "com.microsoft.azure:applicationinsights-runtime-attach",
+            "com.microsoft.azure:applicationinsights-agent",
+            "com.microsoft.azure:applicationinsights-spring-boot-starter",
+            "com.azure:azure-monitor-opentelemetry-exporter",
+            "com.azure:azure-monitor-opentelemetry-autoconfigure",
+            "com.azure:azure-opentelemetry-exporter-azuremonitor",
+            "com.azure:azure-resourcemanager-applicationinsights",
+            "com.azure:opentelemetry-exporters-azuremonitor",
+            "com.microsoft.azure:applicationinsights-android",
+            "com.microsoft.azure:applicationinsights-collectd",
+            "com.microsoft.azure:applicationinsights-logging-log4j1_2",
+            "com.microsoft.azure:applicationinsights-logging-log4j2",
+            "com.microsoft.azure:applicationinsights-logging-logback",
+            "com.microsoft.azure:applicationinsights-profiler-agent",
+            "com.microsoft.azure:applicationinsights-profiler-library",
+            "com.microsoft.azure:applicationinsights-profiler-telemetrymodule",
+            "com.microsoft.azure:applicationinsights-profiler-uploader",
+            "com.microsoft.azure:applicationinsights-web",
+            "com.microsoft.azure:applicationinsights-web-auto",
+            "com.microsoft.azure:azure-applicationinsights-query",
+            "com.microsoft.azure:azure-toolkit-applicationinsights-lib",
+        ),
+        rubygems=("application_insights",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = API_DOCS_URL

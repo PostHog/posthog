@@ -15,9 +15,6 @@ from django.test import override_settings
 
 from rest_framework import status
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.templates.helpers import mock_transpile
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -27,8 +24,11 @@ from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugi
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
+from products.cdp.backend.templates.helpers import mock_transpile
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
 
 def mocked_plugin_reload(*args, **kwargs):

@@ -16,6 +16,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -23,6 +24,8 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.products import Products
+from posthog.schema_enums import ProductItemCategory
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -1642,12 +1645,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("posthog.tasks.email.send_invite.apply_async")
     @patch("posthoganalytics.capture")
-    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture):
-        response = self.client.post(
-            self._delegate_url(),
-            {"target_email": "engineer@example.com", "message": "please help"},
-        )
+    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture, _mock_send_invite):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._delegate_url(),
+                {"target_email": "engineer@example.com", "message": "please help"},
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
         self.assertTrue(invite.is_setup_delegation)
@@ -1658,6 +1663,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
         self.assertIsNotNone(self.user.onboarding_skipped_at)
         self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+        # The delegator skipped onboarding, so every released product is starred to fill the sidebar.
+        released_paths = {
+            product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED
+        }
+        starred_paths = set(
+            FileSystemShortcut.objects.filter(user=self.user, team=self.team).values_list("path", flat=True)
+        )
+        self.assertLessEqual(released_paths, starred_paths)
 
     def test_delegate_rejects_email_outside_enforced_verified_domain(self):
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.

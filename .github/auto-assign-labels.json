@@ -1,5 +1,5 @@
 {
-    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
+    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. A rule can also list `paths` from the repo root: a PR that changes a matching file, either side of a rename, gets the rule's labels. A path that ends in `/` covers its directory, `*` matches within one path segment and `**` matches any number of directories. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
     "rules": [
         {
             "scopes": ["flags", "flag", "feature-flags", "feature-flag", "feature_flags", "feature_flag"],
@@ -15,6 +15,7 @@
         },
         {
             "scopes": [
+                "agent",
                 "tasks",
                 "tasks-agent",
                 "agent-proxy",
@@ -24,6 +25,25 @@
                 "gateway",
                 "llm-gateway",
                 "ai-gateway"
+            ],
+            "paths": [
+                ".agents/skills/auditing-llm-gateway-parity/",
+                ".agents/skills/finding-llm-gateway-migration-candidates/",
+                ".agents/skills/migrating-llm-gateway-callers/",
+                ".github/workflows/cd-agent-proxy-image.yml",
+                ".github/workflows/cd-tasks-golden-snapshot.yml",
+                ".github/workflows/ci-agent-proxy.yml",
+                ".github/workflows/ci-llm-gateway.yml",
+                ".github/workflows/llm-gateway-cd.yml",
+                ".github/workflows/update-ai-costs.yml",
+                "bin/start-llm-gateway",
+                "nodejs/src/ingestion/pipelines/ai/costs/providers/",
+                "nodejs/src/ingestion/pipelines/ai/costs/scripts/",
+                "packages/agent/",
+                "posthog/**/*llm_gateway*",
+                "products/tasks/",
+                "services/agent-proxy/",
+                "services/llm-gateway/"
             ],
             "labels": ["feature/agent-infra"]
         }

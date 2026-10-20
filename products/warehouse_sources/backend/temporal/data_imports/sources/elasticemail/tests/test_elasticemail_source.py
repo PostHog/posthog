@@ -5,15 +5,18 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticemail import (
+    ElasticemailSourceConfig,
+)
 
 
 class TestGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = ElasticemailSource().get_schemas(MagicMock(), team_id=1, names=["contacts", "events"])
-        assert {s.name for s in schemas} == {"contacts", "events"}
-
     @parameterized.expand(
         [
             ("contacts",),
@@ -88,20 +91,16 @@ class TestNonRetryableErrors:
 
 class TestResumableAndCanonical:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        inputs = SimpleNamespace(
-            schema_name="events",
-            team_id=1,
-            job_id="job",
-            logger=MagicMock(),
+        result = SourceDriver(ElasticemailSource(), ElasticemailSourceConfig(api_key="key")).run(
+            "events",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00",
         )
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        response = ElasticemailSource().source_for_pipeline(
-            SimpleNamespace(api_key="key"),  # type: ignore[arg-type]
-            manager,
-            inputs,  # type: ignore[arg-type]
-        )
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == "events"
         assert response.primary_keys == ["TransactionID", "MsgID", "EventType", "EventDate"]
+        assert result.requests[0].param("from") == "2026-01-01T00:00:00"

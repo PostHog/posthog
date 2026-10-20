@@ -28,6 +28,8 @@ from .enums import (
     DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
+    DashboardTemplateSource,
+    DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
     MetricRangeFunction,
@@ -52,6 +54,9 @@ METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 
 # Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
 METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
+
+# Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
+METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,8 +159,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
-    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
-    # did not set one. Set by `run_metric_query`, not by callers.
+    # UCUM unit of the values in `points` (e.g. "By", "ms", "ms/s"). It differs
+    # from the ingested unit when the clause transforms the values: COUNT has no
+    # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
 
 
@@ -470,3 +476,59 @@ class PanelQueryCheckResult:
     valid: bool
     error: str | None = None
     notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestedDashboard:
+    """A dashboard from the bank that suits the metrics of a team."""
+
+    id: str
+    template_id: str
+    name: str
+    description: str
+    reason: str
+    panel_count: int
+    matched_metric_count: int
+    coverage: float
+    dashboard_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateRound:
+    """One check round of a generation: a picture of the preview dashboard, and what the model said about it."""
+
+    round: int
+    has_picture: bool
+    looks_good: bool | None = None
+    problems: tuple[str, ...] = ()
+    revised: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateSummary:
+    id: str
+    key: str
+    name: str
+    description: str
+    source: DashboardTemplateSource
+    status: DashboardTemplateStatus
+    metric_names: tuple[str, ...]
+    panel_titles: tuple[str, ...]
+    created_at: dt.datetime
+    suggestion_count: int = 0
+    source_team_id: int | None = None
+    preview_team_id: int | None = None
+    preview_dashboard_id: int | None = None
+    rounds: tuple[DashboardTemplateRound, ...] = ()
+    dropped_panels: tuple[str, ...] = ()
+    error: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: dt.datetime | None = None
+
+
+class SuggestedDashboardError(Exception):
+    """An action on a suggestion or a template failed. The message is safe to show."""
+
+
+class SuggestedDashboardNotFound(SuggestedDashboardError):
+    pass

@@ -1,5 +1,4 @@
-from posthog.cdp.templates.helpers import BaseSiteDestinationFunctionTest
-
+from products.cdp.backend.templates.helpers import BaseSiteDestinationFunctionTest
 from products.cdp.backend.templates.reddit.template_reddit_pixel import template_reddit_pixel
 
 TEST_EMAIL = "test@example.com"

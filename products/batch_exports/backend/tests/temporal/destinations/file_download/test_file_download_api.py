@@ -27,6 +27,11 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.batch_exports.backend.logic.file_downloads import (
+    _calculate_expiration_for_file_download,
+    _generate_s3_pre_signed_url,
+    _get_file_download_for_run,
+)
 from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportFileDownload,
@@ -37,9 +42,6 @@ from products.batch_exports.backend.models.batch_export import (
 from products.batch_exports.backend.presentation.views.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
     DEFAULT_MAX_SIZE_MB,
-    _calculate_expiration_for_file_download,
-    _generate_s3_pre_signed_url,
-    _get_file_download_for_run,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
@@ -165,7 +167,7 @@ def override_file_download_settings(aws_role_arn, s3_bucket):
 def mock_start_file_download_export():
     """Mock starting the Temporal workflow so create tests don't reach Temporal."""
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.file_download.start_file_download_batch_export"
+        "products.batch_exports.backend.logic.file_downloads.start_file_download_batch_export"
     ) as mock_start:
         yield mock_start
 
@@ -302,6 +304,66 @@ async def test_file_download_download_fails_when_not_completed(
             assert b"has failed" in response.content
         else:
             assert b"still in progress" in response.content
+
+
+@pytest.mark.parametrize(
+    "part,expected_status,expected_detail",
+    [
+        ("0", status.HTTP_302_FOUND, None),
+        ("1", status.HTTP_400_BAD_REQUEST, "This file download has expired"),
+        ("2", status.HTTP_404_NOT_FOUND, "No files with index 2"),
+        ("abc", status.HTTP_400_BAD_REQUEST, "Invalid file id or index: 'abc'"),
+        ("00000000-0000-4000-8000-000000000000", status.HTTP_404_NOT_FOUND, "Not found."),
+    ],
+    ids=["live-file", "expired-file", "index-out-of-range", "invalid-part", "unknown-file-id"],
+)
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_download_resolves_part(
+    async_client: AsyncClient,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+    part: str,
+    expected_status: int,
+    expected_detail: str | None,
+):
+    destination = await BatchExportDestination.objects.acreate(
+        type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+    )
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.COMPLETED,
+    )
+    await BatchExportFileDownload.objects.acreate(team=team, batch_export_run=run, key="batch-exports/0")
+    await BatchExportFileDownload.objects.acreate(
+        team=team,
+        batch_export_run=run,
+        key="batch-exports/1",
+        expires_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=1),
+    )
+
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.logic.file_downloads._generate_s3_pre_signed_url",
+        return_value="https://example.com/download",
+    ) as pre_sign:
+        response = await async_client.get(
+            f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/download/{part}",
+        )
+
+    assert response.status_code == expected_status
+    if expected_detail is None:
+        assert response["Location"] == "https://example.com/download"
+        assert response["Cache-Control"] == "no-store"
+        assert pre_sign.call_args.args[1] == "batch-exports/0"
+    else:
+        assert response.json()["detail"] == expected_detail
 
 
 @requires_aws_credentials
@@ -487,22 +549,45 @@ async def test_file_download_list_returns_run_ids_and_statuses(
         status=BatchExportRun.Status.COMPLETED,
     )
 
+    cancelled_run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.CANCELLED,
+    )
+
     running_run.created_at = dt.datetime(2026, 1, 1, 1, 1, 0, tzinfo=dt.UTC)
     await running_run.asave(update_fields=["created_at"])
     completed_run.created_at = dt.datetime(2026, 1, 1, 1, 1, 1, tzinfo=dt.UTC)
     await completed_run.asave(update_fields=["created_at"])
+    cancelled_run.created_at = completed_run.created_at
+    await cancelled_run.asave(update_fields=["created_at"])
 
     await async_client.aforce_login(user)
+
+    tied_runs = sorted([completed_run, cancelled_run], key=lambda run: run.id, reverse=True)
+    expected = [{"id": str(run.id), "status": run.status} for run in [*tied_runs, running_run]]
 
     response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
 
     assert response.status_code == status.HTTP_200_OK, response.json()
     data = response.json()
-    assert data["count"] == 2
-    assert data["results"] == [
-        {"id": str(completed_run.id), "status": BatchExportRun.Status.COMPLETED},
-        {"id": str(running_run.id), "status": BatchExportRun.Status.RUNNING},
-    ]
+    assert data["count"] == 3
+    assert data["results"] == expected
+
+    pages = []
+    for offset in range(3):
+        response = await async_client.get(
+            f"/api/projects/{team.pk}/file_download_batch_exports?limit=1&offset={offset}"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["count"] == 3
+        pages.extend(data["results"])
+
+    assert data["next"] is None
+    assert data["previous"] is not None
+    assert pages == expected
 
 
 @requires_aws_credentials
@@ -606,9 +691,7 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.file_download.sync_connect"
-    ) as mocked_connect:
+    with unittest.mock.patch("products.batch_exports.backend.logic.file_downloads.sync_connect") as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
@@ -742,6 +825,11 @@ class TestFileDownloadHogQL:
                 {"model": "events", "hogql_query": None},
                 "'data_interval_start' and 'data_interval_end' are required",
                 id="events-model-missing-intervals",
+            ),
+            pytest.param(
+                {"hogql_modifiers": {"useNewEventsCluster": True}},
+                "synchronous query API",
+                id="native-cluster-modifier",
             ),
             pytest.param(
                 {"model": "events", "hogql_query": None, "hogql_modifiers": {"convertToProjectTimezone": False}},
@@ -1168,6 +1256,15 @@ class TestFileDownloadHogQL:
                 "Extra inputs are not permitted",
                 id="unknown-modifier",
             ),
+            pytest.param(
+                {
+                    "model": "hogql",
+                    "hogql_query": "SELECT event AS event FROM events",
+                    "hogql_modifiers": {"useNewEventsCluster": True},
+                },
+                "synchronous query API",
+                id="native-cluster-modifier",
+            ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag")
@@ -1177,9 +1274,7 @@ class TestFileDownloadHogQL:
     ):
         await async_client.aforce_login(user)
 
-        with unittest.mock.patch(
-            "products.batch_exports.backend.presentation.views.file_download.execute_hogql_query"
-        ) as execute:
+        with unittest.mock.patch("products.batch_exports.backend.logic.file_downloads.execute_hogql_query") as execute:
             response = await async_client.post(
                 f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
                 body,
@@ -1211,7 +1306,7 @@ class TestFileDownloadHogQL:
         await async_client.aforce_login(user)
 
         with unittest.mock.patch(
-            "products.batch_exports.backend.presentation.views.file_download.execute_hogql_query",
+            "products.batch_exports.backend.logic.file_downloads.execute_hogql_query",
             side_effect=ClickHouseQueryTimeOut(),
         ):
             response = await async_client.post(

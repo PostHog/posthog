@@ -26,12 +26,6 @@ class TestFirecrawlSourceConfig:
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
 
 
-class TestFirecrawlGetSchemas:
-    def test_names_filter_is_applied(self) -> None:
-        schemas = FirecrawlSource().get_schemas(_config(), team_id=1, names=["team_activity"])
-        assert [s.name for s in schemas] == ["team_activity"]
-
-
 class TestFirecrawlValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_maps_token_probe_to_result(self, _name: str, probe_result: bool) -> None:

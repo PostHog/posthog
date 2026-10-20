@@ -18,12 +18,13 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
     _stuck_key,
 )
 
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.backfills import (
     MAX_BACKFILL_WINDOW_DAYS,
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -143,6 +144,15 @@ class TestBackfillQuotaCommitment:
 
         assert spend_projection(org_id).backfills_committed_credits == 60 * 5
         assert compute_quota_snapshot(org_id).projected_monthly_credits == 60 * 5
+
+    def test_free_only_backfill_commits_only_the_free_credits_left(self) -> None:
+        scanner = _make_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(free_only=True)
+        org_id = scanner.team.organization_id
+        seed_scanner_spend(scanner, FREE_TIER_MONTHLY_CREDITS - 100)
+        _make_backfill(scanner, total_count=100, credits_per_observation=5)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert spend_projection(org_id).backfills_committed_credits == 100
 
     def test_paused_backfill_still_counts_as_committed(self) -> None:
         scanner = _make_scanner()

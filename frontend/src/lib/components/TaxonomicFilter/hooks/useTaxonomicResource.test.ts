@@ -139,13 +139,16 @@ describe('useTaxonomicResource', () => {
         expect(fn).toHaveBeenCalledTimes(2)
     })
 
-    it('aborts in-flight request when last subscriber unmounts', async () => {
+    it('aborts in-flight request when last subscriber unmounts, not when it re-renders', async () => {
         const seenSignals: AbortSignal[] = []
         const fn = jest.fn().mockImplementation(({ signal }: { signal: AbortSignal }) => {
             seenSignals.push(signal)
             return new Promise(() => {})
         })
-        const { unmount } = renderHook(() => useTaxonomicResource(['abort'], fn))
+        const { rerender, unmount } = renderHook(() => useTaxonomicResource(['abort'], fn))
+        expect(seenSignals).toHaveLength(1)
+        expect(seenSignals[0].aborted).toBe(false)
+        rerender()
         expect(seenSignals).toHaveLength(1)
         expect(seenSignals[0].aborted).toBe(false)
         unmount()

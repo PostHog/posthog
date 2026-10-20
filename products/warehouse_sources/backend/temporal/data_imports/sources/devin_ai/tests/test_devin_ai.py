@@ -1,81 +1,40 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import (
     DevinAIResumeConfig,
     _endpoint_path,
-    devin_ai_source,
     get_status_code,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import (
     DEVIN_AI_ENDPOINTS,
     PAGE_SIZE,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# get_status_code builds its own tracked session in the devin_ai module.
-DEVIN_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
+    DevinAISourceConfig,
 )
 
 
-def _response(
+def _page(
     items: list[dict[str, Any]] | None, *, has_next_page: bool = False, end_cursor: str | None = None
-) -> Response:
+) -> ScriptedResponse:
     body: dict[str, Any] = {"has_next_page": has_next_page, "end_cursor": end_cursor}
     if items is not None:
         body["items"] = items
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: DevinAIResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each request
-    is prepared rather than inspecting the final state after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return devin_ai_source(
-        api_key="cog_test",
-        org_id="org-abc",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(DevinAISource(), DevinAISourceConfig(api_key="cog_test", org_id="org-abc"))
 
 
 class TestEndpointPath:
@@ -112,13 +71,15 @@ class TestEndpointPath:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"session_id": "s3"}])])
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "sessions", [_page([{"session_id": "s3"}])], resume_state=DevinAIResumeConfig(after="saved_cursor")
+        )
 
-        _rows(_source("sessions", _make_manager(DevinAIResumeConfig(after="saved_cursor"))))
-        assert params[0] == {"first": PAGE_SIZE, "after": "saved_cursor"}
+        assert result.raised is None
+        assert result.rows == [{"session_id": "s3"}]
+        assert result.requests[0].param("first") == str(PAGE_SIZE)
+        assert result.requests[0].param("after") == "saved_cursor"
 
 
 class TestGetStatusCode:
@@ -138,24 +99,20 @@ class TestGetStatusCode:
     def test_fanout_child_probes_its_org_level_endpoint(
         self, endpoint: str, expected_url: str, expected_params: dict[str, Any]
     ) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        session = mock.MagicMock()
-        session.get.return_value = response
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert get_status_code("cog_test", "org-abc", endpoint) == 200
 
-        with mock.patch(DEVIN_SESSION_PATCH, return_value=session):
-            get_status_code("cog_test", "org-abc", endpoint)
-
-        args, kwargs = session.get.call_args
-        assert args[0] == expected_url
-        assert kwargs["params"] == expected_params
+        assert network.requests_log[0].url.split("?", 1)[0] == expected_url
+        assert network.requests_log[0].query == {key: (str(value),) for key, value in expected_params.items()}
 
 
 class TestDevinAISource:
     @parameterized.expand(["sessions", "session_insights", "playbooks", "knowledge_notes", "secrets", "automations"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str, MockSession) -> None:
-        response = _source(endpoint, _make_manager())
+    def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         cfg = DEVIN_AI_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == cfg.primary_keys
@@ -170,14 +127,17 @@ class TestDevinAISource:
             ("consumption_daily_users", ["user_id", "date"]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_fan_out_and_consumption_tables_keep_their_keys_and_partitioning(
-        self, endpoint: str, expected_keys: list[str], MockSession
+        self, endpoint: str, expected_keys: list[str]
     ) -> None:
         # The fan-out and single-page branches build their SourceResponse separately from the
         # top-level one, so each has to carry the composite key that keeps rows from colliding
         # across parents, and a partition key that doesn't move once written.
-        response = _source(endpoint, _make_manager())
+        answer = ScriptedResponse(json={"consumption_by_date": []}) if endpoint == "consumption_daily" else _page([])
+        result = _driver().run(endpoint, [answer])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.partition_mode == "datetime"
@@ -185,19 +145,17 @@ class TestDevinAISource:
 
 
 class TestMembersJoin:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_pagination_follows_cursor_so_later_pages_join(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_members_pagination_follows_cursor_so_later_pages_join(self) -> None:
         # A member past the first page must still be synced, or their sessions stop resolving to an email.
-        params = _wire(
-            session,
+        result = _driver().run(
+            "members",
             [
-                _response(
+                _page(
                     [{"user_id": "email|aaa111", "email": "casey@example.com", "name": None, "role_assignments": []}],
                     has_next_page=True,
                     end_cursor="cur1",
                 ),
-                _response(
+                _page(
                     [{"user_id": "email|bbb222", "email": "riley@example.com", "name": None, "role_assignments": []}],
                     has_next_page=False,
                     end_cursor=None,
@@ -205,8 +163,8 @@ class TestMembersJoin:
             ],
         )
 
-        rows = _rows(_source("members", _make_manager()))
-
-        assert params[1] == {"first": PAGE_SIZE, "after": "cur1"}
-        email_by_user_id = {row["user_id"]: row["email"] for row in rows}
+        assert result.raised is None
+        assert result.requests[1].param("first") == str(PAGE_SIZE)
+        assert result.requests[1].param("after") == "cur1"
+        email_by_user_id = {row["user_id"]: row["email"] for row in result.rows}
         assert email_by_user_id["email|bbb222"] == "riley@example.com"

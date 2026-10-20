@@ -1,12 +1,10 @@
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
 
 import requests
-import requests_mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.bill_com import (
     PAGE_SIZE,
@@ -15,35 +13,49 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.b
     BillComRedirectError,
     BillComResumeConfig,
     base_url,
-    bill_com_source,
     build_params,
     error_message,
     format_incremental_value,
-    get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source import BillComSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
+    BillComSourceConfig,
+)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.bill_com"
+
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        BillComSource(),
+        BillComSourceConfig(
+            username="finance@acme.com",
+            password="pw",
+            organization_id="org-1",
+            dev_key="dev-key",
+            environment="production",
+        ),
+    )
 
 
-class _FakeManager(ResumableSourceManager[BillComResumeConfig]):
-    def __init__(self, state: Optional[BillComResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[BillComResumeConfig] = []
-        self.cleared = False
+def _client(environment: str = "production") -> BillComClient:
+    return BillComClient(
+        username="finance@acme.com",
+        password="pw",
+        organization_id="org-1",
+        dev_key="dev-key",
+        environment=environment,
+        api_version="v3",
+    )
 
-    def can_resume(self) -> bool:
-        return self.state is not None
 
-    def load_state(self) -> Optional[BillComResumeConfig]:
-        return self.state
-
-    def save_state(self, data: BillComResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
+def _login() -> ScriptedResponse:
+    return ScriptedResponse(json={"sessionId": "sess-1"})
 
 
 def _response(status: int = 200, body: Any = None, text: str = "") -> mock.MagicMock:
@@ -57,18 +69,6 @@ def _response(status: int = 200, body: Any = None, text: str = "") -> mock.Magic
     if status >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=response)
     return response
-
-
-def _client(session: mock.MagicMock, environment: str = "production") -> BillComClient:
-    with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-        return BillComClient(
-            username="finance@acme.com",
-            password="pw",
-            organization_id="org-1",
-            dev_key="dev-key",
-            environment=environment,
-            api_version="v3",
-        )
 
 
 class TestBillCom:
@@ -145,16 +145,14 @@ class TestBillCom:
         assert params.get("filters") == expected_filters
 
     def test_login_posts_credentials_and_stores_session_id(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(body={"sessionId": "sess-1", "organizationId": "org-1"})
-        client = _client(session)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"sessionId": "sess-1", "organizationId": "org-1"})]) as network:
+            client = _client()
             assert client.login() == "sess-1"
 
         assert client.session_id == "sess-1"
-        assert session.post.call_args.args[0] == "https://gateway.prod.bill.com/connect/v3/login"
-        assert session.post.call_args.kwargs["json"] == {
+        assert network.requests_log[0].method == "POST"
+        assert network.requests_log[0].url == "https://gateway.prod.bill.com/connect/v3/login"
+        assert network.requests_log[0].json() == {
             "username": "finance@acme.com",
             "password": "pw",
             "organizationId": "org-1",
@@ -163,232 +161,183 @@ class TestBillCom:
 
     @pytest.mark.parametrize("status", [400, 401, 403])
     def test_login_rejects_bad_credentials_without_retrying(self, status: int) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(status=status, body=[{"message": "Invalid credentials"}])
-        client = _client(session)
+        with scripted_network([ScriptedResponse(status=status, json=[{"message": "Invalid credentials"}])]) as network:
+            with pytest.raises(BillComAuthError, match="Invalid credentials"):
+                _client().login()
 
-        with pytest.raises(BillComAuthError, match="Invalid credentials"):
-            client.login()
+        assert len(network.requests_log) == 1
 
     def test_login_without_session_id_raises(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(body={"organizationId": "org-1"})
-        client = _client(session)
-
-        with pytest.raises(BillComAuthError, match="did not return a session ID"):
-            client.login()
+        with scripted_network([ScriptedResponse(json={"organizationId": "org-1"})]):
+            with pytest.raises(BillComAuthError, match="did not return a session ID"):
+                _client().login()
 
     def test_no_bill_traffic_is_ever_sample_captured(self) -> None:
-        # Track every tracked session built during a sign-in + data request, tagging each with the
-        # kwargs it was created with, so we can prove no BILL traffic ever feeds HTTP sample capture.
-        created: list[tuple[dict[str, Any], mock.MagicMock]] = []
-
-        def _make(**kwargs: Any) -> mock.MagicMock:
-            session = mock.MagicMock()
-            session.post.return_value = _response(body={"sessionId": "sess-secret"})
-            session.get.return_value = _response(body={"results": [{"id": "00n1"}]})
-            created.append((kwargs, session))
-            return session
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", side_effect=_make):
-            client = BillComClient(
-                username="finance@acme.com",
-                password="pw",
-                organization_id="org-1",
-                dev_key="dev-key",
-                environment="production",
-                api_version="v3",
-            )
+        with scripted_network([_login(), ScriptedResponse(json={"results": [{"id": "00n1"}]})]) as network:
+            client = _client()
             client.login()
             client.list_page("/invoices", {})
 
         # BILL responses carry the freshly minted session ID and raw financial records that no
         # name-based scrubber would recognise, so every session used for BILL traffic must be
         # excluded from capture.
-        assert created, "no tracked session was built"
-        assert all(kwargs.get("capture", True) is False for kwargs, _ in created)
+        assert network.session_options, "no tracked session was built"
+        assert all(options.get("capture", True) is False for options in network.session_options)
 
     def test_list_page_signs_in_again_when_the_session_expires(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(body={"sessionId": "sess-2"})
-        session.get.side_effect = [_response(status=401, body={"message": "Unauthorized"}), _response(body={})]
-        client = _client(session)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            client.list_page("/bills", {})
+        with scripted_network(
+            [
+                _login(),
+                ScriptedResponse(status=401, json={"message": "Unauthorized"}),
+                _login(),
+                ScriptedResponse(json={}),
+            ]
+        ) as network:
+            _client().list_page("/bills", {})
 
         # One sign-in to start the session, one to replace the expired one.
-        assert session.post.call_count == 2
-        assert session.get.call_count == 2
+        assert [request.method for request in network.requests_log] == ["POST", "GET", "POST", "GET"]
+        assert [request.path for request in network.requests_log] == [
+            "/connect/v3/login",
+            "/connect/v3/bills",
+            "/connect/v3/login",
+            "/connect/v3/bills",
+        ]
 
     def test_list_page_raises_on_other_errors(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(body={"sessionId": "sess-1"})
-        session.get.return_value = _response(status=403, body=[{"message": "Forbidden"}])
-        client = _client(session)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([_login(), ScriptedResponse(status=403, json=[{"message": "Forbidden"}])]) as network:
             with pytest.raises(requests.HTTPError):
-                client.list_page("/bills", {})
+                _client().list_page("/bills", {})
 
-        assert session.post.call_count == 1
+        assert [request.method for request in network.requests_log] == ["POST", "GET"]
 
     def test_get_rows_paginates_and_checkpoints_after_each_page(self) -> None:
-        client = mock.MagicMock(spec=BillComClient)
-        client.list_page.side_effect = [
-            {"results": [{"id": "00n1"}], "nextPage": "cursor-2"},
-            {"results": [{"id": "00n2"}], "nextPage": "cursor-3"},
-            {"results": [{"id": "00n3"}]},
+        result = _driver().run(
+            "bills",
+            [
+                _login(),
+                ScriptedResponse(json={"results": [{"id": "00n1"}], "nextPage": "cursor-2"}),
+                ScriptedResponse(json={"results": [{"id": "00n2"}], "nextPage": "cursor-3"}),
+                ScriptedResponse(json={"results": [{"id": "00n3"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"id": "00n1"}], [{"id": "00n2"}], [{"id": "00n3"}]]
+        assert result.rows == [{"id": "00n1"}, {"id": "00n2"}, {"id": "00n3"}]
+        assert result.params("page") == [None, None, "cursor-2", "cursor-3"]
+        assert result.params("max") == [None, "100", "100", "100"]
+        assert result.saved_states == [
+            BillComResumeConfig(next_page="cursor-2"),
+            BillComResumeConfig(next_page="cursor-3"),
         ]
-        manager = _FakeManager()
-
-        pages = list(get_rows(client, "bills", {"max": PAGE_SIZE}, manager, mock.MagicMock()))
-
-        assert pages == [[{"id": "00n1"}], [{"id": "00n2"}], [{"id": "00n3"}]]
-        assert [call.args[1].get("page") for call in client.list_page.call_args_list] == [None, "cursor-2", "cursor-3"]
-        assert [state.next_page for state in manager.saved] == ["cursor-2", "cursor-3"]
-        assert manager.cleared is True
+        assert result.final_state is None
 
     def test_get_rows_resumes_from_saved_cursor(self) -> None:
-        client = mock.MagicMock(spec=BillComClient)
-        client.list_page.return_value = {"results": [{"id": "00n9"}]}
-        manager = _FakeManager(BillComResumeConfig(next_page="cursor-7"))
+        result = _driver().run(
+            "bills",
+            [_login(), ScriptedResponse(json={"results": [{"id": "00n9"}]})],
+            resume_state=BillComResumeConfig(next_page="cursor-7"),
+        )
 
-        pages = list(get_rows(client, "bills", {"max": PAGE_SIZE}, manager, mock.MagicMock()))
-
-        assert pages == [[{"id": "00n9"}]]
-        assert client.list_page.call_args.args[1]["page"] == "cursor-7"
+        assert result.raised is None
+        assert result.items == [[{"id": "00n9"}]]
+        assert result.params("page") == [None, "cursor-7"]
 
     def test_get_rows_stops_on_a_repeated_cursor(self) -> None:
-        client = mock.MagicMock(spec=BillComClient)
-        client.list_page.side_effect = [
-            {"results": [{"id": "00n1"}], "nextPage": "cursor-2"},
-            {"results": [{"id": "00n2"}], "nextPage": "cursor-2"},
-        ]
-        manager = _FakeManager()
+        result = _driver().run(
+            "bills",
+            [
+                _login(),
+                ScriptedResponse(json={"results": [{"id": "00n1"}], "nextPage": "cursor-2"}),
+                ScriptedResponse(json={"results": [{"id": "00n2"}], "nextPage": "cursor-2"}),
+            ],
+        )
 
-        pages = list(get_rows(client, "bills", {}, manager, mock.MagicMock()))
-
-        assert pages == [[{"id": "00n1"}], [{"id": "00n2"}]]
-        assert client.list_page.call_count == 2
+        assert result.raised is None
+        assert result.items == [[{"id": "00n1"}], [{"id": "00n2"}]]
+        assert result.params("page") == [None, None, "cursor-2"]
+        assert result.final_state is None
 
     @pytest.mark.parametrize(
         "login_response, expected",
         [
-            (_response(body={"sessionId": "sess-1"}), (True, None)),
+            (_login(), (True, None)),
             (
-                _response(status=401, body=[{"message": "Invalid credentials"}]),
+                ScriptedResponse(status=401, json=[{"message": "Invalid credentials"}]),
                 (False, "BILL sign-in failed: Invalid credentials"),
             ),
         ],
     )
-    def test_validate_credentials(self, login_response: mock.MagicMock, expected: tuple[bool, Optional[str]]) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = login_response
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+    def test_validate_credentials(self, login_response: ScriptedResponse, expected: tuple[bool, Optional[str]]) -> None:
+        with scripted_network([login_response]):
             assert validate_credentials("finance@acme.com", "pw", "org-1", "dev-key", "production", "v3") == expected
 
     def test_validate_credentials_rejects_an_unknown_environment_without_a_request(self) -> None:
-        session = mock.MagicMock()
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("finance@acme.com", "pw", "org-1", "dev-key", "evil", "v3")
 
         assert is_valid is False
         assert message is not None and "Invalid BILL environment" in message
-        session.post.assert_not_called()
+        assert network.requests_log == []
 
     def test_validate_credentials_maps_transport_failures_to_a_friendly_message(self) -> None:
-        session = mock.MagicMock()
-        session.post.side_effect = requests.ConnectionError("boom")
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             is_valid, message = validate_credentials("finance@acme.com", "pw", "org-1", "dev-key", "production", "v3")
 
         assert is_valid is False
         assert message == "Could not reach BILL. Please check your credentials and try again."
 
     def test_bill_com_source_response_shape(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(body={"sessionId": "sess-1"})
-        session.get.return_value = _response(body={"results": [{"id": "00n1", "createdTime": "2026-03-01T00:00:00Z"}]})
-        manager = _FakeManager()
+        result = _driver().run(
+            "bills",
+            [_login(), ScriptedResponse(json={"results": [{"id": "00n1", "createdTime": "2026-03-01T00:00:00Z"}]})],
+            incremental_field="updatedTime",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
 
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            response = bill_com_source(
-                username="finance@acme.com",
-                password="pw",
-                organization_id="org-1",
-                dev_key="dev-key",
-                environment="production",
-                api_version="v3",
-                endpoint="bills",
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
-                incremental_field="updatedTime",
-            )
-
-            assert response.name == "bills"
-            assert response.primary_keys == ["id"]
-            assert response.sort_mode == "asc"
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["createdTime"]
-
-            pages = list(cast("Iterable[Any]", response.items()))
-
-        assert pages == [[{"id": "00n1", "createdTime": "2026-03-01T00:00:00Z"}]]
-        assert session.get.call_args.kwargs["params"]["filters"] == "updatedTime:gte:2026-03-01T00:00:00.000Z"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "bills"
+        assert result.response.primary_keys == ["id"]
+        assert result.response.sort_mode == "asc"
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["createdTime"]
+        assert result.items == [[{"id": "00n1", "createdTime": "2026-03-01T00:00:00Z"}]]
+        assert result.requests[1].param("filters") == "updatedTime:gte:2026-03-01T00:00:00.000Z"
 
 
 class TestRedirectsRefused:
     # `requests` drops `Authorization` on a cross-host redirect but replays custom headers, so
     # `sessionId` and `devKey` would reach the redirect target. The session refuses every 3xx.
-    API_ROOT = "https://gateway.prod.bill.com/connect/v3"
     TARGET_URL = "https://www.bill.com/connect/v3/bills"
-
-    def _real_client(self) -> BillComClient:
-        return BillComClient(
-            username="finance@acme.com",
-            password="pw",
-            organization_id="org-1",
-            dev_key="dev-key",
-            environment="production",
-            api_version="v3",
-        )
 
     @pytest.mark.parametrize("status", [301, 302])
     def test_list_page_refuses_redirect_and_keeps_session_headers_on_api_host(self, status: int) -> None:
-        with requests_mock.Mocker() as m:
-            m.post(f"{self.API_ROOT}/login", json={"sessionId": "sess-1"})
-            m.get(f"{self.API_ROOT}/bills", status_code=status, headers={"Location": self.TARGET_URL})
-            m.get(self.TARGET_URL, status_code=403)
-
+        with scripted_network(
+            [_login(), ScriptedResponse(status=status, headers={"Location": self.TARGET_URL})]
+        ) as network:
             with pytest.raises(BillComRedirectError, match="redirected the API request to www.bill.com"):
-                self._real_client().list_page("/bills", {"max": PAGE_SIZE})
+                _client().list_page("/bills", {"max": PAGE_SIZE})
 
-            assert [r.hostname for r in m.request_history] == ["gateway.prod.bill.com", "gateway.prod.bill.com"]
-            list_request = m.request_history[-1]
-            assert list_request.headers["sessionId"] == "sess-1"
-            assert list_request.headers["devKey"] == "dev-key"
+        assert [request.origin for request in network.requests_log] == [
+            "https://gateway.prod.bill.com",
+            "https://gateway.prod.bill.com",
+        ]
+        list_request = network.requests_log[-1]
+        assert list_request.headers["sessionid"] == "sess-1"
+        assert list_request.headers["devkey"] == "dev-key"
 
     def test_login_refuses_redirect_so_the_sign_in_body_is_not_replayed(self) -> None:
         # A 307 keeps the POST body (password and developer key) on the redirected request.
-        with requests_mock.Mocker() as m:
-            m.post(f"{self.API_ROOT}/login", status_code=307, headers={"Location": self.TARGET_URL})
-            m.post(self.TARGET_URL, json={"sessionId": "stolen"})
-
+        with scripted_network([ScriptedResponse(status=307, headers={"Location": self.TARGET_URL})]) as network:
             with pytest.raises(BillComRedirectError):
-                self._real_client().login()
+                _client().login()
 
-            assert [r.hostname for r in m.request_history] == ["gateway.prod.bill.com"]
+        assert [request.origin for request in network.requests_log] == ["https://gateway.prod.bill.com"]
 
     def test_validate_credentials_reports_the_redirect(self) -> None:
-        with requests_mock.Mocker() as m:
-            m.post(f"{self.API_ROOT}/login", status_code=302, headers={"Location": self.TARGET_URL})
-
+        with scripted_network([ScriptedResponse(status=302, headers={"Location": self.TARGET_URL})]):
             is_valid, message = validate_credentials("finance@acme.com", "pw", "org-1", "dev-key", "production", "v3")
 
         assert is_valid is False

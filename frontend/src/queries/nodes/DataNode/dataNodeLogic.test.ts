@@ -1,6 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api, { ApiError } from 'lib/api'
+import { promiseResolveReject } from 'lib/utils/async'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -14,6 +15,8 @@ import { performQuery } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
+
+import { ABANDONED_QUERY_GRACE_PERIOD, RESPONSE_CACHE_TTL } from './responseCache'
 
 const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
 // The scan endpoint answers with an empty body while the job runs.
@@ -68,6 +71,183 @@ describe('dataNodeLogic', () => {
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
+
+    it.each(['pending', 'failed'] as const)('restores a retained query after another query is %s', async (state) => {
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+        const response = { results: [[1]], columns: ['value'] }
+        const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+        const pending = promiseResolveReject<typeof response>()
+        mockedQuery.mockReset()
+        mockedQuery.mockResolvedValueOnce(response).mockReturnValueOnce(pending.promise)
+        logic = dataNodeLogic(props)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        dataNodeLogic({
+            ...props,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 2' }),
+        })
+        expect(logic.values.dataLoading).toBe(true)
+        if (state === 'failed') {
+            await expectLogic(logic, () => pending.reject(new Error('Query failed')))
+                .toDispatchActions(['loadDataFailure'])
+                .toMatchValues({ responseError: 'Query failed', responseErrorObject: expect.any(Error) })
+        }
+
+        dataNodeLogic(props)
+        pending.resolve({ results: [[2]], columns: ['value'] })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            response,
+            responseLoading: false,
+            dataLoading: false,
+            responseError: null,
+            responseErrorObject: null,
+            queryCancelled: false,
+        })
+        expect(mockedQuery).toHaveBeenCalledTimes(2)
+        expect(mockedQuery.mock.calls[1][1]?.signal?.aborted).toBe(true)
+    })
+
+    it('keeps a notebook query running across a remount instead of starting it again', async () => {
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+        const response = { results: [[1]], columns: ['value'] }
+        const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+        const pending = promiseResolveReject<typeof response>()
+        mockedQuery.mockReset()
+        mockedQuery.mockReturnValueOnce(pending.promise)
+        logic = dataNodeLogic(props)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadData'])
+        expect(mockedQuery).toHaveBeenCalledTimes(1)
+        const queryId = logic.values.queryId
+
+        logic.unmount()
+        expect(mockedQuery.mock.calls[0][1]?.signal?.aborted).toBe(false)
+
+        logic = dataNodeLogic(props)
+        logic.mount()
+        expect(logic.values.dataLoading).toBe(true)
+        expect(logic.values.queryId).toBe(queryId)
+        pending.resolve(response)
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess']).toMatchValues({ response })
+        expect(mockedQuery).toHaveBeenCalledTimes(1)
+    })
+
+    it('cancels a notebook query that no remount picks up within the grace period', async () => {
+        jest.useFakeTimers()
+        try {
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            const cancel = jest.spyOn(api, 'delete').mockResolvedValue(undefined)
+            mockedQuery.mockReset()
+            mockedQuery.mockReturnValueOnce(promiseResolveReject<Record<string, any>>().promise)
+            logic = dataNodeLogic(props)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadData'])
+            const queryId = logic.values.queryId
+            logic.unmount()
+
+            jest.advanceTimersByTime(ABANDONED_QUERY_GRACE_PERIOD - 1)
+            expect(mockedQuery.mock.calls[0][1]?.signal?.aborted).toBe(false)
+            jest.advanceTimersByTime(1)
+            expect(mockedQuery.mock.calls[0][1]?.signal?.aborted).toBe(true)
+            expect(cancel).toHaveBeenCalledWith(expect.stringContaining(`/query/${queryId}/`))
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('aborts a reused notebook query when the remounted node loads again', async () => {
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+        const response = { results: [[2]], columns: ['value'] }
+        const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+        mockedQuery.mockReset()
+        mockedQuery.mockReturnValueOnce(promiseResolveReject<typeof response>().promise).mockResolvedValueOnce(response)
+        logic = dataNodeLogic(props)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadData'])
+        logic.unmount()
+        logic = dataNodeLogic(props)
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadData())
+            .toDispatchActions(['loadDataSuccess'])
+            .toMatchValues({ response, responseError: null })
+        expect(mockedQuery.mock.calls[0][1]?.signal?.aborted).toBe(true)
+        expect(mockedQuery).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['query', 'insight response'] as const)(
+        'restores notebook results when the query arrives after mount: %s',
+        async (source) => {
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const response = { results: [[1]], columns: ['value'] }
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            mockedQuery.mockReset()
+            mockedQuery.mockResolvedValue(response)
+            logic = dataNodeLogic(source === 'query' ? props : { ...props, cachedResults: response })
+            logic.mount()
+            if (source === 'query') {
+                await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+            }
+            logic.unmount()
+            mockedQuery.mockClear()
+
+            logic = dataNodeLogic({ key: props.key } as DataNodeLogicProps)
+            logic.mount()
+            dataNodeLogic(props)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ response })
+            expect(mockedQuery).not.toHaveBeenCalled()
+        }
+    )
+
+    it.each(['same', 'query', 'filters', 'expired', 'disabled'] as const)(
+        'reuses a completed notebook response on remount: %s',
+        async (change) => {
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(10_000)
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            mockedQuery.mockReset()
+            mockedQuery.mockResolvedValue({ results: [[1]], columns: ['value'] })
+            try {
+                logic = dataNodeLogic(props)
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+                logic.unmount()
+
+                if (change === 'query') {
+                    props.query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 2' })
+                } else if (change === 'filters') {
+                    props.filtersOverride = { date_from: '-14d' }
+                } else if (change === 'expired') {
+                    clock.mockReturnValue(10_000 + RESPONSE_CACHE_TTL / 2)
+                    logic = dataNodeLogic(props)
+                    logic.mount()
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.unmount()
+                    clock.mockReturnValue(10_000 + RESPONSE_CACHE_TTL)
+                } else if (change === 'disabled') {
+                    props.retainResponseOnUnmount = false
+                }
+                logic = dataNodeLogic(props)
+                logic.mount()
+                if (change === 'same') {
+                    await expectLogic(logic).toFinishAllListeners()
+                    dataNodeLogic({ ...props, cachedResults: { result: null } })
+                    expect(logic.values.response).toEqual({ results: [[1]], columns: ['value'] })
+                    expect(mockedQuery).toHaveBeenCalledTimes(1)
+                    await expectLogic(logic, () => logic.actions.loadData('force_blocking')).toDispatchActions([
+                        'loadDataSuccess',
+                    ])
+                } else {
+                    await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+                }
+                expect(mockedQuery).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
+        }
+    )
 
     it('does not resubmit a capacity-limited query after unmount', async () => {
         jest.useFakeTimers()

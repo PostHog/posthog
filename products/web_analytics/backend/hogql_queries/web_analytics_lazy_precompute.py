@@ -326,7 +326,7 @@ def check_common_eligible(
     # bounded by the per-team shape ceiling in `web_ensure_precomputed`. Session and
     # cohort filters are refused: the precompute INSERT applies the whole list userlessly,
     # but the live runners handle those types differently per family (web vitals drops
-    # them entirely), so precomputing them would serve a different population than the
+    # session filters), so precomputing them would serve a different population than the
     # live fallback. Those queries fall through to the live path, which applies them right.
     for prop in query.properties or []:
         if (

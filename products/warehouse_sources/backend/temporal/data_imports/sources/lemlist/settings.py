@@ -79,6 +79,8 @@ LEMLIST_ENDPOINTS: dict[str, LemlistEndpointConfig] = {
         path="/campaigns",
         requires_version_v2=True,
         partition_key="createdAt",
+        # The docs show a bare array, but the API can also wrap the page as {campaigns, pagination}.
+        data_selector="($.campaigns[*]) | ($[?(@._id)])",
         request_sort_by="createdAt",
         request_sort_order="asc",
     ),

@@ -5,6 +5,11 @@ from products.experiments.backend.metric_calculation.keys import (
     daily_saved_metric_calculations,
     metric_calculation_keys,
 )
+from products.experiments.backend.metric_calculation.results import (
+    previous_completed_metric_result,
+    record_daily_metric_failure,
+    record_daily_metric_result,
+)
 from products.experiments.backend.metric_resolution import (
     METRIC_BUILDERS,
     apply_saved_metric_overrides,
@@ -24,6 +29,9 @@ __all__ = [
     "is_daily_timeseries_metric",
     "is_scheduled_metric",
     "metric_calculation_keys",
+    "previous_completed_metric_result",
+    "record_daily_metric_failure",
+    "record_daily_metric_result",
     "apply_saved_metric_overrides",
     "sync_timeseries_recalculation",
 ]

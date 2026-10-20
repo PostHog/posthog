@@ -1,30 +1,36 @@
-import json
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.judgemereviews import (
+    JudgeMeReviewsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.judgeme_reviews import (
     FORBIDDEN_MESSAGE,
     INVALID_CREDENTIALS_MESSAGE,
     PAGE_SIZE,
     JudgeMeReviewsResumeConfig,
     _normalize_shop_domain,
-    judgeme_reviews_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.settings import (
     ENDPOINTS,
     JUDGEME_REVIEWS_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.source import JudgeMeReviewsSource
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the judgeme_reviews module.
-JUDGEME_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.judgeme_reviews.make_tracked_session"
+
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        JudgeMeReviewsSource(),
+        JudgeMeReviewsSourceConfig(shop_domain="example.myshopify.com", api_token="jm-token"),
+    )
 
 
 def _response(
@@ -32,78 +38,28 @@ def _response(
     *,
     list_key: str = "reviews",
     page: int = 1,
-    drop_key: bool = False,
     body: Any = None,
-) -> Response:
+) -> ScriptedResponse:
     if body is None:
-        payload: Any = {"current_page": page, "per_page": PAGE_SIZE}
-        if not drop_key:
-            payload[list_key] = items or []
+        payload: Any = {"current_page": page, "per_page": PAGE_SIZE, list_key: items or []}
         body = payload
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _error_response(status_code: int) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = b"{}"
-    resp.url = "https://judge.me/api/v1/reviews?shop_domain=example.myshopify.com&page=1"
-    return resp
-
-
-def _make_manager(resume_state: JudgeMeReviewsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per request.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return judgeme_reviews_source(
-        api_token="jm-token",
-        shop_domain="example.myshopify.com",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
+    return ScriptedResponse(json=body)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_page(self) -> None:
         # Page 1 must never be fetched on resume.
-        params = _wire(session, [_response([{"id": 2}], page=2), _response([], page=3)])
+        result = _driver().run(
+            "reviews",
+            [_response([{"id": 2}], page=2), _response([], page=3)],
+            resume_state=JudgeMeReviewsResumeConfig(next_page=2),
+        )
 
-        rows = _rows(_source("reviews", _make_manager(JudgeMeReviewsResumeConfig(next_page=2))))
-
-        assert rows == [{"id": 2}]
-        assert params[0]["page"] == 2
+        assert result.raised is None
+        assert result.rows == [{"id": 2}]
+        assert result.params("page") == ["2", "3"]
+        assert result.params("per_page") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert result.params("shop_domain") == ["example.myshopify.com"] * 2
 
 
 class TestMalformedBody:
@@ -114,40 +70,34 @@ class TestMalformedBody:
             ("non_list_value", {"reviews": {"id": 1}}),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_body_is_retried_then_exhausts(self, _name: str, body: Any, MockSession) -> None:
+    def test_malformed_body_is_retried_then_exhausts(self, _name: str, body: Any) -> None:
         # A 200 whose body isn't the expected `{"reviews": [...]}` envelope is treated as transient:
         # the client reissues it (default 5 attempts) rather than failing loud or ingesting garbage.
-        session = MockSession.return_value
-        _wire(session, [_response(None, body=body) for _ in range(5)])
+        result = _driver().run("reviews", [_response(None, body=body) for _ in range(5)])
 
-        with pytest.raises(Exception, match="Unexpected 200 response body shape"):
-            _rows(_source("reviews", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, Exception)
+        assert "Unexpected 200 response body shape" in str(result.raised)
+        assert result.rows == []
+        assert result.paths == ["/api/v1/reviews"] * 5
 
 
 class TestRetryableStatuses:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_are_reissued(self, _name: str, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(status) for _ in range(5)])
+    def test_retryable_statuses_are_reissued(self, _name: str, status: int) -> None:
+        result = _driver().run("reviews", always(ScriptedResponse(status=status, json={})))
 
-        with pytest.raises(Exception):
-            _rows(_source("reviews", _make_manager()))
+        assert isinstance(result.raised, Exception)
         # 429/5xx are retried up to the client's attempt cap rather than surfacing on the first hit.
-        assert session.send.call_count == 5
+        assert len(result.requests) > 1
+        assert set(result.paths) == {"/api/v1/reviews"}
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_fail_immediately(self, _name: str, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(status)])
+    def test_client_errors_fail_immediately(self, _name: str, status: int) -> None:
+        result = _driver().run("reviews", [ScriptedResponse(status=status, json={})])
 
-        with pytest.raises(Exception):
-            _rows(_source("reviews", _make_manager()))
+        assert isinstance(result.raised, Exception)
         # A 4xx (bad credentials, missing scope, unknown path) is permanent — no retry.
-        assert session.send.call_count == 1
+        assert result.paths == ["/api/v1/reviews"]
 
 
 class TestNormalizeShopDomain:
@@ -165,14 +115,6 @@ class TestNormalizeShopDomain:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, status: int | None) -> Any:
-        session = mock.MagicMock()
-        if status is None:
-            session.get.side_effect = Exception("boom")
-        else:
-            session.get.return_value = mock.MagicMock(status_code=status)
-        return mock.patch(JUDGEME_SESSION_PATCH, return_value=session)
-
     @parameterized.expand(
         [
             ("valid", 200, (True, None)),
@@ -183,18 +125,26 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int | None, expected: tuple[bool, str | None]) -> None:
-        with self._patch_session(status):
+        answer = ConnectionError("boom") if status is None else ScriptedResponse(status=status)
+        with scripted_network(always(answer)) as network:
             assert validate_credentials("jm-token", "example.myshopify.com") == expected
+
+        assert {request.path for request in network.requests_log} == {"/api/v1/reviews/count"}
+        assert {request.param("shop_domain") for request in network.requests_log} == {"example.myshopify.com"}
+        assert all(request.headers["x-api-token"] == "jm-token" for request in network.requests_log)
 
 
 class TestJudgeMeReviewsSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        result = _driver().run(endpoint, [_response([], list_key=endpoint)])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["id"]
         # Response ordering is undocumented and syncs are full refresh, so we don't partition.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None
 
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in JUDGEME_REVIEWS_ENDPOINTS.values())

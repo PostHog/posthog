@@ -38,6 +38,7 @@
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
 - When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update an existing doc under `docs/` **whose scope covers that behavior** in the same PR. If none exists, make no docs change and put PR-specific context in the PR description. `project-structure.md` is a high-level directory map; feature behavior, UI controls, command usage, and worktree notes do not belong there.
 - A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
+- When triaging review bot findings, react to each PostHog Review finding comment (`posthog[bot]`) with 👍 if it is valid or 👎 if not, so review metrics can tell acted-on findings from noise.
 
 ### Commit types
 
@@ -142,11 +143,14 @@ Examples:
 
 ## Security
 
-Route security-related changes by merge status and disclosure risk: fix problems introduced by an open public PR in that PR, keep fixes that would disclose an existing exploitable weakness private until deployment, and make safe, non-secret fixes in `PostHog/posthog`. See [Routing security fixes](.agents/security.md#routing-security-fixes).
-**Every other change lands in `PostHog/posthog`, also when the session starts in a `PostHog/posthog-private` checkout.**
+**Every change lands in `PostHog/posthog`, security fixes included, also when the session starts in a `PostHog/posthog-private` checkout.**
+The only exception is a severe vulnerability that team-security agrees needs an embargo, because an embargo pauses the private sync and the merge queue.
+Never open anything in `posthog-private` without the user's confirmation in the current conversation.
+Hardening, validation, and low-impact access fixes go public with a neutral description.
+Read [Routing security fixes](.agents/security.md#routing-security-fixes) before you open a PR for any security fix: it defines "severe" and says what to leave out of a public PR.
 The private mirror carries this file, and its `origin` points at the private repo, so a default push or `gh pr create` opens the PR there.
 Before the first push of a branch, run `git remote get-url origin`.
-If it names `posthog-private` and the change is not a security fix, open the PR from a `PostHog/posthog` checkout.
+If it names `posthog-private` and the change is not an embargoed fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
@@ -201,6 +205,8 @@ Each rule is tagged with what catches a violation.
 - **Every other call to those hosts goes through `posthog/egress/` too.** `[lint: github-api-calls-go-through-egress-wide, slack-api-calls-go-through-egress-wide]` The wide rules catch a URL bound to a variable or constant, `requests.Session`, `httpx`, `aiohttp`, `urllib.request`, and an aliased Slack SDK client. Another language, another vendor SDK, or a caller under `tools/` still passes CI, so a reader is the only control there.
 - **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
 - **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as one-off salvage tooling: `bin/migrate-storage-hobby` starts a temporary container to read an old hobby MinIO volume. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
+
+- **A new DNS-resolution or outbound-host entry point calls the shared out-of-band domain check.** `[lint: test_oob_denylist_coverage.py]` Every host guard here is IP-based, and an out-of-band interaction domain resolves to an ordinary public IP, so a resolver that skips the check restores the gap in silence. The list and the edit procedure live in `posthog/security/crosslang/`.
 
 ### Django admin
 

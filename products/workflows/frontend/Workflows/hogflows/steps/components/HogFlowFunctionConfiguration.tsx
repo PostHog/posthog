@@ -65,7 +65,8 @@ export function buildSampleGlobals(
             url: 'https://example.com/project/1',
         },
         source: {
-            name: 'Example step',
+            id: '00000000-0000-0000-0000-000000000000',
+            name: 'Example workflow',
             url: 'https://example.com/project/1/workflows/1',
         },
     }
@@ -272,6 +273,7 @@ export function HogFlowFunctionConfiguration({
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
             onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+            onInputsChange={(changes) => setInputs({ ...inputs, ...changes })}
         />
     )
 
