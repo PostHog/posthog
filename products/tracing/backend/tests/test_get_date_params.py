@@ -35,6 +35,12 @@ class TestTracingGetDateParams(APIBaseTest):
         run.assert_not_called()
 
     @parameterized.expand(ENDPOINTS)
+    def test_date_range_values_must_be_strings(self, path, runner, extra, return_value):
+        response, run = self._get(path, runner, {"dateRange": '{"date_from": 5}', **extra}, return_value)
+        self.assertEqual(response.status_code, 400, response.content)
+        run.assert_not_called()
+
+    @parameterized.expand(ENDPOINTS)
     def test_json_date_range_still_works(self, path, runner, extra, return_value):
         response, run = self._get(path, runner, {"dateRange": '{"date_from": "-6h"}', **extra}, return_value)
         self.assertEqual(response.status_code, 200, response.content)

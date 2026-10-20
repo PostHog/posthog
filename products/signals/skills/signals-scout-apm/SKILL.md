@@ -72,13 +72,12 @@ apm-service-health
 {
   "query": {
     "dateRange": { "date_from": "-1d" },
-    "compare": "previous_week",
-    "include": ["top_operations"]
+    "compare": "previous_week"
   }
 }
 ```
 
-Each `services` row has `requests` and `baseline_requests` (the denominator guard), `error_rate_pct` and `error_rate_delta_pp`, `p95_ms` and `p95_change_pct`, and a `status` with a `reason`. The server computes the service percentiles, so do not rebuild them from operation rows. Rows come worst first: `silent`, `regressed`, `degraded`. `top_operations` names the 3 operations with the most errors in each regressed or degraded service. Exclude dev and staging with `environment` when the project labels it.
+Each `services` row has `requests` and `baseline_requests` (the denominator guard), `error_rate_pct` and `error_rate_delta_pp`, `p95_ms` and `p95_change_pct`, and a `status` with a `reason`. The server computes the service percentiles, so do not rebuild them from operation rows. Rows come worst first: `silent`, `regressed`, `degraded`. The `next` calls open the operations behind each regressed or degraded service. Exclude dev and staging with `environment` when the project labels it.
 
 The server does not apply the volume guard. For each `regressed` row, check that `requests` stayed within ~2× of `baseline_requests` before you treat it as a regression.
 

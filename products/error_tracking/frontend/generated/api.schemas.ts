@@ -1463,10 +1463,9 @@ export const OrderDirectionEnumApi = {
  * * `correlation` - correlation
  * * `diagnostics` - diagnostics
  */
-export type ErrorTrackingIssueEventsQueryRequestIncludeEnumApi =
-    (typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi)[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi]
+export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
 
-export const ErrorTrackingIssueEventsQueryRequestIncludeEnumApi = {
+export const IncludeEnumApi = {
     Exception: 'exception',
     Stacktrace: 'stacktrace',
     CodeVariables: 'code_variables',
@@ -1508,7 +1507,7 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     offset?: number
     /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-    include?: ErrorTrackingIssueEventsQueryRequestIncludeEnumApi[]
+    include?: IncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }

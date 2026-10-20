@@ -43,10 +43,6 @@ class ServiceHealthOrderBy(LabeledStrEnum):
     ERROR_COUNT = "error_count"
 
 
-class ServiceHealthInclude(LabeledStrEnum):
-    TOP_OPERATIONS = "top_operations"
-
-
 class ServiceHealthStatus(LabeledStrEnum):
     OK = "ok"
     DEGRADED = "degraded"

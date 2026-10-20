@@ -109,7 +109,7 @@ To rebuild the tree:
 
 #### Daily service health report
 
-1. `apm-service-health` with `dateRange: {"date_from": "-24h"}`, `compare: "previous_day"` and `include: ["top_operations"]`.
+1. `apm-service-health` with `dateRange: {"date_from": "-24h"}`, and `compare: "previous_day"`. Follow its `next` calls to the operations behind each unhealthy service.
 2. `logs-patterns-diff` for new error patterns in the services that are not `ok`.
 3. `logs-alerts-list` for alerts that fired in the window.
 

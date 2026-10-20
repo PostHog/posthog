@@ -41482,10 +41482,10 @@ export namespace Schemas {
      * * `correlation` - correlation
      * * `diagnostics` - diagnostics
      */
-    export type ErrorTrackingIssueEventsQueryRequestIncludeEnum = typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum];
+    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
 
 
-    export const ErrorTrackingIssueEventsQueryRequestIncludeEnum = {
+    export const IncludeEnum = {
       Exception: 'exception',
       Stacktrace: 'stacktrace',
       CodeVariables: 'code_variables',
@@ -41527,7 +41527,7 @@ export namespace Schemas {
          */
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-      include?: ErrorTrackingIssueEventsQueryRequestIncludeEnum[];
+      include?: IncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -102686,16 +102686,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `top_operations` - Top Operations
-     */
-    export type ServiceHealthIncludeEnum = typeof ServiceHealthIncludeEnum[keyof typeof ServiceHealthIncludeEnum];
-
-
-    export const ServiceHealthIncludeEnum = {
-      TopOperations: 'top_operations',
-    } as const;
-
-    /**
      * * `status` - Status
      * * `error_rate` - Error Rate
      * * `p95` - P95
@@ -102771,8 +102761,6 @@ export namespace Schemas {
        * * `throughput` - Throughput
        * * `error_count` - Error Count */
       orderBy?: ServiceHealthOrderByEnum;
-      /** top_operations adds the 3 operations with the most errors for each regressed or degraded service. */
-      include?: ServiceHealthIncludeEnum[];
       /**
          * Max service rows, 1-200.
          * @minimum 1
@@ -102910,21 +102898,6 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
-    export interface _ServiceHealthOperation {
-      /** Service name. */
-      service: string;
-      /** Span name. */
-      operation: string;
-      /** Spans of this operation. */
-      requests: number;
-      /** Spans with OTel status Error. */
-      error_count: number;
-      /** Error share, percent. */
-      error_rate_pct: number;
-      /** 95th percentile duration, ms. */
-      p95_ms: number;
-    }
-
     /**
      * The prefilled query argument.
      */
@@ -102946,8 +102919,6 @@ export namespace Schemas {
       summary: _ServiceHealthSummary;
       /** One row per service, in orderBy order. */
       services: _ServiceHealthRow[];
-      /** Only with include top_operations. */
-      top_operations?: _ServiceHealthOperation[];
       /** Prefilled follow-up calls. */
       next: _ServiceHealthNextCall[];
       /** True when more services matched than limit. */

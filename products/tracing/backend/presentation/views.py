@@ -412,7 +412,7 @@ def _date_range_from_query_params(request: Request) -> dict:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             parsed = None
-        if not isinstance(parsed, dict):
+        if not isinstance(parsed, dict) or not all(isinstance(value, str | None) for value in parsed.values()):
             raise serializers.ValidationError(
                 {
                     "dateRange": (
@@ -1758,7 +1758,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "span_scope": params.span_scope.value,
                 "has_environment": bool(params.environment),
                 "service_names_count": len(params.service_names),
-                "include_top_operations": bool(params.include),
                 "services_count": result["summary"]["services"],
                 "truncated": result["truncated"],
             },

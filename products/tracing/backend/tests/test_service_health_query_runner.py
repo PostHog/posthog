@@ -13,7 +13,6 @@ from posthog.clickhouse.client import sync_execute
 from products.tracing.backend.facade.contracts import ServiceHealthParams
 from products.tracing.backend.facade.enums import (
     ServiceHealthCompare,
-    ServiceHealthInclude,
     ServiceHealthOrderBy,
     ServiceHealthSpanScope,
     ServiceHealthStatus,
@@ -55,7 +54,12 @@ class TestClassifyService(SimpleTestCase):
     @parameterized.expand(
         [
             ("ok", _stats(200), _stats(200), ServiceHealthStatus.OK),
-            ("silent_no_current_spans", None, _stats(100), ServiceHealthStatus.SILENT),
+            (
+                "silent_no_current_spans",
+                None,
+                _stats(100, last_seen=CURRENT_FROM - dt.timedelta(minutes=10)),
+                ServiceHealthStatus.SILENT,
+            ),
             ("small_baseline_gone_is_not_silent", None, _stats(5), ServiceHealthStatus.OK),
             (
                 "silent_spans_stopped_inside_window",
@@ -101,6 +105,16 @@ class TestClassifyService(SimpleTestCase):
             window_to=CURRENT_TO,
         )
         self.assertTrue(reason.startswith("no spans since 08:30Z"), reason)
+
+    def test_no_current_spans_is_not_silent_inside_the_gap(self):
+        status, _ = classify_service(
+            current=None,
+            baseline=_stats(300, last_seen=CURRENT_TO - dt.timedelta(minutes=5)),
+            has_baseline=True,
+            window_from=CURRENT_TO - dt.timedelta(minutes=5),
+            window_to=CURRENT_TO,
+        )
+        self.assertNotEqual(status, ServiceHealthStatus.SILENT)
 
     def test_without_a_baseline_only_absolute_rules_apply(self):
         status, _ = classify_service(
@@ -392,13 +406,28 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
         for call in result["next"]:
             self.assertLessEqual(len(call["why"]), MAX_REASON_LENGTH)
 
-    def test_top_operations_for_unhealthy_services(self):
-        result = self._run(include=(ServiceHealthInclude.TOP_OPERATIONS,))
-        worker_ops = [op for op in result["top_operations"] if op["service"] == "worker"]
-        self.assertEqual([op["operation"] for op in worker_ops], ["consume order", "consume refund"])
-        self.assertEqual((worker_ops[0]["error_count"], worker_ops[0]["requests"]), (10, 150))
-        self.assertNotIn("api", {op["service"] for op in result["top_operations"]})
-        self.assertNotIn("top_operations", self._run())
+    def test_next_keeps_the_environment_and_reads_child_error_spans(self):
+        calls = {call["tool"]: call for call in self._run()["next"]}
+        environment = {
+            "key": "deployment.environment.name",
+            "value": "production",
+            "operator": "exact",
+            "type": "span_resource_attribute",
+        }
+        for call in calls.values():
+            self.assertEqual(call["query"]["filterGroup"], [environment])
+        self.assertEqual(
+            (calls["query-apm-spans"]["query"]["flatSpans"], calls["query-apm-spans"]["query"]["rootSpans"]),
+            (True, False),
+        )
+        self.assertNotIn("filterGroup", self._run(environment=None)["next"][0]["query"])
+
+    def test_a_truncated_scan_does_not_invent_silent_or_new_services(self):
+        with patch("products.tracing.backend.service_health_query_runner.SERVICE_SCAN_LIMIT", 3):
+            result = self._run()
+        statuses = {row["status"] for row in result["services"]}
+        self.assertFalse(statuses & {ServiceHealthStatus.SILENT, ServiceHealthStatus.NEW}, statuses)
+        self.assertTrue(result["truncated"])
 
     def test_runs_with_fail_fast_settings(self):
         with patch(

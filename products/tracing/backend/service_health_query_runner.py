@@ -18,7 +18,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.tracing.backend.facade.contracts import ServiceHealthParams
 from products.tracing.backend.facade.enums import (
     ServiceHealthCompare as Compare,
-    ServiceHealthInclude as Include,
     ServiceHealthOrderBy as OrderBy,
     ServiceHealthSpanScope,
     ServiceHealthStatus as Status,
@@ -41,13 +40,20 @@ DEGRADED_ERROR_RATE_PCT = 5.0
 DEGRADED_MIN_REQUESTS = 20
 MAX_REASON_LENGTH = 80
 SERVICE_SCAN_LIMIT = 1000
-TOP_OPERATIONS_PER_SERVICE = 3
 NEXT_SERVICES_LIMIT = 5
 
 _ENTRY_WHERE = "(is_root_span = 1 OR kind IN (2, 5))"
 _ENVIRONMENT_WHERE = (
     "lower(coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
     "nullIf(resource_attributes['deployment.environment'], ''), resource_attributes['env'], '')) = {env}"
+)
+_ENVIRONMENT_VALUE = (
+    "any(coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
+    "nullIf(resource_attributes['deployment.environment'], ''), resource_attributes['env'], ''))"
+)
+_ENVIRONMENT_KEY = (
+    "any(multiIf(resource_attributes['deployment.environment.name'] != '', 'deployment.environment.name', "
+    "resource_attributes['deployment.environment'] != '', 'deployment.environment', 'env'))"
 )
 _STATUS_ORDER = [
     Status.SILENT,
@@ -72,7 +78,6 @@ _ORDER_FIELD = {
     OrderBy.ERROR_COUNT: "error_count",
 }
 
-_OPERATION_KEYS = ("service", "operation", "requests", "error_count", "error_rate_pct", "p95_ms")
 
 Window = tuple[dt.datetime, dt.datetime]
 
@@ -85,6 +90,8 @@ class ServiceWindowStats:
     p95_ms: float
     p99_ms: float
     last_seen: dt.datetime
+    environment_key: str = ""
+    environment_value: str = ""
 
     @property
     def error_rate_pct(self) -> float:
@@ -128,7 +135,8 @@ def classify_service(
     window_to: dt.datetime,
 ) -> tuple[Status, str]:
     if current is None or not current.requests:
-        if baseline is not None and baseline.requests >= SILENT_MIN_BASELINE_REQUESTS:
+        quiet_for = window_to - baseline.last_seen if baseline is not None else dt.timedelta(0)
+        if baseline is not None and baseline.requests >= SILENT_MIN_BASELINE_REQUESTS and quiet_for >= SILENT_GAP:
             since = _since(baseline.last_seen, window_to)
             return Status.SILENT, f"no spans since {since} (baseline {baseline.requests} req)"
         return Status.OK, f"no spans; baseline {baseline.requests if baseline else 0} req is too few to call silent"
@@ -199,9 +207,11 @@ class ServiceHealthQueryRunner:
         return {"current": _range(self.current), "baseline": baseline, "timezone": "UTC"}
 
     def byte_cap_message(self) -> str:
-        hours = max(int((self.current[1] - self.current[0]).total_seconds() / 7200), 1)
+        minutes = max(int((self.current[1] - self.current[0]).total_seconds() / 120), 1)
+        window = f"-{minutes // 60}h" if minutes % 60 == 0 else f"-{minutes}m"
+        baseline = " and a shorter baselineDateRange" if self.params.compare == Compare.CUSTOM else ""
         return (
-            f'This query read more than the 10 GB cap. Retry with a shorter dateRange, at most {{"date_from": "-{hours}h"}}, '
+            f'This query read more than the 10 GB cap. Retry with a shorter dateRange, at most {{"date_from": "{window}"}}{baseline}, '
             "or pass serviceNames to read fewer services."
         )
 
@@ -237,7 +247,7 @@ class ServiceHealthQueryRunner:
         rows = self._execute(
             """
             SELECT service_name, count() AS requests, countIf(status_code = 2),
-                quantiles(0.5, 0.95, 0.99)(duration_nano), max(timestamp)
+                quantiles(0.5, 0.95, 0.99)(duration_nano), max(timestamp), {environment_key}, {environment_value}
             FROM posthog.trace_spans
             WHERE {where}
             GROUP BY service_name
@@ -247,6 +257,8 @@ class ServiceHealthQueryRunner:
             window,
             list(self.params.service_names),
             limit=ast.Constant(value=SERVICE_SCAN_LIMIT + 1),
+            environment_key=parse_expr(_ENVIRONMENT_KEY) if self.params.environment else ast.Constant(value=""),
+            environment_value=parse_expr(_ENVIRONMENT_VALUE) if self.params.environment else ast.Constant(value=""),
         )
         return {
             service: ServiceWindowStats(
@@ -256,36 +268,19 @@ class ServiceHealthQueryRunner:
                 p95_ms=(quantiles[1] or 0) / 1e6,
                 p99_ms=(quantiles[2] or 0) / 1e6,
                 last_seen=last_seen.replace(tzinfo=UTC) if last_seen.tzinfo is None else last_seen,
+                environment_key=environment_key,
+                environment_value=environment_value,
             )
-            for service, requests, errors, quantiles, last_seen in rows
+            for service, requests, errors, quantiles, last_seen, environment_key, environment_value in rows
         }
 
-    def _top_operations(self, services: list[str]) -> list[dict[str, Any]]:
-        rows = self._execute(
-            """
-            SELECT service_name, name, count() AS requests, countIf(status_code = 2) AS errors,
-                quantile(0.95)(duration_nano)
-            FROM posthog.trace_spans
-            WHERE {where}
-            GROUP BY service_name, name
-            ORDER BY service_name ASC, errors DESC, requests DESC, name ASC
-            LIMIT {per_service} BY service_name
-            """,
-            self.current,
-            services,
-            per_service=ast.Constant(value=TOP_OPERATIONS_PER_SERVICE),
-        )
-        operations = [
-            dict(zip(_OPERATION_KEYS, (*row[:4], round(row[3] / row[2] * 100, 1), round((row[4] or 0) / 1e6, 1))))
-            for row in rows
-        ]
-        return sorted(operations, key=lambda operation: services.index(operation["service"]))
-
-    def _row(self, service: str, current: ServiceWindowStats | None, baseline: ServiceWindowStats | None) -> dict:
+    def _row(
+        self, service: str, current: ServiceWindowStats | None, baseline: ServiceWindowStats | None, cut: bool = False
+    ) -> dict:
         status, reason = classify_service(
             current=current,
             baseline=baseline,
-            has_baseline=self.baseline is not None,
+            has_baseline=self.baseline is not None and not cut,
             window_from=self.current[0],
             window_to=self.current[1],
         )
@@ -313,6 +308,13 @@ class ServiceHealthQueryRunner:
             "last_seen": _iso(last_seen) if last_seen else None,
         }
 
+    def _scoped(self, query: dict[str, Any], service: str) -> dict[str, Any]:
+        stats = self._current_stats.get(service)
+        if not self.params.environment or stats is None or not stats.environment_key:
+            return query
+        environment = {"key": stats.environment_key, "value": stats.environment_value, "operator": "exact"}
+        return {**query, "filterGroup": [{**environment, "type": "span_resource_attribute"}]}
+
     def _next_calls(self, rows: list[dict]) -> list[dict[str, Any]]:
         calls: list[dict[str, Any]] = []
         unhealthy = [row for row in rows if row["status"] in _UNHEALTHY]
@@ -322,20 +324,19 @@ class ServiceHealthQueryRunner:
             if compare_filter := aggregate_compare_filter(self.params.compare):
                 query["compareFilter"] = compare_filter
             why = _clip(f"operations behind {', '.join(names)}")
-            calls.append({"tool": "apm-spans-aggregate", "why": why, "query": query})
+            calls.append({"tool": "apm-spans-aggregate", "why": why, "query": self._scoped(query, names[0])})
         silent = [row["service"] for row in rows if row["status"] == Status.SILENT][:NEXT_SERVICES_LIMIT]
         if silent:
             start = min(self.current[0], self.baseline[0]) if self.baseline else self.current[0]
             query = {"dateRange": _range((start, self.current[1])), "serviceNames": silent}
             why = _clip(f"when {', '.join(silent)} stopped sending spans")
-            calls.append({"tool": "apm-spans-sparkline", "why": why, "query": query})
+            calls.append({"tool": "apm-spans-sparkline", "why": why, "query": self._scoped(query, silent[0])})
         worst = next((row for row in unhealthy if row["error_count"]), None)
         if worst:
             query = {"dateRange": _range(self.current), "serviceNames": [worst["service"]], "statusCodes": [2]}
             why = _clip(f"recent error spans in {worst['service']}")
-            calls.append(
-                {"tool": "query-apm-spans", "why": why, "query": {**query, "limit": 10, "excludeAttributes": True}}
-            )
+            query = {**query, "flatSpans": True, "rootSpans": False, "limit": 10, "excludeAttributes": True}
+            calls.append({"tool": "query-apm-spans", "why": why, "query": self._scoped(query, worst["service"])})
         return calls
 
     def _notes(self, rows: list[dict], scan_truncated: bool) -> list[str]:
@@ -351,8 +352,13 @@ class ServiceHealthQueryRunner:
         windows = [self.current] if self.baseline is None else [self.current, self.baseline]
         stats = map_in_caller_context(self._service_stats, windows, thread_name_prefix="tracing_service_health")
         current, baseline = stats[0], stats[1] if len(stats) > 1 else {}
-        names = [*current, *sorted(set(baseline) - set(current))]
-        rows = [self._row(name, current.get(name), baseline.get(name)) for name in names]
+        self._current_stats = {**baseline, **current}
+        current_cut, baseline_cut = len(current) > SERVICE_SCAN_LIMIT, len(baseline) > SERVICE_SCAN_LIMIT
+        names = [*current, *([] if current_cut else sorted(set(baseline) - set(current)))]
+        rows = [
+            self._row(name, current.get(name), baseline.get(name), baseline_cut and name not in baseline)
+            for name in names
+        ]
 
         rows.sort(
             key=lambda row: (
@@ -378,9 +384,6 @@ class ServiceHealthQueryRunner:
             "truncated": len(rows) > self.params.limit or scan_truncated,
             "notes": self._notes(rows, scan_truncated),
         }
-        if Include.TOP_OPERATIONS in self.params.include:
-            unhealthy = [row["service"] for row in page if row["status"] in _UNHEALTHY]
-            result["top_operations"] = self._top_operations(unhealthy) if unhealthy else []
         return result
 
 

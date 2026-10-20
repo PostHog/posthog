@@ -9,12 +9,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
 
 from products.tracing.backend.facade.contracts import ServiceHealthParams
-from products.tracing.backend.facade.enums import (
-    ServiceHealthCompare,
-    ServiceHealthInclude,
-    ServiceHealthOrderBy,
-    ServiceHealthSpanScope,
-)
+from products.tracing.backend.facade.enums import ServiceHealthCompare, ServiceHealthOrderBy, ServiceHealthSpanScope
 from products.tracing.backend.tests.test_keyset_pagination import _TraceSpansTestBase
 
 RUNNER_PATH = "products.tracing.backend.presentation.views.run_service_health_query"
@@ -35,7 +30,7 @@ class TestServiceHealthValidation(APIBaseTest):
             ("compare_wrong_type", {"query": {"compare": 3}}),
             ("bad_span_scope", {"query": {"spanScope": "root"}}),
             ("bad_order_by", {"query": {"orderBy": "name"}}),
-            ("bad_include", {"query": {"include": ["logs"]}}),
+            ("reversed_baseline", {"query": {}, "baselineDateRange": {"date_from": "-1d", "date_to": "-2d"}}),
             ("limit_too_small", {"query": {"limit": 0}}),
             ("limit_too_large", {"query": {"limit": 1000}}),
             ("bad_date", {"query": {"dateRange": {"date_from": "yesterday-ish"}}}),
@@ -62,7 +57,6 @@ class TestServiceHealthValidation(APIBaseTest):
                 service_names=(),
                 span_scope=ServiceHealthSpanScope.ENTRY,
                 order_by=ServiceHealthOrderBy.STATUS,
-                include=(),
                 limit=25,
             ),
         )
@@ -75,7 +69,6 @@ class TestServiceHealthValidation(APIBaseTest):
                 "serviceNames": ["api"],
                 "spanScope": "all",
                 "orderBy": "p95",
-                "include": ["top_operations"],
                 "limit": 5,
             },
             "baselineDateRange": {"date_from": "-2d", "date_to": "-1d"},
@@ -87,7 +80,6 @@ class TestServiceHealthValidation(APIBaseTest):
         self.assertEqual(params.compare, ServiceHealthCompare.CUSTOM)
         self.assertEqual((params.compare_date_from, params.compare_date_to), ("-2d", "-1d"))
         self.assertEqual(params.service_names, ("api",))
-        self.assertEqual(params.include, (ServiceHealthInclude.TOP_OPERATIONS,))
         self.assertEqual((params.span_scope, params.order_by, params.limit), ("all", "p95", 5))
 
     @parameterized.expand(["none", "previous_period", "previous_day", "previous_week"])
@@ -106,6 +98,17 @@ class TestServiceHealthValidation(APIBaseTest):
         self.assertIn("10 GB", detail)
         self.assertIn("serviceNames", detail)
         self.assertIn('{"date_from": "-84h"}', detail)
+
+    def test_byte_cap_on_a_short_window_recommends_a_smaller_one(self):
+        with patch(RUNNER_PATH, side_effect=CHQueryErrorTooManyBytes("too many bytes")):
+            response = self.client.post(
+                _url(self.team.id),
+                {"query": {"dateRange": {"date_from": "-1h"}}, "baselineDateRange": {"date_from": "-3h"}},
+                format="json",
+            )
+        detail = response.json()["detail"]
+        self.assertIn('{"date_from": "-30m"}', detail)
+        self.assertIn("baselineDateRange", detail)
 
 
 class TestServiceHealthResponse(_TraceSpansTestBase):
@@ -191,11 +194,3 @@ class TestServiceHealthResponse(_TraceSpansTestBase):
         self.assertTrue(row["last_seen"].endswith("Z"))
         self.assertFalse(data["truncated"])
         self.assertEqual(data["next"][0]["tool"], "apm-spans-aggregate")
-
-    def test_optional_sections(self):
-        data = self._post(include=["top_operations"])
-        self.assertEqual(data["top_operations"][0]["service"], "worker")
-        self.assertEqual(
-            list(data["top_operations"][0]),
-            ["service", "operation", "requests", "error_count", "error_rate_pct", "p95_ms"],
-        )

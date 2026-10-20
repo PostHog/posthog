@@ -77,15 +77,6 @@
                     ],
                     "description": "Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env."
                 },
-                "include": {
-                    "description": "top_operations adds the 3 operations with the most errors for each regressed or degraded service.",
-                    "items": {
-                        "description": "* `top_operations` - Top Operations",
-                        "enum": ["top_operations"],
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "limit": {
                     "default": 25,
                     "description": "Max service rows, 1-200.",

@@ -1099,12 +1099,6 @@ export const TracingSpansServiceHealthCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'status (default) puts silent, regressed and degraded first. The others sort high to low.\n\n\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
                 ),
-            include: zod
-                .array(zod.enum(['top_operations']).describe('\* `top_operations` - Top Operations'))
-                .optional()
-                .describe(
-                    'top_operations adds the 3 operations with the most errors for each regressed or degraded service.'
-                ),
             limit: zod
                 .number()
                 .min(1)

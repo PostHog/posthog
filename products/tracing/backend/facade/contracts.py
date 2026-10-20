@@ -28,5 +28,4 @@ class ServiceHealthParams:
     service_names: tuple[str, ...] = ()
     span_scope: enums.ServiceHealthSpanScope = enums.ServiceHealthSpanScope.ENTRY
     order_by: enums.ServiceHealthOrderBy = enums.ServiceHealthOrderBy.STATUS
-    include: tuple[enums.ServiceHealthInclude, ...] = ()
     limit: int = 25

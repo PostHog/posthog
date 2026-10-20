@@ -796,15 +796,6 @@ export const ServiceHealthOrderByEnumApi = {
     ErrorCount: 'error_count',
 } as const
 
-/**
- * * `top_operations` - Top Operations
- */
-export type ServiceHealthIncludeEnumApi = (typeof ServiceHealthIncludeEnumApi)[keyof typeof ServiceHealthIncludeEnumApi]
-
-export const ServiceHealthIncludeEnumApi = {
-    TopOperations: 'top_operations',
-} as const
-
 export interface _ServiceHealthQueryApi {
     /** The window to score. Defaults to the last hour. */
     dateRange?: _ServiceHealthDateRangeApi
@@ -838,8 +829,6 @@ export interface _ServiceHealthQueryApi {
      * * `throughput` - Throughput
      * * `error_count` - Error Count */
     orderBy?: ServiceHealthOrderByEnumApi
-    /** top_operations adds the 3 operations with the most errors for each regressed or degraded service. */
-    include?: ServiceHealthIncludeEnumApi[]
     /**
      * Max service rows, 1-200.
      * @minimum 1
@@ -976,21 +965,6 @@ export interface _ServiceHealthRowApi {
     last_seen: string | null
 }
 
-export interface _ServiceHealthOperationApi {
-    /** Service name. */
-    service: string
-    /** Span name. */
-    operation: string
-    /** Spans of this operation. */
-    requests: number
-    /** Spans with OTel status Error. */
-    error_count: number
-    /** Error share, percent. */
-    error_rate_pct: number
-    /** 95th percentile duration, ms. */
-    p95_ms: number
-}
-
 /**
  * The prefilled query argument.
  */
@@ -1012,8 +986,6 @@ export interface ServiceHealthResponseApi {
     summary: _ServiceHealthSummaryApi
     /** One row per service, in orderBy order. */
     services: _ServiceHealthRowApi[]
-    /** Only with include top_operations. */
-    top_operations?: _ServiceHealthOperationApi[]
     /** Prefilled follow-up calls. */
     next: _ServiceHealthNextCallApi[]
     /** True when more services matched than limit. */

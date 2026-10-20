@@ -1,16 +1,21 @@
+from zoneinfo import ZoneInfo
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+from posthog.utils import relative_date_parse
 
 from ..facade.contracts import ServiceHealthParams
 from ..facade.enums import (
     ServiceHealthBaseline,
     ServiceHealthCompare,
-    ServiceHealthInclude,
     ServiceHealthOrderBy,
     ServiceHealthSpanScope,
     ServiceHealthStatus,
 )
 from .date_window import normalize_tracing_window
+
+UTC = ZoneInfo("UTC")
 
 
 class _ServiceHealthDateRangeSerializer(serializers.Serializer):
@@ -51,11 +56,6 @@ class _ServiceHealthQuerySerializer(serializers.Serializer):
         default=ServiceHealthOrderBy.STATUS,
         help_text="status (default) puts silent, regressed and degraded first. The others sort high to low.",
     )
-    include = serializers.ListField(
-        child=serializers.ChoiceField(choices=ServiceHealthInclude.choices),
-        default=list,
-        help_text="top_operations adds the 3 operations with the most errors for each regressed or degraded service.",
-    )
     limit = serializers.IntegerField(default=25, min_value=1, max_value=200, help_text="Max service rows, 1-200.")
 
 
@@ -64,6 +64,16 @@ class ServiceHealthRequestSerializer(serializers.Serializer):
     baselineDateRange = _ServiceHealthDateRangeSerializer(
         required=False, help_text="An explicit baseline window. Overrides query.compare."
     )
+
+    def validate(self, attrs: dict) -> dict:
+        for name, window in (
+            ("dateRange", attrs["query"].get("dateRange")),
+            ("baselineDateRange", attrs.get("baselineDateRange")),
+        ):
+            start, end = (normalize_tracing_window((window or {}).get(key)) for key in ("date_from", "date_to"))
+            if start and end and relative_date_parse(start, UTC) >= relative_date_parse(end, UTC):
+                raise serializers.ValidationError({name: "date_from must be before date_to."})
+        return attrs
 
 
 def service_health_params(validated_data: dict) -> ServiceHealthParams:
@@ -82,7 +92,6 @@ def service_health_params(validated_data: dict) -> ServiceHealthParams:
         service_names=tuple(data["serviceNames"]),
         span_scope=ServiceHealthSpanScope(data["spanScope"]),
         order_by=ServiceHealthOrderBy(data["orderBy"]),
-        include=tuple(ServiceHealthInclude(value) for value in dict.fromkeys(data["include"])),
         limit=data["limit"],
     )
 
@@ -137,15 +146,6 @@ class _ServiceHealthRowSerializer(serializers.Serializer):
     last_seen = serializers.CharField(allow_null=True, help_text="Last span, ISO 8601 UTC.")
 
 
-class _ServiceHealthOperationSerializer(serializers.Serializer):
-    service = serializers.CharField(help_text="Service name.")
-    operation = serializers.CharField(help_text="Span name.")
-    requests = serializers.IntegerField(help_text="Spans of this operation.")
-    error_count = serializers.IntegerField(help_text="Spans with OTel status Error.")
-    error_rate_pct = serializers.FloatField(help_text="Error share, percent.")
-    p95_ms = serializers.FloatField(help_text="95th percentile duration, ms.")
-
-
 @extend_schema_field({"type": "object", "additionalProperties": True})
 class _NextQueryField(serializers.JSONField):
     pass
@@ -161,9 +161,6 @@ class ServiceHealthResponseSerializer(serializers.Serializer):
     window = _ServiceHealthWindowSerializer(help_text="The absolute UTC windows the server used.")
     summary = _ServiceHealthSummarySerializer(help_text="Counts over all scored services.")
     services = _ServiceHealthRowSerializer(many=True, help_text="One row per service, in orderBy order.")
-    top_operations = _ServiceHealthOperationSerializer(
-        many=True, required=False, help_text="Only with include top_operations."
-    )
     next = _ServiceHealthNextCallSerializer(many=True, help_text="Prefilled follow-up calls.")
     truncated = serializers.BooleanField(help_text="True when more services matched than limit.")
     notes = serializers.ListField(child=serializers.CharField(), help_text="Caveats about this result.")
