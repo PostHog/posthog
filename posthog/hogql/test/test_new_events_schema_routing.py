@@ -192,6 +192,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         [
             ("native", {"useNewEventsCluster": True}, None, {}, True, True),
             ("legacy", {}, None, {}, False, None),
+            ("rollout_flag_override", {}, {"useNewEventsCluster": True, "useNewEventsSchema": True}, {}, True, True),
             ("schema_override", {}, {"useNewEventsSchema": False}, {"useNewEventsSchema": True}, False, None),
             ("cluster_false", {"useNewEventsCluster": True}, {"useNewEventsCluster": False}, {}, False, False),
             ("cluster_unset", {"useNewEventsCluster": True}, {"useNewEventsCluster": None}, {}, False, None),
