@@ -19,6 +19,9 @@ A request walks down this ladder and stops at the first tier whose conditions it
 | 3. Live fast paths                       | Session-id-set (filtered) and no-join (unfiltered) shapes that avoid the full events↔sessions join                                                 | ~1–20s          |
 | 4. Full join                             | The original events↔sessions join; always works, slowest                                                                                           | ~5–60s          |
 
+The preaggregated all-time range includes the hourly bucket containing the first event.
+Explicit date ranges keep their requested lower bounds.
+
 ## Request flow
 
 ```text
