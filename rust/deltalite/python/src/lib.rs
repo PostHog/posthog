@@ -369,6 +369,14 @@ impl DeltaLiteTable {
     /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
     /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
     /// per process). A row group larger than the cap still runs, alone.
+    ///
+    /// `isolate_source_rows=True` writes the batch's rows to their own output files
+    /// instead of the file that receives the copied survivors, so a later batch that
+    /// touches the same rows does not copy those survivors again. Off by default.
+    ///
+    /// `max_row_group_bytes` closes an output row group once its encoded bytes reach the
+    /// value, so a later reader fetches less per row group. `None` (the default) closes
+    /// row groups only at the encoder's row cap.
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -385,6 +393,8 @@ impl DeltaLiteTable {
         commit_max_retries = 15,
         read_batch_size = 8192,
         target_file_size = None,
+        isolate_source_rows = false,
+        max_row_group_bytes = None,
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
@@ -407,6 +417,8 @@ impl DeltaLiteTable {
         commit_max_retries: usize,
         read_batch_size: usize,
         target_file_size: Option<usize>,
+        isolate_source_rows: bool,
+        max_row_group_bytes: Option<usize>,
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
@@ -440,6 +452,8 @@ impl DeltaLiteTable {
             commit_max_retries,
             read_batch_size,
             target_file_size,
+            isolate_source_rows,
+            max_row_group_bytes,
             max_source_bytes,
             // Shared with every other concurrent upsert in this process, so the
             // process-level memory bound holds regardless of thread count.

@@ -211,7 +211,7 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
-    # Fields Meta can refuse to serve for a single row (see `META_INVALID_DOF_CREATIVE_ERROR_SUBCODE`).
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
     refusable_fields: tuple[str, ...] = ()
 
 
@@ -466,12 +466,15 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 # scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
-# Meta error code 100, subcode 2446211: Meta validates an Advantage+ ("degrees of freedom") creative
-# again when it serves the creative-backed fields of an ad, and refuses when the creative's asset feed
-# spec no longer matches its object story spec. Meta refuses the whole page for one such ad, so
-# without a fallback every sync of the table stops at that ad. The schema's `refusable_fields` name
-# the fields to drop from the page request and then read again per ad (see `_restore_refusable_fields`).
-META_INVALID_DOF_CREATIVE_ERROR_SUBCODE = 2446211
+# Meta error code 100 with one of these subcodes: Meta validates a creative again when it serves the
+# creative-backed fields of an ad or an ad creative, and refuses one it can no longer render.
+#   2446211: an Advantage+ ("degrees of freedom") creative whose asset feed spec no longer matches
+#            its object story spec.
+#   1443048: a creative whose object story spec is malformed, for example one with no Page.
+# Meta refuses the whole page for one such row, so without a fallback every sync of the table stops
+# at that row. The schema's `refusable_fields` name the fields to drop from the page request and then
+# read again per row (see `_restore_refusable_fields`).
+META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
 
 # Meta's multi-id lookup (`GET /?ids=...`) accepts at most 50 ids in one request.
 META_NODE_LOOKUP_MAX_IDS = 50
@@ -572,8 +575,8 @@ def _is_invalid_cursor_error(response: Response) -> bool:
     return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
 
 
-def _is_invalid_dof_creative_error(response: Response) -> bool:
-    return _meta_error_subcode(response) == META_INVALID_DOF_CREATIVE_ERROR_SUBCODE
+def _is_refused_creative_error(response: Response) -> bool:
+    return _meta_error_subcode(response) in META_REFUSED_CREATIVE_ERROR_SUBCODES
 
 
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
@@ -713,7 +716,8 @@ def _is_refused_node(node_id: str, node: typing.Any, fields: tuple[str, ...]) ->
     error = node.get("error") if isinstance(node, dict) else None
     if not isinstance(error, dict):
         return False
-    if error.get("error_subcode") != META_INVALID_DOF_CREATIVE_ERROR_SUBCODE:
+    subcode = error.get("error_subcode")
+    if not isinstance(subcode, int) or subcode not in META_REFUSED_CREATIVE_ERROR_SUBCODES:
         raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error)}")
     logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
     return True
@@ -741,7 +745,7 @@ def _fetch_refusable_fields(
                 raise
             continue
         return {node_id: node for node_id, node in nodes.items() if not _is_refused_node(node_id, node, fields)}
-    if not _is_invalid_dof_creative_error(response):
+    if not _is_refused_creative_error(response):
         _raise_meta_api_error(response)
     if len(ids) == 1:
         logger.warning("meta_ads_refused_fields_for_node", node_id=ids[0], fields=fields)
@@ -793,7 +797,7 @@ def _iter_simple_pagination(
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
 
     When Meta refuses a page for one row's ``refusable_fields`` (see
-    ``META_INVALID_DOF_CREATIVE_ERROR_SUBCODE``), the same page is fetched
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
     again without those fields, and the fields are read back per row from
     ``node_lookup_url``. The next page asks for every field again.
     """
@@ -837,7 +841,7 @@ def _iter_simple_pagination(
                 refusable_fields
                 and node_lookup_url is not None
                 and not without_refusable_fields
-                and _is_invalid_dof_creative_error(response)
+                and _is_refused_creative_error(response)
             ):
                 without_refusable_fields = True
                 response = _issue()

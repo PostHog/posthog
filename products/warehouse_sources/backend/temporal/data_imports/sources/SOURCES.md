@@ -519,6 +519,8 @@ the row lists both.
 | linkedin_ads                     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner                       | HTTP                        | requests                                                        | ✅                          |
 | linode                           | HTTP                        | requests                                                        | ✅                          |
+| listmonk                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| litellm                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | livestorm                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
@@ -1103,6 +1105,7 @@ doesn't conflict with concurrent PRs.
 - collibra
 - commission_junction
 - commslayer
+- conecto_crm
 - constant_contact
 - conta_azul
 - contentsquare
@@ -1266,6 +1269,7 @@ doesn't conflict with concurrent PRs.
 - kinde
 - kion
 - kissmetrics
+- klar
 - koyeb
 - kyve
 - labelbox
