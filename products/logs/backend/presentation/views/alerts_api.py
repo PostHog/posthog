@@ -88,15 +88,16 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.facade.api import (
     ALLOWED_WINDOW_MINUTES,
+    MAX_MERGED_EVENT_ROWS,
     close_incident_on_commit,
     follow_logs_alert,
     has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
+    platform_event_history,
 )
 from products.logs.backend.facade.platform_ownership import before_delete, on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_alert_event_history import platform_event_history
 
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
@@ -1396,12 +1397,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(kind=kind)
 
         paginator = cast(LimitOffsetPagination, self.paginator)
-        history = platform_event_history(
-            alert,
-            queryset,
-            kind=kind,
-            rows_needed=paginator.get_offset(request) + (paginator.get_limit(request) or 0),
-        )
+        rows_needed = paginator.get_offset(request) + (paginator.get_limit(request) or 0)
+        if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
+            raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
+        history = platform_event_history(alert, queryset, kind=kind, rows_needed=rows_needed)
         page = self.paginate_queryset(history)
         if page is not None:
             serializer = LogsAlertEventSerializer(page, many=True)

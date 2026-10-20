@@ -8,7 +8,7 @@ shadow evaluation, so it is left out.
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import overload
+from typing import Final, overload
 from uuid import uuid5
 
 from django.db.models import QuerySet
@@ -23,6 +23,10 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.alert_source_cycle import LogsAlertCondition
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import logs_state_of_platform
+
+# A merged page loads every row up to its end from both sources, so the end is bounded. The events
+# tab loads pages of 100 and never comes near it.
+MAX_MERGED_EVENT_ROWS: Final = 10_000
 
 
 @frozen

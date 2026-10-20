@@ -3379,3 +3379,9 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             ("check", "firing"),
             ("check", "errored"),
         ]
+
+    def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "offset"
