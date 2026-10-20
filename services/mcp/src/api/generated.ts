@@ -53429,6 +53429,10 @@ export namespace Schemas {
       matched_words: string[];
       /** Number of matches for each type, largest first. */
       type_counts: FileSystemRankedSearchTypeCount[];
+      /** True when no entry matched the words as typed, so every result is a close spelling. */
+      matched_with_typos: boolean;
+      /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+      counts_capped: boolean;
     }
 
     export interface FileSystemShortcut {

@@ -24,7 +24,8 @@ class TestFileSystemRankedSearch(APIBaseTest):
         )
 
     def _search(self, search: str, **params: int) -> dict:
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/search/", {"search": search, **params})
+        data: dict[str, str | int] = {"search": search, **params}
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/search/", data)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         return response.json()
 
@@ -63,6 +64,24 @@ class TestFileSystemRankedSearch(APIBaseTest):
                 ["Growth team/Signups", "Unfiled/Insights/Growth weekly"],
                 ["Growth weekly", "Signups"],
             ),
+            (
+                "plural_query_matches_singular_name",
+                "surveys",
+                ["Unfiled/Insights/Survey results", "Unfiled/Insights/Surveys archive"],
+                ["Surveys archive", "Survey results"],
+            ),
+            (
+                "repeated_word_gets_no_proximity_bonus",
+                "sign signup",
+                ["Unfiled/Insights/Signup", "Unfiled/Insights/Sign signup"],
+                ["Sign signup", "Signup"],
+            ),
+            (
+                "exact_folder_word_beats_name_typo",
+                "growth",
+                ["Growth/Growht", "Unfiled/Insights/Growth report"],
+                ["Growth report", "Growht"],
+            ),
         ]
     )
     def test_ranks_matches(self, _name: str, search: str, paths: list[str], expected: list[str]) -> None:
@@ -71,14 +90,29 @@ class TestFileSystemRankedSearch(APIBaseTest):
 
         self.assertEqual(self._names(self._search(search)), expected)
 
-    def test_falls_back_to_some_words_and_says_which(self) -> None:
-        self._create("Unfiled/Insights/Weekly report")
+    @parameterized.expand(
+        [
+            ("unknown_word", "xyzzy report", ["Weekly report"], ["Weekly report"], ["report"]),
+            (
+                "close_spelling_the_ranker_rejects",
+                "addon journey",
+                ["Journey: platform add-on trial", "Journey funnel"],
+                ["Journey: platform add-on trial", "Journey funnel"],
+                ["journey"],
+            ),
+        ]
+    )
+    def test_falls_back_to_some_words_and_says_which(
+        self, _name: str, search: str, names: list[str], expected: list[str], matched_words: list[str]
+    ) -> None:
+        for days_ago, name in enumerate(names):
+            self._create(f"Unfiled/Insights/{name}", days_ago=days_ago)
 
-        data = self._search("xyzzy report")
+        data = self._search(search)
 
-        self.assertEqual(self._names(data), ["Weekly report"])
+        self.assertEqual(self._names(data), expected)
         self.assertFalse(data["matched_all_words"])
-        self.assertEqual(data["matched_words"], ["report"])
+        self.assertEqual(data["matched_words"], matched_words)
 
     def test_frecency_breaks_ties_between_equal_matches(self) -> None:
         self._create("Unfiled/Dashboards/Home", type="dashboard", ref="1", days_ago=1)
@@ -119,4 +153,4 @@ class TestFileSystemRankedSearch(APIBaseTest):
 
         data = self._search("revenue", limit=1, per_type=2)
 
-        self.assertIn("Revenue by plan", self._names(data))
+        self.assertEqual(self._names(data), ["Revenue", "Revenue by plan"])

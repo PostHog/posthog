@@ -33,7 +33,7 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
-from posthog.api.file_system.ranked_search import FileSystemRankedSearch
+from posthog.api.file_system.ranked_search import FileRef, FileSystemRankedSearch
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -284,6 +284,12 @@ class FileSystemRankedSearchResponseSerializer(serializers.Serializer):
     )
     type_counts = FileSystemRankedSearchTypeCountSerializer(
         many=True, help_text="Number of matches for each type, largest first."
+    )
+    matched_with_typos = serializers.BooleanField(
+        help_text="True when no entry matched the words as typed, so every result is a close spelling."
+    )
+    counts_capped = serializers.BooleanField(
+        help_text="True when the search stopped at its candidate limit, so type_counts are lower bounds."
     )
 
 
@@ -1266,7 +1272,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False, pagination_class=None)
     def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         params = request.validated_query_data
-        filter_tokens, free_tokens = [], []
+        filter_tokens: list[str] = []
+        free_tokens: list[str] = []
         for token in tokenize_search(params["search"]):
             bare = token.lstrip("-!")
             (filter_tokens if ":" in bare or bare != token else free_tokens).append(token)
@@ -1276,19 +1283,31 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = self._apply_search_to_queryset(queryset, " ".join(shlex.quote(t) for t in filter_tokens))
         queryset = self._filter_by_access_control(queryset)
         ranker = FileSystemRankedSearch(
-            " ".join(free_tokens), user_id=request.user.id, team_id=self.team.id, today=timezone.now().date()
+            " ".join(free_tokens),
+            user_id=cast(User, request.user).id,
+            team_id=self.team.id,
+            today=timezone.now().date(),
         )
         if ranker.tokens:
-            result = ranker.rank(ranker.candidates(queryset))
+            result = ranker.search(queryset)
             entries = result.top(params["limit"], per_type=params["per_type"])
             matched_all_words = result.matched_all_words
             matched_words = list(entries[0].matched_tokens) if entries else []
             type_counts = sorted(result.type_counts.items(), key=lambda item: -item[1])
-            items = [(r.entry, list(r.rank)) for r in entries]
+            counts_capped = result.counts_capped
+            matched_with_typos = result.matched_with_typos
+            full_entries = queryset.in_bulk([ranked_entry.entry.id for ranked_entry in entries])
+            items = []
+            for ranked_entry in entries:
+                entry = full_entries[ranked_entry.entry.id]
+                entry.last_viewed_at = ranker.last_viewed.get(FileRef(type=entry.type, ref=entry.ref or ""))
+                items.append((entry, list(ranked_entry.rank)))
         else:
             items = [(entry, []) for entry in queryset.order_by("-created_at")[: params["limit"]]]
             matched_all_words, matched_words = True, []
             type_counts = []
+            counts_capped = False
+            matched_with_typos = False
         serialized = self.get_serializer([entry for entry, _ in items], many=True).data
         return Response(
             {
@@ -1296,6 +1315,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "matched_all_words": matched_all_words,
                 "matched_words": matched_words,
                 "type_counts": [{"type": t, "count": c} for t, c in type_counts],
+                "counts_capped": counts_capped,
+                "matched_with_typos": matched_with_typos,
             }
         )
 
