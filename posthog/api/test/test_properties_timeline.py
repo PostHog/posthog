@@ -39,6 +39,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.person import PropertiesTimelineRequestSerializer
 from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimeline, PropertiesTimelineResult
 from posthog.models.filters.mixins.base import BreakdownType
@@ -242,29 +244,25 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "query")
 
-    def test_query_timeline_rejects_a_malformed_hogql_filter(self):
-        # The filter parses during key extraction, which raises a hogql `SyntaxError` rather than a `QueryError`.
+    def test_query_timeline_raises_an_exposed_error_for_a_malformed_hogql_filter(self):
+        # Key extraction parses the filter, raising a hogql `SyntaxError` — a sibling of `QueryError`, not a
+        # subclass. The endpoint turns any `ExposedHogQLError` into a 400, so this is what keeps it off a 500.
         self._create_person({"foo": "abc"})
         flush_persons_and_events()
+        person = get_person_by_uuid(self.team.pk, str(TEST_PERSON_ID))
+        assert person is not None
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/persons/{TEST_PERSON_ID}/properties_timeline/",
-            {
-                "query": {
-                    "kind": "InsightActorsQuery",
-                    "day": "2020-01-01",
-                    "source": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        "properties": [{"type": "hogql", "key": "person.properties.foo !!"}],
-                    },
-                }
-            },
-            format="json",
+        query = InsightActorsQuery(
+            source=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                properties=[HogQLPropertyFilter(key="person.properties.foo !!")],
+            ),
+            day="2020-01-01",
+            series=0,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "query")
+        with self.assertRaises(ExposedHogQLError):
+            PropertiesTimeline().run(query, self.team, person)
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
