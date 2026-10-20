@@ -119,6 +119,7 @@ export function InsightSelector({
                     </p>
                     <LemonButton
                         size="small"
+                        type="tertiary"
                         status="danger"
                         data-attr="subscription-remove-all-unavailable-insights"
                         onClick={() => {
