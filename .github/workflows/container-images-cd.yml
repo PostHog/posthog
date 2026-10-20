@@ -585,15 +585,6 @@ jobs:
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
-                      messaging:
-                        - 'posthog/temporal/messaging/**'
-                        - 'products/web_analytics/backend/temporal/**'
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
-                        - 'posthog/clickhouse/migrations/**'
-
                       # Non-Python paths only. Python changes reach this worker through the
                       # import analysis in check_python_changes_analytics_platform_temporal_worker.
                       analyticsPlatform:
@@ -1265,27 +1256,6 @@ jobs:
 
             # NOTE: temporal-worker-llm-analytics rollout moved to cd-llm-analytics-image.yml
             # which builds and deploys a separate Docker image with ML dependencies.
-
-            - name: Trigger Messaging Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.messaging == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-messaging",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": "PostHog/posthog",
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
 
             - name: Trigger MCP Analytics Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.mcpAnalytics == 'true'
