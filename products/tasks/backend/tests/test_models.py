@@ -2,7 +2,7 @@ import json
 import uuid
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from unittest.mock import AsyncMock, patch
 
@@ -1162,14 +1162,14 @@ class TestTaskRun(TestCase):
     ) -> None:
         for status, environment, state in existing_runs:
             TaskRun.objects.create(task=self.task, team=self.team, status=status, environment=environment, state=state)
-        create_kwargs = {
+        create_kwargs: dict[str, dict[str, Any]] = {
             "cloud": {},
             "local": {"environment": TaskRun.Environment.LOCAL},
             "scheduled": {"scheduled_at": django_timezone.now() + timedelta(days=1)},
-        }[new_run]
+        }
 
         with self.assertRaises(TaskRunAlreadyLiveError) if refused else nullcontext():
-            self.task.create_run(**create_kwargs)
+            self.task.create_run(**create_kwargs[new_run])
 
         self.assertEqual(TaskRun.objects.filter(task=self.task).count(), len(existing_runs) + (0 if refused else 1))
 
