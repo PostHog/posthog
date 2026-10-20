@@ -1,4 +1,4 @@
-import { Check, Copy, Robot, SlackLogo } from "@phosphor-icons/react";
+import { Check, Copy, SlackLogo } from "@phosphor-icons/react";
 import { Box, IconButton } from "@radix-ui/themes";
 import { motion } from "framer-motion";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,11 +11,7 @@ import {
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
 import { InjectedBlockChips } from "./InjectedBlockChips";
-import {
-  hasFileMentions,
-  MentionChip,
-  parseFileMentions,
-} from "./parseFileMentions";
+import { hasFileMentions, parseFileMentions } from "./parseFileMentions";
 import { splitUserMessage } from "./userMessageDisplay";
 import { useVisibleInjectedBlocks } from "./useVisibleInjectedBlocks";
 
@@ -55,11 +51,7 @@ export const UserMessage = memo(function UserMessage({
   taskId,
   keyboardFocused = false,
 }: UserMessageProps) {
-  // A message relayed from another agent run renders with a provenance chip and
-  // neutral accent instead of masquerading as this run's user. The envelope
-  // boilerplate never renders; only the sender-authored body flows on.
   const {
-    peerAgentMessage,
     blocks,
     displayContent,
     attachments: visibleAttachments,
@@ -93,9 +85,7 @@ export const UserMessage = memo(function UserMessage({
     >
       <Box
         className={`group/msg relative border-l-2 bg-gray-2 py-2 pl-3 transition-shadow ${keyboardFocused ? "ring-(--accent-9) ring-2 ring-offset-(--gray-2) ring-offset-2" : ""}`}
-        style={{
-          borderColor: peerAgentMessage ? "var(--gray-8)" : "var(--accent-9)",
-        }}
+        style={{ borderColor: "var(--accent-9)" }}
       >
         <CollapsibleMessageContent contentClassName="font-medium text-[13px] [&_p]:leading-[1.9]">
           {visibleAttachments.length > 0 && (
@@ -108,16 +98,10 @@ export const UserMessage = memo(function UserMessage({
           ) : (
             <MarkdownRenderer content={displayContent} />
           )}
-          {(!!peerAgentMessage || visibleBlocks.length > 0) && (
+          {visibleBlocks.length > 0 && (
             <div
               className={`flex flex-wrap gap-1 ${displayContent ? "mt-1.5" : ""}`}
             >
-              {peerAgentMessage && (
-                <MentionChip
-                  icon={<Robot size={12} />}
-                  label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
-                />
-              )}
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </div>
           )}
