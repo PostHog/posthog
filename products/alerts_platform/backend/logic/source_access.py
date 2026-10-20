@@ -8,25 +8,17 @@ to that product. `alert:read` alone must not reveal it.
 from __future__ import annotations
 
 from collections.abc import Collection
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from posthog.scopes import APIScopeObject, scopes_not_covered
+from posthog.scopes import scopes_not_covered
 
+from products.alerts_platform.backend.facade.contracts import SOURCE_KIND_RESOURCE
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
-
-SOURCE_KIND_RESOURCE: Final[dict[str, APIScopeObject]] = {
-    PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
-}
-
-# Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
-# and a reader can hold access to insights in general but not to that insight. This product
-# cannot check access to one insight, so the copies stay out of the API until it can.
-UNSERVED_SOURCE_KINDS: Final[frozenset[str]] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
 
 
 def workflow_trigger_refusal(

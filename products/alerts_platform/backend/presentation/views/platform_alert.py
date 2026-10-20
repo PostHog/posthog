@@ -26,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
     MAX_INSTANCES_CEILING,
     MAX_STORED_INTEGER,
+    SOURCE_KIND_RESOURCE,
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -42,7 +43,6 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertState,
 )
 from products.alerts_platform.backend.facade.source_configs import editable_source_configs
-from products.alerts_platform.backend.logic.source_access import SOURCE_KIND_RESOURCE
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 
 

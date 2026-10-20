@@ -17,10 +17,17 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
+    PlatformAlertCheckStatus,
+    PlatformAlertConfigurationSourceKind,
+    PlatformAlertState,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+
+    from posthog.scopes import APIScopeObject
 
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
@@ -986,6 +993,18 @@ class AlertDestinationData(TypedDict):
     in_app_resource_id: NotRequired[str]
     # A path in the app, because the inbox opens it with the client-side router.
     in_app_url: NotRequired[str]
+
+
+# An alert shows its source product's data, so reading one, or subscribing a workflow to one, also
+# needs read access to that product. `alert:read` alone must not reveal it.
+SOURCE_KIND_RESOURCE: Final[dict[str, APIScopeObject]] = {
+    PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
+}
+
+# Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
+# and a reader can hold access to insights in general but not to that insight. This product
+# cannot check access to one insight, so the copies stay out of the API until it can.
+UNSERVED_SOURCE_KINDS: Final[frozenset[str]] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
 
 
 class AlertDestinationValidationError(Exception):
