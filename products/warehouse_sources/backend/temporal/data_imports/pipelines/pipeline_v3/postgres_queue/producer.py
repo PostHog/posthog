@@ -316,6 +316,8 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
+        if batch_result.arrow_bytes is not None:
+            metadata["arrow_bytes"] = batch_result.arrow_bytes
         if self._external_destination_ids is not None:
             metadata["external_destination_ids"] = self._external_destination_ids
 

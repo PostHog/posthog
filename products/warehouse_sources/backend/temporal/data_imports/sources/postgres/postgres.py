@@ -383,6 +383,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "no error details available" suffix is the signal — libpq only omits the message in this local,
     # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
     "connection is bad: no error details available",
+    # A TCP proxy/load balancer fronting the actual Postgres backend (common on providers that put
+    # a public endpoint in front of a private-network database) reports a failed connect to its own
+    # upstream as a bare FATAL error: "FATAL:  failed to connect to upstream <ip>:<port>". The proxy
+    # itself answered fine; the backend behind it was momentarily unreachable (a restart, failover,
+    # or scaling event on the provider's private network) — the same transient class as Supavisor's
+    # "{:error, :econnrefused}"/"{:error, :etimedout}" above, just worded by a different proxy. A
+    # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
+    # exclude the volatile upstream ip:port.
+    "failed to connect to upstream",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
