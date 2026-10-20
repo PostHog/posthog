@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
+    PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
 } from './generated/api.schemas'
@@ -80,4 +81,33 @@ export function describeSchedule(configuration: PlatformAlertConfigurationApi): 
 export function describeQuietHours(configuration: PlatformAlertConfigurationApi): string {
     const windows = configuration.schedule_restriction?.blocked_windows ?? []
     return windows.length ? windows.map((window) => `${window.start}-${window.end}`).join(', ') : 'None'
+}
+
+// Logs alerts group by these columns. Any other key is a log attribute the user typed, so it shows as written.
+const LABEL_NAMES: Record<string, string> = {
+    service_name: 'Service',
+    severity_text: 'Severity',
+}
+
+export interface GroupLabel {
+    name: string
+    value: string
+}
+
+/** A group's labels in the order the alert groups by, with readable names. */
+export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly string[]): GroupLabel[] {
+    const known = groupingKeys.filter((key) => key in alert.labels)
+    const rest = Object.keys(alert.labels)
+        .filter((key) => !groupingKeys.includes(key))
+        .sort()
+    return [...known, ...rest].map((key) => ({ name: LABEL_NAMES[key] ?? key, value: alert.labels[key] }))
+}
+
+export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
+    const count = configuration.overflowed_groups
+    if (count <= 0) {
+        return null
+    }
+    const groups = count === 1 ? 'group' : 'groups'
+    return `At its group limit: ${configuration.overflow_is_lower_bound ? 'at least ' : ''}${count} ${groups} not tracked`
 }

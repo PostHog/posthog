@@ -16,7 +16,8 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PlatformAlertConfigurationDetails } from './PlatformAlertConfigurationDetails'
-import { SOURCE_KINDS, sourceAlertUrl } from './platformAlertFormat'
+import { PlatformAlertCustomSnoozeModal } from './PlatformAlertCustomSnoozeModal'
+import { SOURCE_KINDS, describeOverflow, sourceAlertUrl } from './platformAlertFormat'
 import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
 
@@ -28,7 +29,7 @@ export const scene: SceneExport = {
 
 export function PlatformAlertScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { configuration, configurationLoading, configurationError } = useValues(platformAlertLogic)
+    const { configuration, configurationLoading, configurationError, canSnoozeGroups } = useValues(platformAlertLogic)
     const { loadConfiguration } = useActions(platformAlertLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -61,6 +62,7 @@ export function PlatformAlertScene(): JSX.Element {
 
     const sourceLabel = SOURCE_KINDS[configuration.source_kind].label
     const sourceUrl = sourceAlertUrl(configuration)
+    const overflow = describeOverflow(configuration)
 
     return (
         <SceneContent>
@@ -96,9 +98,30 @@ export function PlatformAlertScene(): JSX.Element {
             </SceneSection>
             <SceneSection
                 title="Groups"
-                description="Runtime state for each result group. An alert that does not group results has one row."
+                description={
+                    canSnoozeGroups
+                        ? 'Runtime state for each result group. Snooze a group to hold its notifications. It keeps being checked, and a firing group stays firing.'
+                        : 'Runtime state for each result group. An alert that does not group results has one row.'
+                }
             >
-                <PlatformAlertGroupsTable alerts={configuration.alerts} />
+                {overflow && (
+                    <LemonBanner type="warning">
+                        <p className="m-0 font-semibold">{overflow}</p>
+                        <p className="m-0">
+                            The last check found more groups than this alert's limit
+                            {configuration.grouping.max_instances !== undefined && (
+                                <span> of {configuration.grouping.max_instances}</span>
+                            )}
+                            , so it left the new ones out. To track them, raise the group limit or narrow the alert so
+                            fewer groups match.
+                        </p>
+                    </LemonBanner>
+                )}
+                <PlatformAlertGroupsTable
+                    alerts={configuration.alerts}
+                    groupingKeys={configuration.grouping.keys ?? []}
+                />
+                <PlatformAlertCustomSnoozeModal />
             </SceneSection>
             <SceneSection title="Source settings">
                 <CodeSnippet language={Language.JSON} wrap>
