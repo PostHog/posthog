@@ -21,8 +21,9 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
 )
 from posthog.temporal.ai_observability.trace_summarization.queries import fetch_trace, fetch_trace_size
 from posthog.temporal.ai_observability.trace_summarization.state import generate_redis_key, store_text_repr
-from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse, on_worker_thread
+from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import on_asyncify_pool
 
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
@@ -334,7 +335,7 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
         t0 = time.monotonic()
 
         if input.generation_id:
-            result = await on_worker_thread(_fetch_and_format_generation)(
+            result = await on_asyncify_pool(_fetch_and_format_generation)(
                 input.generation_id,
                 input.trace_id,
                 input.team_id,
@@ -343,7 +344,7 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
                 input.max_length,
             )
         else:
-            result = await on_worker_thread(_fetch_and_format_trace)(
+            result = await on_asyncify_pool(_fetch_and_format_trace)(
                 input.trace_id, input.team_id, input.window_start, input.window_end, input.max_length
             )
 
