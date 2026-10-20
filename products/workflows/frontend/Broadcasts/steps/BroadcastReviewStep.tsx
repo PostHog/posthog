@@ -79,6 +79,7 @@ export function BroadcastReviewStep(): JSX.Element {
         missingRecipientEmail,
         aiEmailDraftStatus,
         email,
+        launching,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
@@ -173,6 +174,7 @@ export function BroadcastReviewStep(): JSX.Element {
                                     value={email.subject ?? ''}
                                     onChange={(subject) => setEmail({ ...email, subject })}
                                     placeholder="Add a subject"
+                                    disabledReason={launching ? 'Sending the broadcast' : undefined}
                                     data-attr="broadcast-review-subject"
                                 />
                             </div>
@@ -188,6 +190,7 @@ export function BroadcastReviewStep(): JSX.Element {
                                     value={email.preheader ?? ''}
                                     onChange={(preheader) => setEmail({ ...email, preheader })}
                                     placeholder="Optional"
+                                    disabledReason={launching ? 'Sending the broadcast' : undefined}
                                     data-attr="broadcast-review-preheader"
                                 />
                             </div>
