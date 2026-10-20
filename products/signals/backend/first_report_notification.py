@@ -23,6 +23,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.constants import SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport
 from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.report_content_gates import team_first_report_email_enabled
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -117,7 +118,7 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
 
 
 def deliver_first_report_email(team_id: int) -> None:
-    if not is_cloud() or not is_transactional_email_configured():
+    if not is_cloud() or not is_transactional_email_configured() or not team_first_report_email_enabled(team_id):
         return
     notification = _claim(team_id)
     if notification is None:

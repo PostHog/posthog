@@ -52,6 +52,7 @@ class TestFirstReportNotification(BaseTest):
         )
         self.enterContext(patch(f"{MODULE}.SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID", str(self.template_id)))
         self.enterContext(patch(f"{MODULE}.is_cloud", return_value=True))
+        self.email_flag = self.enterContext(patch(f"{MODULE}.team_first_report_email_enabled", return_value=True))
         response = Mock(status_code=202)
         response.json.return_value = {"message_id": "example-message-id"}
         self.post = self.enterContext(patch("posthog.transactional_email.requests.post", return_value=response))
@@ -288,6 +289,21 @@ class TestFirstReportNotification(BaseTest):
         deliver_first_report_email(self.team.id)
         self.send.assert_called_once()
         assert self.notification().cancelled_at is not None
+
+    def test_disabled_flag_preserves_notification_until_enabled(self) -> None:
+        self.report()
+        self.email_flag.return_value = False
+
+        deliver_first_report_email(self.team.id)
+
+        self.send.assert_not_called()
+        assert self.notification().send_started_at is None
+        assert self.notification().cancelled_at is None
+        assert self.notification().report_id is None
+        self.email_flag.return_value = True
+        deliver_first_report_email(self.team.id)
+        self.send.assert_called_once()
+        assert self.notification().queued_at is not None
 
     @parameterized.expand([("not_cloud",), ("no_project",), ("no_key",), ("no_host",)])
     def test_disabled_delivery_does_not_claim_a_notification(self, reason: str) -> None:

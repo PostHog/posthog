@@ -1,5 +1,6 @@
 from celery import shared_task
 
+from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
 from posthog.scoping_audit import skip_team_scope_audit
@@ -9,6 +10,7 @@ from products.signals.backend.models import SignalFirstReportNotification
 
 
 @shared_task(
+    queue=CeleryQueue.EMAIL.value,
     ignore_result=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
