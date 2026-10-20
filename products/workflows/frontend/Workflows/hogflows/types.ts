@@ -8,6 +8,7 @@ import { AccessControlLevel, UserBasicType } from '~/types'
 
 import { HogFlowOriginProductEnumApi } from '../../generated/api.schemas'
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
+import type { EarlyExitBlockedReason } from './tree/workflowTree'
 
 const HogFlowEdgeSchema = z.object({
     from: z.string(),
@@ -121,7 +122,11 @@ export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string,
 export interface HogFlowActionNode extends Node<HogFlowAction> {}
 
 // Dropzone nodes are ephemeral and on the client only, used in the editor to highlight where nodes can be added to a workflow
-export type DropzoneNode = Node<{ edge: HogFlowActionEdge; isBranchJoinDropzone?: boolean }>
+export type DropzoneNode = Node<{
+    edge: HogFlowActionEdge
+    isBranchJoinDropzone?: boolean
+    earlyExitBlockedReason?: EarlyExitBlockedReason | null
+}>
 
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
