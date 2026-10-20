@@ -70,9 +70,7 @@ class TestClassifyService(SimpleTestCase):
             ("new", _stats(50), None, ServiceHealthStatus.NEW),
             ("regressed_error_rate", _stats(200, errors=10), _stats(200, errors=1), ServiceHealthStatus.REGRESSED),
             ("regressed_p95", _stats(200, p95_ms=30.0), _stats(200, p95_ms=10.0), ServiceHealthStatus.REGRESSED),
-            # A 1 pp rise that is less than double the baseline is noise on a noisy service.
             ("error_rise_below_ratio", _stats(200, errors=24), _stats(200, errors=20), ServiceHealthStatus.DEGRADED),
-            # Below the request floor a few errors swing the rate, so no regression is called.
             ("regression_needs_volume", _stats(50, errors=10), _stats(50), ServiceHealthStatus.DEGRADED),
             ("degraded", _stats(200, errors=20), _stats(200, errors=20), ServiceHealthStatus.DEGRADED),
             ("recovered", _stats(200), _stats(200, errors=20), ServiceHealthStatus.RECOVERED),
@@ -233,15 +231,11 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
                     )
                 )
 
-        # api: steady. Its internal child spans all fail, which only spanScope=all may count.
         add("api", BASELINE_FROM, 200)
         add("api", CURRENT_FROM, 200)
         add("api", CURRENT_FROM, 200, errors=200, kind=1, parent="cGFyZW50", name="db query")
-        # api also runs in staging, labelled through the second key of the fallback chain.
         add("api", CURRENT_FROM, 40, resource={"deployment.environment": "staging"})
-        # stage-svc is labelled through the last key of the chain.
         add("stage-svc", CURRENT_FROM, 30, resource={"env": "staging"})
-        # worker: consumer spans with a parent, so only the kind makes them entry spans.
         add("worker", BASELINE_FROM, 200, errors=1, kind=5, parent="cGFyZW50", name="consume order")
         add("worker", CURRENT_FROM, 150, errors=10, kind=5, parent="cGFyZW50", name="consume order")
         add("worker", CURRENT_FROM, 50, errors=2, kind=5, parent="cGFyZW50", name="consume refund")
@@ -257,7 +251,6 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
         add("cache", CURRENT_FROM, 200, duration_ms=10.0)
         add("cron", BASELINE_FROM, 150)
         add("cron", CURRENT_FROM, 150, minutes=30)
-        # nightly only ran the day before, so only a previous_day baseline sees it.
         add("nightly", PREVIOUS_DAY_FROM, 100)
 
         sync_execute(
