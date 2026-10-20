@@ -103,7 +103,7 @@ class UsEiaSource(ResumableSource[UsEiaSourceConfig, EiaResumeConfig]):
                 "Use a full refresh to collect revisions to older periods."
             ),
             iconPath="/static/services/us_eia.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
