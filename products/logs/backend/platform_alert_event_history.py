@@ -13,6 +13,7 @@ from uuid import uuid5
 
 from django.db.models import QuerySet
 
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
@@ -64,7 +65,8 @@ def platform_event_history(
         return events
     if kind is not None and kind != LogsAlertEvent.Kind.CHECK:
         return events
-    logs_events = events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
+    # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
+    logs_events = stable_queryset_ordering(events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at))
     try:
         page = notable_checks_by_legacy_id(
             team_id=alert.team_id, legacy_configuration_id=alert.id, since=cutover_at, limit=rows_needed
