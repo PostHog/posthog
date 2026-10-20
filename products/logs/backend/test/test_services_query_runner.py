@@ -491,6 +491,7 @@ class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
             result = self._services(compare="previous_period")
 
         assert not {row["status"] for row in result["services"]} & {"silent", "new"}
+        assert result["summary"]["truncated"] is True
 
     def test_environment_must_be_a_string(self) -> None:
         self._services(expected_status=status.HTTP_400_BAD_REQUEST, environment=["production"])

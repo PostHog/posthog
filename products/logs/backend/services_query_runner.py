@@ -500,7 +500,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     "status_counts": {
                         status: sum(1 for s in services if s["status"] == status) for status in SERVICE_STATUSES
                     },
-                    "truncated": total_services > len(current),
+                    "truncated": total_services > len(current) or baseline_cut,
                 },
                 "next": []
                 if self.environment
