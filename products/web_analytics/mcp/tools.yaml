@@ -16,13 +16,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Get sessions behind heatmap coordinates
         description: >
             Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a
             JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from
             `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you
             can open the session recordings that produced a hotspot.
+        reads_ingested_data: events
     heatmaps-list:
         operation: heatmaps_list
         enabled: true
@@ -32,7 +32,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         list: true
         title: List heatmap interactions for a page
         description: >
@@ -52,6 +51,7 @@ tools:
             distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise
             `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is
             truncated.
+        reads_ingested_data: events
     heatmaps-saved-create:
         operation: saved_create
         enabled: true
@@ -223,7 +223,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Summarize web analytics
         description: >
             Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews,
@@ -232,6 +231,7 @@ tools:
             (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip
             the period-over-period comparison for a faster response. Use this to answer questions like "how are my web
             analytics?", "how did the site do last week?", or "what's my traffic looking like this month?".
+        reads_ingested_data: events
 wrappers:
     query-web-overview:
         schema_ref: AssistantWebOverviewQuery
@@ -242,7 +242,6 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Run a web analytics overview query
         description_file: ./prompts/query-web-overview.md
         system_prompt_hint: Web analytics KPIs — visitors, sessions, bounce rate, session duration
@@ -252,6 +251,7 @@ wrappers:
             - modifiers
             - samplingFactor
         use_optimized_output: false
+        reads_ingested_data: events
     query-web-stats:
         schema_ref: AssistantWebStatsTableQuery
         enabled: true
@@ -261,7 +261,6 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Run a web analytics breakdown table query
         description_file: ./prompts/query-web-stats.md
         system_prompt_hint: Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate
@@ -271,6 +270,7 @@ wrappers:
             - modifiers
             - samplingFactor
         use_optimized_output: false
+        reads_ingested_data: events
     query-web-vitals:
         schema_ref: AssistantWebVitalsPathBreakdownQuery
         enabled: true
@@ -280,7 +280,6 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Run a web vitals path breakdown query
         description_file: ./prompts/query-web-vitals.md
         system_prompt_hint: Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor
@@ -290,3 +289,4 @@ wrappers:
             - modifiers
             - samplingFactor
         use_optimized_output: false
+        reads_ingested_data: events

@@ -1824,7 +1824,6 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: List LLM traces
         description_file: ./prompts/query-llm-traces-list.md
         system_prompt_hint: LLM/AI trace listing and inspection
@@ -1832,6 +1831,7 @@ wrappers:
             - response
             - modifiers
         url_prefix: /ai-observability/traces
+        reads_ingested_data: events
     query-llm-trace:
         schema_ref: AssistantTraceQuery
         enabled: true
@@ -1841,7 +1841,6 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Get LLM trace
         description_file: ./prompts/query-llm-trace.md
         system_prompt_hint: Single LLM/AI trace deep-dive
@@ -1849,3 +1848,4 @@ wrappers:
             - response
             - modifiers
         url_prefix: /ai-observability/traces/{traceId}
+        reads_ingested_data: events

@@ -33,12 +33,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Get person cohorts
         description: |
             Get all cohorts that a specific person belongs to. Requires the person_id query parameter.
         exclude_params:
             - format
+        reads_ingested_data: events
     persons-list:
         operation: persons_list
         enabled: true
@@ -48,7 +48,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         list: true
         title: List persons
         description: >
@@ -64,6 +63,7 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+        reads_ingested_data: events
         response:
             include:
                 - id
@@ -116,13 +116,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         enrich_url: '{uuid}'
         title: Get person
         description: |
             Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.
         exclude_params:
             - format
+        reads_ingested_data: events
         response:
             include:
                 - id
@@ -141,7 +141,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: events
         title: Get person property values
         description: >
             Get distinct values for a person property key. Useful for discovering what values exist for properties like
@@ -149,3 +148,4 @@ tools:
         exclude_params:
             - format
             - force_refresh
+        reads_ingested_data: events

@@ -212,11 +212,11 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: traces
         title: Query tracing spans
         description_file: ./prompts/query-apm-spans.md
         ui_app: trace-span-list
         feature_flag: tracing
+        reads_ingested_data: traces
         response:
             include:
                 - results

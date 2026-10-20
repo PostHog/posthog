@@ -487,10 +487,10 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        reads_ingested_data: logs
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
+        reads_ingested_data: logs
         response:
             include:
                 - results
