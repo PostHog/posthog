@@ -494,17 +494,23 @@ def flags_for_app_evaluation_context(
 ) -> dict[str, Any] | None:
     """
     Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
-    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts.
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
+    also returns disabled flags and server-only flags, which /flags never sends to a browser.
     """
     # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
     if flags is None:
         return None
-    excluded = {
-        definition["key"]
-        for definition in definitions or []
-        if definition.get("evaluation_contexts") and APP_EVALUATION_CONTEXT not in definition["evaluation_contexts"]
-    }
+    excluded = {definition["key"] for definition in definitions or [] if not _app_evaluates_flag(definition)}
     return {key: value for key, value in flags.items() if key not in excluded}
+
+
+def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
+    contexts = definition.get("evaluation_contexts")
+    return (
+        definition.get("active", True) is not False
+        and definition.get("evaluation_runtime") != "server"
+        and (not contexts or APP_EVALUATION_CONTEXT in contexts)
+    )
 
 
 @frozen
