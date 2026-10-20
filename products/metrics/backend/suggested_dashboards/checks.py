@@ -26,10 +26,12 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
+from products.metrics.backend.query_concurrency import query_concurrency_slots
 
 logger = structlog.get_logger(__name__)
 
@@ -39,8 +41,11 @@ RUN_WORKERS = 4
 MIN_VARIABLE_VALUES = 2
 MAX_CANDIDATE_VALUES = 20
 MAX_CANDIDATES = 8
-# Two attributes are one to one when they form at most this many pairs per value of the attribute with fewer values.
-ONE_TO_ONE_SLACK = 1.1
+# Without a LIMIT, HogQL returns 100 rows. A key past this many is unknown, not a key with no values.
+MAX_PROFILE_KEYS = 10_000
+# Two attributes are one to one when they form at most 10% more pairs than the attribute with fewer values has
+# values, and at most 10% of the series carry only one of them.
+ONE_TO_ONE_TOLERANCE = 0.1
 SERVICE_ATTRIBUTE = "service_name"
 _SERVICE_ATTRIBUTES = frozenset({"service_name", "service.name"})
 _QUERY_SETTINGS = HogQLGlobalSettings(max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES)
@@ -96,8 +101,13 @@ def attribute_profile(team: Team, metric_names: Sequence[str]) -> dict[str, Attr
             )
             WHERE attribute_value != ''
             GROUP BY attribute_key
+            LIMIT {limit}
         """,
-        placeholders={"since": ast.Constant(value=_since()), "names": _names(metric_names)},
+        placeholders={
+            "since": ast.Constant(value=_since()),
+            "names": _names(metric_names),
+            "limit": ast.Constant(value=MAX_PROFILE_KEYS),
+        },
     )
     response = execute_hogql_query(
         query_type="MetricsDashboardAttributeProfile",
@@ -124,16 +134,21 @@ def variable_candidates(profile: Mapping[str, AttributeStats], metric_count: int
 
 
 def one_to_one(team: Team, metric_names: Sequence[str], first: str, second: str) -> bool:
-    """Whether each value of one attribute goes with one value of the other, in nearly every series."""
+    """Whether each value of one attribute goes with one value of the other, in nearly every series.
+
+    A series with only one of the two attributes is one that only that attribute selects.
+    """
     query = parse_select(
         """
-            SELECT uniqCombined64(a), uniqCombined64(b), uniqCombined64(a, b)
+            SELECT
+                uniqIf(a, paired), uniqIf(b, paired), uniqIf(a, b, paired),
+                countIf(paired), countIf(not paired)
             FROM (
-                SELECT {first} AS a, {second} AS b
+                SELECT {first} AS a, {second} AS b, a != '' AND b != '' AS paired
                 FROM posthog.metric_series
                 WHERE last_seen >= {since} AND metric_name IN {names}
             )
-            WHERE a != '' AND b != ''
+            WHERE a != '' OR b != ''
         """,
         placeholders={
             "first": _value(first),
@@ -149,9 +164,11 @@ def one_to_one(team: Team, metric_names: Sequence[str], first: str, second: str)
         workload=Workload.LOGS,
         settings=_QUERY_SETTINGS,
     )
-    first_count, second_count, pairs = (int(value) for value in response.results[0])
+    first_count, second_count, pairs, together, apart = (int(value) for value in response.results[0])
     fewer = min(first_count, second_count)
-    return fewer > 0 and pairs <= fewer * ONE_TO_ONE_SLACK
+    return (
+        fewer > 0 and pairs <= fewer * (1 + ONE_TO_ONE_TOLERANCE) and apart <= (together + apart) * ONE_TO_ONE_TOLERANCE
+    )
 
 
 def _run(team: Team, query: dict[str, Any], variables: Sequence[MetricsDashboardVariable]) -> str | None:
@@ -162,7 +179,12 @@ def _run(team: Team, query: dict[str, Any], variables: Sequence[MetricsDashboard
         )
         if variables:
             runner.apply_dashboard_filters(DashboardFilter(metricVariables=list(variables)))
-        runner.calculate()
+        with query_concurrency_slots(team):
+            runner.calculate()
+    except ConcurrencyLimitExceeded:
+        # A busy organization says nothing about the panel, so it stays.
+        logger.warning("metrics_suggested_dashboards_panel_run_skipped", team_id=team.id)
+        return None
     except ExposedHogQLError as error:
         return str(error)
     except Exception:
@@ -188,9 +210,8 @@ class ProjectChecks:
         return self._value_counts is not None and _attribute(attribute) in self._value_counts
 
     def has_several_values(self, attribute: str) -> bool:
-        if self._value_counts is None:
-            return True
-        return self._value_counts.get(_attribute(attribute), 0) >= MIN_VARIABLE_VALUES
+        count = self._value_counts.get(_attribute(attribute)) if self._value_counts is not None else None
+        return count is None or count >= MIN_VARIABLE_VALUES
 
     def one_to_one(self, first: str, second: str) -> bool:
         if _attribute(first) == _attribute(second):
@@ -202,7 +223,11 @@ class ProjectChecks:
             return False
 
     def run_errors(self, queries: Mapping[str, dict[str, Any]], variables: Sequence[dict[str, Any]]) -> dict[str, str]:
-        """The error of each query that fails, with every variable set to All."""
+        """The error of each query that fails, with every variable set to All.
+
+        A run still in flight at the deadline counts as too slow. It is waited for, so that no query of this
+        generation runs on after it. ClickHouse ends each statement of a metrics query after 30 seconds.
+        """
         definitions = [MetricsDashboardVariable.model_validate(variable) for variable in variables]
         executor = ThreadPoolExecutor(max_workers=RUN_WORKERS, thread_name_prefix="metrics-suggested-check")
         errors: dict[str, str] = {}
@@ -216,5 +241,5 @@ class ProjectChecks:
                 elif (error := future.result()) is not None:
                     errors[key] = error
         finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+            executor.shutdown(wait=True, cancel_futures=True)
         return errors

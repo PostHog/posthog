@@ -353,6 +353,31 @@ class TestSuggestedDashboards(SimpleTestCase):
             == kept
         )
 
+    def test_convert_filters_on_the_kept_variable_where_a_panel_filtered_on_a_replaced_one(self) -> None:
+        converted = _convert(
+            [
+                self._draft(
+                    "orders", "orders_total", 0, filters=[BuilderFilter(key="instance", op="eq", value="$instance")]
+                ),
+                self._draft(
+                    "queue", "queue_depth", 4, filters=[BuilderFilter(key="host", op="regex", value="${host:regex}")]
+                ),
+            ],
+            Team(id=1),
+            CATALOG,
+            variables=[
+                DraftVariable(name="instance", label="Instance", attribute="instance"),
+                DraftVariable(name="host", label="Host", attribute="host"),
+            ],
+            attributes={"orders_total": ["instance", "host"]},
+            checks=_Checks({"instance": 3, "host": 3}, frozenset({frozenset({"instance", "host"})})),
+        )
+
+        assert [variable["name"] for variable in converted.variables] == ["instance"]
+        queue = converted.panels[1].query
+        assert queue is not None
+        assert queue["clauses"][0]["filters"] == [{"key": "instance", "op": "regex", "value": "${instance:regex}"}]
+
     def test_convert_drops_the_panels_whose_query_fails_to_run(self) -> None:
         converted = _convert(
             [self._draft("orders", "orders_total", 0), self._draft("queue", "queue_depth", 4)],

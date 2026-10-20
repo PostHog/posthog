@@ -20,11 +20,11 @@ class TestSuggestedDashboardChecks(ClickhouseTestMixin, APIBaseTest):
         truncate_metrics_tables()
         now = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5)
         for metric, labels in [
-            ("orders_total", {"env": "prod", "host": "h1", "instance": "i1"}),
-            ("orders_total", {"env": "prod", "host": "h2", "instance": "i2"}),
-            ("orders_total", {"env": "dev", "host": "h3", "instance": "i3"}),
-            ("queue_depth", {"env": "dev", "host": "h1", "instance": "i1"}),
-            ("cache_hits", {"region": "eu"}),
+            ("orders_total", {"env": "prod", "host": "h1", "instance": "i1", "zone": "z1"}),
+            ("orders_total", {"env": "prod", "host": "h2", "instance": "i2", "zone": "z2"}),
+            ("orders_total", {"env": "dev", "host": "h3", "instance": "i3", "zone": "z3"}),
+            ("queue_depth", {"env": "dev", "host": "h1", "instance": "i1", "zone": "z1"}),
+            ("cache_hits", {"region": "eu", "zone": "z4"}),
         ]:
             seed_metric(team_id=self.team.id, metric_name=metric, points=[(now, 1.0)], labels=labels)
 
@@ -36,13 +36,16 @@ class TestSuggestedDashboardChecks(ClickhouseTestMixin, APIBaseTest):
             "host": (3, 2),
             "instance": (3, 2),
             "region": (1, 1),
+            "zone": (4, 3),
             "service_name": (1, 3),
         }
-        assert variable_candidates(profile, len(METRICS)) == ["env", "host", "instance"]
+        assert variable_candidates(profile, len(METRICS)) == ["zone", "env", "host", "instance"]
 
     def test_one_to_one_finds_attributes_that_select_the_same_series(self) -> None:
         assert one_to_one(self.team, METRICS, "host", "instance")
         assert not one_to_one(self.team, METRICS, "env", "host")
+        # Only zone selects the cache_hits series.
+        assert not one_to_one(self.team, METRICS, "host", "zone")
 
     def test_run_errors_reports_only_the_queries_that_fail(self) -> None:
         def query(op: str, value: str) -> dict:

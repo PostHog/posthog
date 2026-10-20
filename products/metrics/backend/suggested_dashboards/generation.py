@@ -61,7 +61,13 @@ from products.metrics.backend.suggested_dashboards.spec import (
     template_panels,
 )
 from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT
-from products.metrics.backend.variables import RANGE_VARIABLES, VARIABLE_NAME, referenced_names
+from products.metrics.backend.variables import (
+    RANGE_VARIABLES,
+    REFERENCE,
+    VARIABLE_NAME,
+    reference_name,
+    referenced_names,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -188,15 +194,24 @@ class _Converted:
     accepted_variables: tuple[DraftVariable, ...] = ()
 
 
+@frozen
+class _ValidVariables:
+    variables: list[DraftVariable]
+    # Each variable that selects the same thing as a kept one, by name, with that kept variable.
+    replaced: dict[str, tuple[DraftVariable, DraftVariable]]
+
+
 def _valid_variables(
     drafts: Sequence[DraftVariable], attributes: Mapping[str, Sequence[str]], checks: ProjectChecks | None
-) -> list[DraftVariable]:
+) -> _ValidVariables:
     """The drafted variables that list a known attribute with several values, with unique names.
 
-    A variable whose values go one to one with those of an earlier variable selects the same thing, so it goes.
+    A variable whose values go one to one with those of an earlier variable selects the same thing, so the earlier
+    one replaces it.
     """
     known = {key for keys in attributes.values() for key in keys} | SERVICE_ATTRIBUTES
     valid: list[DraftVariable] = []
+    replaced: dict[str, tuple[DraftVariable, DraftVariable]] = {}
     for draft in drafts:
         if len(valid) >= MAX_VARIABLES:
             break
@@ -207,25 +222,51 @@ def _valid_variables(
             or any(variable.name == draft.name for variable in valid)
         ):
             continue
-        if checks is not None and (
-            not checks.has_several_values(draft.attribute)
-            or any(checks.one_to_one(variable.attribute, draft.attribute) for variable in valid)
-        ):
+        if checks is not None and not checks.has_several_values(draft.attribute):
+            continue
+        equivalent = (
+            next((variable for variable in valid if checks.one_to_one(variable.attribute, draft.attribute)), None)
+            if checks is not None
+            else None
+        )
+        if equivalent is not None:
+            replaced[draft.name] = (draft, equivalent)
             continue
         valid.append(draft)
-    return valid
+    return _ValidVariables(variables=valid, replaced=replaced)
 
 
-def _with_known_references(draft: DraftPanel, names: set[str]) -> DraftPanel:
-    """The panel without the filters that refer to a variable that the dashboard does not have."""
+def _replace_reference(builder_filter: BuilderFilter, old: DraftVariable, new: DraftVariable) -> BuilderFilter:
+    value = REFERENCE.sub(
+        lambda match: match.group(0).replace(old.name, new.name, 1)
+        if reference_name(match) == old.name
+        else match.group(0),
+        builder_filter.value,
+    )
+    key = new.attribute if builder_filter.key == old.attribute else builder_filter.key
+    return builder_filter.model_copy(update={"key": key, "value": value})
 
-    def known(builder_filter: BuilderFilter) -> bool:
-        return set(referenced_names(builder_filter.value)) <= names
 
-    clauses = [
-        clause.model_copy(update={"filters": [item for item in clause.filters if known(item)]})
-        for clause in draft.query.clauses
-    ]
+def _with_known_references(draft: DraftPanel, valid: _ValidVariables) -> DraftPanel:
+    """The panel without the filters that refer to a variable that the dashboard does not have.
+
+    A filter on a replaced variable filters on the variable that replaced it.
+    """
+    names = {variable.name for variable in valid.variables}
+
+    def rewritten(builder_filter: BuilderFilter) -> BuilderFilter:
+        for name in referenced_names(builder_filter.value):
+            if name in valid.replaced:
+                builder_filter = _replace_reference(builder_filter, *valid.replaced[name])
+        return builder_filter
+
+    clauses = []
+    for clause in draft.query.clauses:
+        filters: list[BuilderFilter] = []
+        for item in map(rewritten, clause.filters):
+            if set(referenced_names(item.value)) <= names and item not in filters:
+                filters.append(item)
+        clauses.append(clause.model_copy(update={"filters": filters}))
     return draft.model_copy(update={"query": draft.query.model_copy(update={"clauses": clauses})})
 
 
@@ -244,7 +285,8 @@ def _convert(
     the template is for every project and a value of the source project must not reach the others. With `checks`,
     each panel also runs in the source project, and a panel whose run fails goes.
     """
-    valid_variables = _valid_variables(variables, attributes or {}, checks)
+    valid = _valid_variables(variables, attributes or {}, checks)
+    valid_variables = valid.variables
     definitions = {
         variable.name: attribute_variable(
             name=variable.name,
@@ -254,7 +296,7 @@ def _convert(
         )
         for variable in valid_variables
     }
-    drafts = [_with_known_references(draft, {variable.name for variable in valid_variables}) for draft in drafts]
+    drafts = [_with_known_references(draft, valid) for draft in drafts]
     validator = PanelValidator(team=team, catalog=catalog, promql_available=False)
     queries = {draft.key: PanelQuery(language="builder", builder=draft.query) for draft in drafts}
     static_checks = validator.check_all(queries, deadline_seconds=CHECK_DEADLINE_SECONDS)
