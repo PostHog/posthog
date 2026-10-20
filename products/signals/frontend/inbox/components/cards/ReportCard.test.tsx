@@ -423,7 +423,7 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_fixed', 'Very likely'],
+        ['with the impact column', true, 'ranking_fixed', '2.7x more likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
@@ -478,7 +478,7 @@ describe('ReportCard', () => {
         })
         rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
         expect(screen.getByText('Score out of date')).toBeInTheDocument()
-        expect(screen.queryByText('Very likely')).not.toBeInTheDocument()
+        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()

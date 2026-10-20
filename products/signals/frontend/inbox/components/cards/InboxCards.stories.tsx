@@ -267,7 +267,7 @@ const RANKING = {
     stale: false,
 }
 
-// Under the Engage sort: a lift, a probability with no lift, an unscored report, and a report edited after scoring.
+// Under the Engage sort: a lift above 1x, a lift below 1x, a probability with no lift, an unscored report, and a report edited after scoring.
 const rankedReports: SignalReport[] = [
     makeReport({
         title: 'Checkout button does nothing on Safari',
@@ -278,6 +278,12 @@ const rankedReports: SignalReport[] = [
             scores: { open: 0.91, action: 0.78, fixed: 0.33, pr_merged: 0.52 },
             lifts: { open: 0.6, action: 2.1, fixed: 6.0, pr_merged: 2.6 },
         },
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: { ...RANKING, scores: { action: 0.21 }, lifts: { action: 0.6 } },
     }),
     makeReport({
         title: 'Slow dashboard load for large projects',
@@ -303,7 +309,7 @@ export const ReportCardRankingTags: Story = {
         </CardList>
     ),
     play: async ({ canvas }) => {
-        await userEvent.hover(await canvas.findByText('Very likely'))
+        await userEvent.hover(await canvas.findByText('2.1x more likely'))
     },
 }
 
