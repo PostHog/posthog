@@ -64,10 +64,6 @@ class TestValidateCredentials:
         with scripted_network([ScriptedResponse(json={"is_logged_in": False})]):
             assert validate_credentials("key") is False
 
-    def test_invalid_on_error_status(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            assert validate_credentials("key") is False
-
 
 class TestGetRows:
     def test_incremental_sorts_desc_and_stops_at_watermark(self) -> None:

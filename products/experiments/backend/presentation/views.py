@@ -1497,8 +1497,10 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
-        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+        already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+        a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+        `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+        minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1520,7 +1522,8 @@ class EnterpriseExperimentsViewSet(
         # the idempotent-reuse path without inspecting the HTTP status code.
         is_existing = result.get("is_existing", False)
 
-        if not is_existing:
+        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
+        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
             start_metrics_recalculation_workflow(
                 str(result["id"]),
                 team_id=experiment.team_id,

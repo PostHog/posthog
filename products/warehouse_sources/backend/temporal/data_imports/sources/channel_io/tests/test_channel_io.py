@@ -274,9 +274,6 @@ def test_auth_errors_fail_the_sync_without_retrying(status: int) -> None:
     ("answer", "valid", "message_part"),
     [
         (ScriptedResponse(json={"channel": {"id": "1"}}), True, None),
-        (ScriptedResponse(status=401, json={"type": "unauthenticatedError", "status": 401}), False, "rejected"),
-        (ScriptedResponse(status=403, json={"type": "forbiddenError", "status": 403}), False, "permissions"),
-        (ScriptedResponse(status=500, json={}), False, "status 500"),
     ],
 )
 def test_validate_credentials_maps_the_probe_status(

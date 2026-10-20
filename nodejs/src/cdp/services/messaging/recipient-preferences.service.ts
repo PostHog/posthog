@@ -177,6 +177,10 @@ export class RecipientPreferencesService {
         }
 
         if (!identifier) {
+            // EmailService skips a send with no `to` and records email_missing_recipient, so let it through.
+            if (action.type === 'function_email') {
+                return false
+            }
             throw new Error(
                 `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
             )

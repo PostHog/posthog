@@ -1,5 +1,6 @@
 import time
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -45,6 +46,7 @@ from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
@@ -57,6 +59,7 @@ from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.test import replay_gate_fixtures
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -1300,19 +1303,137 @@ def team_api_test_factory():
                 "type": "validation_error",
             }
 
-        def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
+        @parameterized.expand(
+            [
+                ["integer id", int, {}],
+                ["numeric string id", str, {}],
+                ["variant", int, {"variant": "test"}],
+            ]
+        )
+        def test_can_set_and_unset_session_recording_linked_flag(
+            self, _name: str, send_id: Callable[[int], Any], variant: dict[str, str]
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
+
+            self._patch_linked_flag_config({"id": send_id(flag.id), "key": "stale-key", **variant})
+            self._assert_linked_flag_config({"id": flag.id, "key": "current-key", **variant})
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
 
-        def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+        @parameterized.expand(
+            [
+                ["viewable", "current-key", None],
+                ["access_denied", "stale-key", None],
+                ["unchanged_column", "stale-key", None],
+                ["token_with_flag_read", "current-key", ["project:write", "feature_flag:read"]],
+                ["token_with_all_scopes", "current-key", ["*"]],
+                ["token_without_flag_read", "stale-key", ["project:write"]],
+            ]
+        )
+        def test_moves_a_trigger_group_flag_sent_with_an_id_to_the_flags_current_key(
+            self, case: str, expected_key: str, token_scopes: list[str] | None
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
+            if case == "access_denied":
+                self._deny_flag_access(flag)
+            trigger_groups: dict[str, Any] = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "group-1",
+                        "sampleRate": 1.0,
+                        "conditions": {"matchType": "any", "flag": {"id": flag.id, "key": "stale-key"}},
+                    }
+                ],
+            }
+            if case == "unchanged_column":
+                Team.objects.filter(pk=self.team.pk).update(session_recording_trigger_groups=trigger_groups)
+                trigger_groups = self.client.get("/api/environments/@current/").json()[
+                    "session_recording_trigger_groups"
+                ]
 
-            self._patch_linked_flag_config(None)
+            headers = (
+                {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(token_scopes)}"}
+                if token_scopes
+                else {}
+            )
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_trigger_groups": trigger_groups}, headers=headers
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.get("/api/environments/@current/")
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["conditions"]["flag"] == {
+                "id": flag.id,
+                "key": expected_key,
+            }
+
+        @parameterized.expand(["missing", "soft_deleted", "other_project", "access_denied"])
+        def test_rejects_a_linked_flag_that_cannot_gate_recording(self, case: str) -> None:
+            flag_team = Team.objects.create(organization=self.organization) if case == "other_project" else self.team
+            flag = FeatureFlag.objects.create(
+                team=flag_team, created_by=self.user, key="gate", deleted=case == "soft_deleted"
+            )
+            flag_id = flag.id
+            if case == "missing":
+                flag.delete()
+            if case == "access_denied":
+                self._deny_flag_access(flag)
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_linked_flag": {"id": flag_id, "key": "gate"}}
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["detail"] == (
+                f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
+            )
             self._assert_linked_flag_config(None)
+
+        @parameterized.expand(
+            [
+                ["unchanged_soft_deleted", "soft_deleted", {}, status.HTTP_200_OK],
+                ["unchanged_access_denied", "access_denied", {}, status.HTTP_200_OK],
+                ["unchanged_string_id_access_denied", "string_id_access_denied", {}, status.HTTP_200_OK],
+                ["unchanged_renamed", "renamed", {}, status.HTTP_200_OK],
+                ["changed_key_access_denied", "access_denied", {"key": "other-key"}, status.HTTP_400_BAD_REQUEST],
+                ["added_variant_access_denied", "access_denied", {"variant": "x"}, status.HTTP_400_BAD_REQUEST],
+            ]
+        )
+        def test_keeps_an_unchanged_link_as_stored(
+            self, _name: str, case: str, sent_changes: dict[str, str], expected_status: int
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate")
+            stored_link = {"id": flag.id, "key": "gate"}
+            self._patch_linked_flag_config(stored_link)
+            if case == "soft_deleted":
+                flag.deleted = True
+                flag.save()
+            elif case == "renamed":
+                # update() sends no post_save signal, so no relink moves the team to the new key.
+                FeatureFlag.objects.filter(pk=flag.pk).update(key="renamed")
+            else:
+                self._deny_flag_access(flag)
+            sent_link = stored_link
+            if case == "string_id_access_denied":
+                sent_link = {**stored_link, "id": str(flag.id)}
+                Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag=sent_link)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "session_recording_linked_flag": {**sent_link, **sent_changes},
+                    "session_recording_minimum_duration_milliseconds": 1000,
+                },
+            )
+
+            assert response.status_code == expected_status, response.json()
+            accepted = expected_status == status.HTTP_200_OK
+            team = self.client.get("/api/environments/@current/").json()
+            assert team["session_recording_linked_flag"] == stored_link
+            assert team["session_recording_minimum_duration_milliseconds"] == (1000 if accepted else None)
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
@@ -2037,6 +2158,20 @@ def team_api_test_factory():
             self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
         ) -> HttpResponse:
             return self._patch_config("session_replay_config", config, expected_status)
+
+        def _deny_flag_access(self, flag: FeatureFlag) -> None:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            # A flag's creator can always view it, so the flag needs a different creator.
+            flag.created_by = self._create_user("flag-owner@posthog.com")
+            flag.save()
+            AccessControl.objects.create(
+                team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+            )
 
         def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
             response = self.client.get("/api/environments/@current/")
@@ -4306,6 +4441,17 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         self.team.refresh_from_db()
         assert getattr(self.team, team_attr) != value
 
+    def test_member_cannot_set_project_logo_via_projects(self) -> None:
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.project.refresh_from_db()
+        assert self.project.logo_media_id is None
+
     @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS)
     def test_member_can_still_patch_member_safe_field_via_environments(
         self, field: str, value: Any, team_attr: str
@@ -4803,25 +4949,6 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
-
-    # Object-level validate() needs self.context["view"], so a value that passes field validation
-    # can't go through is_valid() here. The static validator is the shared entry point anyway:
-    # ProjectBackwardCompatSerializer.validate_session_recording_linked_flag delegates straight to it.
-    @parameterized.expand(
-        [
-            ["none", None, None],
-            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
-            ["numeric string id", {"id": "123", "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
-            [
-                "variant survives normalization",
-                {"id": "123", "key": "flag-key", "variant": "test"},
-                {"id": 123, "key": "flag-key", "variant": "test"},
-            ],
-        ]
-    )
-    def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
-        assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
-        assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
     @staticmethod
     def _trigger_groups_gated_on(flag: Any) -> dict:
