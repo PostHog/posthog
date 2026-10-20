@@ -534,11 +534,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
+            turned_away = 0
             for group in outcome.groups:
                 alert = alerts.get(
                     _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
                 )
                 if alert is None:
+                    # `max_instances` fell after the source admitted this group, so it overflowed here instead.
+                    turned_away += 1
                     continue
                 touched.append(alert)
                 alert.last_seen_at = now
@@ -583,7 +586,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             configuration.check_status = _check_status(configuration, outcome)
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.failure is None and not outcome.skipped:
-                configuration.overflowed_groups = outcome.overflowed
+                configuration.overflowed_groups = outcome.overflowed + turned_away
                 configuration.overflow_is_lower_bound = outcome.overflow_is_lower_bound
             if outcome.disable:
                 configuration.enabled = False

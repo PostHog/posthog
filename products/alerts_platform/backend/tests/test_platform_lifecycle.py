@@ -45,6 +45,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 from products.alerts_platform.backend.facade.grouping import (
     MAX_TRANSITIONS_PER_DELIVERY,
     GroupObservation,
+    bounded_labels,
     decide_groups,
     delivery_parts,
 )
@@ -411,17 +412,19 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=1).to_stored()
             )
 
-        self._record(groups=(self._group("api"), self._group("web")))
+        self._record(groups=(self._group("api"), self._group("web")), overflowed=2)
 
         with team_scope(self.team.id):
             keys = list(
                 PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", flat=True)
             )
+            self.configuration.refresh_from_db()
         rows = sync_execute(
             "SELECT grouping_key FROM platform_alert_events WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s",
             {"team_id": self.team.id, "configuration_id": self.configuration.id},
         )
-        assert (keys, rows) == (["api"], [("api",)])
+        # The source turned away 2 groups, and the write turned away `web`.
+        assert (keys, rows, self.configuration.overflowed_groups) == (["api"], [("api",)], 3)
 
     @parameterized.expand(
         [
@@ -470,6 +473,16 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         self._record(at=self._next_due(), groups=(self._group("api"),))
 
         assert self._alert("api").labels == {"service_name": "api"}
+
+    @parameterized.expand([("nul", "\x00"), ("lone_surrogate", "\ud800")])
+    def test_an_instance_stores_labels_the_database_cannot_hold_as_replacement_characters(
+        self, _name: str, unstorable: str
+    ) -> None:
+        labels = bounded_labels({f"service{unstorable}name": f"api{unstorable}"})
+
+        self._record(groups=(dataclasses.replace(self._group("api"), labels=labels),))
+
+        assert self._alert("api").labels == {"service\ufffdname": "api\ufffd"}
 
     @parameterized.expand([("stale", ("severity_text",), []), ("current", ("service_name",), ["api", "web"])])
     def test_a_check_that_ran_under_another_grouping_records_no_groups(
