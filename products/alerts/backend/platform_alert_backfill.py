@@ -63,9 +63,7 @@ def _upsert(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         },
         check_interval_minutes=check_interval_minutes,
         recurrence_unit=recurrence_unit,
-        # The hourly cadence has no anchor here: production fires it at the alert's creation
-        # minute, while sixty minutes on the platform lands on a UTC grid.
-        anchor_time=alert.schedule_start_time if recurrence_unit is not None else None,
+        anchor_time=alert.schedule_start_time,
         evaluation_periods=1,
         datapoints_to_alarm=1,
         cooldown_minutes=0,

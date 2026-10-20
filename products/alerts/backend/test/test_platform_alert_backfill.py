@@ -67,7 +67,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         assert unparseable.id not in copies
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
             quarter_hourly.id: (15, None, None),
-            hourly.id: (60, None, None),
+            hourly.id: (60, None, "09:30"),
             daily.id: (60 * 24, "day", "09:30"),
         }
         assert copies[daily.id].source_config["condition"] == {

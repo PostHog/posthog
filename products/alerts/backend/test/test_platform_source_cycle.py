@@ -173,20 +173,39 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            (AlertCalculationInterval.EVERY_15_MINUTES, 15, None),
-            (AlertCalculationInterval.HOURLY, 60, None),
-            (AlertCalculationInterval.DAILY, 60 * 24, "day"),
-            (AlertCalculationInterval.WEEKLY, 60 * 24 * 7, "week"),
+            ("every_15_minutes", AlertCalculationInterval.EVERY_15_MINUTES, 15, None, None, None),
+            ("hourly", AlertCalculationInterval.HOURLY, 60, None, None, None),
+            ("daily", AlertCalculationInterval.DAILY, 60 * 24, "day", None, None),
+            ("weekly", AlertCalculationInterval.WEEKLY, 60 * 24 * 7, "week", None, None),
+            # The next local hour is quiet, so the check moves to the window's end plus its offset.
+            ("hourly_quiet_hours", AlertCalculationInterval.HOURLY, 60, None, ("16:00", "17:00"), None),
+            ("daily_quiet_hours", AlertCalculationInterval.DAILY, 60 * 24, "day", ("00:30", "02:00"), None),
+            ("hourly_start_time", AlertCalculationInterval.HOURLY, 60, None, None, "09:20"),
         ]
     )
     def test_a_copy_is_next_due_when_the_production_alert_is(
-        self, interval: AlertCalculationInterval, minutes: int, unit: str | None
+        self,
+        _name: str,
+        interval: AlertCalculationInterval,
+        minutes: int,
+        unit: str | None,
+        quiet: tuple[str, str] | None,
+        start_time: str | None,
     ) -> None:
         # A half-hour timezone, where the local hour starts at :30 UTC.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
-        alert = self._alert(calculation_interval=interval)
-        configuration = self._copy(alert, check_interval_minutes=minutes, recurrence_unit=unit)
+        restriction = {"blocked_windows": [{"start": quiet[0], "end": quiet[1]}]} if quiet else None
+        alert = self._alert(
+            calculation_interval=interval, schedule_restriction=restriction, schedule_start_time=start_time
+        )
+        configuration = self._copy(
+            alert,
+            check_interval_minutes=minutes,
+            recurrence_unit=unit,
+            schedule_restriction=restriction,
+            anchor_time=start_time,
+        )
 
         with time_machine.travel(CUTOFF, tick=False):
             outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
