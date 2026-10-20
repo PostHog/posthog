@@ -19,12 +19,12 @@ tools:
             Start Wizard, PostHog's setup agent, in the cloud on a GitHub repository of the current project. The setup
             agent adds the PostHog SDK and first events to the code and opens a pull request for the user to review. The
             project must be connected to GitHub, and the repository must be one the GitHub connection can access
-            (integrations-github-repos-retrieve). To connect GitHub, give the user the link
-            <base URL>/integrations/connect/github/?project_id=<project id>&connect_from=mcp. In this version the setup
-            agent works at the repository root, so a monorepo app in a subdirectory may not be set up. Pass an
-            idempotency_key and reuse it when you retry the same request. Each user can have one setup run active per
-            project. Returns run_id; poll wizard-install-status with it about every 30 seconds until the status is
-            completed, failed, or cancelled.
+            (integrations-github-repos-retrieve). To connect GitHub, give the user the link <base
+            URL>/integrations/connect/github/?project_id=<project id>&connect_from=mcp. In this version the setup agent
+            works at the repository root, so a monorepo app in a subdirectory may not be set up. Pass an idempotency_key
+            and reuse it when you retry the same request. Each user can have one setup run active per project. Returns
+            run_id; poll wizard-install-status with it about every 30 seconds until the status is completed, failed, or
+            cancelled.
     wizard-install-status:
         operation: wizard_installs_retrieve
         enabled: true
