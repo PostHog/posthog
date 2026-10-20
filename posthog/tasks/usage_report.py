@@ -409,6 +409,9 @@ class UsageReportCounters:
     # visible fleet-wide, the same signal logs_records_in_period provides for logs.
     metrics_records_in_period: int
     metrics_mb_in_period: int
+    # Distinct series with at least one point in the period. Report-only; summed over the daily
+    # reports it gives series-days, the unit active-series pricing is quoted in.
+    metrics_series_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -2839,6 +2842,35 @@ def get_teams_with_metrics_usage_in_period(
     return usage
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_metrics_series_in_period(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict.
+) -> list[tuple[int, int]]:
+    """
+    Returns the number of distinct Metrics (OTel) series per team that received at least one
+    point in the period, as `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
+
+    `metrics4_series` keeps one row per series and UTC hour on the Logs cluster, so this never
+    reads the sample arrays. `uniq` is approximate, which is acceptable for a report-only counter
+    and keeps memory bounded when one team has a cardinality explosion.
+    """
+    with tags_context(product=Product.METRICS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, uniq(series_fingerprint) AS series
+            FROM metrics4_series
+            WHERE time_bucket >= %(begin)s AND time_bucket < %(end)s
+            GROUP BY team_id
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.LOGS,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+
 def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
     """Drop the per-team breakdown when the serialized report would exceed Kafka's
     message size limit, so the org-level roll-up still makes it through ingestion.
@@ -3057,6 +3089,7 @@ def _get_all_usage_data(
     )
     apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     metrics_usage = get_teams_with_metrics_usage_in_period(period_start, period_end)
+    metrics_series_rows = get_teams_with_metrics_series_in_period(period_start, period_end)
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
 
     return {
@@ -3275,6 +3308,7 @@ def _get_all_usage_data(
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
         "teams_with_metrics_records_in_period": metrics_usage["records"],
+        "teams_with_metrics_series_in_period": metrics_series_rows,
     }
 
 
@@ -3566,6 +3600,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
         metrics_records_in_period=all_data["teams_with_metrics_records_in_period"].get(team.id, 0),
         metrics_mb_in_period=int(all_data["teams_with_metrics_bytes_in_period"].get(team.id, 0) // 1_000_000),
+        metrics_series_in_period=all_data["teams_with_metrics_series_in_period"].get(team.id, 0),
     )
 
 
