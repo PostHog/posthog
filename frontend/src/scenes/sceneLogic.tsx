@@ -331,8 +331,8 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    reloadBrowserDueToImportError: () => {
-        value: true
+    reloadBrowserDueToImportError: (error: unknown) => {
+        error: unknown
     }
     resetUnavailableHomepage: (pathname: string) => {
         pathname: string
@@ -484,7 +484,7 @@ export const sceneLogic = kea<sceneLogicType>([
             sceneKey,
             params,
         }),
-        reloadBrowserDueToImportError: true,
+        reloadBrowserDueToImportError: (error: unknown) => ({ error }),
 
         setHomepage: (tab: SceneTab | null, homepageSource?: 'dashboards list') => ({ tab, homepageSource }),
         homepageSaved: (tab: SceneTab | null) => ({ tab }),
@@ -1071,7 +1071,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
-                            actions.reloadBrowserDueToImportError()
+                            actions.reloadBrowserDueToImportError(error)
                         }
                         return
                     }
@@ -1119,8 +1119,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             actions.setScene(sceneId, sceneKey, params, clickedLink || wasNotLoaded, exportedScene)
         },
-        reloadBrowserDueToImportError: () => {
-            reloadAfterChunkLoadError()
+        reloadBrowserDueToImportError: ({ error }) => {
+            reloadAfterChunkLoadError(error)
         },
     })),
 

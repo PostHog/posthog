@@ -34,6 +34,7 @@ use personhog_identity::pools::{IdentityPools, Lane};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+use personhog_identity::warnings;
 
 common_alloc::used!();
 
@@ -175,12 +176,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sweeper_handle = config
         .lifecycle_sweeper_enabled
         .then(|| manager.register("lifecycle_sweeper", ComponentOptions::new()));
+    let warnings_handle = config.ingestion_warnings_enabled.then(|| {
+        manager.register(
+            "ingestion_warnings",
+            ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_secs(30))
+                .is_advisory(true),
+        )
+    });
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
     let monitor = manager.monitor_background();
 
+    // Dense from 250ms to 5s, where merge tails sit.
+    const BUCKETS: &[f64] = &[
+        1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
+        5000.0, 10000.0, 30000.0,
+    ];
+    // Lifecycle ops span "settled in one drive" (tens of ms) to
+    // "abandoned, parked, or leader-blocked and resumed by the sweeper"
+    // (minutes to an hour); the default latency ladder tops out at 10s
+    // and would collapse every resumed op into +Inf.
+    const OP_DURATION_BUCKETS: &[f64] = &[
+        10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
+        300000.0, 1800000.0, 3600000.0,
+    ];
+    // Batch sizes, not latency; the request caps are 250.
+    const PER_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
+    let recorder_handle = PrometheusBuilder::new()
+        .add_global_label("service", "personhog-identity")
+        .set_buckets(BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_lifecycle_op_duration_ms".into()),
+            OP_DURATION_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .install_recorder()
+        .expect("Failed to install metrics recorder");
     // Metrics/health HTTP server (observability handle — stays alive during standard drain)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
@@ -195,34 +232,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        // Dense from 250ms to 5s, where merge tails sit.
-        const BUCKETS: &[f64] = &[
-            1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
-            5000.0, 10000.0, 30000.0,
-        ];
-        // Lifecycle ops span "settled in one drive" (tens of ms) to
-        // "abandoned, parked, or leader-blocked and resumed by the sweeper"
-        // (minutes to an hour); the default latency ladder tops out at 10s
-        // and would collapse every resumed op into +Inf.
-        const OP_DURATION_BUCKETS: &[f64] = &[
-            10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
-            300000.0, 1800000.0, 3600000.0,
-        ];
-        // Batch sizes, not latency; the request caps are 250.
-        const PER_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
-        let recorder_handle = PrometheusBuilder::new()
-            .add_global_label("service", "personhog-identity")
-            .set_buckets(BUCKETS)
-            .unwrap()
-            .set_buckets_for_metric(
-                Matcher::Full("personhog_lifecycle_op_duration_ms".into()),
-                OP_DURATION_BUCKETS,
-            )
-            .unwrap()
-            .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
-            .unwrap()
-            .install_recorder()
-            .expect("Failed to install metrics recorder");
         let metrics_router = health_router.route(
             "/metrics",
             get(move || std::future::ready(recorder_handle.render())),
@@ -240,7 +249,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let pools = create_pools(&config);
-    let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), config.tables()));
+    if config.lifecycle_outbox_enabled {
+        // With the outbox on, every create, attach and op completion names
+        // the table; refuse to start without it instead of failing each
+        // request once the pod is ready. Any other error is left to the
+        // request path, as warm_pool leaves a connection failure.
+        let probe = format!("SELECT 1 FROM {} LIMIT 0", tables.person_publish_outbox);
+        if let Err(e) = sqlx::query(&query_tag!("startup_outbox_probe", probe))
+            .execute(pools.fast())
+            .await
+        {
+            let undefined_table =
+                e.as_database_error().and_then(|db| db.code()).as_deref() == Some("42P01");
+            if undefined_table {
+                panic!(
+                    "LIFECYCLE_OUTBOX_ENABLED is set but {} does not exist; apply the persons migration first",
+                    tables.person_publish_outbox
+                );
+            }
+            tracing::warn!(
+                error = %e,
+                table = %tables.person_publish_outbox,
+                "Could not probe the publish outbox table at startup"
+            );
+        }
+    }
+    let storage = Arc::new(PostgresIdentityStorage::new(
+        pools.clone(),
+        config.tables(),
+        outbox_writes,
+    ));
+    let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);
+    let warnings_to_flush = merge_warnings.clone();
 
     // Pre-warm the DB connection pools before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
@@ -302,7 +342,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.tables(),
             config.lifecycle_leader_call_concurrency,
             outbox_writes,
-        );
+        )
+        .with_warnings(merge_warnings.clone());
         let sweeper_delete_driver = DeleteDriver::new(
             lifecycle_leader.clone(),
             config.tables(),
@@ -361,10 +402,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
                 outbox_writes,
-            ),
+            )
+            .with_warnings(merge_warnings.clone()),
             detached_drives.clone(),
         ),
-    );
+    )
+    .with_warnings(merge_warnings);
     let lifecycle_service = PersonHogLifecycleService::new(
         engine,
         lifecycle_leader,
@@ -449,7 +492,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         detached_drives.shutdown().await;
     });
 
-    monitor.wait().await?;
+    let waited = monitor.wait().await;
 
+    // Flush before the result propagates: a failed component or a timed-out
+    // drain is exactly the shutdown that leaves rows queued.
+    if let Err(e) = tokio::task::spawn_blocking(move || warnings_to_flush.flush()).await {
+        tracing::warn!(error = %e, "ingestion warnings flush task panicked");
+    }
+
+    waited?;
     Ok(())
 }

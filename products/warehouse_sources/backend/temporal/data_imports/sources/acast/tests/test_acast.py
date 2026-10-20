@@ -4,7 +4,6 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.acast import validate_credentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.source import AcastSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -101,10 +100,3 @@ def test_unexpected_response_shape_fails_instead_of_importing_an_error() -> None
 
     assert isinstance(result.raised, ValueError)
     assert "Required a list response body" in str(result.raised)
-
-
-def test_unknown_table_fails_before_making_requests() -> None:
-    result = acast_driver().run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

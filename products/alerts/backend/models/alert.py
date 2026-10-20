@@ -25,6 +25,12 @@ ALERT_STATE_CHOICES = [
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
 
+# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
+# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
+METRICS_INSIGHT_QUERY_FILTER = models.Q(insight__query__kind="MetricsQuery") | models.Q(
+    insight__query__source__kind="MetricsQuery"
+)
+
 
 class InvestigationStatus(models.TextChoices):
     PENDING = "pending", "pending"

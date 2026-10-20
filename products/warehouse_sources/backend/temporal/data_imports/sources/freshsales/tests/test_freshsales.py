@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales import (
+    DEFAULT_PAGE_SIZE,
     FreshsalesResumeConfig,
     _normalize_alias,
     check_credentials,
@@ -121,13 +122,26 @@ class TestGetRows:
         assert result.items == [[{"id": 1}]]
         assert result.paths == ["/crm/sales/api/contacts/filters", "/crm/sales/api/contacts/view/3"]
 
-    def test_selector_falls_back_to_the_only_list_in_the_envelope(self) -> None:
-        # Freshsales doesn't publish selector response bodies; an unexpected envelope key must not
-        # silently sync an empty table.
-        result = _driver().run("owners", [ScriptedResponse(json={"portal_users": [{"id": 1, "name": "Ann"}]})])
+    @parameterized.expand(
+        [
+            # Freshsales doesn't publish selector response bodies; an unexpected envelope key must not
+            # silently sync an empty table.
+            ("owners_unexpected_key", "owners", "portal_users"),
+            ("contact_statuses", "contact_statuses", "contact_statuses"),
+            ("contact_statuses_unexpected_key", "contact_statuses", "statuses"),
+            ("territories", "territories", "territories"),
+        ]
+    )
+    def test_selector_reads_the_whole_collection_in_one_request(
+        self, _name: str, endpoint: str, envelope_key: str
+    ) -> None:
+        rows = [{"id": i, "name": f"Row {i}"} for i in range(DEFAULT_PAGE_SIZE)]
+        result = _driver().run(endpoint, always(ScriptedResponse(json={envelope_key: rows})))
 
         assert result.raised is None
-        assert result.items == [[{"id": 1, "name": "Ann"}]]
+        assert result.items == [rows]
+        assert result.paths == [f"/crm/sales/api/selector/{endpoint}"]
+        assert result.params("page") == [None]
 
     def test_deal_stages_walks_every_pipeline(self) -> None:
         # /selector/deal_stages covers the default pipeline only, so a single request would miss the

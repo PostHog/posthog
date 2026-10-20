@@ -15,13 +15,20 @@ Pagination = Literal["page_size", "per_page", "token"]
 
 # A handful of Scaleway products are region- or zone-scoped in the path, so the connector iterates the
 # scope list and substitutes it into `{region}` / `{zone}` before requesting.
-Scope = Literal["none", "region", "zone"]
+#   - "billing_period": one pass per month of the trailing consumption window, sent as `billing_period`.
+#   - "k8s_cluster": one pass per Kubernetes cluster, listed from every region in `scope_values`, which
+#     fills both `{region}` and `{cluster_id}`.
+Scope = Literal["none", "region", "zone", "billing_period", "k8s_cluster"]
 
 # Max items per page allowed by every paginated Scaleway list endpoint.
 PAGE_SIZE = 100
 
 # Audit Trail is region-scoped in the path; only fr-par and nl-ams expose it today (pl-waw does not).
 AUDIT_TRAIL_REGIONS = ["fr-par", "nl-ams"]
+
+# Regions listed in the Kubernetes and Managed Database OpenAPI schemas.
+K8S_REGIONS = ["fr-par", "nl-ams", "pl-waw", "it-mil"]
+RDB_REGIONS = ["fr-par", "nl-ams", "pl-waw"]
 
 # Instance servers are zone-scoped in the path. The connector fans out over every generally-available
 # zone; zones with no servers simply return an empty page.
@@ -43,8 +50,12 @@ INSTANCE_ZONES = [
 # table). A future incremental mode could instead resume from the last `recorded_at` — see source.py.
 AUDIT_TRAIL_LOOKBACK_DAYS = 90
 
+# Consumptions take one `billing_period` per request and default to the current month, so a full refresh
+# walks the current month plus the months before it.
+BILLING_CONSUMPTION_LOOKBACK_MONTHS = 12
 
-@dataclass
+
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new fields shift the backlog finding into diff
 class ScalewayEndpointConfig:
     name: str
     # Path relative to the API base URL. May contain a `{region}` or `{zone}` placeholder that the
@@ -58,6 +69,8 @@ class ScalewayEndpointConfig:
     # "modified" field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
     scope: Scope = "none"
+    # Regions or zones the endpoint fans out over, for the "region", "zone" and "k8s_cluster" scopes.
+    scope_values: list[str] = field(default_factory=list)
     # Query-param name used to scope the request to the connected organization. Scaleway is
     # inconsistent here: most products take `organization_id`, but Instance takes `organization`.
     # `None` means the endpoint isn't organization-scoped.
@@ -165,6 +178,7 @@ SCALEWAY_ENDPOINTS: dict[str, ScalewayEndpointConfig] = {
         # Instance uses `creation_date`/`modification_date` rather than `created_at`/`updated_at`.
         partition_key="creation_date",
         scope="zone",
+        scope_values=INSTANCE_ZONES,
         org_param="organization",
         order_param="order",
         order_value="creation_date_asc",
@@ -176,6 +190,7 @@ SCALEWAY_ENDPOINTS: dict[str, ScalewayEndpointConfig] = {
         pagination="token",
         partition_key="recorded_at",
         scope="region",
+        scope_values=AUDIT_TRAIL_REGIONS,
         # Audit Trail requires organization_id explicitly.
         org_param="organization_id",
         order_param="order_by",
@@ -184,7 +199,76 @@ SCALEWAY_ENDPOINTS: dict[str, ScalewayEndpointConfig] = {
         lookback_days=AUDIT_TRAIL_LOOKBACK_DAYS,
         description=(f"Syncs the most recent {AUDIT_TRAIL_LOOKBACK_DAYS} days of audit events on each full refresh"),
     ),
+    "billing_consumptions": ScalewayEndpointConfig(
+        name="billing_consumptions",
+        path="/billing/v2beta1/consumptions",
+        data_key="consumptions",
+        pagination="page_size",
+        # Consumption rows have no id or date of their own. The connector adds `billing_period` to each
+        # row, and a row is one SKU of one resource in one project for that month.
+        primary_keys=["billing_period", "project_id", "category_name", "sku", "resource_name"],
+        scope="billing_period",
+        org_param="organization_id",
+        order_param="order_by",
+        order_value="updated_at_asc",
+        description=(
+            f"Syncs consumption for the current and previous {BILLING_CONSUMPTION_LOOKBACK_MONTHS - 1} "
+            "billing periods on each full refresh"
+        ),
+    ),
+    "kubernetes_clusters": ScalewayEndpointConfig(
+        name="kubernetes_clusters",
+        path="/k8s/v1/regions/{region}/clusters",
+        data_key="clusters",
+        pagination="page_size",
+        partition_key="created_at",
+        scope="region",
+        scope_values=K8S_REGIONS,
+        org_param="organization_id",
+        order_param="order_by",
+        order_value="created_at_asc",
+    ),
+    "kubernetes_pools": ScalewayEndpointConfig(
+        name="kubernetes_pools",
+        path="/k8s/v1/regions/{region}/clusters/{cluster_id}/pools",
+        data_key="pools",
+        pagination="page_size",
+        partition_key="created_at",
+        scope="k8s_cluster",
+        scope_values=K8S_REGIONS,
+        # The cluster in the path already scopes the request; this endpoint takes no organization filter.
+        org_param=None,
+        order_param="order_by",
+        order_value="created_at_asc",
+    ),
+    "kubernetes_nodes": ScalewayEndpointConfig(
+        name="kubernetes_nodes",
+        path="/k8s/v1/regions/{region}/clusters/{cluster_id}/nodes",
+        data_key="nodes",
+        pagination="page_size",
+        partition_key="created_at",
+        scope="k8s_cluster",
+        scope_values=K8S_REGIONS,
+        org_param=None,
+        order_param="order_by",
+        order_value="created_at_asc",
+    ),
+    "database_instances": ScalewayEndpointConfig(
+        name="database_instances",
+        path="/rdb/v1/regions/{region}/instances",
+        data_key="instances",
+        pagination="page_size",
+        partition_key="created_at",
+        scope="region",
+        scope_values=RDB_REGIONS,
+        org_param="organization_id",
+        order_param="order_by",
+        order_value="created_at_asc",
+    ),
 }
+
+# The endpoint that lists the clusters the "k8s_cluster" scope fans out over.
+K8S_CLUSTERS_ENDPOINT = "kubernetes_clusters"
 
 ENDPOINTS = tuple(SCALEWAY_ENDPOINTS.keys())
 

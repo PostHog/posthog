@@ -180,6 +180,91 @@ async fn test_get_group() {
 }
 
 #[tokio::test]
+async fn test_create_group_returns_existing_group_on_duplicate_key() {
+    let ctx = TestContext::new().await;
+    let first_properties = serde_json::json!({"name": "First"});
+    let first_created_at = chrono::Utc::now() - chrono::Duration::hours(1);
+
+    let first = ctx
+        .storage
+        .create_group(
+            ctx.team_id,
+            0,
+            "company_dup",
+            &first_properties,
+            first_created_at,
+        )
+        .await
+        .expect("first create failed");
+
+    let second = ctx
+        .storage
+        .create_group(
+            ctx.team_id,
+            0,
+            "company_dup",
+            &serde_json::json!({"name": "Second"}),
+            chrono::Utc::now(),
+        )
+        .await
+        .expect("a duplicate create should return the existing group");
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.created_at, first.created_at);
+    assert_eq!(second.version, first.version);
+    let second_props: serde_json::Value =
+        serde_json::from_str(second.group_properties.as_deref().unwrap()).unwrap();
+    assert_eq!(second_props, first_properties);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_create_group_returns_a_group_committed_while_its_insert_waits() {
+    let ctx = TestContext::new().await;
+
+    let mut holder = ctx.pool.begin().await.unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    let held_id: i64 = sqlx::query_scalar(
+        "INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, version) VALUES ($1, 0, 'company_race', '{}'::jsonb, NOW(), 0) RETURNING id::bigint",
+    )
+    .bind(ctx.team_id)
+    .fetch_one(&mut *holder)
+    .await
+    .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let create = tokio::spawn(async move {
+        storage
+            .create_group(
+                team_id,
+                0,
+                "company_race",
+                &serde_json::json!({}),
+                chrono::Utc::now(),
+            )
+            .await
+    });
+
+    // Commit the held row only after the create's INSERT waits on it. The row then commits
+    // after the INSERT starts.
+    wait_until_blocked_by(&ctx, holder_pid).await;
+    holder.commit().await.unwrap();
+
+    let group = create
+        .await
+        .unwrap()
+        .expect("a create that waits on a committed insert should return the stored group");
+    assert_eq!(group.id, held_id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_group_type_mappings() {
     let ctx = TestContext::new().await;
 

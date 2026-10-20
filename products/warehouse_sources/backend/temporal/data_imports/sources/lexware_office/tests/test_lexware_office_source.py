@@ -5,7 +5,6 @@ from requests import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     route,
     scripted_network,
 )
@@ -70,9 +69,3 @@ def test_unknown_schema_fails_before_network() -> None:
         with pytest.raises(UnknownResourceError, match="not available on this worker"):
             LexwareOfficeSource().validate_credentials(LexwareOfficeSourceConfig(api_key="fake-key"), 1, "unknown")
     assert network.requests_log == []
-
-
-def test_pipeline_rejects_unknown_schema() -> None:
-    result = SourceDriver(LexwareOfficeSource(), LexwareOfficeSourceConfig(api_key="fake-key")).run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

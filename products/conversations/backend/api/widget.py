@@ -116,6 +116,9 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     current secret API token only — a row still holding the previous key matches the rotation
     backup, so counting that as agreement would report a team whose sync failed as fully
     migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
+
+    A row rotated independently via the conversations endpoint no longer mirrors the
+    legacy column, so it is trusted as-is and the staleness guard does not apply.
     """
     legacy_secrets: list[_IdentitySecret] = []
     if team.secret_api_token:
@@ -126,7 +129,7 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     secrets: list[_IdentitySecret] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
     if signing_secret and signing_secret.secret:
-        if not legacy_secrets or signing_secret.secret == team.secret_api_token:
+        if signing_secret.rotated_independently or not legacy_secrets or signing_secret.secret == team.secret_api_token:
             secrets.append(_IdentitySecret(source="signing_secret", secret=signing_secret.secret))
         else:
             SIGNING_SECRET_STALE_COUNTER.inc()
@@ -135,6 +138,9 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     # Kill switch (#66179): legacy tokens stop being verification candidates, but the
     # staleness guard above already ran, so a row holding a retired key stays excluded.
     if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return secrets
+    # An independent rotation revokes the legacy credentials for identity verification.
+    if signing_secret and signing_secret.rotated_independently:
         return secrets
     return secrets + legacy_secrets
 

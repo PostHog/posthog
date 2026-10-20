@@ -94,6 +94,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     event_restrictions_refresh_interval_secs: 30,
     event_restrictions_fail_open_after_secs: 300,
     overflow_enabled: false,
+    ai_events_overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
@@ -125,7 +126,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         dlq_producer: ProducerName::Ingestion,
         ai_main_topic: "events_plugin_ingestion_ai".to_string(),
         ai_main_producer: ProducerName::Ingestion,
-        ai_overflow_topic: None,
+        ai_overflow_topic: "events_plugin_ingestion_ai_overflow".to_string(),
         ai_overflow_producer: ProducerName::Ingestion,
         custom_producer: ProducerName::Ingestion,
     },
@@ -165,8 +166,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_byte_limit_local_cache_max_entries: 300_000,
 });
 
-/// Points every non-AI output at one (ephemeral) topic, so a consumer of that
-/// topic sees whichever lane the v1 pipeline picks.
+/// Points the analytics (main, historical, overflow), DLQ, error tracking,
+/// heatmaps and client warnings outputs at one topic. AI and session replay
+/// outputs keep their config values.
 pub fn point_outputs_at(config: &mut Config, topic: &str) {
     let outputs = &mut config.outputs;
     for field in [
@@ -246,7 +248,7 @@ impl ServerHandle {
         Self::for_config(config).await
     }
 
-    /// Boots a server with every non-AI output pointed at `topic`. The topics live on the config rather than in
+    /// Boots a server with the outputs [`point_outputs_at`] covers pointed at `topic`. The topics live on the config rather than in
     /// `std::env`, so parallel tests don't race on distinct ephemeral topics.
     pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();

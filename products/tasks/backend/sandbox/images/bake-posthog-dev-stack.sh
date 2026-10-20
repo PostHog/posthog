@@ -347,6 +347,8 @@ echo "dev stack ready — from the posthog checkout: uv sync && source .venv/bin
 EOF
 chmod +x /usr/local/bin/bootstrap-dev-stack
 
+/usr/bin/python3 -I /opt/posthog/task-filesystem.py seed-home
+
 mkdir -p "$(dirname "$BAKE_MANIFEST")"
 BAKED_AGENT_VERSION=$(node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
 export BAKED_SHA BAKE_MANIFEST BAKED_AGENT_VERSION

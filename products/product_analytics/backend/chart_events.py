@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import field
+from datetime import datetime
 from typing import Any, cast
 
 from pydantic import ValidationError
@@ -47,18 +48,30 @@ class ChartEvents:
     where: ast.Expr
     # The part of `where` on event names and dates only, so a count with it reads no event property.
     sort_key_where: ast.Expr
+    # The first and last moment any of the chart's queries reads, in the project's timezone.
+    date_from: datetime
+    date_to: datetime
+    filters_test_accounts: bool
     modifiers: HogQLQueryModifiers
     # The database the filter was read with, for the queries that run it.
     database: Database = field(repr=False, compare=False)
 
     def select(
-        self, query: str, *, where: ast.Expr, sample: ast.SampleExpr | None = None, **placeholders: ast.Expr
+        self,
+        query: str,
+        *,
+        where: ast.Expr,
+        sample: ast.SampleExpr | None = None,
+        **placeholders: ast.Expr,
     ) -> ast.SelectQuery:
         """`query`, a select from the events table, set to read these events with `where`."""
         select = cast(ast.SelectQuery, parse_select(query, placeholders=placeholders))
         select.select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias=self.alias, sample=sample)
         select.where = where
         return select
+
+    def timestamp(self) -> ast.Field:
+        return ast.Field(chain=[self.alias, "timestamp"] if self.alias else ["timestamp"])
 
 
 def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvents | None:
@@ -89,6 +102,7 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
         return None
     alias = aliases.pop()
     wheres = [_from_date(where, date_range, alias) for _, where, date_range in filters]
+    date_ranges = [date_range for _, _, date_range in filters]
     return ChartEvents(
         alias=alias,
         where=_any_of(wheres),
@@ -98,6 +112,9 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
                 for where in wheres
             ]
         ),
+        date_from=min(date_range.date_from() for date_range in date_ranges),
+        date_to=max(date_range.date_to() for date_range in date_ranges),
+        filters_test_accounts=bool(runner.query.filterTestAccounts),
         modifiers=runner.modifiers,
         database=database,
     )

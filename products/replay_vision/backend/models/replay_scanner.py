@@ -301,7 +301,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     )
 
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
-    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    # built-in scan's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",
