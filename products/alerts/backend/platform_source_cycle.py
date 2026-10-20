@@ -97,10 +97,9 @@ CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
 SLOT_KEY_PREFIX = "slot:"
 
-# Real-time is the most expensive cadence and the one production holds to a tighter budget, so the
-# parallel run leaves it out until it agrees with production elsewhere.
 EVALUATED_INTERVALS = frozenset(
     {
+        AlertCalculationInterval.REAL_TIME,
         AlertCalculationInterval.EVERY_15_MINUTES,
         AlertCalculationInterval.HOURLY,
         AlertCalculationInterval.DAILY,
@@ -125,8 +124,8 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
-    """Threshold and statistical detector alerts on a 15-minute or slower cadence. The AI detector
-    makes a charged model call, so evaluating it in parallel costs twice."""
+    """Threshold and statistical detector alerts on every cadence. The AI detector makes a charged
+    model call, so evaluating it in parallel costs twice."""
     return not is_llm_detector_config(alert.detector_config) and alert.calculation_interval in EVALUATED_INTERVALS
 
 
@@ -171,6 +170,59 @@ def plan_insight_batch(
         )
         safe_record(increment_checks_deferred, SourceKind.INSIGHT.value, len(candidates) - len(admitted))
     return tuple(admitted)
+
+
+def attempt_slot_token(held_until: float, attempt: int) -> float:
+    """The expiry an attempt holds its slot under. Each attempt gets its own, so a timed-out attempt
+    whose thread finishes late cannot release the slot its retry holds. The offset is negligible
+    against the expiry itself."""
+    return held_until + (attempt - 1) / 1000
+
+
+def readmit_retried_check(
+    team_id: int, configuration_id: str, *, previous_query_id: str, held_until: float, attempt: int
+) -> float | None:
+    """Prepares a retried check, and returns the slot token it holds, or None when the pool is full.
+
+    A timed-out attempt's thread can still run its query, so the query is killed first, or the retry
+    would run beside it. The retry then moves the slot to its own token, so the pool never counts
+    the two attempts as one check that either can release.
+    """
+    # Imported here: at module level it changes how many queries the access-control tests count.
+    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
+
+    try:
+        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
+    except Exception:
+        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
+    release_evaluation_slot(configuration_id, held_until=attempt_slot_token(held_until, attempt - 1), key=INFLIGHT_KEY)
+    token = attempt_slot_token(held_until, attempt)
+    admitted = admit_evaluation_slots(
+        [configuration_id],
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        expires_at=token,
+        key=INFLIGHT_KEY,
+    )
+    return token if admitted else None
+
+
+def legacy_alerts_of(
+    team_id: int, slot: str, cutoff: datetime, configuration_ids: Collection[str]
+) -> dict[str, AlertConfiguration]:
+    """The production alert behind each due copy that still has one, keyed by the copy's id."""
+    if not configuration_ids:
+        return {}
+    legacy_ids = {
+        check.legacy_configuration_id: str(check.id)
+        for check in due_checks(
+            team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=list(configuration_ids)
+        )
+        if check.legacy_configuration_id is not None
+    }
+    alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
+        "id", "calculation_interval"
+    )
+    return {legacy_ids[alert.id]: alert for alert in alerts}
 
 
 def evaluate_insight_check(

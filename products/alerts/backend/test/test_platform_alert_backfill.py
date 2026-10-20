@@ -51,22 +51,23 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             )
         return {view.legacy_configuration_id: view for view in page.configurations}
 
-    def test_only_15_minute_and_slower_alerts_without_the_ai_detector_are_copied_on_their_recurrence(self) -> None:
+    def test_only_alerts_without_the_ai_detector_are_copied_on_their_recurrence(self) -> None:
+        real_time = self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
         quarter_hourly = self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
         hourly = self._alert(calculation_interval=AlertCalculationInterval.HOURLY.value, schedule_start_time="09:30")
         daily = self._alert(schedule_start_time="09:30")
         detector = self._alert(detector_config={"type": "zscore"})
-        self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
         self._alert(detector_config={"type": "llm"})
         unparseable = self._alert(schedule_start_time="25:99")
 
         counts = backfill_platform_insight_alert_configurations(team_id=self.team.id)
         again = backfill_platform_insight_alert_configurations(team_id=self.team.id)
 
-        assert (counts.created, counts.skipped, counts.failed, again.created, again.updated) == (4, 2, 1, 0, 4)
+        assert (counts.created, counts.skipped, counts.failed, again.created, again.updated) == (5, 1, 1, 0, 5)
         copies = self._copies()
         assert unparseable.id not in copies
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
+            real_time.id: (2, None, None),
             quarter_hourly.id: (15, None, None),
             hourly.id: (60, None, None),
             daily.id: (60 * 24, "day", "09:30"),

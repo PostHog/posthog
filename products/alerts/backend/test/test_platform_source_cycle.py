@@ -1,6 +1,7 @@
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
@@ -26,10 +28,12 @@ from products.alerts.backend.platform_source_cycle import (
     INFLIGHT_KEY,
     evaluate_insight_check,
     plan_insight_batch,
+    readmit_retried_check,
 )
 from products.alerts.backend.temporal.platform_evaluate import (
+    AdmittedInsightCheck,
     InsightBatchPlanInputs,
-    plan_platform_insight_round_activity,
+    plan_platform_insight_checks_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -211,7 +215,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, "not_firing"),
             ("ai_detector", {"detector_config": {"type": "llm"}}, "not_firing"),
             ("disabled", {"enabled": False}, "not_firing"),
             ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, "snoozed"),
@@ -265,19 +268,43 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
+        held = self._copy(self._alert(), id=UUID(int=1))
+        waiting = self._copy(self._alert(), id=UUID(int=2))
+        slot = slot_of(held.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(held.id),)
+
+        with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
+            retried = readmit_retried_check(
+                self.team.id, str(held.id), previous_query_id="run:1:1", held_until=expires_at, attempt=2
+            )
+            # The timed-out attempt's thread finishes late and releases the slot it took.
+            release_evaluation_slot(str(held.id), held_until=expires_at, key=INFLIGHT_KEY)
+            over_the_limit = readmit_retried_check(
+                self.team.id, str(waiting.id), previous_query_id="run:2:1", held_until=expires_at, attempt=2
+            )
+
+        assert retried is not None and over_the_limit is None
+        assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
+        cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
+
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:
-        first, second = self._copy(self._alert()), self._copy(self._alert())
+        first = self._copy(self._alert(), id=UUID(int=1))
+        second = self._copy(self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value), id=UUID(int=2))
         slot = slot_of(first.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
 
         (admitted,) = plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
+        assert admitted == str(first.id)
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at + 60) == ()
 
         with patch(f"{_MODULE}.check_alert_for_insight", return_value=AlertEvaluationResult(value=1.0, breaches=[])):
             evaluate_insight_check(self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test")
 
-        # Through the activity the workflow calls, so a dropped `exclude` there fails here too.
-        replanned = plan_platform_insight_round_activity(
+        # Through the activity the workflow calls, so a dropped `exclude` or cadence there fails here too.
+        replanned = plan_platform_insight_checks_activity(
             InsightBatchPlanInputs(
                 evaluation=SourceEvaluationInputs(
                     source=SourceKind.INSIGHT,
@@ -288,4 +315,4 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 exclude=(admitted,),
             )
         )
-        assert replanned == list({str(first.id), str(second.id)} - {admitted})
+        assert replanned == [AdmittedInsightCheck(configuration_id=str(second.id), real_time=True)]
