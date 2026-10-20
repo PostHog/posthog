@@ -991,6 +991,8 @@ export const MarketingAnalyticsTrendTile = ({
             value: MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             label: 'Reported conversion value',
         },
+        { value: 'cpc', label: 'CPC' },
+        { value: 'ctr', label: 'CTR' },
         { value: 'roas', label: 'Reported ROAS' },
         { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
