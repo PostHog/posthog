@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import snappy from 'snappy'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import * as envUtils from '~/common/utils/env-utils'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -806,6 +807,18 @@ describe('RecordingService', () => {
 
             expect(result).toEqual({ ok: false, error: 'recording_exists' })
             expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
+        })
+
+        it('refuses to return plaintext when a cloud key mint reads back no key', async () => {
+            const isCloud = jest.spyOn(envUtils, 'isCloud').mockReturnValue(true)
+            mockRecordingExists(false)
+            mockKeyStore.getKey.mockResolvedValue(cleartextKey)
+            mockKeyStore.generateKey.mockResolvedValue(cleartextKey)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({ ok: false, error: 'key_unavailable' })
+            isCloud.mockRestore()
         })
 
         it('returns deleted when the session key was shredded', async () => {

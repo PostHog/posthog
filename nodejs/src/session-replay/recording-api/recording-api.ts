@@ -210,6 +210,8 @@ export class RecordingApi {
                 legacySecret: this.config.INTERNAL_API_SECRET,
                 allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
                 op,
+                // Key minting is new, so it never inherits the fleet-wide legacy secret.
+                requireJwt: op === 'write',
             })
         const readAuth = auth('read')
         const deleteAuth = auth('delete')
@@ -364,6 +366,10 @@ export class RecordingApi {
             if (!result.ok) {
                 if (result.error === 'recording_exists') {
                     res.status(409).json({ error: 'recording_exists' })
+                    return
+                }
+                if (result.error === 'key_unavailable') {
+                    res.status(503).json({ error: 'key_unavailable' })
                     return
                 }
                 res.status(410).json({

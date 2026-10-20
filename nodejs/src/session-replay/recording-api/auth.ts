@@ -25,6 +25,8 @@ export interface RecordingApiAuthOptions {
     legacySecret: string
     allowLegacySecret: boolean
     op: RecordingApiOp
+    // Accept only a scoped JWT, and refuse every request when no JWT key is configured.
+    requireJwt?: boolean
 }
 
 function getHeader(req: Request, name: string): string | undefined {
@@ -80,14 +82,19 @@ export function assertRecordingApiAuthConfigured(opts: {
 }
 
 export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOptions) {
-    const { jwtSecret, legacySecret, allowLegacySecret, op } = options
+    const { jwtSecret, legacySecret, allowLegacySecret, op, requireJwt = false } = options
     // Build the verifier once. Comma-separated keys give zero-downtime rotation (verify against all);
     // a malformed/empty value yields no keys and disables JWT (null) rather than throwing. `|| ''`
     // guards against a partial runtime config where the field is absent.
     const jwt = makeOptionalJwt(jwtSecret || '')
-    const legacyEnabled = allowLegacySecret && !!legacySecret
+    const legacyEnabled = allowLegacySecret && !!legacySecret && !requireJwt
 
     return (req: Request, res: Response, next: NextFunction): void => {
+        if (requireJwt && !jwt) {
+            res.status(401).json({ error: 'Unauthorized' })
+            return
+        }
+
         // Nothing configured at all (local dev): allow. In every other case some auth is required —
         // before the JWT scheme is enabled in an environment, the legacy secret still protects it.
         if (!jwt && !legacyEnabled) {

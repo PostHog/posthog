@@ -3,6 +3,7 @@ import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { isCloud } from '~/common/utils/env-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
@@ -29,6 +30,7 @@ export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'n
 export type EncryptBlocksResult =
     | { ok: true; blocks: Buffer[] }
     | { ok: false; error: 'recording_exists' }
+    | { ok: false; error: 'key_unavailable' }
     | RecordingDeletedResult
 
 export type DeleteRecordingResult =
@@ -76,6 +78,10 @@ export class RecordingService {
         let sessionKey = await this.keyStore.getKey(sessionId, teamId)
         if (sessionKey.sessionState === 'cleartext') {
             sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
+        }
+        // A lost race on the conditional key write can read back no key, and encrypting with it returns plaintext.
+        if (sessionKey.sessionState === 'cleartext' && isCloud()) {
+            return { ok: false, error: 'key_unavailable' }
         }
         if (sessionKey.sessionState === 'deleted') {
             return {
