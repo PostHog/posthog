@@ -124,6 +124,10 @@
             "maxLength": 400,
             "type": "string"
         },
+        "sensitive": {
+            "description": "For emails that carry login codes, reset links or other secrets. Sent emails keep a placeholder instead of their body, and clicked links are recorded without their query string. Can change at any time.",
+            "type": "boolean"
+        },
         "type": {
             "description": "Message channel of the template. Currently 'email'.",
             "maxLength": 24,
