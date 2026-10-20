@@ -65,13 +65,22 @@ export function postHogObjectRef(artifact: TaskRunArtifactResponseApi): PostHogO
     return { objectKind: metadata.object_kind, objectId: metadata.object_id }
 }
 
+// The app streams a living version preview through a web worker, so a larger file only downloads.
+// Keep in step with LIVING_VERSION_PREVIEW_MAX_BYTES in the tasks backend.
+export const LIVING_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+
 export function artifactPreviewKind(
     artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }
 ): ArtifactPreviewKind {
     if (artifact.living && artifact.living.text === null) {
-        // A stored file plays in an `img` or a `video` from its URL. Text needs a read of the body, so it downloads.
-        const kind = artifact.living.stored ? fileKind(artifact) : 'none'
-        return kind === 'image' || kind === 'video' ? kind : 'none'
+        if (!artifact.living.stored) {
+            return 'none'
+        }
+        const kind = fileKind(artifact)
+        return (artifact.size ?? 0) <= LIVING_PREVIEW_MAX_BYTES &&
+            (kind === 'image' || kind === 'video' || kind === 'html')
+            ? kind
+            : 'none'
     }
     if (artifact.type === 'reference') {
         return 'reference'

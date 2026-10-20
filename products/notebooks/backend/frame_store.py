@@ -1,4 +1,4 @@
-"""Object-store handoff for materialized SQLV2 frames (sql_v2_frame_store.md, phase 1).
+"""Object-store handoff for materialized SQLV2 frames.
 
 A Temporal worker streams a frame's ClickHouse result (raw Arrow IPC stream bytes) into
 one object here; the data-plane status endpoint answers the kernel's poll with a 302 to a

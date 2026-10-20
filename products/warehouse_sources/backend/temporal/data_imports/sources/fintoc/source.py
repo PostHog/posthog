@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,11 +44,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
 class FintocSource(ResumableSource[FintocSourceConfig, FintocResumeState], WebhookSource[FintocSourceConfig]):
+    codebase_detection = detect(
+        env=("^FINTOC_",),
+        script_hosts=("js.fintoc.com",),
+        npm=("fintoc", "@fintoc/fintoc-js"),
+        pypi=("fintoc",),
+        rubygems=("fintoc",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION

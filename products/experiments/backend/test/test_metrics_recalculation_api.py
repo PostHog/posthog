@@ -10,15 +10,15 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.recalculation import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -29,6 +29,12 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -74,11 +80,36 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # POST /metrics_recalculation/
     # ------------------------------------------------------------------
 
+    @parameterized.expand(
+        [
+            # name, activity queue flag outcome, expected activity_task_queue
+            ("activity_queue_flag_off", False, None),
+            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+        ]
+    )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_creates_and_starts_workflow(self, mock_run, mock_connect):
+    def test_post_creates_and_starts_workflow(
+        self,
+        _name: str,
+        flag_outcome: bool | Exception,
+        expected_activity_task_queue: str | None,
+        mock_run,
+        mock_connect,
+    ):
+        def evaluate_flag(key: str, *args, **kwargs) -> bool:
+            if key != RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG:
+                return False
+            if isinstance(flag_outcome, Exception):
+                raise flag_outcome
+            return flag_outcome
+
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        with mock.patch(
+            "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+        ):
+            resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         body = resp.json()
         assert body["status"] == "pending"
@@ -87,7 +118,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         mock_connect.return_value.start_workflow.assert_called_once_with(
             "experiment-metrics-recalculation-workflow",
             ExperimentMetricsRecalculationWorkflowInputs(
-                recalculation_id=body["id"], fairness_key=str(self.organization.id)
+                recalculation_id=body["id"],
+                fairness_key=str(self.organization.id),
+                activity_task_queue=expected_activity_task_queue,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -147,6 +180,28 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         second = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert second.status_code == status.HTTP_200_OK
         assert second.json()["id"] == first.json()["id"]
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @mock.patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect, _mock_flag):
+        exp = self._launched_experiment()
+        now = timezone.now()
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=now - timedelta(minutes=3),
+            completed_at=now - timedelta(minutes=2),
+        )
+
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        assert resp.json()["code"] == "recalculation_rate_limited"
+        assert 170 <= int(resp["Retry-After"]) <= 180
+        assert not mock_connect.called
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
@@ -232,14 +287,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -297,19 +345,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # ------------------------------------------------------------------
 
     def _store_timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime) -> None:
-        assert exp.metrics and exp.start_date is not None
-        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+        assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=config_fp,
+            fingerprint=_calculation_key(exp, metric_uuid),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",

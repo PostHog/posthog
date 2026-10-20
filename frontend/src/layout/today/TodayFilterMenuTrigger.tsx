@@ -12,7 +12,7 @@ export function TodayFilterMenuTrigger({ active, dataAttr }: { active: boolean; 
                     <DropdownMenuTrigger
                         render={
                             <Button
-                                size="icon-xs"
+                                size="icon"
                                 aria-label={label}
                                 className={cn(
                                     'relative text-muted-foreground',

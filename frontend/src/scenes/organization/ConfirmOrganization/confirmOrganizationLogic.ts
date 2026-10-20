@@ -147,11 +147,12 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
             } as ConfirmOrganizationFormValues,
-            errors: ({ organization_name, first_name }) => ({
+            errors: ({ organization_name, first_name, role_at_organization }) => ({
                 first_name: !first_name?.trim() ? 'Please enter your name' : undefined,
                 organization_name: !organization_name?.trim()
                     ? "Please enter an organization name. You can use your own name if you don't belong to one."
                     : undefined,
+                role_at_organization: !role_at_organization ? 'Please select your role to continue' : undefined,
             }),
 
             // A manual error from a rejected attempt counts as a validation error, and only its own

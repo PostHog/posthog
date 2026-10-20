@@ -150,8 +150,8 @@ def build_issue_permalink_path(*, project_id: int, issue_id: UUID | str, fingerp
     plain issue URL when the issue has no fingerprints.
     """
     if fingerprint is None:
-        return f"/project/{project_id}/error_tracking/{issue_id}"
-    return f"/project/{project_id}/error_tracking/fingerprint/{quote(fingerprint, safe='')}"
+        return f"/project/{project_id}/error-tracking/{issue_id}"
+    return f"/project/{project_id}/error-tracking/fingerprint/{quote(fingerprint, safe='')}"
 
 
 def get_issue_permalink_by_fingerprint(team_id: int, issue_id: UUID) -> str:

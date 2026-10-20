@@ -24,7 +24,12 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightDefinition
+from products.product_analytics.backend.facade.contracts import (
+    InsightDashboardContext,
+    InsightSeries,
+    InsightVariableDefinition,
+    SavedInsightDefinition,
+)
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -157,8 +162,12 @@ def get_or_create_saved_insight(
     description: str | None,
     query: dict[str, object] | None,
     revive_deleted: bool = True,
+    saved: bool = True,
 ) -> tuple[int, bool]:
-    """Create a saved insight, optionally restoring a soft-deleted short-ID collision."""
+    """Create an insight, optionally restoring a soft-deleted short-ID collision.
+
+    `saved=False` keeps the insight out of the saved insights list, for an insight that only a hidden dashboard shows.
+    """
     return logic.get_or_create_saved_insight(
         team_id=team_id,
         user_id=user_id,
@@ -167,6 +176,7 @@ def get_or_create_saved_insight(
         description=description,
         query=query,
         revive_deleted=revive_deleted,
+        saved=saved,
     )
 
 
@@ -182,6 +192,15 @@ def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedI
     return SavedInsightDefinition(
         id=insight.pk, short_id=insight.short_id, name=insight.name, query=insight.query or {}
     )
+
+
+def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
+    """Whether the user may view the insight, which can live in any environment of the team's project."""
+    insight = Insight.objects.filter(pk=insight_id, team__project_id=team.project_id, deleted=False).first()
+    if insight is None:
+        return False
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    return access_control.check_access_level_for_object(insight, "viewer")
 
 
 def save_saved_insight_query(
@@ -214,3 +233,21 @@ def save_saved_insight_query(
         insight.last_modified_by = user
         insight.save(update_fields=["query", "saved", "last_modified_by", "updated_at"])
     return None
+
+
+def get_insight_series(
+    *, team: Team, user: User, short_id: str, dashboard: InsightDashboardContext | None = None
+) -> InsightSeries | None:
+    insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
+    if insight is None:
+        return None
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access_control.check_access_level_for_object(insight, "viewer"):
+        return None
+    from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
+        insight_series,
+    )
+
+    return insight_series.insight_series(
+        team, user, short_id=insight.short_id, name=insight.name, query=insight.query or {}, dashboard=dashboard
+    )

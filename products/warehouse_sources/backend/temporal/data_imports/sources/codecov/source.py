@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,11 +43,30 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "report_tree": "Current coverage rolled up per directory and file, following the repository's file tree",
     "test_results": "Individual test runs from Test Analytics, with outcome, duration and failure message",
     "users": "Members of the Codecov organization, resolving the author usernames on commits and pulls",
+    "flag_coverage_trend": "Daily min/max/avg coverage time series per flag, per repository (default branch)",
+    "commit_uploads": "Coverage uploads received for each commit, with the CI job, flags and processing state",
+    "pull_impacted_files": "Per-file coverage change of each pull request against its base commit",
+    "pull_flag_comparisons": "Per-flag coverage of each pull request's base and head commits, and of its diff",
+    "pull_component_comparisons": "Per-component coverage of each pull request's base and head commits, and of its diff",
 }
 
 
 @SourceRegistry.register
 class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
+    codebase_detection = detect(
+        env=("^CODECOV_",),
+        npm=(
+            "codecov",
+            "@codecov/bundler-plugin-core",
+            "@codecov/webpack-plugin",
+            "@codecov/vite-plugin",
+            "@codecov/rollup-plugin",
+            "@codecov/nextjs-webpack-plugin",
+        ),
+        pypi=("codecov-cli", "codecov"),
+        rubygems=("codecov", "codecov_opentelem"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

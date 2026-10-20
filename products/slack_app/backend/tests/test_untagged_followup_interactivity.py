@@ -182,13 +182,17 @@ class TestUntaggedFollowupInteractivity(TestCase):
         context["integration_id"] = second_integration.id
         cache.set(_picker_context_cache_key(self.context_token), context, timeout=900)
 
-        with patch("products.slack_app.backend.api.capture_slack_event") as mock_capture:
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api.capture_slack_event") as mock_capture,
+        ):
             response = self._click(UNTAGGED_FOLLOWUP_ACTION_DISMISS, "U_BOB")
 
         assert response.status_code == 200
         mock_capture.assert_called_once()
         assert mock_capture.call_args.args[0].id == second_integration.id
         assert mock_capture.call_args.args[1] == "slack app untagged followup dismissed"
+        assert mock_capture.call_args.kwargs["posthog_user"] == self.member_user
 
     def test_click_from_anyone_but_the_message_author_dispatches_nothing(self, mock_slack_cls, mock_post):
         # The prompt is ephemeral, so this shouldn't be reachable — but the run

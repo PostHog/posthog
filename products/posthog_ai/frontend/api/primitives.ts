@@ -1,12 +1,12 @@
 // Tier 2 — compound primitives & presenters: the broad presentational bucket for custom layouts and
-// bespoke threads. The Composer compound, the Thread compound + atoms, the prepackaged `ThreadView`,
+// bespoke threads. The Thread compound + atoms, the prepackaged `ThreadView`,
 // message presenters, the shared `RunLogSkeleton` loader, activity primitives, and the
 // permission/question/resource surfaces. Use when the prepackaged `ReadonlyRunSurface` (Tier 1,
 // ./readableRun) doesn't fit and you need to compose the pieces yourself — e.g. a compact inline thread via
 // `Thread.*` atoms.
 //
-// (This is intentionally the wide presentational module; it can be subdivided later — e.g. thread.ts /
-// composer.ts — if a consumer needs finer code-splitting.)
+// (This is intentionally the wide presentational module. The Composer compound lives in ./composer so an
+// eager input box does not pull the thread; split further, e.g. thread.ts, if a consumer needs it.)
 //
 // Part of the `products/posthog_ai/frontend/api/<module>` public surface — import from here, not from
 // deep `../components/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
@@ -14,14 +14,6 @@
 // Render-null wrapper that attaches context for JSX-only call sites (the hook flavor is in api/logics).
 export { AttachedContextProvider } from '../components/AttachedContextProvider'
 export type { AttachedContextProviderProps } from '../components/AttachedContextProvider'
-
-export { Composer } from '../components/composer/Composer'
-export type {
-    ComposerRootProps,
-    ComposerFrameProps,
-    ComposerTextareaProps,
-    ComposerSubmitProps,
-} from '../components/composer/Composer'
 
 // Controlled model + reasoning-effort pickers for a composer footer.
 export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
@@ -54,7 +46,7 @@ export { ThreadView } from '../components/ThreadView'
 export type { ThreadSkin } from '../components/quill/quillThreadContext'
 export { useThreadSkin } from '../hooks/useThreadSkin'
 export type { TurnTrailer } from '../utils/turnTrailers'
-export { TurnFeedbackActions } from '../components/TurnFeedbackActions'
+export { TurnTrailerActions } from '../components/TurnTrailerActions'
 export { MessageTemplate } from '../messages/MessageTemplate'
 export { MarkdownMessage } from '../messages/MarkdownMessage'
 export { ReasoningAnswer } from '../messages/ReasoningAnswer'

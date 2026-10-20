@@ -1,1 +1,1 @@
-0011_platformalertthread
+0012_move_platform_models_to_alerts_platform

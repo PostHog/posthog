@@ -180,7 +180,7 @@ class TestDataQualityNotifications(BaseTest):
         notification = notifications.call_args.args[0]
         assert notification.resource_type == "data_catalog"
         assert notification.resource_id == str(metric.id)
-        assert notification.source_url == f"/project/{self.team.id}/data-catalog/metrics/signups?tab=tests"
+        assert notification.source_url == f"/project/{self.team.id}/data-catalog/metrics/signups?tab=data-quality"
         assert notification.title == "Data quality check failed on signups"
         with CaptureQueriesContext(connection) as queries:
             recipients = notification.resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)

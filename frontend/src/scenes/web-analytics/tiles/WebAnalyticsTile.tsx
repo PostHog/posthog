@@ -62,6 +62,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
+    VisualizationNode,
     InsightVizNode,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
@@ -77,6 +78,7 @@ import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleCompo
 import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
+import { MarketingAnalyticsAdSpendLink } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsAdSpendLink'
 import { MarketingAnalyticsCrossSell } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsCrossSell'
 
 import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
@@ -573,7 +575,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
             break
+        case WebStatsBreakdown.InitialChannelType:
         case WebStatsBreakdown.InitialUTMSource:
+            if (typeof value !== 'string') {
+                return breakdownBy === WebStatsBreakdown.InitialUTMSource ? <NotSetBreakdownLabel /> : null
+            }
+            return (
+                <MarketingAnalyticsAdSpendLink breakdownBy={breakdownBy} value={value} dateRange={source.dateRange}>
+                    {value}
+                </MarketingAnalyticsAdSpendLink>
+            )
         case WebStatsBreakdown.InitialUTMMedium:
         case WebStatsBreakdown.InitialUTMCampaign:
         case WebStatsBreakdown.InitialUTMTerm:
@@ -720,7 +731,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         cross_sell: {
             title: ' ',
-            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
+            render: ({ record, query }: { record: any; query: DataTableNode | VisualizationNode }) => {
                 const source = query.source as any
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy

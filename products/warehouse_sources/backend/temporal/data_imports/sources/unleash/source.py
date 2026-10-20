@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,85 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^UNLEASH_",
+            "^NEXT_PUBLIC_UNLEASH_FRONTEND_API_URL$",
+            "^NEXT_PUBLIC_UNLEASH_FRONTEND_API_TOKEN$",
+            "^NEXT_PUBLIC_UNLEASH_APP_NAME$",
+            "^NEXT_PUBLIC_UNLEASH_URL$",
+            "^NEXT_PUBLIC_UNLEASH_CLIENT_KEY$",
+            "^VITE_UNLEASH_FRONTEND_API_URL$",
+            "^VITE_UNLEASH_FRONTEND_API_KEY$",
+        ),
+        npm=(
+            "unleash-client",
+            "unleash-proxy-client",
+            "@unleash/proxy-client-react",
+            "@unleash/proxy-client-vue",
+            "@unleash/nextjs",
+            "@unleash/proxy-client-svelte",
+            "@unleash/unleash-react-native-sdk",
+            "@unleash/openfeature-node-provider",
+            "@unleash/toolbar",
+            "@unleash/proxy",
+            "unleash-server",
+            "@openfeature/unleash-web-provider",
+            "@karelics/angular-unleash-proxy-client",
+            "nestjs-unleash",
+        ),
+        pypi=(
+            "unleashclient",
+            "flask-unleash",
+            "unleash-openfeature-python-provider",
+            "yggdrasil-engine",
+            "openfeature-provider-unleash",
+        ),
+        cargo=(
+            "unleash-api-client",
+            "unleash-yggdrasil",
+            "unleash-types",
+            "unleash-openfeature-rust-provider",
+            "unleash-edge",
+        ),
+        cocoapods=("UnleashProxyClientSwift",),
+        composer=(
+            "unleash/client",
+            "unleash/symfony-client-bundle",
+            "unleash/openfeature-provider",
+            "rikudou/unleash-sdk",
+            "rikudou/unleash-sdk-bundle",
+        ),
+        go=(
+            "github.com/Unleash/unleash-client-go",
+            "github.com/Unleash/unleash-go-sdk",
+            "github.com/Unleash/unleash-server-api-go",
+            "github.com/open-feature/go-sdk-contrib/providers/unleash",
+        ),
+        hex=("unleash",),
+        maven=(
+            "io.getunleash:unleash-client-java",
+            "io.getunleash:unleash-android",
+            "io.getunleash:springboot-unleash-starter",
+            "io.getunleash:springboot-unleash-autoconfigure",
+            "io.getunleash:springboot-unleash-core",
+            "io.getunleash:unleash-android-proxy-sdk",
+            "io.getunleash:unleash-openfeature-android-provider",
+            "io.getunleash:unleash-proxy-client-kotlin",
+            "io.getunleash:yggdrasil-engine",
+            "no.finn.unleash:unleash-client-java",
+            "dev.openfeature.contrib.providers:unleash",
+        ),
+        pub=("unleash_proxy_client_flutter", "unleash"),
+        rubygems=("unleash", "unleash-openfeature-provider", "yggdrasil-engine"),
+        swiftpm=(
+            "github.com/unleash/unleash-proxy-client-swift",
+            "github.com/unleash/unleash-ios-sdk",
+            "github.com/unleash/unleash-openfeature-swift-provider",
+        ),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://docs.getunleash.io/reference/api/unleash"

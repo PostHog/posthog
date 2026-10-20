@@ -1,8 +1,11 @@
 import contextlib
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from confluent_kafka import KafkaError
 from parameterized import parameterized
@@ -20,6 +23,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
+    tombstone_and_publish_persons,
 )
 from posthog.models.person.util import (
     TOMBSTONE_DELIVERY_TIMEOUT_SECONDS,
@@ -183,7 +187,7 @@ class DeletePersonsProfileTests(BaseTest):
     def test_a_failed_tombstone_rpc_counts_only_the_persons_it_did_not_commit(self, _name, committed, check_fails):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
 
-        def tombstone_then_fail(team_id, uuids):
+        def tombstone_then_fail(team_id, uuids, **_):
             if committed:
                 tombstone_persons_in_postgres(team_id, uuids)
             raise RuntimeError("personhog down")
@@ -282,6 +286,15 @@ class DeletePersonsProfileTests(BaseTest):
         assert get_active_fake().tombstone_queue == {}
 
 
+class TombstoneAndPublishPersonsTests(BaseTest):
+    def test_a_failed_clickhouse_publish_does_not_raise_and_stays_queued_for_the_sweep(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with patch("posthog.models.person.util.publish_person_tombstone", side_effect=RuntimeError("kafka down")):
+            assert tombstone_and_publish_persons(self.team.pk, [p]) == 1
+
+        assert list(get_active_fake().tombstone_queue) == [(self.team.pk, str(p.uuid))]
+
+
 class ProcessQueuedPersonDeletionTests(BaseTest):
     def test_walks_every_page_of_distinct_ids_tombstones_at_exact_versions_and_logs_activity(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c", "d", "e"], properties={})
@@ -330,6 +343,34 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                     organization_id=self.organization.id,
                 )
         assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).count() == 1
+
+    @parameterized.expand(
+        [
+            ("a_retry_of_a_recent_deletion", timedelta(hours=1), 1),
+            ("a_new_deletion_of_a_revived_person", timedelta(hours=25), 2),
+        ]
+    )
+    def test_logs_a_deletion_once_per_deletion_of_the_person(self, _name: str, earlier_by: timedelta, logged: int):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            scope="Person",
+            activity="deleted",
+            item_id=str(p.pk),
+            created_at=timezone.now() - earlier_by,
+        )
+        with _no_publish():
+            process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).count() == logged
 
     def test_logs_deletion_without_a_user_when_the_actor_is_gone(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})

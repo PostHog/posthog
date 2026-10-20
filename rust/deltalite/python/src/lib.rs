@@ -16,7 +16,7 @@ use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
 use deltalite_core::limits::ProcessLimits;
 use deltalite_core::schema::import_column;
-use deltalite_core::table::{open_table, MultipartConfig};
+use deltalite_core::table::{open_table, table_exists, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -268,6 +268,20 @@ impl DeltaLiteTable {
             .is_ok())
     }
 
+    /// `deltalake.DeltaTable.is_deltatable`'s check. Unlike `is_deltatable`, storage errors
+    /// raise: a caller that reads "no table" can create a new table over an existing one.
+    #[staticmethod]
+    #[pyo3(signature = (uri, storage_options = None))]
+    fn table_exists(
+        py: Python<'_>,
+        uri: String,
+        storage_options: Option<HashMap<String, String>>,
+    ) -> PyResult<bool> {
+        let so = storage_options.unwrap_or_default();
+        py.detach(|| runtime().block_on(table_exists(&uri, so)))
+            .map_err(to_py_err)
+    }
+
     /// The table version this handle currently observes (-1 before any load).
     fn version(&self) -> i64 {
         self.handle.version()
@@ -365,6 +379,18 @@ impl DeltaLiteTable {
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
     /// multipart upload of output files (`0` threshold disables).
+    ///
+    /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
+    /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
+    /// per process). A row group larger than the cap still runs, alone.
+    ///
+    /// `isolate_source_rows=True` writes the batch's rows to their own output files
+    /// instead of the file that receives the copied survivors, so a later batch that
+    /// touches the same rows does not copy those survivors again. Off by default.
+    ///
+    /// `max_row_group_bytes` closes an output row group once its encoded bytes reach the
+    /// value, so a later reader fetches less per row group. `None` (the default) closes
+    /// row groups only at the encoder's row cap.
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -374,12 +400,15 @@ impl DeltaLiteTable {
         max_parallel_partitions = 2,
         max_parallel_files = 4,
         max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
         skip_unmatched_files = true,
         prune_strategy = None,
         probe_concurrency = 8,
         commit_max_retries = 15,
         read_batch_size = 8192,
         target_file_size = None,
+        isolate_source_rows = false,
+        max_row_group_bytes = None,
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
@@ -395,12 +424,15 @@ impl DeltaLiteTable {
         max_parallel_partitions: usize,
         max_parallel_files: usize,
         max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
         skip_unmatched_files: bool,
         prune_strategy: Option<String>,
         probe_concurrency: usize,
         commit_max_retries: usize,
         read_batch_size: usize,
         target_file_size: Option<usize>,
+        isolate_source_rows: bool,
+        max_row_group_bytes: Option<usize>,
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
@@ -430,9 +462,12 @@ impl DeltaLiteTable {
             probe_concurrency,
             max_parallel_files,
             max_buffered_bytes,
+            max_fetch_bytes,
             commit_max_retries,
             read_batch_size,
             target_file_size,
+            isolate_source_rows,
+            max_row_group_bytes,
             max_source_bytes,
             // Shared with every other concurrent upsert in this process, so the
             // process-level memory bound holds regardless of thread count.
@@ -451,6 +486,150 @@ impl DeltaLiteTable {
         let mut stats: UpsertStats = stats.into();
         stats.ingest_ms = ingest_ms;
         Ok(stats)
+    }
+
+    /// Compact small files the way `DeltaTable.optimize.compact` does, streaming each bin
+    /// one file and one byte-bounded batch at a time (see `deltalite_core::compact`).
+    ///
+    /// Bins are planned from the loaded log with no storage reads. A partition is
+    /// rewritten when its bins remove at least `min_partition_removable_files` more files
+    /// than they write (`1` = every partition with two neighbouring small files, as
+    /// delta-rs does). `partitions` limits the plan to those partition values.
+    /// `dry_run=True` only plans. `slot_budget_bytes` fits the decode and fetch budgets
+    /// and the in-flight output files into one memory slot by lowering
+    /// `max_parallel_bins`. Every bin lands in one OPTIMIZE commit unless
+    /// `max_bins_per_commit` is set. A concurrent commit that removed a file of a bin
+    /// drops that bin; its partition is planned again up to `max_replan_rounds` times.
+    ///
+    /// Returns a dict of deltalite stats plus the count keys delta-rs's `optimize` returns
+    /// (`numFilesAdded`, `numFilesRemoved`, `partitionsOptimized`, `numBatches`,
+    /// `totalConsideredFiles`, `totalFilesSkipped`).
+    #[pyo3(signature = (
+        *,
+        target_file_size = None,
+        max_parallel_bins = 2,
+        slot_budget_bytes = None,
+        max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
+        read_batch_size = 8192,
+        decode_batch_bytes = 4194304,
+        max_decoded_file_bytes = 1073741824,
+        max_row_group_decoded_bytes = 134217728,
+        partitions = None,
+        min_partition_removable_files = 1,
+        max_bins_per_commit = None,
+        max_replan_rounds = 1,
+        commit_max_retries = 15,
+        commit_metadata = None,
+        dry_run = false,
+        multipart_threshold = None,
+        multipart_part_size = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn compact(
+        &mut self,
+        py: Python<'_>,
+        target_file_size: Option<usize>,
+        max_parallel_bins: usize,
+        slot_budget_bytes: Option<usize>,
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        read_batch_size: usize,
+        decode_batch_bytes: usize,
+        max_decoded_file_bytes: usize,
+        max_row_group_decoded_bytes: usize,
+        partitions: Option<Vec<String>>,
+        min_partition_removable_files: usize,
+        max_bins_per_commit: Option<usize>,
+        max_replan_rounds: usize,
+        commit_max_retries: usize,
+        commit_metadata: Option<HashMap<String, String>>,
+        dry_run: bool,
+        multipart_threshold: Option<usize>,
+        multipart_part_size: Option<usize>,
+    ) -> PyResult<Py<PyAny>> {
+        let opts = deltalite_core::CompactOptions {
+            target_file_size,
+            max_parallel_bins,
+            slot_budget_bytes,
+            max_buffered_bytes,
+            max_fetch_bytes,
+            read_batch_size,
+            decode_batch_bytes,
+            max_decoded_file_bytes,
+            max_row_group_decoded_bytes,
+            partitions,
+            min_partition_removable_files,
+            max_bins_per_commit,
+            max_replan_rounds,
+            commit_max_retries,
+            commit_metadata: commit_metadata.map(|m| {
+                m.into_iter()
+                    .map(|(k, v)| (k, Value::String(v)))
+                    .collect::<HashMap<String, Value>>()
+            }),
+            dry_run,
+            limits: ProcessLimits::global().clone(),
+        };
+        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let handle = &mut self.handle;
+        let s = py
+            .detach(|| runtime().block_on(handle.compact(opts, multipart)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("files_considered", s.files_considered)?;
+        d.set_item("files_skipped", s.files_skipped)?;
+        d.set_item("partitions_compacted", s.partitions_compacted)?;
+        d.set_item("bins", s.bins)?;
+        d.set_item("files_removed", s.files_removed)?;
+        d.set_item("files_added", s.files_added)?;
+        d.set_item("bytes_removed", s.bytes_removed)?;
+        d.set_item("bytes_added", s.bytes_added)?;
+        d.set_item("rows_rewritten", s.rows_rewritten)?;
+        d.set_item("batches_read", s.batches_read)?;
+        d.set_item("parallel_bins", s.parallel_bins)?;
+        d.set_item("commits", s.commits)?;
+        d.set_item("commit_retries", s.commit_retries)?;
+        d.set_item("bins_dropped", s.bins_dropped)?;
+        d.set_item("replan_rounds", s.replan_rounds)?;
+        d.set_item("largest_bin_files", s.largest_bin_files)?;
+        d.set_item("plan_ms", s.plan_ms)?;
+        d.set_item("rewrite_ms", s.rewrite_ms)?;
+        d.set_item("commit_ms", s.commit_ms)?;
+        d.set_item("version", s.version)?;
+        d.set_item("dry_run", s.dry_run)?;
+        // The keys delta-rs's optimize returns, so a caller can log either result alike.
+        d.set_item("numFilesAdded", s.files_added)?;
+        d.set_item("numFilesRemoved", s.files_removed)?;
+        d.set_item("partitionsOptimized", s.partitions_compacted)?;
+        d.set_item("numBatches", s.batches_read)?;
+        d.set_item("totalConsideredFiles", s.files_considered)?;
+        d.set_item("totalFilesSkipped", s.files_skipped)?;
+        Ok(d.into_any().unbind())
+    }
+
+    /// Returns the keys delta-rs's `DeltaTable.restore` returns, plus the committed `version`.
+    #[pyo3(signature = (version, *, commit_metadata = None))]
+    fn restore(
+        &mut self,
+        py: Python<'_>,
+        version: u64,
+        commit_metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let metadata = commit_metadata.map(|m| {
+            m.into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect::<HashMap<String, Value>>()
+        });
+        let handle = &mut self.handle;
+        let metrics = py
+            .detach(|| runtime().block_on(handle.restore(version, metadata)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("numRemovedFile", metrics.num_removed_file)?;
+        d.set_item("numRestoredFile", metrics.num_restored_file)?;
+        d.set_item("version", self.handle.version())?;
+        Ok(d.into_any().unbind())
     }
 
     /// Commit metadata of the most recent `limit` commits, oldest first.

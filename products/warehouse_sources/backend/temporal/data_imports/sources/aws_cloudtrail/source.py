@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTrailResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_CLOUD_TRAIL|AWSCLOUDTRAIL)_",),
+        npm=("@aws-sdk/client-cloudtrail",),
+        cargo=("aws-sdk-cloudtrail", "aws-sdk-cloudtraildata"),
+        go=("github.com/aws/aws-sdk-go-v2/service/cloudtrail",),
+        maven=(
+            "software.amazon.awssdk:cloudtrail",
+            "com.amazonaws:aws-java-sdk-cloudtrail",
+            "com.amazonaws:aws-cloudtrail-processing-library",
+            "com.amazonaws:aws-java-sdk-cloudtraildata",
+            "software.amazon.awssdk:cloudtraildata",
+        ),
+        rubygems=("aws-sdk-cloudtrail",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (CLOUDTRAIL_API_VERSION,)
     default_version = CLOUDTRAIL_API_VERSION
@@ -54,7 +70,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
         }
         errors.update(
             {
-                f"AWS CloudTrail request failed: {code}": "Grant cloudtrail:LookupEvents, cloudtrail:DescribeTrails, or cloudtrail:ListEventDataStores for the tables you select."
+                f"AWS CloudTrail request failed: {code}": "Grant the CloudTrail permissions listed in the source setup for the tables you select."
                 for code in ACCESS_DENIED_CODES
             }
         )
@@ -123,11 +139,14 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
             caption="""Sync CloudTrail events and settings from one AWS region.
 
 Grant `cloudtrail:LookupEvents`, `cloudtrail:DescribeTrails`, and `cloudtrail:ListEventDataStores` for the tables you select.
+Insights tables also need `cloudtrail:ListInsightsData`.
+The Lake queries table also needs `cloudtrail:ListQueries` and `cloudtrail:DescribeQuery`.
 Enter an access key ID and secret access key. Add a session token for temporary credentials.
 
 Event imports cover the past 90 days. They include management events and trail Insights events, but exclude data events.
 Insights must be enabled on a trail to return Insights events.
 The event stores table imports CloudTrail Lake settings, not stored events.
+The Lake queries table imports query history from the past 7 days, not query results.
 CloudTrail Lake is available only to existing customers after May 31, 2026.""",
             iconPath="/static/services/aws_cloudtrail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cloudtrail",

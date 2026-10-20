@@ -13,6 +13,7 @@ from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
 from posthog.models.user import User
 from posthog.organization_caching import (
+    access_cache,
     get_cached_organization,
     get_cached_organization_membership,
     get_cached_organization_memberships,
@@ -268,6 +269,43 @@ class TestOrganization(BaseTest):
                 assert get_cached_organization(self.organization.id) == self.organization
                 assert get_cached_organization_membership(self.organization.id, self.user) == membership
                 assert get_cached_organization_memberships(self.user)[0] == membership
+
+    @parameterized.expand(
+        [
+            ("one_organization_cold", 1, False),
+            ("many_organizations_cold", 5, False),
+            ("one_organization_warm", 1, True),
+            ("many_organizations_warm", 5, True),
+        ]
+    )
+    def test_access_cache_reads_memberships_in_constant_round_trips(self, _name, organization_count, warm):
+        organizations = [self.organization]
+        for index in range(organization_count - 1):
+            organization = Organization.objects.create(name=f"Extra organization {index}")
+            OrganizationMembership.objects.create(organization=organization, user=self.user)
+            organizations.append(organization)
+
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            if warm:
+                get_cached_organization_memberships(self.user)
+
+            # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
+            unpatched_get = access_cache.get
+            missing = object()
+            with (
+                patch.object(access_cache, "get", wraps=access_cache.get) as get,
+                patch.object(
+                    access_cache,
+                    "get_many",
+                    side_effect=lambda keys: {
+                        key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
+                    },
+                ) as get_many,
+            ):
+                memberships = get_cached_organization_memberships(self.user)
+
+            assert get.call_count + get_many.call_count == 4
+            assert {membership.organization for membership in memberships} == set(organizations)
 
     def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
         with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):

@@ -30,6 +30,7 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -345,7 +346,7 @@ export class EmailService {
         private integrationManager: IntegrationManagerService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string,
+        private siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
@@ -478,6 +479,30 @@ export class EmailService {
 
             const from = this.resolveFromSender(integration, params.from, addLog)
 
+            // An empty `to` comes from the customer's data (a person without an email property, or no
+            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
+            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
+            // with bad data inflates the platform send failure rate.
+            if (!params.to?.email?.trim()) {
+                addLog(
+                    'warn',
+                    'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_missing_recipient',
+                        count: 1,
+                    })
+                }
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
@@ -570,12 +595,45 @@ export class EmailService {
                 return result
             }
 
+            // A reply-to set on the email step wins over the sender's default.
+            const paramsWithReplyTo =
+                parseAddressList(params.replyTo) || !integration.config.reply_to
+                    ? params
+                    : { ...params, replyTo: integration.config.reply_to }
+
+            // Tagged before click tracking wraps the links, so the tags land on the destination URL.
+            const metadata = invocation.hogFunction.metadata
+            const sendParams =
+                metadata?.utm_tags_enabled === true && params.html
+                    ? {
+                          ...paramsWithReplyTo,
+                          html: addUtmTagsToEmail(
+                              params.html,
+                              resolveUtmTags(
+                                  {
+                                      utm_source: 'posthog',
+                                      utm_medium: 'email',
+                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
+                                      utm_content: metadata.hog_flow_action_name ?? '',
+                                  },
+                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
+                                      addLog(
+                                          'warn',
+                                          `Used the default ${key} because its value has an error: ${message}`
+                                      )
+                                  )
+                              ),
+                              this.siteUrl
+                          ),
+                      }
+                    : paramsWithReplyTo
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -587,7 +645,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -599,6 +657,7 @@ export class EmailService {
                 // catches the cases where SES disagrees with our estimate.
                 throttled = true
                 result.finished = false
+                result.invocation.queueParameters = params
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {

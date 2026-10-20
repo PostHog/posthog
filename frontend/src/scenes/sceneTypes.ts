@@ -14,8 +14,9 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
-    AIGateway = 'AIGateway',
     Alerts = 'Alerts',
+    PlatformAlerts = 'PlatformAlerts',
+    PlatformAlert = 'PlatformAlert',
     Annotations = 'Annotations',
     Autoresearch = 'Autoresearch',
     AutoresearchNew = 'AutoresearchNew',
@@ -27,6 +28,7 @@ export enum Scene {
     Billing = 'Billing',
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',
+    BusinessIntelligence = 'BusinessIntelligence',
     Canvas = 'Canvas',
     CLIAuthorize = 'CLIAuthorize',
     CLILive = 'CLILive',
@@ -61,6 +63,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectAccessDenied = 'ProjectAccessDenied',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorSceneLoad = 'SceneLoadError',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
@@ -104,10 +107,10 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
-    Views = 'Views',
-    Link = 'Link',
-    Links = 'Links',
-    LiveDebugger = 'LiveDebugger',
+    AnalyticsList = 'AnalyticsList',
+    AnalyticsSpaces = 'AnalyticsSpaces',
+    AnalyticsProductHome = 'AnalyticsProductHome',
+    Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
@@ -163,6 +166,7 @@ export enum Scene {
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    ProductAnalyticsHomeTab = 'ProductAnalyticsHomeTab',
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
     HealthAlerts = 'HealthAlerts',
@@ -200,9 +204,6 @@ export enum Scene {
     CodeChannelLink = 'CodeChannelLink',
     CodeTaskLink = 'CodeTaskLink',
     CodeLoopLink = 'CodeLoopLink',
-    UserInterview = 'UserInterview',
-    UserInterviewResponse = 'UserInterviewResponse',
-    UserInterviews = 'UserInterviews',
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
@@ -345,6 +346,7 @@ export interface SceneConfig {
      * @default 'app'
      */
     layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
+    deferSceneMeasurementsDuringResize?: boolean
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

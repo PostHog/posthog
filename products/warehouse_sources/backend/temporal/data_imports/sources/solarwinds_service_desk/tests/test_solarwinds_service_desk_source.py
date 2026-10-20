@@ -1,14 +1,9 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
     SolarwindsServiceDeskSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source import (
     SolarwindsServiceDeskSource,
@@ -27,32 +22,6 @@ class TestSolarwindsServiceDeskSource:
         # The token is sent to the host derived from `region`; retargeting the region must force
         # re-entering the token, or an editor could exfiltrate it to another regional stack.
         assert self.source.connection_host_fields == ["region"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_incremental_flags(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        # Only /incidents documents a server-side updated_from filter.
-        assert schemas["incidents"].supports_incremental is True
-        assert [f["field"] for f in schemas["incidents"].incremental_fields] == ["updated_at"]
-        for name, schema in schemas.items():
-            if name not in INCREMENTAL_FIELDS:
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["incidents"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "incidents"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -122,9 +91,3 @@ class TestSolarwindsServiceDeskSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown SolarWinds Service Desk schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ImpactSource(ResumableSource[ImpactSourceConfig, ImpactResumeConfig]):
+    codebase_detection = detect(script_hosts=("utt.impactcdn.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://integrations.impact.com/brand-api-reference/readme/introduction"
 
@@ -53,7 +56,9 @@ class ImpactSource(ResumableSource[ImpactSourceConfig, ImpactResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your impact.com Account SID and Auth Token to pull your partnership data into the PostHog Data warehouse.
 
-Find these in impact.com under **Settings > Technical > API**. Create a Read-Only access token, then copy its Account SID and Auth Token below.""",
+Find these in impact.com under **Settings > Technical > API**. Create a Read-Only access token, then copy its Account SID and Auth Token below.
+
+If your account is a partner (publisher) account, use the impact.com Partner source instead.""",
             iconPath="/static/services/impact.png",
             docsUrl="https://posthog.com/docs/cdp/sources/impact",
             fields=cast(
@@ -138,7 +143,10 @@ Find these in impact.com under **Settings > Technical > API**. Create a Read-Onl
         if validate_impact_credentials(config.account_sid, config.auth_token, self.resolve_api_version(api_version)):
             return True, None
 
-        return False, "Invalid Impact.com Account SID or Auth Token"
+        return False, (
+            "Your impact.com Account SID or Auth token isn't valid for a brand account. "
+            "Check both values, or use the impact.com Partner source for a partner account."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ImpactResumeConfig]:
         return ResumableSourceManager[ImpactResumeConfig](inputs, ImpactResumeConfig)

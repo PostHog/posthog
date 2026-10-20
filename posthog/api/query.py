@@ -51,7 +51,13 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_q
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import (
+    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
@@ -409,7 +415,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            replacement = APIException("ClickHouse error while executing query.")
+            error_code = look_up_clickhouse_error_code_meta(e).name
+            user_message = internal_ch_error_user_message(error_code)
+            replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
             scan_extra = _scan_extra(e)
             if scan_extra:
                 replacement.extra = scan_extra  # type: ignore[attr-defined]
@@ -474,17 +482,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
                 code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
             )
-        query_status_response = QueryStatusResponse(query_status=query_status)
-
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
             if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+                # Add safe copy only after choosing the existing HTTP status; internal failures stay 500.
+                query_status.error_message = internal_ch_error_user_message(query_status.error_code)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
+        query_status_response = QueryStatusResponse(query_status=query_status)
         response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
         if query_status.bytes_read is not None:
             _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -13,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.aut
     validate_credentials as validate_autumn_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import (
+    AUTUMN_API_VERSION_2_3_0,
+    AUTUMN_API_VERSION_2_4_0,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -33,9 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
+    codebase_detection = detect(
+        env=("^AUTUMN_SECRET_KEY$",),
+        npm=("autumn-js", "atmn", "@useautumn/convex", "@useautumn/gateway"),
+        pypi=("autumn-py",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.3.0",)
-    default_version = "2.3.0"
+    supported_versions = (AUTUMN_API_VERSION_2_3_0, AUTUMN_API_VERSION_2_4_0)
+    default_version = AUTUMN_API_VERSION_2_4_0
     api_docs_url = "https://docs.useautumn.com/api-reference"
 
     @property
@@ -79,7 +88,7 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_autumn_credentials(config.api_key, self.default_version)
+        return validate_autumn_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AutumnResumeConfig]:
         return ResumableSourceManager[AutumnResumeConfig](inputs, AutumnResumeConfig)
@@ -111,7 +120,7 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Autumn",
             caption=(
-                "Sync customers, usage events, features, plans, entities, invoices, and rewards from Autumn. "
+                "Sync customers, usage events, features, plans, entities, invoices, rewards, and licenses from Autumn. "
                 "Create a secret key (`am_sk_...`) in the Autumn dashboard under Developer settings. "
                 "Sandbox and production have separate keys, so use the key for the environment you want to sync."
             ),

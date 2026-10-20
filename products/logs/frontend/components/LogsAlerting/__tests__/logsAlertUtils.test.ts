@@ -3,7 +3,13 @@ import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOpe
 import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType } from '../logsAlertFormLogic'
-import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
+import {
+    buildLogsAlertFilterConfig,
+    getHogFunctionEventKind,
+    groupLogsAlertDestinations,
+    logsAlertEventKindsFor,
+    runPreEnableChecks,
+} from '../logsAlertUtils'
 
 const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType => ({
     name: 'A',
@@ -69,6 +75,16 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
+        const pagerDutyHf = (id: string, name: string, eventId: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name,
+                enabled,
+                template: { id: 'template-pagerduty' },
+                inputs: { routing_key: { secret: true }, severity: { value: 'critical' } },
+                filters: { events: [{ id: eventId, type: 'events' }] },
+            }) as unknown as HogFunctionType
+
         const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
 
         it('collapses multiple HogFunctions for the same slack channel into one group', () => {
@@ -116,6 +132,40 @@ describe('logsAlertUtils', () => {
                 label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
+        })
+
+        it('groups pagerduty HogFunctions by the key tail in their name, since the key itself is secret', () => {
+            const groups = groupLogsAlertDestinations(
+                [
+                    pagerDutyHf(
+                        'hf-1',
+                        'Logs alert — Errors (incident opened) → PagerDuty ••••cdef',
+                        '$logs_alert_incident_opened'
+                    ),
+                    pagerDutyHf(
+                        'hf-2',
+                        'Logs alert — Errors (incident closed) → PagerDuty ••••cdef',
+                        '$logs_alert_incident_closed'
+                    ),
+                    pagerDutyHf(
+                        'hf-3',
+                        'Logs alert — Errors (incident opened) → PagerDuty ••••0000',
+                        '$logs_alert_incident_opened'
+                    ),
+                ],
+                resolveSlack
+            )
+
+            expect(groups.map((g) => [g.key, g.label, g.type, g.hogFunctions.length])).toEqual([
+                ['pagerduty:PagerDuty ••••cdef', 'PagerDuty ••••cdef', 'pagerduty', 2],
+                ['pagerduty:PagerDuty ••••0000', 'PagerDuty ••••0000', 'pagerduty', 1],
+            ])
+            // The detail scene shows one row per kind; a kind it cannot match renders as missing.
+            expect(
+                logsAlertEventKindsFor(groups[0].type).map(
+                    (kind) => groups[0].hogFunctions.find((hf) => getHogFunctionEventKind(hf) === kind)?.id
+                )
+            ).toEqual(['hf-1', 'hf-2'])
         })
 
         it('keeps distinct slack channels and webhook urls as separate groups', () => {

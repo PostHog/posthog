@@ -64,10 +64,10 @@ export interface BroadcastsFilters {
 
 const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
 
+type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
+
 /** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
-export function isBroadcastShaped(
-    actions: { type?: string; config?: { type?: string } }[] | null | undefined
-): boolean {
+export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boolean {
     const steps = actions ?? []
     return (
         steps.some((step) => step.type === 'trigger' && step.config?.type === 'batch') &&
@@ -76,14 +76,12 @@ export function isBroadcastShaped(
     )
 }
 
-const DEFAULT_RECIPIENT = '{{ person.properties.email }}'
-
-type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 type FlowEdge = { from?: string; to?: string }
 
 /**
  * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
- * wizard only models a person audience sent to each person's own email along trigger, email, exit;
+ * wizard only models a person audience along trigger, email, exit. Its Content step edits the email's
+ * "To" like any other field, so a custom recipient is fine;
  * anything else opens as the read-only summary instead.
  */
 export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
@@ -95,13 +93,11 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
     if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
         return false
     }
-    const recipient = email[0].config?.inputs?.email?.value?.to?.email
     // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
     // that skips the email.
     const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
         trigger[0].config?.filters?.audience_type !== 'accounts' &&
-        (!recipient || recipient === DEFAULT_RECIPIENT) &&
         paths.size === 2 &&
         paths.has(`${trigger[0].id}->${email[0].id}`) &&
         paths.has(`${email[0].id}->${exit[0].id}`)

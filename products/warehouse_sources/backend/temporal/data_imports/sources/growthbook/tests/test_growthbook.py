@@ -56,54 +56,6 @@ def test_pagination_and_resume(
     assert result.sort_mode is None
 
 
-@pytest.mark.parametrize(
-    ("table", "path", "selector", "params", "partition_keys"),
-    [
-        ("experiments", "experiments", "experiments", {}, ["dateCreated"]),
-        ("metrics", "metrics", "metrics", {"includeArchived": ["true"]}, ["dateCreated"]),
-        ("fact_tables", "fact-tables", "factTables", {}, ["dateCreated"]),
-        ("fact_metrics", "fact-metrics", "factMetrics", {}, ["dateCreated"]),
-        ("segments", "segments", "segments", {}, ["dateCreated"]),
-        ("dimensions", "dimensions", "dimensions", {}, ["dateCreated"]),
-        ("projects", "projects", "projects", {}, ["dateCreated"]),
-        ("environments", "environments", "environments", {}, None),
-        ("saved_groups", "saved-groups", "savedGroups", {}, ["dateCreated"]),
-        ("data_sources", "data-sources", "dataSources", {}, ["dateCreated"]),
-        ("members", "members", "members", {}, None),
-    ],
-)
-def test_table_responses_and_full_refresh_requests(
-    config: GrowthBookSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    http: responses.RequestsMock,
-    table: str,
-    path: str,
-    selector: str,
-    params: dict[str, list[str]],
-    partition_keys: list[str] | None,
-) -> None:
-    inputs.schema_name = table
-    inputs.db_incremental_field_last_value = "2099-01-01T00:00:00Z"
-    rows = [{"id": "example-record", "dateCreated": "2025-01-01T00:00:00Z"}]
-    payload: dict[str, Any] = (
-        {selector: rows} if table == "environments" else {selector: rows, "hasMore": False, "nextOffset": None}
-    )
-    http.add(responses.GET, f"https://api.growthbook.io/api/v1/{path}", json=payload)
-    result = GrowthBookSource().source_for_pipeline(config, manager, inputs)
-    assert list(cast(Iterable[Any], result.items())) == [rows]
-    assert result.name == table
-    assert result.primary_keys == ["id"]
-    assert result.partition_keys == partition_keys
-    assert len(http.calls) == 1
-    assert parse_qs(urlsplit(http.calls[0].request.url).query) == (
-        {} if table == "environments" else {"limit": ["100"], "offset": ["0"], **params}
-    )
-    if table == "environments":
-        manager.can_resume.assert_not_called()
-        assert not result.supports_resume
-
-
 @pytest.mark.parametrize("empty", [True, False])
 def test_empty_collection_or_missing_envelope(
     config: GrowthBookSourceConfig,

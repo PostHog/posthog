@@ -2,6 +2,7 @@ import re
 import datetime
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, ZendeskSunshineResumeConfig]):
+    codebase_detection = detect(env=("^(ZENDESK_SUNSHINE|ZENDESKSUNSHINE)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # v1 is the legacy Sunshine API (`/api/sunshine/`); v2 is the current custom objects API

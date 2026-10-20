@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeConfig]):
+    codebase_detection = detect(
+        env=("^FUSIONAUTH_", "^FUSION_AUTH_"),
+        npm=(
+            "@fusionauth/typescript-client",
+            "@fusionauth/react-sdk",
+            "@fusionauth/vue-sdk",
+            "@fusionauth/angular-sdk",
+        ),
+        pypi=("fusionauth-client",),
+        composer=("fusionauth/fusionauth-client",),
+        go=("github.com/FusionAuth/go-client",),
+        maven=(
+            "io.fusionauth:fusionauth-java-client",
+            "io.fusionauth:fusionauth-android-sdk",
+            "io.fusionauth:fusionauth-jwt",
+            "io.fusionauth:fusionauth-plugin-api",
+            "io.fusionauth:fusionauth-spring-security",
+        ),
+        pub=("fusionauth_dart_client",),
+        rubygems=("fusionauth_client",),
+        swiftpm=("github.com/fusionauth/fusionauth-swift-sdk",),
+    )
+
     api_docs_url = "https://fusionauth.io/docs/apis/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

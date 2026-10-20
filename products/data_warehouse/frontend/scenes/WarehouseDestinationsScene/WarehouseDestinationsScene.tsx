@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -31,6 +33,7 @@ export function WarehouseDestinationsScene(): JSX.Element {
 
     const modalProps = { modalKey: MODAL_KEY, onSaved: () => loadDestinations() }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />
@@ -54,7 +57,16 @@ export function WarehouseDestinationsScene(): JSX.Element {
                 name="Warehouse destinations"
                 description="Destinations are where your warehouse sources write the rows they sync. Pick which ones a source or a single table uses from that source's Destinations tab."
                 resourceType={{ type: 'data_warehouse' }}
-                actions={newDestinationButton}
+                actions={
+                    todayRailNav ? (
+                        <Button variant="primary" onClick={openForCreate} data-attr="warehouse-destinations-scene-new">
+                            <IconPlus />
+                            New destination
+                        </Button>
+                    ) : (
+                        newDestinationButton
+                    )
+                }
             />
 
             {loadError ? (

@@ -8,7 +8,10 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
+from temporalio import activity
 from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
@@ -16,12 +19,15 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
 
 from products.ai_observability.backend.llm.errors import (
+    ContentFilteredError,
+    ContextWindowExceededError,
     OutputTokenLimitError,
     ProviderRequestRejectedError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
 
 from .run_tagger import (
     SKIPPED_RESULT_ERROR_TYPES,
@@ -231,6 +237,41 @@ class TestRunTaggerWorkflow:
                 assert result["input_tokens"] == 100
                 assert result["output_tokens"] == 20
                 assert called_on_event_loop == [False]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_tagger_truncates_oversized_prompt(self, setup_data: SetupData) -> None:
+        team = setup_data["team"]
+        tagger = {
+            "id": str(setup_data["tagger"].id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+        long_input = "\n".join(f"line {i} " + "x" * 100 for i in range(5_000))
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": long_input}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Short reply."}],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config,
+        ):
+            mock_complete = mock_client_class.return_value.complete
+            mock_complete.return_value = MagicMock(
+                parsed=TagResult(tags=["billing"], reasoning="ok"),
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
+            )
+            mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+
+            execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        user_prompt = mock_complete.call_args.args[0].messages[0]["content"]
+        assert len(user_prompt) <= EVENT_TEXT_MAX_CHARS
+        assert user_prompt.endswith("Output: assistant: Short reply.")
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_tagger_strips_unknown_tags(self, setup_data):
@@ -506,6 +547,120 @@ class TestRunTaggerWorkflow:
         await database_sync_to_async(tagger.refresh_from_db)()
         assert tagger.enabled is False
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("activity", ["llm", "hog", "emit"])
+    async def test_tagger_activities_hydrate_a_reference(self, setup_data, activity: str):
+        team = setup_data["team"]
+        full_event = create_mock_event_data(
+            team.id,
+            uuid="g1",
+            properties={
+                "$ai_input": [{"role": "user", "content": "How do I set up billing?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "In the settings."}],
+                "$ai_trace_id": "t1",
+            },
+        )
+        reference = {"uuid": "g1", "team_id": team.id, "timestamp": full_event["timestamp"], "trace_id": "t1"}
+        tagger = {
+            "id": str(setup_data["tagger"].id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event", return_value=full_event
+        ) as mock_fetch:
+            if activity == "llm":
+                mock_response = MagicMock(
+                    parsed=TagResult(tags=["billing"], reasoning="billing"),
+                    usage=MagicMock(input_tokens=1, output_tokens=1, total_tokens=2),
+                )
+                with (
+                    patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class,
+                    patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config,
+                ):
+                    mock_client_class.return_value.complete.return_value = mock_response
+                    mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+                    result = await database_sync_to_async(execute_tagger_activity)(
+                        ExecuteTaggerInputs(tagger=tagger, event_data=reference)
+                    )
+                assert result["tags"] == ["billing"]
+            elif activity == "hog":
+                hog_tagger = make_hog_tagger_dict(team.id, source="return ['billing']")
+                result = await execute_hog_tagger_activity(hog_tagger, reference)
+                assert result["tags"] == ["billing"]
+            else:
+                with (
+                    patch(
+                        "posthog.temporal.ai_observability.team_capture.get_team_api_token",
+                        return_value=team.api_token,
+                    ),
+                    patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture,
+                ):
+                    mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+                    await emit_tagger_event_activity(
+                        EmitTaggerEventInputs(
+                            tagger=tagger,
+                            event_data=reference,
+                            result={"tags": ["billing"], "reasoning": "billing", "is_hog": True},
+                            start_time=datetime(2024, 1, 1, 12, 0, 0),
+                        )
+                    )
+                props = mock_capture.call_args[1]["properties"]
+                assert props["$ai_target_event_id"] == "g1"
+                assert props["$ai_trace_id"] == "t1"
+
+        assert mock_fetch.call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_the_hog_tagger_waits_for_a_live_reference_to_reach_clickhouse(self, setup_data):
+        team = setup_data["team"]
+        full_event = create_mock_event_data(team.id, uuid="g1", properties={"$ai_trace_id": "t1"})
+        reference = {
+            "uuid": "g1",
+            "team_id": team.id,
+            "timestamp": full_event["timestamp"],
+            "trace_id": "t1",
+            "awaiting_ingestion": True,
+        }
+        hog_tagger = make_hog_tagger_dict(team.id, source="return ['billing']")
+        emitted: list[dict[str, Any]] = []
+
+        @activity.defn(name="fetch_tagger_activity")
+        async def mock_fetch_tagger(inputs: RunTaggerInputs) -> dict[str, Any]:
+            return hog_tagger
+
+        @activity.defn(name="emit_tagger_event_activity")
+        async def mock_emit_tagger_event(inputs: EmitTaggerEventInputs) -> None:
+            emitted.append(inputs.result)
+
+        task_queue = str(uuid.uuid4())
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
+            side_effect=[None, full_event],
+        ) as mock_fetch:
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue=task_queue,
+                    workflows=[RunTaggerWorkflow],
+                    activities=[mock_fetch_tagger, execute_hog_tagger_activity, mock_emit_tagger_event],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ):
+                    result = await env.client.execute_workflow(
+                        RunTaggerWorkflow.run,
+                        RunTaggerInputs(tagger_id=hog_tagger["id"], event_data=reference),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                    )
+
+        assert mock_fetch.call_count == 2
+        assert result["tags"] == ["billing"]
+        assert emitted[0]["tags"] == ["billing"]
+
     def test_parse_inputs(self):
         event_data = create_mock_event_data(team_id=1)
         inputs = ["tagger-123", json.dumps(event_data)]
@@ -518,7 +673,7 @@ class TestRunTaggerWorkflow:
 
 def make_hog_tagger_dict(team_id: int, source: str, tags: list[dict] | None = None) -> dict:
     """Build the tagger payload that the workflow passes to the Hog activity."""
-    from posthog.cdp.validation import compile_hog
+    from products.cdp.backend.validation import compile_hog
 
     bytecode = compile_hog(source, "tagger")
     return {
@@ -543,7 +698,7 @@ class TestRunHogTagger:
         return create_mock_event_data(team_id=1)
 
     def test_returns_list_of_strings(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['billing']", "tagger")
 
@@ -553,7 +708,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_filters_unknown_tags_against_whitelist(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['billing', 'unknown', 'analytics']", "tagger")
 
@@ -567,7 +722,7 @@ class TestRunHogTagger:
         """When tagger_config['tags'] is empty (Hog-only freeform), the source's
         return value is taken at face value — this is the documented behavior
         for Hog taggers without a tag whitelist."""
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['anything', 'goes']", "tagger")
 
@@ -577,7 +732,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_string_return_is_promoted_to_single_tag_list(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 'billing'", "tagger")
 
@@ -587,7 +742,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_non_list_return_type_surfaces_error(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 42", "tagger")
 
@@ -598,7 +753,7 @@ class TestRunHogTagger:
         assert "Must return a list of tag names" in result["error"]
 
     def test_null_return_yields_empty_tags_no_error(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "tagger")
 
@@ -608,7 +763,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_print_output_captured_as_reasoning(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("print('inspecting input'); return ['billing']", "tagger")
 
@@ -820,7 +975,12 @@ class TestSkippedResultsStayOutOfErrorTracking:
         [
             (OutputTokenLimitError("The model reached its output token limit."), "parse_error"),
             (StructuredOutputParseError("The reply did not match the schema."), "parse_error"),
+            (ContentFilteredError("The request was rejected by the content filter."), "parse_error"),
             (ProviderRequestRejectedError("The response exceeds the limit."), "request_rejected"),
+            (
+                ContextWindowExceededError("The prompt is too long for the context window."),
+                "context_window_exceeded",
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)

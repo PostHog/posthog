@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConfig]):
+    codebase_detection = detect(env=("^KICKSCALE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Kickscale's API has no versioned path segment, header, or query param — its OpenAPI
     # document is labelled "1.0" but that isn't a value the client sends anywhere.
@@ -47,8 +50,11 @@ class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden for url": "Kickscale rejected the API key and client ID. "
-            "Check both values under Settings > Integrations > API & Webhooks and reconnect.",
+            # Kickscale can refuse one endpoint while the same key reads another, so a 403 does not
+            # always mean the credentials are wrong.
+            "403 Client Error: Forbidden for url": "Kickscale denied access to this table. Check that "
+            "the API key and client ID under Settings > Integrations > API & Webhooks are correct and "
+            "that your Kickscale workspace has access to this data, then reconnect.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

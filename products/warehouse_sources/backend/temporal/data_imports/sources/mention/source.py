@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = DEFAULT_API_VERSION
@@ -51,7 +54,7 @@ class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
             label="Mention",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["social listening", "media monitoring", "brand monitoring"],
-            caption="""Enter your Mention API access token to pull your monitored accounts, alerts, mentions, and tags into the PostHog Data warehouse.
+            caption="""Enter your Mention API access token to pull your monitored accounts, alerts, mentions, tags, authors, tasks, and daily alert statistics into the PostHog Data warehouse.
 
 You can create an access token by registering an API application at [dev.mention.com](https://dev.mention.com). Note that Mention API access is a paid add-on to Mention plans.
 """,

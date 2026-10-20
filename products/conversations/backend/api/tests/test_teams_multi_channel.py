@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.conversations.backend.models import Ticket
@@ -8,7 +10,7 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.teams import _configured_support_channel_ids, handle_teams_message
 
 
-class TestConfiguredSupportChannelIds(BaseTest):
+class TestConfiguredSupportChannelIds(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_settings", {}, set()),

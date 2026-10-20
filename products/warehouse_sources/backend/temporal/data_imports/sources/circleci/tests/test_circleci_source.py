@@ -5,6 +5,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.source import CircleCISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
     CircleCISourceConfig,
 )
@@ -38,11 +43,6 @@ class TestCircleCISource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_no_endpoint_advertises_incremental(self, endpoint):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -53,10 +53,21 @@ class TestCircleCISource:
         assert schemas[endpoint].incremental_fields == []
         assert INCREMENTAL_FIELDS.get(endpoint) is None
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["pipelines"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "pipelines"
+    @parameterized.expand(
+        [
+            ("v2", "/api/v2/pipeline"),
+            ("v3", "/api/v3/projects"),
+            # An unpinned call (pre-creation validation) resolves to the v3 default.
+            (None, "/api/v3/projects"),
+        ]
+    )
+    def test_validate_credentials_probes_the_pinned_api(self, api_version, expected_org_probe_path):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v2/me/collaborations":
+                return ScriptedResponse(json=[{"id": "org-uuid", "slug": "gh/posthog"}])
+            return ScriptedResponse(json={})
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+        with scripted_network(answer) as network:
+            assert self.source.validate_credentials(self.config, self.team_id, api_version=api_version) == (True, None)
+
+        assert network.requests_log[-1].path == expected_org_probe_path

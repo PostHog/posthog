@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeConfig]):
+    codebase_detection = detect(env=("^SIMILARWEB_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # The legacy REST API versions each resource in its own path segment (`/v1/...`, `/v4/...`);
     # API V5 replaces that with one `/v5/website-analysis` host that serves every engagement metric

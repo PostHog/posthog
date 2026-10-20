@@ -13,13 +13,17 @@ from posthog.hogql.errors import (
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
-from posthog.models.filters import Filter
 from posthog.models.property import Property, PropertyGroup, PropertyOperatorType, PropertyValidationError
 from posthog.models.team.team import Team
 from posthog.utils import safe_int
 
 from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.filters import EVALUATED_BEFORE_RELEASE_CONDITIONS
+from products.feature_flags.backend.facade.filters import (
+    EVALUATED_BEFORE_RELEASE_CONDITIONS,
+    condition_aggregation,
+    condition_rollout_percentage,
+    pinned_variant,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Neither the flags service nor the save path limits how deep a dependency chain goes, so the
@@ -94,7 +98,7 @@ class FlagDependencyEstimator:
     counting every person.
     """
 
-    def __init__(self, team: Team, clean_condition: Callable[[Team, dict], Filter]):
+    def __init__(self, team: Team, clean_condition: Callable[[Team, dict], PropertyGroup]):
         self.team = team
         # Injected rather than imported: user_blast_radius imports this module, and its cleaner
         # must normalize the dependency's stored filters the same way as the condition being sized.
@@ -204,11 +208,11 @@ class FlagDependencyEstimator:
         matches the person and its rollout admits them. None when a set cannot be sized per person.
         """
         admitted: list[ast.Expr] = []
+        flag_aggregation = flag.aggregation_group_type_index
         for condition in flag.conditions:
-            if _is_group_aggregated(flag, condition):
+            if condition_aggregation(condition, flag_aggregation) is not None:
                 return None
-            rollout_percentage = condition.get("rollout_percentage")
-            rollout = 1.0 if rollout_percentage is None else float(rollout_percentage) / 100
+            rollout = float(condition_rollout_percentage(condition)) / 100
             factors: list[ast.Expr] = [ast.Constant(value=rollout)]
 
             properties = condition.get("properties") or []
@@ -216,7 +220,7 @@ class FlagDependencyEstimator:
             if plain_properties:
                 try:
                     cleaned = self.clean_condition(self.team, {"properties": plain_properties})
-                    targeting = property_to_expr(cleaned.property_groups, self.team, scope="person")
+                    targeting = property_to_expr(cleaned, self.team, scope="person")
                 except _TARGETING_BUILD_ERRORS:
                     return None
                 factors.append(self._indicator(targeting))
@@ -235,8 +239,8 @@ class FlagDependencyEstimator:
 
         terms: list[ast.Expr] = []
         for index, condition in enumerate(flag.conditions):
-            pinned = condition.get("variant")
-            if pinned in variant_keys:
+            pinned = pinned_variant(condition, variant_keys)
+            if pinned is not None:
                 share = 1.0 if pinned == variant else 0.0
             else:
                 share = hashed_variant_share
@@ -349,12 +353,6 @@ def _requested_value(value: Any) -> bool | str:
 def _has_unmodeled_evaluation(flag: FeatureFlag) -> bool:
     filters = flag.get_filters()
     return any(filters.get(key) for key in _UNMODELED_FILTER_KEYS)
-
-
-def _is_group_aggregated(flag: FeatureFlag, condition: dict[str, Any]) -> bool:
-    if "aggregation_group_type_index" in condition:
-        return condition["aggregation_group_type_index"] is not None
-    return flag.aggregation_group_type_index is not None
 
 
 def _running_max(exprs: list[ast.Expr]) -> ast.Expr:

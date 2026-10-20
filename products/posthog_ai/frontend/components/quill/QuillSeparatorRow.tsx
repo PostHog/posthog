@@ -26,6 +26,9 @@ function statusLabel(item: ThreadItem, live: boolean): { label: string; running:
     if (isRunningStatus(item)) {
         return { label: RUNNING_LABELS[status], running: true }
     }
+    if (status === 'extension_notice' && item.message) {
+        return { label: item.message, running: false }
+    }
     // A failed clear leaves the agent session closed, so the way forward is a new run, not a retry.
     if (status === 'clearing_failed') {
         const reason = item.errorMessage
@@ -42,9 +45,12 @@ function separatorLabel(item: ThreadItem, live: boolean): { label: string; runni
         const parts = [
             'Conversation compacted',
             item.trigger,
-            typeof item.preTokens === 'number' ? `~${humanFriendlyNumber(item.preTokens)} tokens summarized` : null,
+            typeof item.preTokens === 'number'
+                ? `~${humanFriendlyNumber(item.preTokens)}\u00a0tokens summarized`
+                : null,
         ]
-        return { label: parts.filter(Boolean).join(' · '), running: false }
+        // The non-breaking space keeps each dot on the line it follows when the label wraps.
+        return { label: parts.filter(Boolean).join('\u00a0· '), running: false }
     }
     if (item.type === 'conversation_cleared') {
         return { label: 'Conversation cleared', running: false }
@@ -56,8 +62,13 @@ function separatorLabel(item: ThreadItem, live: boolean): { label: string; runni
 export function QuillSeparatorRow({ item, live }: { item: ThreadItem; live: boolean }): JSX.Element {
     const { label, running } = separatorLabel(item, live)
     return (
-        <ChatMarker variant="separator" status={running ? 'running' : undefined}>
-            <ChatMarkerContent>{label}</ChatMarkerContent>
+        // A long label wraps between the rules instead of running past the edge of a narrow thread.
+        <ChatMarker
+            variant="separator"
+            status={running ? 'running' : undefined}
+            className="before:min-w-4 after:min-w-4"
+        >
+            <ChatMarkerContent className="max-w-[80%] shrink">{label}</ChatMarkerContent>
         </ChatMarker>
     )
 }

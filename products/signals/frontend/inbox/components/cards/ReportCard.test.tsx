@@ -23,7 +23,7 @@ import { ReportCard } from './ReportCard'
 
 jest.mock('posthog-js')
 jest.mock('lib/components/TZLabel', () => ({
-    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
+    TZLabel: ({ time, title }: { time: string; title?: string }) => <span title={title}>{time}</span>,
 }))
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
@@ -224,18 +224,61 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
-    it('locks the selection while a bulk action is running', () => {
-        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+    test.each([
+        [
+            "a person's reason",
+            { suppression_source: 'dismissed', dismissal_reason: 'analysis_wrong' },
+            "Agent's analysis is wrong",
+        ],
+        [
+            'the safety verdict',
+            { suppression_source: 'safety_judge', suppression_explanation: 'Asks to disable a check.' },
+            'Held back by safety check',
+        ],
+        ['the actionability verdict', { suppression_source: 'not_actionable' }, 'Judged not actionable'],
+        ['a system suppression', { suppression_source: 'system' }, 'Held back automatically'],
+    ] as const)('labels a suppressed row with %s', (_name, overrides, label) => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, ...overrides })} />)
+
+        expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    it('shows no reason chip on a dismissed row without a reason', () => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, suppression_source: 'dismissed' })}
+            />
+        )
+
+        expect(screen.queryByText(/Held back|Judged not actionable/)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        {
+            action: 'dismiss',
+            hold: () => jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null }),
+        },
+        {
+            action: 'unassign',
+            hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+    ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
+        const pending = hold()
         act(() => {
             logic.actions.setSelectedReportIds(['r-1'])
-            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
+            start()
         })
 
         expect(fireEvent.click(cardLink(), { metaKey: true })).toBe(true)
         expect(fireEvent.click(cardLink(), { ctrlKey: true })).toBe(true)
         expect(fireEvent.click(cardLink())).toBe(false)
+        expect(fireEvent.click(cardLink(), { shiftKey: true })).toBe(false)
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
-        setState.mockRestore()
+        pending.mockRestore()
     })
 
     it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {
@@ -334,14 +377,24 @@ describe('ReportCard', () => {
         expect(screen.getByText('42')).toBeInTheDocument()
     })
 
-    it('keeps the timestamp on a redesigned row that has no figure', () => {
+    it.each([
+        ['the update time by default', true, undefined, '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time under a created sort', true, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+        ['the update time under an updated sort', false, 'updated_at', '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time without the impact column', false, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+    ] as const)('shows %s', (_name, impactColumn, timestampField, time, title) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
-        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [] })} />)
+        enableRedesign(impactColumn)
+        const { container } = render(
+            <ReportCard
+                report={makeReport('r-2', { metrics: [], updated_at: '2026-07-01T10:00:00Z' })}
+                timestampField={timestampField}
+            />
+        )
 
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-        expect(screen.getByText('2026-06-11T10:00:00Z')).toBeInTheDocument()
+        expect(screen.getByText(time)).toHaveAttribute('title', title)
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
@@ -370,12 +423,12 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        ['with the impact column', true, 'ranking_fixed', 'Very likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% action',
+            '6.2% engage',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
@@ -389,9 +442,10 @@ describe('ReportCard', () => {
                 model_version: '2026-09-30',
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { pr_merged: 0.41, action: 0.062 },
-                lifts: { pr_merged: 2.7 },
-                readable_heads: ['action', 'pr_merged'],
+                scores: { fixed: 0.41, action: 0.062 },
+                lifts: { fixed: 2.7 },
+                readable_heads: ['action', 'fixed'],
+                stale: false,
             },
         })
         const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
@@ -406,11 +460,28 @@ describe('ReportCard', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableRedesign()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_pr_merged" />)
-        expect(screen.getByText('Not scored')).toBeInTheDocument()
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
+        expect(screen.getByText('Not scored yet')).toBeInTheDocument()
+
+        const stale = makeReport('r-2', {
+            ranking: {
+                served_key: 'report_embeddings@2026-09-30',
+                model_name: 'report_embeddings',
+                model_version: '2026-09-30',
+                manifest_version: 'manifest',
+                scored_at: '2026-09-30T12:00:00Z',
+                scores: { fixed: 0.41 },
+                lifts: { fixed: 2.7 },
+                readable_heads: ['fixed'],
+                stale: true,
+            },
+        })
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
+        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+        expect(screen.queryByText('Very likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
-        expect(screen.queryByText('Not scored')).not.toBeInTheDocument()
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
     })
 
     it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {

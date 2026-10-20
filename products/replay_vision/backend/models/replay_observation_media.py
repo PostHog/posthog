@@ -5,14 +5,13 @@ from posthog.models.utils import UUIDModel
 
 
 class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
-    """A thumbnail or clip for one observation. The bytes live on the `ExportedAsset`, which also carries
+    """A frame for one observation. The bytes live on the `ExportedAsset`, which also carries
     the render state: no `content_location` means the render is still running, and `exception` means it
     failed. This row carries what an export asset has no place for: which observation owns the media,
-    its order, the model's sentence, and the two time bases."""
+    its order, and the two time bases."""
 
     class Kind(models.TextChoices):
         THUMBNAIL = "thumbnail", "Thumbnail"
-        CLIP = "clip", "Clip"
         # One frame per summary chapter, at the chapter's index in `position`.
         CHAPTER = "chapter", "Chapter"
 
@@ -25,14 +24,11 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
     kind = models.CharField(max_length=16, choices=Kind.choices)
     # No default: it is half of a unique constraint, so a silent 0 collides on the second row.
     position = models.PositiveSmallIntegerField()
-    description = models.TextField(null=True, blank=True)
 
     # Analysis-video time, for seeking the player the person is looking at.
     video_start_ms = models.PositiveIntegerField()
-    video_end_ms = models.PositiveIntegerField(null=True, blank=True)
     # Recording time, which is what the rasterizer was asked to render.
     rec_start_ms = models.PositiveIntegerField(null=True, blank=True)
-    rec_end_ms = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

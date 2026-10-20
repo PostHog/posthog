@@ -10,6 +10,9 @@ export function isDashboardFilterOverrideEmpty(filter: DashboardFilter | TileFil
             filter.breakdown_filter === undefined &&
             filter.interval === undefined &&
             filter.filterTestAccounts === undefined &&
+            filter.compareFilter === undefined &&
+            (filter as DashboardFilter).metricFilters === undefined &&
+            (filter as DashboardFilter).metricVariables === undefined &&
             !(filter as TileFilters).ignoreDashboardFilters)
     )
 }

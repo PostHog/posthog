@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
     REFRESH_TOKEN_REJECTED_MESSAGE,
+    TOKEN_ERROR_MESSAGES,
+    TOKEN_REFRESH_FAILED_PREFIX,
     ZohoCRMResumeConfig,
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
@@ -39,6 +42,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
+    codebase_detection = detect(
+        env=("^(ZOHO_CRM|ZOHOCRM)_",),
+        npm=("@zohocrm/nodejs-sdk-8.0", "@zohocrm/typescript-sdk-8.0", "@zohocrm/nodejs-sdk-2.0"),
+        pypi=("zohocrmsdk8-0", "zohocrmsdk2-1"),
+        composer=("zohocrm/php-sdk-8.0", "zohocrm/php-sdk"),
+        maven=(
+            "com.zoho.crm:zohocrmsdk-8-0",
+            "com.zoho.crm:zohocrmsdk-2-0",
+            "com.zoho.crm:zohocrmsdk-2-1",
+            "com.zoho.crm:zohocrmsdk-6-0",
+            "com.zoho.crm:zohocrmsdk-7-0",
+        ),
+        rubygems=(
+            "ZOHOCRMSDK8_0",
+            "ZOHOCRMSDK2_0",
+            "ZOHOCRMSDK2_1",
+            "ZOHOCRMSDK5_0",
+            "ZOHOCRMSDK6_0",
+            "ZOHOCRMSDK7_0",
+            "ZohoCRM_Client",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static module catalog — safe for public docs
     supported_versions = ("v8",)
     default_version = "v8"
@@ -50,7 +76,8 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Zoho CRM token refresh failed": REFRESH_TOKEN_REJECTED_MESSAGE,
+            **{f"{TOKEN_REFRESH_FAILED_PREFIX}: {code}": message for code, message in TOKEN_ERROR_MESSAGES.items()},
+            TOKEN_REFRESH_FAILED_PREFIX: REFRESH_TOKEN_REJECTED_MESSAGE,
             "400 Client Error: Bad Request for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             # Some responses carry no reason phrase (e.g. over HTTP/2, which has none), so
             # `requests.raise_for_status()` renders it blank instead of "Bad Request" — match that
@@ -71,7 +98,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Connect your Zoho CRM account to pull leads, contacts, deals, and your other modules into the PostHog Data warehouse.
 
-In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
+In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a code for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. That code is not a refresh token and expires within minutes. Exchange it for a refresh token by sending a POST request to `/oauth/v2/token` on your data center's Zoho accounts domain, with `grant_type=authorization_code`, your client ID, client secret, and the code. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
             iconPath="/static/services/zoho_crm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoho-crm",
             fields=cast(

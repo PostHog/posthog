@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ def _namespace_for_config(config: DockerhubSourceConfig) -> str:
 
 @SourceRegistry.register
 class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConfig]):
+    codebase_detection = detect(env=("^DOCKERHUB_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

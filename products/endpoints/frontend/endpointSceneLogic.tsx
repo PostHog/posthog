@@ -120,6 +120,7 @@ export enum EndpointTab {
     VERSIONS = 'versions',
     PLAYGROUND = 'playground',
     LOGS = 'logs',
+    LINEAGE = 'lineage',
     HISTORY = 'history',
 }
 

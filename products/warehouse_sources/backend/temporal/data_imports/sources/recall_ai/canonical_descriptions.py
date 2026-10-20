@@ -103,4 +103,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "bots": "Bots scheduled to record this event.",
         },
     },
+    "desktop_sdk_uploads": {
+        "description": "Uploads created for recordings captured with the Desktop Recording SDK. One row per upload, with its status and the recording it produced. Upload tokens are removed before rows reach the warehouse.",
+        "docs_url": "https://docs.recall.ai/reference/sdk_upload_list",
+        "columns": {
+            "id": "Unique identifier for the desktop SDK upload. Recordings reference it in desktop_sdk_upload.",
+            "status": "Current upload status: code (pending, recording_started, recording_ended, uploading, complete, failed), sub_code, and updated_at.",
+            "recording_id": "The recording produced by this upload, or null before a recording exists.",
+            "created_at": "When the upload was created.",
+            "metadata": "Arbitrary key-value metadata attached to the upload.",
+        },
+    },
+    "meeting_direct_connects": {
+        "description": "Meetings captured without a bot through Meeting Direct Connect (Zoom RTMS or the Google Meet Media API). One row per connection, with its status and the recordings it produced. Platform signatures and access tokens are removed before rows reach the warehouse.",
+        "docs_url": "https://docs.recall.ai/reference/meeting_direct_connect_list",
+        "columns": {
+            "id": "Unique identifier for the Meeting Direct Connect.",
+            "status": "Current connection status: code (pending, connecting, processing, complete, failed), sub_code, and updated_at.",
+            "zoom_rtms": "Zoom RTMS stream details (meeting UUID, stream ID, server URLs), or null for other platforms.",
+            "google_meet_media_api": "Google Meet Media API details (space name), or null for other platforms.",
+            "recording_config": "The recording configuration requested for this connection.",
+            "recordings": "Recordings produced by this connection, referencing rows in the recordings table.",
+            "metadata": "Arbitrary key-value metadata attached to the connection.",
+            "created_at": "When the Meeting Direct Connect was created.",
+        },
+    },
 }
