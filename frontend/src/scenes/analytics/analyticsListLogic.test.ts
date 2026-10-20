@@ -27,8 +27,10 @@ const entry = (type: string, ref: string, path: string): Record<string, unknown>
 
 describe('analyticsListLogic', () => {
     let capture: jest.SpyInstance
+    let lastViewedAt: string | null
 
     beforeEach(() => {
+        lastViewedAt = null
         resetAnalyticsFeedSnapshot()
         useMocks({
             get: {
@@ -49,7 +51,11 @@ describe('analyticsListLogic', () => {
                             : type === 'notebook'
                               ? [entry('notebook', 'n1', 'Users/Ada/N1')]
                               : []
-                    return { results, users: [ADA], next: null }
+                    return {
+                        results: results.map((item) => ({ ...item, last_viewed_at: lastViewedAt })),
+                        users: [ADA],
+                        next: null,
+                    }
                 },
             },
         })
@@ -92,6 +98,20 @@ describe('analyticsListLogic', () => {
         router.actions.push(urls.analyticsMine())
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.feedQuery.orderBy).toBe('last_viewed_at')
+    })
+
+    it('refreshes view times when URL filters restore a cached sorted list', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsList({ orderBy: '-last_viewed_at' }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.items[0].entry?.last_viewed_at).toBeNull()
+        router.actions.push(urls.analyticsList({ type: 'notebook' }))
+        await expectLogic(logic).toFinishAllListeners()
+        lastViewedAt = '2026-09-02T00:00:00Z'
+        router.actions.push(urls.analyticsList({ orderBy: '-last_viewed_at' }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.items[0].entry?.last_viewed_at).toBe(lastViewedAt)
     })
 
     it('reports a folder visit once, however it starts, and a space only when it changes', async () => {

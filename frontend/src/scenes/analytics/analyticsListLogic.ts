@@ -793,7 +793,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             setFiltersFromUrl: () => {
                 actions.setFeedSearch(values.filters.search)
-                loadCurrentMode()
+                actions.loadList()
             },
             clearFilters: () => {
                 actions.setFeedSearch('')

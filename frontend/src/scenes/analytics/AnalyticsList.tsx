@@ -233,7 +233,7 @@ function AnalyticsListContent(): JSX.Element {
                         stickyHeader
                         className={
                             mode === 'feed'
-                                ? 'w-full min-w-0 **:data-expand:max-w-0 @max-[64rem]/analytics:[&_tr>:nth-child(2)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(3)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(4)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(6)]:hidden'
+                                ? 'w-full min-w-0 **:data-expand:max-w-0 @max-[64rem]/analytics:[&_tr>:nth-child(2)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(3)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(4)]:hidden'
                                 : 'w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208'
                         }
                         empty={<Text size="sm">Nothing in this collection.</Text>}
