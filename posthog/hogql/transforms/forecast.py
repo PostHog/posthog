@@ -1,5 +1,6 @@
 import math
 import time
+import threading
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,7 +10,7 @@ from django.conf import settings
 import numpy as np
 
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.forecast import ForecastCall
+from posthog.hogql.functions.forecast import MAX_HORIZON, ForecastCall
 
 from posthog.ph_client import feature_enabled_or_false
 
@@ -31,9 +32,13 @@ P10, P50, P90 = 2, 10, 18
 # Threads one ONNX session may use for one operator. Web processes share the pod's cores, so a forecast
 # must not take every core.
 ONNX_INTRA_OP_THREADS = 2
-# Context points per ONNX run and per query. They bound the memory of one run and the CPU time of one query.
-BATCH_POINTS = 32768
-MAX_TOTAL_POINTS = 262144
+# Transformer positions per ONNX run and per query. A position costs about 0.35 ms of CPU on 2 threads, so a run
+# takes under a second and a query about 12 seconds at most.
+RUN_TOKENS = 2048
+QUERY_TOKENS = 32768
+TIME_LIMIT_MESSAGE = "forecast exceeded its time limit. Use fewer rows, shorter histories, or a shorter horizon."
+# The token cost below counts one block per forecast.
+assert MAX_HORIZON <= PATCH * BLOCK_PATCHES
 
 
 def validate_forecast_access(team: "Team") -> None:
@@ -100,18 +105,38 @@ class Forecaster:
     def __init__(self, session: "InferenceSession") -> None:
         self.session = session
 
-    def forecast(self, values: np.ndarray, horizon: int) -> np.ndarray:
+    def forecast(self, values: np.ndarray, horizon: int, deadline: float) -> np.ndarray:
         """(B, T) series, NaN for missing, to (B, horizon, 21) quantiles."""
         mask = np.isfinite(values)
         x = np.where(mask, values, 0.0).astype(np.float32)
         b = x.shape[0]
         # Average with the flipped forecast of -x. The mirrored rows run in the same batch.
-        raw = self._forecast_raw(np.concatenate([x, -x]), np.concatenate([mask, mask]), horizon)
+        raw = self._forecast_raw(np.concatenate([x, -x]), np.concatenate([mask, mask]), horizon, deadline)
         q = 0.5 * (raw[:b] - raw[b:, :, ::-1])
         nonnegative = mask.any(-1) & ((x >= 0) | ~mask).all(-1)
         return np.where(nonnegative[:, None, None], np.maximum(q, 0.0), q)
 
-    def _forecast_raw(self, x: np.ndarray, mask: np.ndarray, horizon: int) -> np.ndarray:
+    def _run(self, feed: dict[str, np.ndarray], deadline: float) -> list[np.ndarray]:
+        import onnxruntime  # noqa: PLC0415 — keeps onnxruntime's native runtime off the HogQL import path
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise QueryError(TIME_LIMIT_MESSAGE)
+        # onnxruntime stops a run when its terminate flag is set, so the run cannot outlast the deadline.
+        options = onnxruntime.RunOptions()
+        timer = threading.Timer(remaining, setattr, (options, "terminate", True))
+        timer.start()
+        try:
+            return self.session.run(None, feed, options)
+        # onnxruntime's errors share no base class below Exception.
+        except Exception as error:
+            if options.terminate:
+                raise QueryError(TIME_LIMIT_MESSAGE) from error
+            raise
+        finally:
+            timer.cancel()
+
+    def _forecast_raw(self, x: np.ndarray, mask: np.ndarray, horizon: int, deadline: float) -> np.ndarray:
         x, mask = _ffill(x, mask)[:, -MAX_CONTEXT:], mask[:, -MAX_CONTEXT:]
         pad = (-x.shape[-1]) % PATCH
         x, mask = np.pad(x, ((0, 0), (pad, 0))), np.pad(mask, ((0, 0), (pad, 0)))
@@ -121,7 +146,7 @@ class Forecaster:
         while remaining > 0:
             patches = min(BLOCK_PATCHES, remaining)
             feed = {"context": x, "mask": mask, "horizon": np.zeros(patches, np.float32)}
-            q, loc0, scale0 = self.session.run(None, feed)
+            q, loc0, scale0 = self._run(feed, deadline)
             blocks.append(_refine(q, x.astype(np.float64), mask, loc0, scale0))
             remaining -= patches
             # Later blocks read this block's median as context.
@@ -148,21 +173,28 @@ def _model() -> Forecaster:
 
     path = Path(settings.HOGQL_FORECAST_MODEL_PATH)
     if not path.exists():
-        raise QueryError("forecast is not set up on this server. Run bin/export_forecast_model.py to create the model.")
+        raise QueryError(
+            "forecast is not set up on this server. Run python bin/export_forecast_model.py to create the model."
+        )
     options = onnxruntime.SessionOptions()
     options.intra_op_num_threads = ONNX_INTRA_OP_THREADS
     options.inter_op_num_threads = 1
     return Forecaster(onnxruntime.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"]))
 
 
-def _batches(series: dict[int, list[float]]) -> list[list[int]]:
-    """Row indexes in batches of at most BATCH_POINTS context points.
+def _tokens(length: int, horizon: int) -> int:
+    """Transformer positions one row costs: its context and horizon patches, twice for the mirrored pass."""
+    return 2 * (math.ceil(length / PATCH) + math.ceil(horizon / PATCH))
+
+
+def _batches(series: dict[int, list[float]], horizon: int) -> list[list[int]]:
+    """Row indexes in batches of at most RUN_TOKENS positions.
 
     Rows are sorted by length, so each batch pads its shorter rows by little.
     """
     batches: list[list[int]] = []
     for i in sorted(series, key=lambda i: len(series[i])):
-        if not batches or (len(batches[-1]) + 1) * len(series[i]) > BATCH_POINTS:
+        if not batches or (len(batches[-1]) + 1) * _tokens(len(series[i]), horizon) > RUN_TOKENS:
             batches.append([])
         batches[-1].append(i)
     return batches
@@ -176,14 +208,10 @@ def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float)
         for i, value in enumerate(values)
         if isinstance(value, list | tuple) and len(value) >= 2
     }
-    if sum(len(s) for s in series.values()) > MAX_TOTAL_POINTS:
-        raise QueryError(
-            f"forecast reads at most {MAX_TOTAL_POINTS} values across all rows. Use fewer rows or shorter histories."
-        )
+    if sum(_tokens(len(s), spec.horizon) for s in series.values()) > QUERY_TOKENS:
+        raise QueryError("forecast exceeds its query budget. Use fewer rows, shorter histories, or a shorter horizon.")
     out: list[object] = [([], [], []) for _ in values]
-    for batch in _batches(series):
-        if time.monotonic() >= deadline:
-            raise QueryError("forecast exceeded its time limit. Use fewer rows or shorter histories.")
+    for batch in _batches(series, spec.horizon):
         # NaN is missing, so shorter series are padded on the left.
         width = len(series[batch[-1]])
         context = np.full((len(batch), width), np.nan)
@@ -192,7 +220,7 @@ def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float)
                 context[row, width - len(series[i]) :] = series[i]
         except (TypeError, ValueError) as error:
             raise QueryError("forecast values must be an array of numbers.") from error
-        bands = _model().forecast(context, spec.horizon)[..., [P10, P50, P90]]
+        bands = _model().forecast(context, spec.horizon, deadline)[..., [P10, P50, P90]]
         for row, i in enumerate(batch):
             out[i] = tuple(band.tolist() for band in bands[row].T)
     return out

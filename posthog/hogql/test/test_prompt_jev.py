@@ -1,7 +1,10 @@
 import re
 import json
+import math
 import time
 import asyncio
+import threading
+from collections.abc import Callable
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
@@ -18,6 +21,7 @@ from posthog.hogql.functions.forecast import ForecastCall
 from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.transforms.forecast import Forecaster
 from posthog.hogql.transforms.prompt_jev import PromptJevBudget, PromptJevRunner
 
 from posthog.clickhouse.client import sync_execute
@@ -181,41 +185,68 @@ class TestPromptJev(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("scalar_input", [123], 60, "array of numbers"),
-            ("too_many_points", [[1.0] * 8192] * 33, 60, "at most 262144 values"),
-            ("expired_deadline", [[1.0, 2.0]], -1, "time limit"),
+            ("scalar_input", [123], 2, "array of numbers"),
+            ("long_histories", [[1.0] * 8192] * 64, 2, "query budget"),
+            ("long_horizon", [[1.0, 2.0]] * 1000, 1024, "query budget"),
         ]
     )
     def test_forecast_rejects_before_inference(
-        self, _name: str, values: list[object], seconds_left: int, message: str
+        self, _name: str, values: list[object], horizon: int, message: str
     ) -> None:
-        node = parse_expr("forecast(v, 2)")
+        node = parse_expr(f"forecast(v, {horizon})")
         assert isinstance(node, ast.Call)
-        runner = PromptJevRunner(team_id=1, distinct_id=None)
-        runner.deadline = time.monotonic() + seconds_left
         with (
             patch("posthog.hogql.transforms.forecast._model") as model,
             self.assertRaisesRegex(QueryError, message),
         ):
-            runner.evaluate(ForecastCall.parse(node), values)
+            PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
         model.return_value.forecast.assert_not_called()
 
     def test_forecast_batches_keep_each_row_with_its_own_result(self) -> None:
-        node = parse_expr("forecast(v, 1)")
+        node = parse_expr("forecast(v, 64)")
         assert isinstance(node, ast.Call)
-        batch_points: list[int] = []
+        run_tokens: list[int] = []
 
-        def last_value(context: np.ndarray, horizon: int) -> np.ndarray:
-            batch_points.append(context.size)
-            return np.repeat(context[:, -1:, None], 21, axis=2)
+        def last_value(context: np.ndarray, horizon: int, deadline: float) -> np.ndarray:
+            run_tokens.append(2 * context.shape[0] * (math.ceil(context.shape[1] / 32) + math.ceil(horizon / 32)))
+            return np.repeat(context[:, -1:, None], 21, axis=2).repeat(horizon, axis=1)
 
         values: list[object] = [[0.0] * (100 * (i % 7 + 1)) + [float(i)] for i in range(300)] + [None, [5.0]]
         with patch("posthog.hogql.transforms.forecast._model") as model:
             model.return_value.forecast.side_effect = last_value
             results = PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
-        self.assertEqual(results, [([float(i)], [float(i)], [float(i)]) for i in range(300)] + [([], [], [])] * 2)
-        self.assertGreater(len(batch_points), 1)
-        self.assertLessEqual(max(batch_points), 32768)
+        self.assertEqual(results, [([float(i)] * 64,) * 3 for i in range(300)] + [([], [], [])] * 2)
+        self.assertGreater(len(run_tokens), 1)
+        self.assertLessEqual(max(run_tokens), 2048)
+
+    @parameterized.expand([("expired_before_the_run", -1), ("expires_during_the_run", 60)])
+    def test_forecast_stops_at_the_deadline(self, _name: str, seconds_left: int) -> None:
+        session = MagicMock()
+
+        def run(_names: None, feed: dict, options: object) -> list[np.ndarray]:
+            if getattr(options, "terminate", False):
+                raise RuntimeError("Exiting due to terminate flag being set to true.")
+            rows, width = feed["context"].shape
+            return [np.zeros((rows, 32, 21), np.float32), np.zeros(rows, np.float32), np.ones(rows, np.float32)]
+
+        class FiringTimer:
+            def __init__(self, _interval: float, function: Callable[..., object], args: tuple) -> None:
+                self.fire = lambda: function(*args)
+
+            def start(self) -> None:
+                self.fire()
+
+            def cancel(self) -> None:
+                pass
+
+        session.run.side_effect = run
+        timer = FiringTimer if seconds_left > 0 else threading.Timer
+        with (
+            patch("posthog.hogql.transforms.forecast.threading.Timer", timer),
+            self.assertRaisesRegex(QueryError, "time limit"),
+        ):
+            Forecaster(session).forecast(np.ones((1, 40)), 1, time.monotonic() + seconds_left)
+        self.assertEqual(session.run.call_count, 1 if seconds_left > 0 else 0)
 
 
 @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
