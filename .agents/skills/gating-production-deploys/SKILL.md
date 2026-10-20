@@ -76,3 +76,10 @@ read [Ordered image releases](references/ordered-image-releases.md). Reuse the
 repository helper and canonical policy. The foundation supports the common
 alias and policy helpers. Channels must stay empty; selective worker publication
 is not implemented. Services built elsewhere retain their existing publisher family.
+
+The publisher validates source policy and approved publication destinations.
+For new-service onboarding or an existing-service migration, hand the consumer's
+source identity, policy and destination coordinates to the Charts migration
+helper. The helper checks owner, lane, image group, repositories, regional
+replicas and inherited Git filters against the resolved Charts consumer.
+Obtain that check before treating the consumer setup as ready.

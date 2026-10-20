@@ -2,9 +2,9 @@ import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
 import {
-  CANONICAL_SOURCE_REPOSITORY, ChangeStatus, ConsumerBinding, DestinationBinding, Filter, Paths,
+  CANONICAL_SOURCE_REPOSITORY, ChangeStatus, DestinationBinding, Filter, Paths,
   bindChannels, loadPolicy, policyDigest, projectLegacyFilters,
-  serializePolicy, validateConsumerBinding
+  serializePolicy
 } from '../src/shared-image'
 
 const destination: DestinationBinding = {
@@ -23,13 +23,6 @@ const policyWith = (entries: unknown): string => {
   const policy = yaml.load(fixture) as {filters: {dataWarehouseMetadata: unknown}}
   policy.filters.dataWarehouseMetadata = entries
   return yaml.dump(policy)
-}
-
-const consumer: ConsumerBinding = {
-  owner: 'metadata', implementation: 'ordered-image-v2', sourceRepository: CANONICAL_SOURCE_REPOSITORY,
-  sourceImage: `${source.registry}/${source.repository}`,
-  logicalImageGroups: 1, repositories: [destination.registry, ...destination.replicas].map(registry => `${registry}/${destination.repository}`),
-  inheritedGitFilters: []
 }
 
 describe('shared-image policy and legacy projection', () => {
@@ -197,25 +190,11 @@ describe('shared-image policy and legacy projection', () => {
     expect(policyDigest(policy.filters.metadataAlias)).toBe(policyDigest(policy.filters.dataWarehouseMetadata))
   })
 
-  test.each([
-    {implementation: 'service-repo-v1'}, {implementation: 'helm-release-v1'}, {implementation: 'legacy'},
-    {logicalImageGroups: 2}, {owner: 'other'}, {sourceRepository: 'unrelated/source'}, {sourceImage: 'unapproved/image'},
-    {repositories: [`${destination.registry}/${destination.repository}`]},
-    {inheritedGitFilters: ['apps/base/service.yaml:source.includePaths']}
-  ])('rejects unsupported consumer binding %j', change => {
-    expect(() => validateConsumerBinding({...consumer, ...change}, source, destination)).toThrow()
-  })
-
-  test('one logical owner with all approved regional replicas passes', () => {
+  test('resolves the approved destination among other repositories', () => {
     const destinations = [{...destination, repository: 'other/image'}, destination]
     expect(bindChannels(loadPolicy(fixture), {'posthog-cloud': {...source, destinations}})).toEqual({
       'posthog-cloud': {'dw-metadata': destination}
     })
-    expect(() => validateConsumerBinding(consumer, source, {...destination, replicas: [...destination.replicas]})).not.toThrow()
-    expect(() => validateConsumerBinding(consumer, {...source, destinations: []}, destination)).toThrow('metadata.destination: unsupported source/consumer binding')
-    const expanded = {...destination, replicas: [...destination.replicas, '123456789012.dkr.ecr.ap-southeast-1.amazonaws.com']}
-    const repositories = [expanded.registry, ...expanded.replicas].map(registry => `${registry}/${expanded.repository}`)
-    expect(() => validateConsumerBinding({...consumer, repositories}, source, expanded)).toThrow('metadata.destination: unsupported source/consumer binding')
   })
 
   test('rejects conflicting independent owners in approved destination configuration', () => {

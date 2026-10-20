@@ -198,36 +198,3 @@ export function serializePolicy(entries: Paths): string {
 export function policyDigest(entries: Paths): string {
   return createHash('sha256').update(serializePolicy(entries), 'utf8').digest('hex')
 }
-
-export interface ConsumerBinding {
-  owner: string
-  implementation: string
-  sourceRepository: string
-  sourceImage: string
-  logicalImageGroups: number
-  repositories: readonly string[]
-  inheritedGitFilters: readonly string[]
-}
-
-export function validateConsumerBinding(consumer: ConsumerBinding, source: ImageBinding, destination: DestinationBinding): void {
-  const expected = [destination.registry, ...destination.replicas].map(registry => `${registry}/${destination.repository}`).sort()
-  const checks: [string, boolean][] = [
-    ['sourceRepository', source.sourceRepository === CANONICAL_SOURCE_REPOSITORY && consumer.sourceRepository === source.sourceRepository],
-    ['implementation', consumer.implementation === 'ordered-image-v2'],
-    ['logicalImageGroups', consumer.logicalImageGroups === 1],
-    ['owner', consumer.owner === destination.owner],
-    ['sourceImage', consumer.sourceImage === `${source.registry}/${source.repository}`],
-    ['destination', source.destinations.some(approved =>
-      approved.owner === destination.owner && approved.registry === destination.registry &&
-      approved.repository === destination.repository &&
-      JSON.stringify([...approved.replicas].sort()) === JSON.stringify([...destination.replicas].sort())
-    )],
-    ['repositories', JSON.stringify([...consumer.repositories].sort()) === JSON.stringify(expected)]
-  ]
-  for (const [field, valid] of checks) {
-    if (!valid) throw new Error(`${consumer.owner}.${field}: unsupported source/consumer binding`)
-  }
-  if (consumer.inheritedGitFilters.length) {
-    throw new Error(`${consumer.owner}: conflicting inherited Git filters: ${consumer.inheritedGitFilters.join(', ')}`)
-  }
-}
