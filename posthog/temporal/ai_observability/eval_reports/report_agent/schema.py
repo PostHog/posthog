@@ -19,7 +19,7 @@ from typing import Literal, overload
 
 from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET, resolve_evaluation_target
 
-from products.ai_observability.backend.logic.evaluations.outcomes import get_outcome_definition
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 # Hard cap on the number of agent-chosen sections. Prevents section sprawl and
 # keeps reports scannable. The agent is also instructed to lean lean — quality

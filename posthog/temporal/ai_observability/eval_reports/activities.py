@@ -55,8 +55,8 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.logic.evaluations.outcomes import get_outcome_definition
 from products.ai_observability.backend.models.evaluation_configs import evaluation_supports_reports
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 if TYPE_CHECKING:
     from posthog.models import Team

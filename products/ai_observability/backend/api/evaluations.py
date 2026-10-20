@@ -41,7 +41,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.ai_observability.backend.logic.evaluations.outcomes import get_outcome_definition
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog

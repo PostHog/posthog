@@ -54,7 +54,7 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
 )
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
 
-from products.ai_observability.backend.logic.evaluations.outcomes import (
+from products.ai_observability.backend.models.evaluation_outcomes import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
 )

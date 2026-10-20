@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.evaluations.outcomes import (
+from products.ai_observability.backend.models.evaluation_outcomes import (
     SUPPORTED_EVAL_REPORT_OUTPUT_TYPES,
     get_outcome_definition,
 )

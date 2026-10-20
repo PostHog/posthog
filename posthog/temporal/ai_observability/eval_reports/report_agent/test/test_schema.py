@@ -14,8 +14,8 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     ReportSection,
 )
 
-from products.ai_observability.backend.logic.evaluations.outcomes import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 from products.ai_observability.backend.models.evaluation_configs import REPORTABLE_OUTPUT_TYPES
+from products.ai_observability.backend.models.evaluation_outcomes import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 
 
 class TestOutputTypeRegistry(SimpleTestCase):
