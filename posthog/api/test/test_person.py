@@ -2421,23 +2421,33 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("mark_held_by_another_operation", grpc.StatusCode.FAILED_PRECONDITION),
-            ("row_lock_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED),
+            ("mark_held_by_another_operation", grpc.StatusCode.FAILED_PRECONDITION, (), 409),
+            ("row_lock_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "lock_timeout"),), 409),
+            ("statement_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "statement_timeout"),), 503),
+            ("personhog_deadline", grpc.StatusCode.DEADLINE_EXCEEDED, (), 503),
+            ("personhog_unavailable", grpc.StatusCode.UNAVAILABLE, (), 503),
         ]
     )
-    def test_reset_person_distinct_id_asks_for_a_retry_when_the_person_is_busy(
-        self, _name: str, code: grpc.StatusCode
+    def test_reset_person_distinct_id_asks_for_a_retry_on_a_busy_person_or_an_unavailable_service(
+        self, _name: str, code: grpc.StatusCode, trailing: tuple[tuple[str, str], ...], status: int
     ) -> None:
-        busy = grpc.RpcError()
-        busy.code = mock.MagicMock(return_value=code)
+        failure = grpc.RpcError()
+        failure.code = mock.MagicMock(return_value=code)
+        failure.trailing_metadata = mock.MagicMock(return_value=trailing)
 
-        with mock.patch("posthog.api.person.repair_distinct_id", side_effect=busy):
+        with mock.patch("posthog.api.person.repair_distinct_id", side_effect=failure):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "busy"}
             )
 
-        assert response.status_code == 409
-        assert response.json()["detail"] == "This person is being updated right now. Try again in a few seconds."
+        assert response.status_code == status
+        assert (
+            response.json()["detail"]
+            == {
+                409: "This person is being updated right now. Try again in a few seconds.",
+                503: "Person data is temporarily unavailable. Try again in a minute.",
+            }[status]
+        )
 
     @mock.patch(
         f"{posthog.models.person.divergence.repairs.__name__}.create_person_distinct_id",
