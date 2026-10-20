@@ -25,6 +25,12 @@ export function CohortConditionLink({ property }: { property: CohortPropertyFilt
     if (property.cohort_deleted) {
         // A missing cohort has no page to open. A soft-deleted cohort's page has a restore action.
         const restorable = cohortCanBeRestored(property)
+        const name = cohortFilterName(property)
+        const explanation = `This cohort was deleted, so the flag can't evaluate this condition. ${
+            restorable
+                ? 'Restore the cohort, choose another cohort, or remove the condition.'
+                : 'Choose another cohort or remove the condition.'
+        }`
         return (
             <LemonButton
                 type="secondary"
@@ -32,14 +38,13 @@ export function CohortConditionLink({ property }: { property: CohortPropertyFilt
                 size="xsmall"
                 to={restorable ? urls.cohort(property.value) : undefined}
                 icon={<IconWarning />}
-                tooltip={`This cohort was deleted, so the flag can't evaluate this condition. ${
-                    restorable
-                        ? 'Restore the cohort, choose another cohort, or remove the condition.'
-                        : 'Choose another cohort or remove the condition.'
-                }`}
+                tooltip={explanation}
+                // Without a `to`, LemonButton renders a plain button and uses a string tooltip as its whole
+                // accessible name. The label leads with the cohort name so screen readers still announce it.
+                aria-label={restorable ? undefined : `${name}. ${explanation}`}
                 sideIcon={restorable ? <IconOpenInNew /> : undefined}
             >
-                {cohortFilterName(property)}
+                {name}
             </LemonButton>
         )
     }
