@@ -1,4 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -72,6 +74,23 @@ describe('emailDomainLogic', () => {
         await mountAndLoad()
         await jest.advanceTimersByTimeAsync(31 * 60_000)
         expect(logic.values.verificationSteps.map((step) => step.state)).toEqual(states)
+    })
+
+    it.each<[string, boolean, EmailDomainSetupRecordKindEnumApi[], number]>([
+        ['the settings phase', true, [], 0],
+        ['the wait for DNS phase', true, ['dkim'], 1],
+        ['the wait for DNS phase with suggestions off', false, ['dkim'], 0],
+    ])('preloads workflow suggestions from %s and loads them once', async (_, suggestionsOn, kinds, loads) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS]: suggestionsOn })
+        backend.preexistingRecords(DOMAIN, kinds)
+        await mountAndLoad()
+        expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(loads)
+
+        backend.verifyDomain(DOMAIN)
+        await jest.advanceTimersByTimeAsync(10_000)
+        expect(logic.values.phase).toBe('ready')
+        expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(suggestionsOn ? 1 : 0)
     })
 
     it('reloads only what failed when the person tries again', async () => {

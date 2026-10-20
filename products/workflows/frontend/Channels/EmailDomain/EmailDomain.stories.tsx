@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
+import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeDnsHost, FakeEmailDomainBackend, FakeRecord } from './__mocks__/fakeEmailDomainBackend'
 import { emailDomainAgentLogic } from './emailDomainAgentLogic'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
@@ -13,6 +14,39 @@ import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 const DOMAIN = 'mail.acme.com'
 const EMAIL = `hello@${DOMAIN}`
+
+const SUGGESTED_WORKFLOWS: DataSuggestionApi[] = [
+    {
+        id: 'suggestion-welcome',
+        name: 'Welcome new teammates',
+        description: 'Email a new teammate a getting started guide after they join a workspace.',
+        reason: 'teammate_joined fires every day.',
+        trigger_event: 'teammate_joined',
+        weekly_count: 1_840,
+        stage: 'onboarding',
+        step_outline: ['email', 'delay', 'email'],
+    },
+    {
+        id: 'suggestion-trial',
+        name: 'Nudge trials before they end',
+        description: 'Remind a workspace on a trial three days before it ends, and again on the last day.',
+        reason: 'trial_started fires every week.',
+        trigger_event: 'trial_started',
+        weekly_count: 320,
+        stage: 'trial',
+        step_outline: ['delay', 'email', 'delay', 'email'],
+    },
+    {
+        id: 'suggestion-inactive',
+        name: 'Win back quiet workspaces',
+        description: 'Email the owner of a workspace that has not created a board in 14 days.',
+        reason: 'board_created drops off for some workspaces.',
+        trigger_event: 'board_created',
+        weekly_count: 9_600,
+        stage: 'churn_risk',
+        step_outline: ['wait_until', 'branch', 'email'],
+    },
+]
 
 const halfPublished = (record: FakeRecord, index: number): boolean =>
     ['verification', 'spf'].includes(record.kind) || (record.kind === 'dkim' && index < 3)
@@ -166,6 +200,19 @@ export const VerifyingFailed: Story = {
 }
 
 export const Ready: Story = { args: { host: 'cloudflare', seed: (backend) => backend.verifyDomain(DOMAIN) } }
+
+export const ReadyWithSuggestions: Story = {
+    args: {
+        host: 'cloudflare',
+        seed: (backend) => {
+            backend.verifyDomain(DOMAIN)
+            backend.suggestWorkflows(SUGGESTED_WORKFLOWS)
+        },
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+    },
+}
 
 export const Unavailable: Story = { render: () => <UnavailableDomainPage /> }
 

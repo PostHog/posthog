@@ -42,7 +42,7 @@ const POLL_REQUEST_TIMEOUT_MS = 10_000
 const BUILD_FAILED_MESSAGE = "We couldn't build this workflow. Try again, or start from a template."
 
 // pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
-export type WorkflowDataSuggestionsSurface = 'empty_state' | 'onboarding_wizard'
+export type WorkflowDataSuggestionsSurface = 'empty_state' | 'onboarding_wizard' | 'email_domain_wizard'
 
 export interface WorkflowDataSuggestionsLogicProps {
     surface: WorkflowDataSuggestionsSurface
