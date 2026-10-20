@@ -154,3 +154,34 @@ jobs:
               run: |
                   echo "::error::A Backend CI lane could not be read from Depot CI"
                   exit 1
+
+    check-image-builds:
+        if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            actions: read
+            contents: read
+        env:
+            # Image workflows that deploy from master pushes. Each keys its push concurrency per SHA,
+            # so a cancelled master run means a regression in that key or a manual cancel.
+            IMAGE_BUILD_WORKFLOWS: 'ci-nodejs-container.yml,container-images-cd.yml,ci-recording-rasterizer-container.yml,rust-docker-build.yml,ci-ml-mirror-image-scrub-container.yml'
+            CANCELLED_BUILD_THRESHOLD: '3'
+            CANCELLED_BUILD_LOOKBACK_MINUTES: '120'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/ci-alerts-devex.js
+                      .github/scripts/image-build-cancellations.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Reconcile cancelled image builds with Slack
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+              with:
+                  script: |
+                      const script = require('./.github/scripts/image-build-cancellations.js')
+                      await script({ github, context })

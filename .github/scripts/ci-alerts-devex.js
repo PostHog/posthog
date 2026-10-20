@@ -747,3 +747,4 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
 module.exports.formatDuration = formatDuration
 module.exports.fetchWorkflowRuns = fetchWorkflowRuns
+module.exports.defaultSlackClient = defaultSlackClient
