@@ -325,6 +325,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -1948,6 +1949,7 @@ export const DataColorTokenApi = {
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
+    customColor?: string | null
     hidden?: boolean | null
 }
 
@@ -3971,6 +3973,8 @@ export interface HogQLMetadataResponseApi {
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5870,6 +5874,8 @@ export interface HogQLFiltersApi {
 export interface HogQLQueryResponseApi {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -8073,6 +8079,13 @@ export interface ScatterChartSettingsApi {
     xStartAtZero?: boolean | null
 }
 
+export type ValueLabelPositionApi = (typeof ValueLabelPositionApi)[keyof typeof ValueLabelPositionApi]
+
+export const ValueLabelPositionApi = {
+    End: 'end',
+    Center: 'center',
+} as const
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -8129,6 +8142,7 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
@@ -8155,8 +8169,14 @@ export interface ChartSettingsApi {
     showYAxisBorder?: boolean | null
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
+    valueLabelBackground?: boolean | null
+    valueLabelFontSize?: number | null
+    valueLabelPosition?: ValueLabelPositionApi | null
+    valueLabelRotation?: number | null
     xAxis?: ChartAxisApi | null
+    xAxisDateFormat?: string | null
     xAxisLabel?: string | null
+    xAxisTickRotation?: number | null
     yAxis?: ChartAxisApi[] | null
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean | null
@@ -8705,6 +8725,41 @@ export interface MetricsQueryFilterApi {
     value: string
 }
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
@@ -8718,6 +8773,8 @@ export interface DashboardFilterApi {
     interval?: IntervalTypeApi | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariableApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -9147,6 +9204,7 @@ export const InsightDataChecksStatusEnumApi = {
 } as const
 
 /**
+ * * `internal_users` - Internal and test users
  * * `local_development` - Local development events
  * * `bot_traffic` - Bot and crawler traffic
  * * `duplicate_events` - Events sent twice
@@ -9154,6 +9212,7 @@ export const InsightDataChecksStatusEnumApi = {
 export type InsightDataCheckKeyEnumApi = (typeof InsightDataCheckKeyEnumApi)[keyof typeof InsightDataCheckKeyEnumApi]
 
 export const InsightDataCheckKeyEnumApi = {
+    InternalUsers: 'internal_users',
     LocalDevelopment: 'local_development',
     BotTraffic: 'bot_traffic',
     DuplicateEvents: 'duplicate_events',
@@ -9182,6 +9241,8 @@ export const InsightDataCheckLevelEnumApi = {
  * * `memory_limit` - The check needed more memory than it is allowed
  * * `too_few_sampled_events` - The sample has too few events to give a share
  * * `filtered_by_traffic_type` - The insight already filters on traffic type
+ * * `hidden_property` - A property the check reads is hidden from you
+ * * `invalid_filter` - The project's internal and test users filter cannot run
  */
 export type InsightDataCheckSkipReasonEnumApi =
     (typeof InsightDataCheckSkipReasonEnumApi)[keyof typeof InsightDataCheckSkipReasonEnumApi]
@@ -9193,6 +9254,8 @@ export const InsightDataCheckSkipReasonEnumApi = {
     MemoryLimit: 'memory_limit',
     TooFewSampledEvents: 'too_few_sampled_events',
     FilteredByTrafficType: 'filtered_by_traffic_type',
+    HiddenProperty: 'hidden_property',
+    InvalidFilter: 'invalid_filter',
 } as const
 
 /**
@@ -9208,18 +9271,21 @@ export const InsightDataCheckMethodEnumApi = {
 } as const
 
 /**
+ * * `filter_internal_users` - Turn on the internal and test users filter for the insight
  * * `open_filter_settings` - Change the project's internal and test users filter
  */
 export type InsightDataCheckActionEnumApi =
     (typeof InsightDataCheckActionEnumApi)[keyof typeof InsightDataCheckActionEnumApi]
 
 export const InsightDataCheckActionEnumApi = {
+    FilterInternalUsers: 'filter_internal_users',
     OpenFilterSettings: 'open_filter_settings',
 } as const
 
 export interface InsightDataCheckApi {
     /** Which check this is.
      *
+     * * `internal_users` - Internal and test users
      * * `local_development` - Local development events
      * * `bot_traffic` - Bot and crawler traffic
      * * `duplicate_events` - Events sent twice */
@@ -9238,7 +9304,9 @@ export interface InsightDataCheckApi {
      * * `time_limit` - The check took longer than it is allowed
      * * `memory_limit` - The check needed more memory than it is allowed
      * * `too_few_sampled_events` - The sample has too few events to give a share
-     * * `filtered_by_traffic_type` - The insight already filters on traffic type */
+     * * `filtered_by_traffic_type` - The insight already filters on traffic type
+     * * `hidden_property` - A property the check reads is hidden from you
+     * * `invalid_filter` - The project's internal and test users filter cannot run */
     skip_reason: InsightDataCheckSkipReasonEnumApi | null
     /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
      *
@@ -9257,8 +9325,9 @@ export interface InsightDataCheckApi {
     share: number | null
     /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
     scaled: boolean
-    /** The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+    /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
      *
+     * * `filter_internal_users` - Turn on the internal and test users filter for the insight
      * * `open_filter_settings` - Change the project's internal and test users filter */
     action: InsightDataCheckActionEnumApi | null
     /** The event names the check found most often, most affected first. */
@@ -9294,7 +9363,7 @@ export interface InsightDataChecksCoverageApi {
     /** True when the insight filters out the project's internal and test users. */
     filters_test_accounts: boolean
     /**
-     * How many events the insight reads on the days checked, scaled up from the sample when the sample did not read every event. Null when the sample did not run.
+     * How many events the insight reads on the days checked. Counted exactly, or scaled up from the sample when the days hold too many events to count. Null when neither ran.
      * @nullable
      */
     events_checked: number | null
@@ -9427,6 +9496,11 @@ export interface BulkUpdateTagsResponseApi {
 export interface InsightDataChecksRequestApi {
     /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
     query: _InsightQuerySchemaApi
+    /**
+     * An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to `query/{client_query_id}/`.
+     * @maxLength 128
+     */
+    client_query_id?: string
 }
 
 /**

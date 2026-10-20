@@ -8,6 +8,7 @@ import { LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -54,6 +55,7 @@ import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
+import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 
@@ -523,6 +525,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const debouncedQueryInput = useDebouncedValue(queryInput, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedSourceQuery = useDebouncedValue(sourceQuery, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
@@ -647,34 +650,46 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
-    const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
+    const { editingViewDisabledReason, editingViewLoading } = useMemo((): {
+        editingViewDisabledReason: string | undefined
+        editingViewLoading: boolean
+    } => {
         if (updatingDataWarehouseSavedQuery) {
-            return ['Saving...', Spinner]
+            return { editingViewDisabledReason: 'Saving...', editingViewLoading: true }
         }
 
         if (isMultiQuery) {
-            return ['Views must be a single query — remove extra statements to update', IconDownload]
+            return {
+                editingViewDisabledReason: 'Views must be a single query — remove extra statements to update',
+                editingViewLoading: false,
+            }
         }
 
         if (!changesToSave) {
-            return ['No changes to save', IconDownload]
+            return { editingViewDisabledReason: 'No changes to save', editingViewLoading: false }
         }
 
         // Require the current (edited) query to have been run successfully before updating — a stale
         // response from a previous run must not enable the button after further edits.
         if (!isSourceQueryLastRun) {
-            return ['Run the latest query before updating the view', IconDownload]
+            return {
+                editingViewDisabledReason: 'Run the latest query before updating the view',
+                editingViewLoading: false,
+            }
         }
 
         if (responseLoading) {
-            return ['Running query...', Spinner]
+            return { editingViewDisabledReason: 'Running query...', editingViewLoading: true }
         }
 
         if (responseError || !response) {
-            return ['Run the query successfully before updating the view', IconDownload]
+            return {
+                editingViewDisabledReason: 'Run the query successfully before updating the view',
+                editingViewLoading: false,
+            }
         }
 
-        return [undefined, IconDownload]
+        return { editingViewDisabledReason: undefined, editingViewLoading: false }
     }, [
         updatingDataWarehouseSavedQuery,
         changesToSave,
@@ -684,6 +699,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         response,
         isMultiQuery,
     ])
+    const EditingViewButtonIcon = editingViewLoading ? Spinner : IconDownload
 
     const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
@@ -776,116 +792,76 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                     },
                 }}
                 actions={
-                    <div className="flex flex-wrap items-center gap-2">
-                        {editingView ? (
-                            <>
-                                <LemonButton
-                                    onClick={() => openHistoryModal()}
-                                    icon={<IconBook />}
-                                    type="secondary"
-                                    size="small"
-                                >
-                                    History
-                                </LemonButton>
-                                {discardChangesButton}
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.WarehouseObjects}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={editingView.user_access_level}
-                                >
+                    todayRailNav ? (
+                        <QuillSQLEditorSceneActions
+                            isMaterializedView={isMaterializedView}
+                            closeObjectTooltip={closeObjectTooltip}
+                            editingViewDisabledReason={editingViewDisabledReason}
+                            editingViewLoading={editingViewLoading}
+                            onUpdateView={() =>
+                                editingView &&
+                                reviewViewUpdate({
+                                    id: editingView.id,
+                                    query: {
+                                        ...sourceQuery.source,
+                                        query: queryInput ?? '',
+                                    },
+                                    types: response && 'types' in response ? (response?.types ?? []) : [],
+                                    shouldRematerialize: isMaterializedView,
+                                    edited_history_id: inProgressViewEdits[editingView.id],
+                                })
+                            }
+                            saveAsInsightDisabledReason={saveAsInsightDisabledReason}
+                            saveAsDisabledReason={saveAsDisabledReason}
+                            saveAsViewAccessDisabledReason={saveAsViewAccessDisabledReason}
+                            saveAsEndpointDisabledReason={saveAsEndpointDisabledReason}
+                            continueInNotebookAccessDisabledReason={continueInNotebookAccessDisabledReason}
+                            secondarySaveMenuItems={secondarySaveMenuItems}
+                            onPrimarySaveClick={onPrimarySaveClick}
+                        />
+                    ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {editingView ? (
+                                <>
                                     <LemonButton
-                                        onClick={() =>
-                                            reviewViewUpdate({
-                                                id: editingView.id,
-                                                query: {
-                                                    ...sourceQuery.source,
-                                                    query: queryInput ?? '',
-                                                },
-                                                types: response && 'types' in response ? (response?.types ?? []) : [],
-                                                shouldRematerialize: isMaterializedView,
-                                                edited_history_id: inProgressViewEdits[editingView.id],
-                                            })
-                                        }
-                                        disabledReason={editingViewDisabledReason}
-                                        icon={<EditingViewButtonIcon />}
-                                        type="primary"
+                                        onClick={() => openHistoryModal()}
+                                        icon={<IconBook />}
+                                        type="secondary"
                                         size="small"
-                                        sideAction={{
-                                            icon: <IconChevronDown />,
-                                            dropdown: {
-                                                placement: 'bottom-end',
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={[
-                                                            continueInNotebookMenuItem,
-                                                            {
-                                                                label: 'Save as new insight...',
-                                                                disabledReason: saveAsInsightDisabledReason,
-                                                                onClick: () => saveAsInsight(),
-                                                            },
-                                                            {
-                                                                label: 'Save as new view...',
-                                                                disabledReason:
-                                                                    saveAsDisabledReason ??
-                                                                    saveAsViewAccessDisabledReason,
-                                                                onClick: () => saveAsView(),
-                                                            },
-                                                            {
-                                                                label: 'Save as endpoint...',
-                                                                disabledReason:
-                                                                    saveAsDisabledReason ??
-                                                                    saveAsEndpointDisabledReason,
-                                                                onClick: () => saveAsEndpoint(),
-                                                            },
-                                                        ]}
-                                                    />
-                                                ),
-                                            },
-                                        }}
                                     >
-                                        {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                        History
                                     </LemonButton>
-                                </AccessControlAction>
-                                <LemonButton
-                                    onClick={() => closeEditingObject()}
-                                    icon={<IconX />}
-                                    type="tertiary"
-                                    size="small"
-                                    aria-label="close"
-                                    tooltip={closeObjectTooltip}
-                                />
-                            </>
-                        ) : editingInsight ? (
-                            <>
-                                <LemonButton
-                                    onClick={() => openHistoryModal()}
-                                    icon={<IconBook />}
-                                    type="secondary"
-                                    size="small"
-                                    data-attr="sql-editor-insight-history-button"
-                                >
-                                    History
-                                </LemonButton>
-                                {discardChangesButton}
-                                <LemonButton
-                                    disabledReason={
-                                        saveAsInsightDisabledReason ??
-                                        (!updateInsightButtonEnabled ? 'No updates to save' : undefined)
-                                    }
-                                    loading={insightLoading}
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => updateInsight()}
-                                    sideAction={{
-                                        icon: <IconChevronDown />,
-                                        'data-attr': 'sql-editor-save-options-button',
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={[
-                                                        {
-                                                            items: [
+                                    {discardChangesButton}
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.WarehouseObjects}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={editingView.user_access_level}
+                                    >
+                                        <LemonButton
+                                            onClick={() =>
+                                                reviewViewUpdate({
+                                                    id: editingView.id,
+                                                    query: {
+                                                        ...sourceQuery.source,
+                                                        query: queryInput ?? '',
+                                                    },
+                                                    types:
+                                                        response && 'types' in response ? (response?.types ?? []) : [],
+                                                    shouldRematerialize: isMaterializedView,
+                                                    edited_history_id: inProgressViewEdits[editingView.id],
+                                                })
+                                            }
+                                            disabledReason={editingViewDisabledReason}
+                                            icon={<EditingViewButtonIcon />}
+                                            type="primary"
+                                            size="small"
+                                            sideAction={{
+                                                icon: <IconChevronDown />,
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <LemonMenuOverlay
+                                                            items={[
                                                                 continueInNotebookMenuItem,
                                                                 {
                                                                     label: 'Save as new insight...',
@@ -906,106 +882,178 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                         saveAsEndpointDisabledReason,
                                                                     onClick: () => saveAsEndpoint(),
                                                                 },
-                                                            ],
-                                                        },
-                                                        {
-                                                            items: [
-                                                                {
-                                                                    label: 'Reset view',
-                                                                    'data-attr': 'sql-editor-reset-view',
-                                                                    tooltip: closeObjectTooltip,
-                                                                    onClick: () => closeEditingObject(),
-                                                                },
-                                                            ],
-                                                        },
-                                                    ]}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    Update insight
-                                </LemonButton>
-                            </>
-                        ) : editingMetricName ? (
-                            <>
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => updateEditingMetric()}
-                                    loading={metricUpdating}
-                                    disabledReason={saveAsDisabledReason}
-                                    data-attr="sql-editor-update-metric"
-                                    sideAction={{
-                                        icon: <IconChevronDown />,
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={secondarySaveMenuItems.map((item) => ({
-                                                        ...item,
-                                                        disabledReason:
-                                                            (item.action === 'insight'
-                                                                ? saveAsInsightDisabledReason
-                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
-                                                    }))}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    Update metric
-                                </LemonButton>
-                                <LemonButton
-                                    onClick={() => setEditingMetricName(null)}
-                                    icon={<IconX />}
-                                    type="tertiary"
-                                    size="small"
-                                    aria-label="Stop editing metric"
-                                    tooltip="Stop editing this metric and start a new query"
-                                />
-                            </>
-                        ) : (
-                            <>
-                                {saveAsMenuItems.primary.action === 'insight' && continueInNotebookButton}
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={onPrimarySaveClick}
-                                    disabledReason={
-                                        (saveAsMenuItems.primary.action === 'insight'
-                                            ? saveAsInsightDisabledReason
-                                            : saveAsDisabledReason) ??
-                                        (saveAsMenuItems.primary.action === 'endpoint'
-                                            ? saveAsEndpointDisabledReason
-                                            : saveAsMenuItems.primary.action === 'view'
-                                              ? saveAsViewAccessDisabledReason
-                                              : undefined)
-                                    }
-                                    sideAction={{
-                                        icon: <IconChevronDown />,
-                                        'data-attr': 'sql-editor-save-options-button',
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={secondarySaveMenuItems.map((item) => ({
-                                                        ...item,
-                                                        disabledReason:
-                                                            (item.action === 'insight'
-                                                                ? saveAsInsightDisabledReason
-                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
-                                                    }))}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    {saveAsMenuItems.primary.label}
-                                </LemonButton>
-                            </>
-                        )}
-                    </div>
+                                                            ]}
+                                                        />
+                                                    ),
+                                                },
+                                            }}
+                                        >
+                                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                    <LemonButton
+                                        onClick={() => closeEditingObject()}
+                                        icon={<IconX />}
+                                        type="tertiary"
+                                        size="small"
+                                        aria-label="close"
+                                        tooltip={closeObjectTooltip}
+                                    />
+                                </>
+                            ) : editingInsight ? (
+                                <>
+                                    <LemonButton
+                                        onClick={() => openHistoryModal()}
+                                        icon={<IconBook />}
+                                        type="secondary"
+                                        size="small"
+                                        data-attr="sql-editor-insight-history-button"
+                                    >
+                                        History
+                                    </LemonButton>
+                                    {discardChangesButton}
+                                    <LemonButton
+                                        disabledReason={
+                                            saveAsInsightDisabledReason ??
+                                            (!updateInsightButtonEnabled ? 'No updates to save' : undefined)
+                                        }
+                                        loading={insightLoading}
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => updateInsight()}
+                                        sideAction={{
+                                            icon: <IconChevronDown />,
+                                            'data-attr': 'sql-editor-save-options-button',
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={[
+                                                            {
+                                                                items: [
+                                                                    continueInNotebookMenuItem,
+                                                                    {
+                                                                        label: 'Save as new insight...',
+                                                                        disabledReason: saveAsInsightDisabledReason,
+                                                                        onClick: () => saveAsInsight(),
+                                                                    },
+                                                                    {
+                                                                        label: 'Save as new view...',
+                                                                        disabledReason:
+                                                                            saveAsDisabledReason ??
+                                                                            saveAsViewAccessDisabledReason,
+                                                                        onClick: () => saveAsView(),
+                                                                    },
+                                                                    {
+                                                                        label: 'Save as endpoint...',
+                                                                        disabledReason:
+                                                                            saveAsDisabledReason ??
+                                                                            saveAsEndpointDisabledReason,
+                                                                        onClick: () => saveAsEndpoint(),
+                                                                    },
+                                                                ],
+                                                            },
+                                                            {
+                                                                items: [
+                                                                    {
+                                                                        label: 'Reset view',
+                                                                        'data-attr': 'sql-editor-reset-view',
+                                                                        tooltip: closeObjectTooltip,
+                                                                        onClick: () => closeEditingObject(),
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ]}
+                                                    />
+                                                ),
+                                            },
+                                        }}
+                                    >
+                                        Update insight
+                                    </LemonButton>
+                                </>
+                            ) : editingMetricName ? (
+                                <>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => updateEditingMetric()}
+                                        loading={metricUpdating}
+                                        disabledReason={saveAsDisabledReason}
+                                        data-attr="sql-editor-update-metric"
+                                        sideAction={{
+                                            icon: <IconChevronDown />,
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={secondarySaveMenuItems.map((item) => ({
+                                                            ...item,
+                                                            disabledReason:
+                                                                (item.action === 'insight'
+                                                                    ? saveAsInsightDisabledReason
+                                                                    : saveAsDisabledReason) ??
+                                                                item.accessDisabledReason,
+                                                        }))}
+                                                    />
+                                                ),
+                                            },
+                                        }}
+                                    >
+                                        Update metric
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={() => setEditingMetricName(null)}
+                                        icon={<IconX />}
+                                        type="tertiary"
+                                        size="small"
+                                        aria-label="Stop editing metric"
+                                        tooltip="Stop editing this metric and start a new query"
+                                    />
+                                </>
+                            ) : (
+                                <>
+                                    {saveAsMenuItems.primary.action === 'insight' && continueInNotebookButton}
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={onPrimarySaveClick}
+                                        disabledReason={
+                                            (saveAsMenuItems.primary.action === 'insight'
+                                                ? saveAsInsightDisabledReason
+                                                : saveAsDisabledReason) ??
+                                            (saveAsMenuItems.primary.action === 'endpoint'
+                                                ? saveAsEndpointDisabledReason
+                                                : saveAsMenuItems.primary.action === 'view'
+                                                  ? saveAsViewAccessDisabledReason
+                                                  : undefined)
+                                        }
+                                        sideAction={{
+                                            icon: <IconChevronDown />,
+                                            'data-attr': 'sql-editor-save-options-button',
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={secondarySaveMenuItems.map((item) => ({
+                                                            ...item,
+                                                            disabledReason:
+                                                                (item.action === 'insight'
+                                                                    ? saveAsInsightDisabledReason
+                                                                    : saveAsDisabledReason) ??
+                                                                item.accessDisabledReason,
+                                                        }))}
+                                                    />
+                                                ),
+                                            },
+                                        }}
+                                    >
+                                        {saveAsMenuItems.primary.label}
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
+                    )
                 }
             />
             <QueryHistoryModal />

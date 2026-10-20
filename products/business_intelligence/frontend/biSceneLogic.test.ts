@@ -1,10 +1,13 @@
+import { getPluginContext } from 'kea'
 import { router } from 'kea-router'
+import type { RouterPluginContext } from 'kea-router/lib/types'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -15,6 +18,7 @@ import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 
+import { catalogMetricWorksheet } from './biCatalog'
 import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
@@ -124,6 +128,162 @@ describe('biSceneLogic', () => {
     })
     afterEach(() => logic.unmount())
 
+    it.each([
+        { id: 123, insightId: 'another-worksheet' },
+        { insightId: 123, insight_id: 'another-worksheet' },
+        { insight_id: 123, short_id: 'another-worksheet' },
+        { short_id: 'bi-test', shortId: 'another-worksheet' },
+        { shortId: 'bi-test' },
+    ])('reconciles an assistant rename using %j without overwriting unsaved query edits', async (input) => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
+        stored = { ...stored, name: 'Assistant name' }
+
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(input)).toFinishAllListeners()
+
+        expect(logic.values.name).toBe('Assistant name')
+        expect(logic.values.worksheet.config.limit).toBe(10000)
+        expect(logic.values.agentUpdateState).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.name).toBe('Assistant name')
+        expect(stored.query.config.limit).toBe(10000)
+    })
+
+    it('applies assistant query edits while preserving a local rename and ignores other worksheets', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.setName('Local name')
+        stored = { ...stored, query: worksheet({ ...config, limit: 50000 }) }
+        await expectLogic(logic, () =>
+            logic.actions.refreshInsightFromAgent('another-worksheet')
+        ).toFinishAllListeners()
+        expect(logic.values.worksheet.config.limit).toBe(1000)
+
+        await expectLogic(logic, () => {
+            logic.actions.refreshInsightFromAgent(stored.short_id)
+            logic.actions.refreshInsightFromAgent('another-worksheet')
+        }).toFinishAllListeners()
+
+        expect(logic.values.name).toBe('Local name')
+        expect(logic.values.worksheet.config.limit).toBe(50000)
+        expect(logic.values.agentUpdateState).toBeNull()
+    })
+
+    it('applies assistant snapshot edits when the saved source omits empty filters', async () => {
+        const snapshot = (query: string): BIVisualizationNode =>
+            catalogMetricWorksheet({ name: 'revenue', definition: { kind: NodeKind.HogQLQuery, query } })!
+        stored = { ...stored, query: snapshot('SELECT 42 AS revenue') }
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+        expect(stored.query.source.filters).toBeUndefined()
+
+        stored = { ...stored, query: snapshot('SELECT 43 AS revenue') }
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+
+        expect(logic.values.worksheet.source.query).toBe('SELECT 43 AS revenue')
+        expect(logic.values.agentUpdateState).toBeNull()
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('reconciles assistant changes after an already-running save completes', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
+        let releaseSave!: () => void
+        const savePending = new Promise<void>((resolve) => {
+            releaseSave = resolve
+        })
+        let saveStarted!: () => void
+        const saveRequest = new Promise<void>((resolve) => {
+            saveStarted = resolve
+        })
+        save.mockImplementationOnce(async ({ request }: { request: Request }) => {
+            const saved = { ...stored, ...(await request.json()) }
+            saveStarted()
+            await savePending
+            stored = { ...saved, name: 'Assistant name' }
+            return [200, saved]
+        })
+
+        const completed = expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        await saveRequest
+        logic.actions.refreshInsightFromAgent(stored.id)
+        expect(logic.values.agentUpdateState).toBe('loading')
+        releaseSave()
+        await completed
+
+        expect(logic.values.agentUpdateState).toBeNull()
+        expect(logic.values.name).toBe('Assistant name')
+        expect(logic.values.insight?.name).toBe('Assistant name')
+        expect(logic.values.worksheet.config.limit).toBe(10000)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.name).toBe('Assistant name')
+    })
+
+    it('preserves conflicting drafts across retries and reload until changes are discarded', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
+        stored = { ...stored, query: worksheet({ ...config, limit: 50000 }) }
+
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+        expect(logic.values.worksheet.config.limit).toBe(10000)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+        // A later assistant completion must not silently clear an unresolved conflict.
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+
+        useMocks({ get: { '/api/projects/:team_id/insights/': [503, { detail: 'Unavailable' }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('error')
+        useMocks({ get: { '/api/projects/:team_id/insights/': () => [200, { results: [stored] }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+
+        logic.actions.setName('Local draft title')
+        logic.unmount()
+        logic = biSceneLogic({ tabId: 'bi-reloaded' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+        expect(logic.values.name).toBe('Local draft title')
+        expect(logic.values.worksheet.config.limit).toBe(10000)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+
+        logic.actions.discardChanges()
+        expect(logic.values.worksheet.config.limit).toBe(50000)
+        expect(logic.values.agentUpdateState).toBeNull()
+        expect(router.values.hashParams.bi_conflict).toBeUndefined()
+    })
+
+    it('blocks stale saves after an assistant refresh fails and allows a retry', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:team_id/insights/': [503, { detail: 'Unavailable' }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('error')
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+
+        stored = { ...stored, name: 'Assistant name' }
+        useMocks({ get: { '/api/projects/:team_id/insights/': () => [200, { results: [stored] }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.name).toBe('Assistant name')
+        expect(logic.values.agentUpdateState).toBeNull()
+    })
+
     it('opens catalog definitions as fixed snapshots and waits for Run', async () => {
         const runQuery = jest.fn(() => [200, { columns: ['revenue'], results: [[42]] }])
         useMocks({
@@ -145,7 +305,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.config.source).toBeNull()
         const dataLogic = dataNodeLogic({
             key: logic.values.dataNodeKey,
-            query: logic.values.worksheet.source,
+            query: getBIVisualizationSource(logic.values.worksheet),
             autoLoad: false,
         })
         const unmount = dataLogic.mount()
@@ -157,6 +317,70 @@ describe('biSceneLogic', () => {
             expect(dataLogic.values.response).toMatchObject({ results: [[42]] })
         } finally {
             unmount()
+        }
+    })
+
+    it.each(['loaded', 'failed', 'left'])('handles a pending catalog metric request when %s', async (outcome) => {
+        let release!: () => void
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let started!: () => void
+        const requested = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_catalog/metrics/revenue/': async () => {
+                    started()
+                    await pending
+                    return outcome === 'failed'
+                        ? [503, { detail: 'Metric unavailable' }]
+                        : [
+                              200,
+                              {
+                                  name: 'revenue',
+                                  display_name: 'Revenue',
+                                  definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+                              },
+                          ]
+                },
+            },
+        })
+        silenceKeaLoadersErrors()
+        try {
+            const completed = expectLogic(logic, () =>
+                router.actions.push(urls.businessIntelligenceNew(), { metric: 'revenue' })
+            ).toFinishAllListeners()
+            await requested
+            expect(logic.values.catalogMetricLoading).toBe(true)
+            expect(logic.values.loadError).toBeNull()
+            if (outcome === 'left') {
+                router.actions.push(urls.businessIntelligence())
+            }
+            release()
+            await completed
+            expect(logic.values.catalogMetricLoading).toBe(false)
+            if (outcome === 'failed') {
+                expect(logic.values.loadError).toBeTruthy()
+                expect(logic.values.lastRunQuery).toBeNull()
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
+                ).toFinishAllListeners()
+                expect(logic.values.loadError).toBeNull()
+                expect(logic.values.worksheet.config.source).toBeNull()
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
+            } else if (outcome === 'left') {
+                expect(router.values.location.pathname).toBe('/project/997/bi')
+                expect(router.values.hashParams).toEqual({})
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
+            } else {
+                expect(logic.values.worksheet.config.querySnapshot?.query).toBe('SELECT 42 AS revenue')
+                expect(logic.values.lastRunQuery).toBeNull()
+            }
+        } finally {
+            release()
+            resumeKeaLoadersErrors()
         }
     })
 
@@ -193,6 +417,45 @@ describe('biSceneLogic', () => {
             expect(logic.values.name).toBe(saved ? stored.name : 'Untitled worksheet')
             expect(logic.values.hasUnsavedChanges).toBe(false)
         } finally {
+            confirm.mockRestore()
+        }
+    })
+
+    it.each([
+        {
+            kind: 'metric',
+            query: catalogMetricWorksheet({
+                name: 'revenue',
+                definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+            })!,
+        },
+        { kind: 'starter', query: worksheet() },
+    ])('returns to the library with browser Back from a $kind', async ({ kind, query }) => {
+        logic.unmount()
+        router.actions.push(urls.businessIntelligence())
+        router.actions.push(
+            urls.businessIntelligenceNew(),
+            { [kind]: kind === 'metric' ? 'revenue' : '1' },
+            { q: JSON.stringify(query) }
+        )
+        logic = biSceneLogic({ tabId: 'bi-test' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const context = getPluginContext('router') as RouterPluginContext
+        const originalLocation = context.location
+        const replaceState = jest.spyOn(context.history!, 'replaceState')
+        try {
+            const pathname = '/project/997/bi'
+            context.location = { pathname, search: '', hash: '' }
+            window.dispatchEvent(new PopStateEvent('popstate', { state: { count: context.historyStateCount! - 1 } }))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.location).toMatchObject({ pathname, search: '', hash: '' })
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(replaceState).not.toHaveBeenCalled()
+        } finally {
+            replaceState.mockRestore()
+            context.location = originalLocation
             confirm.mockRestore()
         }
     })
@@ -854,7 +1117,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.source.query).toContain('LIMIT 50000')
         expect(JSON.parse(router.values.hashParams.q).config).toEqual(logic.values.config)
         logic.unmount()
-        router.actions.push(urls.businessIntelligence())
+        router.actions.push(urls.businessIntelligenceNew())
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         expect(logic.values.config.limit).toBe(50000)

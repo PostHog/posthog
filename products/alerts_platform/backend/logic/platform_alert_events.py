@@ -22,6 +22,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
@@ -30,6 +31,8 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     PlatformAlertHistory,
+    PlatformCheckEvent,
+    PlatformCheckEventPage,
     PlatformStateChange,
     SourceKind,
 )
@@ -119,6 +122,12 @@ def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) ->
     return digest.hexdigest()
 
 
+def _execute(query: str, args: Any, *, team_id: int, settings: dict[str, Any] | None = None) -> Any:
+    """`sync_execute` as the platform's own user, so this bookkeeping never takes from `default`'s
+    per-user concurrency budget. A pod without that user wired falls back to its own default user."""
+    return sync_execute(query, args, team_id=team_id, settings=settings, ch_user=ClickHouseUser.ALERTS_PLATFORM)
+
+
 def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     """Records a batch's history. Returns how many rows it wrote.
 
@@ -132,7 +141,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
         # `sync_execute` requires both tags. The platform product rather than a source's, because
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-        sync_execute(
+        _execute(
             _INSERT_SQL,
             [row.as_row() for row in rows],
             settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
@@ -211,9 +220,9 @@ def announcement(
         "incident_grouping_keys": list(incident_grouping_keys),
     }
     if parts > 1:
-        rows = sync_execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
+        rows = _execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
     else:
-        rows = sync_execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
+        rows = _execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
     if not rows:
         return None
 
@@ -252,7 +261,7 @@ def announced_kinds(
 ) -> dict[str, AlertEventKind]:
     """The kind of every group `announcement` returns across all parts, without the rows' payloads."""
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    rows = sync_execute(
+    rows = _execute(
         _ANNOUNCED_KINDS_SQL,
         {
             "team_id": team_id,
@@ -315,6 +324,8 @@ def history(
     if not configuration_ids:
         return {}
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`: the web API calls this too, and naming a user would replace the one
+    # `sync_execute` picks for request traffic.
     rows = sync_execute(
         _HISTORY_SQL,
         {"team_id": team_id, "configuration_ids": list(configuration_ids), "since": since, "until": until},
@@ -341,3 +352,58 @@ def history(
         )
         for configuration_id, (last_checked_at, error_message) in latest.items()
     }
+
+
+# Deduplicated as `_HISTORY_SQL` is. The quiet checks are dropped before the deduplication, which
+# is safe because two copies of one check are identical rows. The total is a window over every
+# matching check, so one query answers both the page and the count a paginated list needs.
+_NOTABLE_CHECKS_SQL = f"""
+SELECT occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms,
+       error_message, count() OVER () AS total
+FROM (
+    SELECT alert_id, evaluation_key, occurred_at, previous_state, state, value, condition_snapshot,
+           query_duration_ms, error_message
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND occurred_at >= %(since)s
+      AND (previous_state != state OR error_message != '')
+    ORDER BY alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s
+"""
+
+
+def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, limit: int) -> PlatformCheckEventPage:
+    """The newest `limit` checks since `since` that moved the configuration's state or failed.
+
+    A check that confirmed the state it found is left out, because a source that lists events
+    shows what changed. Only the ungrouped instance is read, as in `history`.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = sync_execute(
+        _NOTABLE_CHECKS_SQL,
+        {"team_id": team_id, "configuration_id": configuration_id, "since": since, "limit": limit},
+        team_id=team_id,
+    )
+    return PlatformCheckEventPage(
+        events=tuple(
+            PlatformCheckEvent(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                previous_state=PlatformAlertState(previous_state),
+                state=PlatformAlertState(state),
+                value=value,
+                condition=_snapshot(condition_snapshot),
+                query_duration_ms=query_duration_ms,
+                error_message=error_message or None,
+            )
+            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, _ in rows
+        ),
+        total=rows[0][-1] if rows else 0,
+    )

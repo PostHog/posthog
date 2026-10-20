@@ -9,6 +9,7 @@ import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import { AIObservabilityScorersScene } from './AIObservabilityScorersScene'
 
 const definition: ScoreDefinitionApi = {
+    tags: ['production', 'quality', 'regression', 'support', 'long-tag-name-for-overflow'],
     id: 'b4f331fe-7d3b-4bbe-9f88-52e1b0a8b000',
     name: 'Answer quality',
     description: 'Quality of generated answers',
@@ -34,6 +35,10 @@ const meta: Meta<typeof AIObservabilityScorersScene> = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team/tags': ({ request }) => {
+                    const tags = ['production', 'quality', 'regression', 'support']
+                    return new URL(request.url).searchParams.has('limit') ? { results: tags, next: null } : tags
+                },
                 '/api/projects/:team/llm_analytics/score_definitions/': {
                     results: [
                         definition,

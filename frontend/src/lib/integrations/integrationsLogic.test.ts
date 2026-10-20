@@ -138,6 +138,7 @@ describe('integrationsLogic', () => {
             logic.actions.loadGithubAvailableInstallations()
             await waitFor(() => expect(logic.values.githubAvailableInstallations).toHaveLength(1))
             request.mockRejectedValueOnce(new Error('synthetic failure'))
+            logic.actions.invalidateGithubSuggestions()
             logic.actions.loadGithubAvailableInstallations()
             expect(logic.values.githubAvailableInstallations).toBeNull()
             await waitFor(() => expect(logic.values.githubDiscoveryFailed).toBe(true))

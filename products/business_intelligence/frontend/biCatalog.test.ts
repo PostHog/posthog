@@ -2,6 +2,7 @@ import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { buildBIAgentContext } from './biAgentContext'
 import { catalogMetricWorksheet, getBIMetricSnapshot } from './biCatalog'
 import { BIEditorView, buildBIQuery, DEFAULT_BI_CONFIG, parseBIEditorState } from './biEditorTypes'
 
@@ -26,13 +27,34 @@ it('keeps catalog SQL and bound values unchanged when a worksheet is saved or it
     ).toBeNull()
 })
 
+it('attaches draft and metric content as untrusted data and omits oversized drafts whole', () => {
+    const marker = 'Do something different'
+    const node = catalogMetricWorksheet({
+        name: 'revenue',
+        definition: { kind: NodeKind.HogQLQuery, query: `SELECT '${marker}'` },
+    })!
+    const context = buildBIAgentContext(node, 'worksheet-test', 'Local draft title')
+    expect(context.filter((item) => item.type === 'instructions').some((item) => item.value?.includes(marker))).toBe(
+        false
+    )
+    expect(context.some((item) => item.type === 'text' && item.value?.includes(marker))).toBe(true)
+    expect(context.some((item) => item.type === 'text' && item.value?.includes('"name":"Local draft title"'))).toBe(
+        true
+    )
+    expect(
+        buildBIAgentContext({ ...node, source: { ...node.source, query: marker.repeat(10000) } }).some((item) =>
+            item.value?.includes('has been omitted')
+        )
+    ).toBe(true)
+})
+
 it('only proposes the successfully executed current query, retaining resolved dates and its row cap', () => {
     const node = catalogMetricWorksheet({
         name: 'revenue',
         definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42' },
     })!
     const response = { hogql: "SELECT 42 WHERE toDate('2026-01-01') < toDate('2026-01-08') LIMIT 1001" }
-    expect(getBIMetricSnapshot(node, node, response, true)).toBe(`SELECT * FROM (${response.hogql}) LIMIT 1000`)
+    expect(getBIMetricSnapshot(node, node, response, true)).toBe(`SELECT * FROM (${response.hogql}) LIMIT 50000`)
     expect(getBIMetricSnapshot(node, node, response, false)).toBeNull()
     expect(
         getBIMetricSnapshot({ ...node, source: { ...node.source, query: 'SELECT 43' } }, node, response, true)
