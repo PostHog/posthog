@@ -3,14 +3,50 @@ import { Liquid, Output, Template } from 'liquidjs'
 
 const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
 
-// Copy of formatCurrency in nodejs/src/cdp/utils/liquid.ts, so previews format money the way sends do.
-const formatCurrency = (value: unknown, currency: unknown = 'USD'): unknown => {
+// Copy of the currency filter in nodejs/src/cdp/utils/liquid.ts, so previews format money the way sends do.
+const REGION_CURRENCIES: Record<string, string> = {
+    US: 'USD',
+    GB: 'GBP',
+    CA: 'CAD',
+    AU: 'AUD',
+    NZ: 'NZD',
+    IN: 'INR',
+    JP: 'JPY',
+    CH: 'CHF',
+    SE: 'SEK',
+    NO: 'NOK',
+    DK: 'DKK',
+    PL: 'PLN',
+    BR: 'BRL',
+    MX: 'MXN',
+    ...Object.fromEntries(
+        ['AT', 'BE', 'DE', 'ES', 'FI', 'FR', 'GR', 'IE', 'IT', 'LU', 'NL', 'PT'].map((region) => [region, 'EUR'])
+    ),
+}
+
+const resolveCurrencyFormat = (first: unknown, second: unknown): [string, string] | null => {
+    if (first === undefined) {
+        return ['en-US', 'USD']
+    }
+    const argument = String(first)
+    if (second === undefined && /^[a-z]{3}$/i.test(argument)) {
+        return ['en-US', argument.toUpperCase()]
+    }
+    const region = new Intl.Locale(argument).maximize().region
+    const code = second !== undefined ? String(second) : region && REGION_CURRENCIES[region]
+    return code ? [argument, code] : null
+}
+
+const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unknown => {
     const amount = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
     if (!Number.isFinite(amount)) {
         return value
     }
     try {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: String(currency) }).format(amount)
+        const format = resolveCurrencyFormat(first, second)
+        return format
+            ? new Intl.NumberFormat(format[0], { style: 'currency', currency: format[1] }).format(amount)
+            : value
     } catch {
         return value
     }
