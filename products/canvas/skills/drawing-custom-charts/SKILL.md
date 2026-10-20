@@ -34,7 +34,7 @@ Three small pieces come up on every rung above the first.
 Copy them into the canvas as `src/chart-kit.tsx` rather than rewriting them each time; the full file is in [references/gallery.md](references/gallery.md#tiptsx).
 
 - **The palette.** `const theme = useChartTheme()`. `theme.colors[i]` is the PostHog data palette in the right light or dark variant; `theme.axisColor`, `theme.gridColor`, `theme.backgroundColor`, `theme.tooltipBackground` and `theme.tooltipColor` are the rest. Never a hardcoded hex, and never a UI token such as `bg-primary` for data.
-- **The tooltip.** Outside a chart, render a div at the cursor colored with `theme.tooltipBackground` and `theme.tooltipColor`, with `TooltipSwatch` from `@posthog/quill-charts` for the color dot. That is the same box the stock charts show. `TooltipSurface` and `DefaultTooltip` read the chart context and throw outside a `Chart`, so use them only inside one. Never an SVG `<title>`: it shows after a delay, only while the mouse is still, and in the browser's own style.
+- **The tooltip.** Outside a chart, use `TipBox` from the gallery's `chart-kit.tsx` unchanged. It copies the stock tooltip's box and row, so a custom chart's tooltip matches the stock charts'. `TooltipSurface` and `DefaultTooltip` read the chart context and throw outside a `Chart`, so use them only inside one. Never an SVG `<title>`: it shows after a delay, only while the mouse is still, and in the browser's own style.
 - **Sizing.** A chart fills its parent. Wrap it in `<div className="flex h-[300px] flex-col">`. Raw d3 components measure their container with a `ResizeObserver` and render nothing until it has a size.
 
 ## Rules that only show at runtime
