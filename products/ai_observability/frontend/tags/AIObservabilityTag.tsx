@@ -46,6 +46,7 @@ import {
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
 import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
+import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
 import { Tagger, TaggerConditionSet } from './types'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
@@ -765,6 +766,7 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
 
     return (
         <SceneContent>
+            <TaggersDeprecationBanner />
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-start pb-4 border-b">

@@ -37,6 +37,7 @@ import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKey
 import { getUnhealthyProviderKey, providerKeyStateIssueDescription } from '../settings/providerKeyStateUtils'
 import { llmTaggersLogic } from './llmTaggersLogic'
 import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
+import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
 import { Tagger } from './types'
 
 export const scene: SceneExport = {
@@ -379,6 +380,7 @@ export function AIObservabilityTagsScene(): JSX.Element {
                     </AccessControlAction>
                 }
             />
+            <TaggersDeprecationBanner />
             <AIObservabilityTagsContent />
             <TaggerCreationRetiredModal
                 isOpen={isCreationRetiredModalOpen}
