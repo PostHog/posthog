@@ -38,6 +38,36 @@ describe('showIssueResolvedToast', () => {
         expect(success.mock.calls[0]?.[1]?.button?.label).toBe(offered ? "Tell them it's fixed" : undefined)
     })
 
+    it('gives each issue its own toast when the counts match', async () => {
+        mockHogqlQuery.mockResolvedValue({ results: [[3, 2]] } as never)
+        const success = jest.spyOn(lemonToast, 'success')
+
+        await showIssueResolvedToast('1', { issueId: 'issue-1', issueName: 'Checkout timeout' })
+        await showIssueResolvedToast('1', { issueId: 'issue-2', issueName: 'Checkout timeout' })
+
+        const [first, second] = success.mock.calls.map(([, options]) => options?.toastId)
+        expect(first).not.toEqual(second)
+    })
+
+    it('offers a retry that saves the cohort again when saving fails', async () => {
+        initKeaTests()
+        mockHogqlQuery.mockResolvedValue({ results: [[3, 2]] } as never)
+        const create = jest
+            .spyOn(issueAffectedBroadcast, 'createAffectedPeopleCohort')
+            .mockRejectedValueOnce(new Error('500'))
+            .mockResolvedValueOnce({ id: 7 } as CohortApi)
+        const open = jest.spyOn(messageAudienceWarnings, 'openMessageAudience').mockResolvedValue()
+        const success = jest.spyOn(lemonToast, 'success')
+        const error = jest.spyOn(lemonToast, 'error')
+
+        await showIssueResolvedToast('1', { issueId: 'issue-1', issueName: 'Checkout timeout' })
+        await success.mock.calls[0]?.[1]?.button?.action()
+        await error.mock.calls[0]?.[1]?.button?.action()
+
+        expect(create).toHaveBeenCalledTimes(2)
+        expect(open).toHaveBeenCalledTimes(1)
+    })
+
     it.each([
         { scenario: 'opens the email when the person stays on the issue', leaves: false, opened: true },
         {
