@@ -124,7 +124,7 @@ class TestTrialAPI(APIBaseTest):
         assert response.json()["grant_id"] == str(grant.id)
         assert response.json()["grant_status"] == "active"
 
-    def test_flag_off_hides_offer_but_keeps_existing_grant_visible_and_idempotent(self) -> None:
+    def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
@@ -142,8 +142,9 @@ class TestTrialAPI(APIBaseTest):
             )
             self.flag_mock.return_value = False
             status = self.client.get(self.url).json()
-            assert status["enabled"]
+            assert not status["enabled"]
             assert status["grant_status"] == "active"
+            assert status["grant_id"] == grant_id
             assert not status["eligible"]
             other = Team.objects.create(organization=self.organization, name="Other project")
             other_url = f"/api/projects/{other.id}/signals/trial/"
@@ -151,6 +152,5 @@ class TestTrialAPI(APIBaseTest):
             assert self.client.post(other_url, {}, format="json").status_code == 400
         with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=TimeoutError()):
             retry = self.client.post(self.url, {}, format="json")
-        assert retry.status_code == 200
-        assert retry.json()["grant_id"] == grant_id
+        assert retry.status_code == 400
         assert SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization.id).count() == 1

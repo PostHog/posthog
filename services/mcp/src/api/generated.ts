@@ -103062,7 +103062,7 @@ export namespace Schemas {
     } as const;
 
     export interface SelfDrivingTrialStatus {
-      /** Whether the trial offer is enabled or this project has claimed a grant. */
+      /** Whether the one-time trial rollout is enabled for this organization. */
       enabled: boolean;
       /** Whether the current rollout check succeeded. */
       flag_confirmed: boolean;

@@ -27,9 +27,7 @@ class TrialGrantStatus(models.TextChoices):
 
 @extend_schema_serializer(many=False)
 class SelfDrivingTrialStatusSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(
-        help_text="Whether the trial offer is enabled or this project has claimed a grant."
-    )
+    enabled = serializers.BooleanField(help_text="Whether the one-time trial rollout is enabled for this organization.")
     flag_confirmed = serializers.BooleanField(help_text="Whether the current rollout check succeeded.")
     policy_version = serializers.IntegerField(help_text="Effective trial policy version.")
     legacy_pr_restricted = serializers.BooleanField(

@@ -36,6 +36,7 @@ class TrialService:
             return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
 
     def activate(self, *, user_id: int) -> None:
+        self.policy.check_enabled()
         if self.policy.grant() is not None:
             return
         billing = self.billing_status()
@@ -49,7 +50,7 @@ class TrialService:
         grants_claimed = self.policy.organization_grants_claimed()
         billing = (
             self.billing_status()
-            if decision.enabled or grant
+            if decision.enabled
             else TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
         )
         slots = SignalTrialReportReservation.objects.for_team(self.policy.team_id, canonical=True)
@@ -64,7 +65,7 @@ class TrialService:
         if grant is not None:
             grant_status = "exhausted" if grant.exhausted_at else "active"
         return {
-            "enabled": decision.enabled is True or grant is not None,
+            "enabled": decision.enabled is True,
             "flag_confirmed": decision.confirmed,
             "policy_version": POLICY_VERSION,
             "legacy_pr_restricted": self_driving_free_trial_enabled(self.team),
