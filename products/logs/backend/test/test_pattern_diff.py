@@ -41,6 +41,7 @@ class TestPatternFingerprint(TestCase):
             ("stored_token_vs_grouped_wildcard", "job <ID> done in <N> ms", "job <*> done in <N> ms", True),
             ("stored_klog_header_vs_grouped_wildcard", "x I<KLOGTIME> started <N>", "x <*> started <N>", True),
             ("upper_case_log_text_stays_literal", "render <HTML> page", "render <BODY> page", False),
+            ("json_key_sets_keep_nested_tokens", "<JSON:<ID>,status>", "<JSON:<HOST>,status>", False),
         ]
     )
     def test_fingerprint_matches_across_template_wobble(self, _name, a, b, expected_equal) -> None:
@@ -250,7 +251,13 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
     )
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_both_windows_use_one_template_source(
-        self, _name, current_version, baseline_version, expected_source, expected_version, expected_reasons
+        self,
+        _name: str,
+        current_version: int,
+        baseline_version: int,
+        expected_source: str,
+        expected_version: int | None,
+        expected_reasons: tuple[str | None, str | None],
     ) -> None:
         def stamped(day: int, version: int) -> list[dict]:
             return [
@@ -271,8 +278,10 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
             searchTerm=None,
         )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            results = run_patterns_diff(self.team, query, None)
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            results = run_patterns_diff(self.team, query, None, user=self.user)
+
+        assert {call.args[1] for call in feature_enabled.call_args_list} == {str(self.user.distinct_id)}
 
         assert (results["current"]["source"], results["baseline"]["source"]) == (expected_source, expected_source)
         assert (results["current"]["fallback_reason"], results["baseline"]["fallback_reason"]) == expected_reasons

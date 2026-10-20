@@ -121,11 +121,13 @@ _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERN
 # Stored patterns carry the ingestion consumer's mask tokens, and grouping them adds Drain's `<*>`
 # on top, so the same message can render as `job <ID> done` in one window and `job <*> done` in
 # the next. The names mirror nodejs/src/logs/log-pattern-mask.ts, and klog's severity letter is
-# part of its token because Drain wildcards `I<KLOGTIME>` whole. `<JSON:keys>` is left out on
-# purpose: the key set is the identity of that pattern.
+# part of its token because Drain wildcards `I<KLOGTIME>` whole.
 _FINGERPRINT_PLACEHOLDER_RE = re.compile(
     _PLACEHOLDER_RE.pattern + r"|(?:\b[IWEF])?<KLOGTIME>|<(?:N|TIMESTAMP|UUID|IP|HOST|HEX|ID|EMAIL|JSON_ARRAY)>"
 )
+# The ingestion consumer stores a JSON body without a message field as its masked key set, for example
+# `<JSON:<ID>,status>`. The key set is the whole identity of that pattern, so its nested mask tokens stay.
+_JSON_KEY_SET_RE = re.compile(r"<JSON:.*>", re.DOTALL)
 
 # Templates whose literal content is thinner than this compile to uselessly broad
 # predicates (worst case "<*> <*> <*>" matches everything), so they get no regex.
@@ -337,6 +339,8 @@ def pattern_fingerprint(template: str) -> str:
     *inside* a literal run splits it and changes the fingerprint — that is content-level
     divergence, not wobble, so the two templates are correctly treated as different patterns.
     """
+    if _JSON_KEY_SET_RE.fullmatch(template):
+        return template
     literals = sorted(set(_literal_runs(template, _FINGERPRINT_PLACEHOLDER_RE)))
     return "\x00".join(literals) if literals else template
 

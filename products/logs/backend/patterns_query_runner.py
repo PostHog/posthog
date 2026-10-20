@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import get_instance_region
@@ -35,6 +36,13 @@ if TYPE_CHECKING:
 
 _TimeSlice = tuple[dt.datetime, dt.datetime]
 STORED_PATTERN_HEAD_MAX_BYTES = 65536
+
+
+@frozen
+class _VersionCoverage:
+    total: int
+    version: int
+    covered: int
 
 
 class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -114,24 +122,41 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         raise UserAccessControlError("logs", "viewer")
 
     def _calculate(self) -> LogsQueryResponse:
-        reason = "comparison" if not self.use_stored_patterns else "flag_disabled"
-        if self.use_stored_patterns and self._stored_patterns_enabled:
-            self._query_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
-            versions = self._execute(
-                parse_select(
-                    "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
-                    placeholders={"where": self._where_with_timestamp()},
-                )
-            ).results
-            total = sum(int(row[1]) for row in versions)
-            candidates = [(int(row[2]), int(row[0])) for row in versions if int(row[0]) > 0]
-            covered, version = max(candidates, default=(0, 0))
-            if total and covered * 100 >= total * 99:
-                return self._calculate_stored_patterns(total, version, covered)
-            reason = "insufficient_version_coverage" if total else "empty_window"
+        version = self.stored_pattern_version()
+        if version is not None:
+            coverage = self._version_coverage
+            return self._calculate_stored_patterns(coverage.total, version, coverage.covered)
+        if not self.use_stored_patterns:
+            reason = "comparison"
+        elif not self._stored_patterns_enabled:
+            reason = "flag_disabled"
         else:
-            total = self._count()
+            reason = "insufficient_version_coverage" if self._version_coverage.total else "empty_window"
+        total = self._version_coverage.total if "_version_coverage" in self.__dict__ else self._count()
         return self._calculate_body_patterns(total, reason)
+
+    def stored_pattern_version(self) -> int | None:
+        """The pattern version this window serves stored patterns from, or None when it mines bodies."""
+        if not (self.use_stored_patterns and self._stored_patterns_enabled):
+            return None
+        coverage = self._version_coverage
+        if coverage.total and coverage.covered * 100 >= coverage.total * 99:
+            return coverage.version
+        return None
+
+    @cached_property
+    def _version_coverage(self) -> _VersionCoverage:
+        if self._query_deadline is None:
+            self._query_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
+        versions = self._execute(
+            parse_select(
+                "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
+                placeholders={"where": self._where_with_timestamp()},
+            )
+        ).results
+        candidates = [(int(row[2]), int(row[0])) for row in versions if int(row[0]) > 0]
+        covered, version = max(candidates, default=(0, 0))
+        return _VersionCoverage(total=sum(int(row[1]) for row in versions), version=version, covered=covered)
 
     @cached_property
     def _stored_patterns_enabled(self) -> bool:

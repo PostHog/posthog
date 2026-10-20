@@ -1829,7 +1829,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             else None
         )
 
-        results = run_patterns_diff(self.team, query, baseline_date_range)
+        results = run_patterns_diff(
+            self.team, query, baseline_date_range, user=request.user if isinstance(request.user, User) else None
+        )
 
         report_user_action(
             request.user,

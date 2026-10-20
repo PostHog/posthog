@@ -9,7 +9,7 @@ from products.logs.backend.log_patterns import ERROR_SEVERITIES, _env, pattern_f
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 _BASELINE_OFFSET = dt.timedelta(days=7)
 
@@ -147,7 +147,9 @@ def _entry(
     }
 
 
-def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateRange | None) -> dict:
+def run_patterns_diff(
+    team: "Team", query: LogsQuery, baseline_date_range: DateRange | None, user: "User | None" = None
+) -> dict:
     """Get patterns for the query's window and a baseline window, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
@@ -155,7 +157,7 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
     preceding hour. The current window is resolved once and the baseline derived from the
     resolved bounds, so a relative ``date_from`` (e.g. ``-1h``) can't drift between the two runs.
     """
-    current_runner = PatternsQueryRunner(team=team, query=query)
+    current_runner = PatternsQueryRunner(team=team, query=query, user=user)
     current_from = current_runner.query_date_range.date_from()
     current_to = current_runner.query_date_range.date_to()
 
@@ -165,20 +167,19 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
             date_to=(current_to - _BASELINE_OFFSET).isoformat(),
         )
     baseline_query = query.model_copy(update={"dateRange": baseline_date_range})
-    baseline_runner = PatternsQueryRunner(team=team, query=baseline_query)
+    baseline_runner = PatternsQueryRunner(team=team, query=baseline_query, user=user)
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 
+    runners = (current_runner, baseline_runner)
+    versions = [runner.stored_pattern_version() for runner in runners]
+    if versions[0] != versions[1]:
+        for runner, version in zip(runners, versions):
+            if version is not None:
+                runner.use_stored_patterns = False
+
     current_results = current_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
     baseline_results = baseline_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
-
-    # Stored templates of one version only match templates of that same version, and never
-    # mined ones, so a mismatched pair falls back to body mining on both sides.
-    if _template_identity(current_results) != _template_identity(baseline_results):
-        if current_results.get("source") == "stored_patterns":
-            current_results = _mine_bodies(team, query, current_from, current_to)
-        if baseline_results.get("source") == "stored_patterns":
-            baseline_results = _mine_bodies(team, query, baseline_from, baseline_to)
 
     entries = diff_patterns(
         current_results["patterns"],
@@ -191,17 +192,6 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
         "current": _window_meta(current_results, current_from, current_to),
         "baseline": _window_meta(baseline_results, baseline_from, baseline_to),
     }
-
-
-def _template_identity(results: dict) -> tuple[str | None, int | None]:
-    return results.get("source"), results.get("pattern_version")
-
-
-def _mine_bodies(team: "Team", query: LogsQuery, date_from: dt.datetime, date_to: dt.datetime) -> dict:
-    window = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat())
-    runner = PatternsQueryRunner(team=team, query=query.model_copy(update={"dateRange": window}))
-    runner.use_stored_patterns = False
-    return runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
 
 
 def _window_meta(results: dict, date_from: dt.datetime, date_to: dt.datetime) -> dict:
