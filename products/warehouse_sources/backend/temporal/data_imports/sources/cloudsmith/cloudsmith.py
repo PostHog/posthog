@@ -20,10 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -163,18 +166,35 @@ def validate_credentials(api_key: str, workspace: str, schema_name: Optional[str
     return False, f"Cloudsmith returned an unexpected response (HTTP {response.status_code})."
 
 
-def get_resource(config: CloudsmithEndpointConfig, workspace: str) -> EndpointResource:
-    if config.fanout:
-        raise ValueError(f"Fan-out endpoint '{config.name}' must use the fan-out path")
+def _paginator(config: CloudsmithEndpointConfig) -> BasePaginator:
+    return CloudsmithPaginator(page_size=config.page_size) if config.paginated else SinglePagePaginator()
 
-    endpoint_config: Endpoint = {
+
+def _endpoint(
+    config: CloudsmithEndpointConfig, workspace: str, extra_params: Optional[dict[str, Any]] = None
+) -> Endpoint:
+    params: dict[str, Any] = {"page_size": config.page_size} if config.paginated else {}
+    params.update(config.params)
+    params.update(extra_params or {})
+    endpoint: Endpoint = {
         "path": config.path.replace("{owner}", workspace),
-        "params": {"page_size": config.page_size, **config.params},
-        "paginator": CloudsmithPaginator(page_size=config.page_size),
-        # Every Cloudsmith list endpoint returns a bare JSON array; anything else is a shape
-        # change we would rather fail on than silently sync as a single row.
+        "params": params,
+        "paginator": _paginator(config),
+        # Every Cloudsmith list endpoint returns a bare JSON array or an object with a known rows
+        # key; anything else is a shape change we would rather fail on than silently sync as a
+        # single row.
         "data_selector_required": True,
     }
+    if config.data_selector:
+        endpoint["data_selector"] = config.data_selector
+    return endpoint
+
+
+def get_resource(config: CloudsmithEndpointConfig, workspace: str) -> EndpointResource:
+    if config.fanout or config.chained_fanout:
+        raise ValueError(f"Fan-out endpoint '{config.name}' must use the fan-out path")
+
+    endpoint_config = _endpoint(config, workspace)
 
     resource: EndpointResource = {
         "name": config.name,
@@ -188,10 +208,83 @@ def get_resource(config: CloudsmithEndpointConfig, workspace: str) -> EndpointRe
     return resource
 
 
-def _make_source_response(config: CloudsmithEndpointConfig, items_fn: Callable[[], Any]) -> SourceResponse:
+def _chained_resource(
+    config: CloudsmithEndpointConfig, api_key: str, workspace: str, team_id: int, job_id: str
+) -> Iterable[Any]:
+    """Build the repositories -> parent -> child chain for a second-level fan-out endpoint."""
+    chained = config.chained_fanout
+    assert chained is not None
+    middle_config = CLOUDSMITH_ENDPOINTS[chained.parent_name]
+    root_fanout = middle_config.fanout
+    if root_fanout is None:
+        raise ValueError(f"'{chained.parent_name}' does not fan out from repositories")
+    root_config = CLOUDSMITH_ENDPOINTS[root_fanout.parent_name]
+
+    root_endpoint = _endpoint(root_config, workspace, root_fanout.parent_params)
+    middle_endpoint = _endpoint(
+        middle_config,
+        workspace,
+        {
+            root_fanout.resolve_param: {
+                "type": "resolve",
+                "resource": root_config.name,
+                "field": root_fanout.resolve_field,
+            }
+        },
+    )
+    child_endpoint = _endpoint(
+        config,
+        workspace,
+        {
+            param: {"type": "resolve", "resource": middle_config.name, "field": field_name}
+            for param, field_name in chained.resolve_fields.items()
+        },
+    )
+    # A package deleted between its packages page and this fetch must not sink the run.
+    child_endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+
+    root_resource: EndpointResource = {
+        "name": root_config.name,
+        "table_name": root_config.name,
+        "write_disposition": "replace",
+        "endpoint": root_endpoint,
+        "table_format": "delta",
+    }
+    middle_resource: EndpointResource = {
+        "name": middle_config.name,
+        "table_name": middle_config.name,
+        "write_disposition": "replace",
+        "include_from_parent": root_fanout.include_from_parent,
+        "endpoint": middle_endpoint,
+        "table_format": "delta",
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "table_name": config.name,
+        "write_disposition": "replace",
+        "include_from_parent": chained.include_from_parent,
+        "endpoint": child_endpoint,
+        "table_format": "delta",
+    }
+
+    return build_chained_resource(
+        resources=[root_resource, middle_resource, child_resource],
+        child_name=config.name,
+        parent_name=middle_config.name,
+        parent_field_renames=chained.parent_field_renames,
+        client_config=_client_config(api_key),
+        team_id=team_id,
+        job_id=job_id,
+    )
+
+
+def _make_source_response(
+    config: CloudsmithEndpointConfig, items_fn: Callable[[], Any], supports_resume: bool = True
+) -> SourceResponse:
     return SourceResponse(
         name=config.name,
         items=items_fn,
+        supports_resume=supports_resume,
         primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
         sort_mode=config.sort_mode,
         partition_count=1,
@@ -228,6 +321,11 @@ def cloudsmith_source(
         # Only persist when there's somewhere to resume to; the Redis TTL handles cleanup.
         if state:
             resumable_source_manager.save_state(CloudsmithResumeConfig(paginator_state=dict(state)))
+
+    if endpoint_config.chained_fanout is not None:
+        # A two-level chain saves no checkpoint, so a shutdown cannot hand it off mid-walk.
+        chained_items = _chained_resource(endpoint_config, api_key, workspace, team_id, job_id)
+        return _make_source_response(endpoint_config, lambda: chained_items, supports_resume=False)
 
     if endpoint_config.fanout is not None:
         parent_config = CLOUDSMITH_ENDPOINTS[endpoint_config.fanout.parent_name]

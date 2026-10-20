@@ -14,8 +14,14 @@ and reads that variant's JSON payload from the same flag evaluation.
 1. Choose a stable variant key, such as `warehouse-research`. Keys must match `[a-z][a-z0-9_-]{0,63}`.
 2. Add the variant and its JSON payload. Supply both `message` and an HTTPS `booking_url`.
 3. Add release conditions using existing person/group properties or cohorts. Assign the desired variant to each condition explicitly.
-4. Put higher-priority, more specific conditions first. Check people who match only your study, only another study, both, and neither. One evaluation selects one interview; overlapping audiences do not produce multiple dialogs.
-5. Agree on rollout with the MCP owner before changing percentages or enabling the flag. Preserve the other studies' variants, payloads, and release conditions when editing it.
+4. Add an AND condition excluding the [shared recruitment exclusion cohort](https://us.posthog.com/project/2/cohorts/641799) (`type: "cohort"`, `key: "id"`, `operator: "not_in"`, `value: 641799`) to every release condition for every variant, including test audiences. Maintain excluded users and organizations in this cohort instead of adding individual entries to the flag.
+5. Put higher-priority, more specific conditions first. Check people who match only your study, only another study, both, and neither. Also check that excluded people receive no variant, even when they match a campaign's audience. One evaluation selects one interview; overlapping audiences do not produce multiple dialogs.
+6. Agree on rollout with the MCP owner before changing percentages or enabling the flag. Preserve the other studies' variants, payloads, release conditions, and cohort exclusions when editing it.
+
+The shared flag is [in US project 2](https://us.posthog.com/project/2/feature_flags/962543).
+Its release conditions are alternatives (OR), so each one must include the cohort exclusion.
+A separate exclusion-only condition does not protect the other conditions.
+Reuse cohort `641799` when adding campaigns or release conditions; do not create a separate exclusion list per campaign.
 
 Example payload:
 

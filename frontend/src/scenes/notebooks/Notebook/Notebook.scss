@@ -678,6 +678,12 @@ body[theme='dark'].has-markdown-v2-notebook .main-content-container > main {
     --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
 }
 
+// The Today layout keeps one background on every scene, so a notebook takes the app background there in both themes.
+body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
+[theme] .TodayAppLayout .Notebook--markdown-v2 {
+    --notebook-markdown-v2-page-background: var(--color-bg-primary);
+}
+
 .Notebook--markdown-v2 {
     --notebook-markdown-v2-page-background: var(--color-bg-primary);
 

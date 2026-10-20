@@ -25,7 +25,6 @@ import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { manageFingerprintsLogic } from '../../../components/FingerprintPreview/manageFingerprintsLogic'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { IssueCohort } from './IssueCohort'
 
 export const ErrorTrackingIssueScenePanel = ({
     issue,
@@ -39,7 +38,6 @@ export const ErrorTrackingIssueScenePanel = ({
             <ScenePanelInfoSection>
                 <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
                 <IssueExternalReference />
-                <IssueCohort issue={issue} />
             </ScenePanelInfoSection>
             <ScenePanelDivider />
             <ScenePanelActionsSection>

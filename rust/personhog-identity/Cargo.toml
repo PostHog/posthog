@@ -10,6 +10,7 @@ personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-database = { path = "../common/database" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 common-metrics = { path = "../common/metrics" }
@@ -37,6 +38,8 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+metrics-util = { workspace = true }
+rstest = "0.26"
 tokio = { workspace = true, features = ["test-util"] }
 
 # Drains the publish outbox identity writes; a second binary of this crate

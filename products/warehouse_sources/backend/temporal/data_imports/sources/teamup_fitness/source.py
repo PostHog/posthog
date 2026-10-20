@@ -108,7 +108,7 @@ class TeamupFitnessSource(ResumableSource[TeamupFitnessSourceConfig, TeamupFitne
             category=DataWarehouseSourceCategory.CRM,
             label="TeamUp Fitness",
             iconPath="/static/services/teamup_fitness.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an M2M token in your TeamUp business dashboard. "
                 "Open Settings > Integrations > API Integration > Options > Manage Applications. "

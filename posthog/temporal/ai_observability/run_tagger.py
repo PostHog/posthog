@@ -21,7 +21,13 @@ from posthog.temporal.ai_observability.evaluation_event_io import (
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+    capture_ai_internal_for_team,
+    raise_emit_failure,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -612,7 +618,9 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
             return
-        raise
+        raise_emit_failure(e)
+    except Exception as e:
+        raise_emit_failure(e)
 
 
 @temporalio.activity.defn
@@ -749,8 +757,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result=result,
                 start_time=start_time,
             ),
-            schedule_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            retry_policy=EMIT_EVENT_RETRY_POLICY,
         )
 
         return {

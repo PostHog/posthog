@@ -49,9 +49,6 @@ jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: (...args: any[]) => mockShowApprovalRequiredToast(...args),
 }))
 
-const RUNNING_EXP_ID = 45
-const RUNNING_FUNNEL_EXP_ID = 46
-
 const setHealthFindingsFlag = (enabled: boolean): void => {
     featureFlagLogic.actions.setFeatureFlags(
         enabled ? [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] : [],
@@ -92,38 +89,6 @@ describe('experimentLogic', () => {
                     results: [],
                 },
                 '/api/projects/:team/experiments/:id': experiment,
-                [`/api/projects/:team/experiments/${RUNNING_EXP_ID}/results`]: {
-                    filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'TRENDS' },
-                    insight: [
-                        { breakdown_value: 'control', count: 200 },
-                        { breakdown_value: 'test_1', count: 400 },
-                        { breakdown_value: 'test_2', count: 500 },
-                        { breakdown_value: 'test_3', count: 100 },
-                    ],
-                    probability: { control: 0.7, test_1: 0.1, test_2: 0.2, test_3: 0 },
-                },
-                [`/api/projects/:team/experiments/${RUNNING_FUNNEL_EXP_ID}/results`]: {
-                    filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'FUNNELS' },
-                    insight: [
-                        [
-                            { breakdown_value: ['control'], count: 200, order: 0 },
-                            { breakdown_value: ['control'], count: 100, order: 1 },
-                        ],
-                        [
-                            { breakdown_value: ['test_1'], count: 200, order: 0 },
-                            { breakdown_value: ['test_1'], count: 120, order: 1 },
-                        ],
-                        [
-                            { breakdown_value: ['test_2'], count: 200, order: 0 },
-                            { breakdown_value: ['test_2'], count: 140, order: 1 },
-                        ],
-                        [
-                            { breakdown_value: ['test_3'], count: 200, order: 0 },
-                            { breakdown_value: ['test_3'], count: 160, order: 1 },
-                        ],
-                    ],
-                    probability: { control: 0.7, test_1: 0.1, test_2: 0.2, test_3: 0 },
-                },
             },
         })
         initKeaTests()
@@ -2704,6 +2669,28 @@ describe('experimentLogic', () => {
 
             const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
             expect(checkedEvents).toHaveLength(1)
+        })
+
+        it('sends no health request for an experiment the server cannot find', async () => {
+            const healthRequest = jest.fn(() => [200, { findings: [] }])
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': () => [404, { detail: 'Not found.' }],
+                    [healthUrl]: healthRequest,
+                },
+            })
+            const keyedLogic = mountKeyedLogic()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+            await expectLogic(keyedLogic, () => {
+                keyedLogic.actions.loadExperiment()
+            })
+                .toDispatchActions(['setExperimentMissing', 'loadExperimentSuccess', 'loadExperimentHealthSuccess'])
+                .toMatchValues({ experimentHealth: null })
+
+            expect(healthRequest).not.toHaveBeenCalled()
+            const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
+            expect(checkedEvents).toHaveLength(0)
         })
 
         it('shows a reader with the flag neither warnings nor findings until the health answers', async () => {

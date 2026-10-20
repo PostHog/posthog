@@ -19,7 +19,9 @@ use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::Config;
-use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
+use crate::debug_recorder::{
+    record_if, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
+};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
@@ -204,28 +206,25 @@ struct RevokedPartition {
 }
 
 /// The consumer's revocation hook: purge the batcher, and record the revoked
-/// partitions when the batcher's purge means their polls never complete.
+/// partitions, because the purge means their polls never complete.
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> RevokeHook {
-    let records_revocations = revoker.drops_revoked_polls();
     Box::new(move |partitions| {
         revoker.purge_revoked(partitions);
-        if records_revocations {
-            revoked_partitions
-                .lock()
-                .unwrap()
-                .extend(partitions.iter().map(|(topic, partition)| {
-                    let topic_partition = TopicPartition::new(topic, *partition);
-                    let generation = ledger.generation(&topic_partition);
-                    RevokedPartition {
-                        topic_partition,
-                        generation,
-                    }
-                }));
-        }
+        revoked_partitions
+            .lock()
+            .unwrap()
+            .extend(partitions.iter().map(|(topic, partition)| {
+                let topic_partition = TopicPartition::new(topic, *partition);
+                let generation = ledger.generation(&topic_partition);
+                RevokedPartition {
+                    topic_partition,
+                    generation,
+                }
+            }));
     })
 }
 
@@ -381,7 +380,7 @@ pub struct IngestionConsumer {
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback. Only populated under the key-table scheduler.
+    /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 }
 
@@ -637,11 +636,6 @@ impl IngestionConsumer {
         } = collected;
         let message_count = accumulator.message_count();
         let poll_id = make_batch_id();
-        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
-            batch_id: poll_id.clone(),
-            messages: message_count,
-            partitions: debug_partition_offsets(&partitions),
-        });
         emit_poll_stats(
             &stats,
             &partitions,
@@ -652,6 +646,13 @@ impl IngestionConsumer {
         );
 
         let assignment_epoch = self.batcher.submit(accumulator);
+        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
+            batch_id: poll_id.clone(),
+            messages: message_count,
+            partitions: debug_partition_offsets(&partitions),
+            assignment_epoch,
+            spans: debug_partition_spans(&partitions),
+        });
 
         info!(
             batch_id = %poll_id,
@@ -1128,6 +1129,20 @@ fn debug_partition_offsets(
             partition: topic_partition.partition,
             offset: partition.span.last,
             lag_ms: partition.max_lag_ms.unwrap_or(0),
+        })
+        .collect()
+}
+
+/// Per-partition offset ranges, so the debug UI can match requests to polls.
+fn debug_partition_spans(
+    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
+) -> Vec<PartitionOffsets> {
+    partitions
+        .iter()
+        .map(|(topic_partition, partition)| PartitionOffsets {
+            topic: topic_partition.topic.clone(),
+            partition: topic_partition.partition,
+            ranges: vec![(partition.span.first, partition.span.last)],
         })
         .collect()
 }

@@ -4,7 +4,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@p
 
 import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
 import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
-import { resolvedExposureEvent } from 'scenes/experiments/exposureContract'
+import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
@@ -97,7 +97,7 @@ export function ExperimentMetricModal({
             <ExperimentMetricForm
                 metric={metric}
                 handleSetMetric={setModalMetric}
-                filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
+                filterTestAccounts={resolveFilterTestAccounts(experiment.exposure_criteria)}
                 exposureCriteria={exposureCriteria}
                 openExposureCriteriaModal={openExposureCriteriaModal}
                 resolvedExposureEvent={resolvedExposureEvent(experiment)}

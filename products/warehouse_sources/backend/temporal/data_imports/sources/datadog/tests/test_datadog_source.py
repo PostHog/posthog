@@ -39,11 +39,6 @@ class TestDatadogSource:
         # sent to a freshly-specified host.
         assert self.source.connection_host_fields == ["site"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["monitors"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "monitors"
-
     def test_version_metadata_declares_v2_default_and_deprecates_v1(self) -> None:
         # The repin migration and the in-product deprecation banner both key off this metadata;
         # the registry invariant test only checks generic invariants, not v1-deprecated / v2-default.

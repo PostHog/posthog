@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -1247,8 +1248,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
-                    target: 'generation' as const,
-                    target_config: {},
+                    target: template?.target ?? 'generation',
+                    target_config: template?.target
+                        ? seedSettleConfig(template.target, defaultStrategyForTarget(template.target))
+                        : {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
@@ -1268,14 +1271,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 ...baseFields,
                                 evaluation_type: 'hog' as const,
                                 evaluation_config: { source: template.source, bytecode: [] },
+                                output_type: template.output_type,
+                                output_config: template.output_config,
                             }
-                          : {
-                                ...baseFields,
-                                evaluation_type: 'llm_judge' as const,
-                                evaluation_config: {
-                                    prompt: template && 'prompt' in template ? template.prompt : '',
-                                },
-                            }
+                          : template?.evaluation_type === 'llm_judge'
+                            ? {
+                                  ...baseFields,
+                                  evaluation_type: 'llm_judge' as const,
+                                  evaluation_config: { prompt: template.prompt },
+                                  output_type: template.output_type,
+                                  output_config: template.output_config,
+                              }
+                            : {
+                                  ...baseFields,
+                                  evaluation_type: 'llm_judge' as const,
+                                  evaluation_config: { prompt: '' },
+                              }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },
@@ -1383,15 +1394,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return
                 }
 
+                // Unchanged configuration triggers capability checks that can block rename/disable after flag-off.
+                const evaluationData = isNew
+                    ? values.evaluation
+                    : Object.fromEntries(
+                          Object.entries(values.evaluation).filter(
+                              ([field, value]) =>
+                                  !objectsEqual(value, values.originalEvaluation?.[field as keyof EvaluationConfig])
+                          )
+                      )
                 const response = (isNew
                     ? await evaluationsCreate(
                           teamId.toString(),
-                          values.evaluation as Parameters<typeof evaluationsCreate>[1]
+                          evaluationData as Parameters<typeof evaluationsCreate>[1]
                       )
                     : await evaluationsPartialUpdate(
                           teamId.toString(),
                           props.evaluationId,
-                          values.evaluation as Parameters<typeof evaluationsPartialUpdate>[2]
+                          evaluationData as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
                 actions.saveEvaluationSuccess(response)
                 // The list and the self-driving table read from llmEvaluationsLogic, which only

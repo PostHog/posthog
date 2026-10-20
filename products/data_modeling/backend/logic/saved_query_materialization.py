@@ -83,7 +83,6 @@ def _enable_materialization(
     previously_materialized = saved_query.is_materialized
     _save_materialization(saved_query, is_materialized=True, sync_frequency_interval=sync_frequency_interval)
 
-    # Enable materialization - this handles model path setup and schedule creation
     # If this fails, it will set is_materialized = False
     try:
         saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=user.pk)

@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -86,6 +87,7 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    authored_monitoring_interval_minutes,
     parse_check_config,
     validate_metric_check_for_write,
 )
@@ -167,6 +169,24 @@ class TestCheckComparison(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("missing_monitoring_period", _threshold_config(monitoring={"threshold_scaling": "linear"})),
+            ("missing_scaling_policy", _threshold_config(monitoring={"reference_period_minutes": 10080})),
+            (
+                "zero_monitoring_period",
+                _threshold_config(monitoring={"reference_period_minutes": 0, "threshold_scaling": "fixed"}),
+            ),
+            (
+                "boolean_monitoring_period",
+                _threshold_config(monitoring={"reference_period_minutes": True, "threshold_scaling": "fixed"}),
+            ),
+            (
+                "unbounded_monitoring_period",
+                _threshold_config(monitoring={"reference_period_minutes": 527041, "threshold_scaling": "fixed"}),
+            ),
+            (
+                "unknown_scaling_policy",
+                _threshold_config(monitoring={"reference_period_minutes": 10080, "threshold_scaling": "automatic"}),
+            ),
             ("null_unit", _threshold_config(unit="m\x00s")),
             ("surrogate_unit", _threshold_config(unit="m\ud800s")),
             ("neither_source", {"comparison": {"operator": "lte", "value": 1}}),
@@ -201,6 +221,57 @@ class TestCheckComparison(SimpleTestCase):
     def test_malformed_metric_threshold_config_is_refused(self, _name, config) -> None:
         with self.assertRaises(CheckConfigValidationError):
             parse_check_config("metric_threshold", config)
+
+    @parameterized.expand(
+        [
+            ("count", "total", "linear", None, True),
+            ("null_count", None, "linear", None, True),
+            ("sum", "sum", "linear", None, True),
+            ("session_duration_sum", "sum", "linear", None, False, "$session_duration"),
+            ("session_property_sum", "sum", "linear", None, False, "$pageview_count", "session_properties"),
+            ("fixed_session_sum", "sum", "fixed", None, True, "$session_duration"),
+            ("distinct", "dau", "linear", None, False),
+            ("average", "avg", "linear", None, False),
+            ("fixed_average", "avg", "fixed", None, True),
+            ("fixed_distinct", "dau", "fixed", None, True),
+            ("formula", "total", "linear", {"formulas": ["A * 2"]}, False),
+            ("missing_baseline_period", "total", "fixed", None, False),
+        ]
+    )
+    def test_monitoring_targets_require_explicit_supported_scaling(
+        self,
+        name: str,
+        math: str | None,
+        scaling: str,
+        trends_filter: dict | None,
+        valid: bool,
+        math_property: str = "amount",
+        math_property_type: str | None = None,
+    ) -> None:
+        query = trends_metric_query(
+            series=[
+                {
+                    "kind": "EventsNode",
+                    "event": "checkout_failed",
+                    "math": math,
+                    "math_property": math_property,
+                    "math_property_type": math_property_type,
+                }
+            ]
+        )
+        if trends_filter is not None:
+            query["source"]["trendsFilter"] = trends_filter
+        monitoring: dict[str, object] = {"reference_period_minutes": 10080, "threshold_scaling": scaling}
+        if name != "missing_baseline_period":
+            monitoring["baseline_period_minutes"] = 20160
+        config = MetricThresholdConfig.model_validate(
+            _threshold_config(query=query, baseline_value=80, monitoring=monitoring)
+        )
+        if valid:
+            validate_metric_check_for_write(config)
+        else:
+            with self.assertRaises(CheckConfigValidationError):
+                validate_metric_check_for_write(config)
 
     def test_a_padded_metric_reference_is_normalized_so_it_can_still_match(self) -> None:
         config = parse_check_config(
@@ -392,6 +463,31 @@ class TestAgentCheckConfig(SimpleTestCase):
 
 
 class TestCheckScheduleValidation(SimpleTestCase):
+    @parameterized.expand(
+        [("metric_threshold", _threshold_config()), ("agent", {"instructions": "Check the issue again."})]
+    )
+    def test_research_cannot_add_monitoring_cadence_to_other_checks(self, kind: str, config: dict[str, object]) -> None:
+        with self.assertRaises(PydanticValidationError):
+            CheckSpec.model_validate(
+                {"title": "Check recovery", "kind": kind, "config": config, "run_interval_minutes": 360}
+            )
+
+    @parameterized.expand(
+        [
+            ("short", 4, None, None),
+            ("exact_floor", 6, None, None),
+            ("one_sample", 8, None, 360),
+            ("daily", 24, None, 360),
+            ("two_days", 48, None, 720),
+            ("weekly", 168, None, 1440),
+            ("authored", 24, 480, 480),
+        ]
+    )
+    def test_monitoring_cadence_fits_the_window(
+        self, _name: str, soak_hours: int, interval: int | None, expected: int | None
+    ) -> None:
+        assert authored_monitoring_interval_minutes(soak_hours * 60, interval) == expected
+
     @parameterized.expand(
         [
             ("first_run_in_the_past", {"next_run_at": "2020-01-01T00:00:00Z"}, "next_run_at"),
@@ -1023,6 +1119,59 @@ class TestReportCheckAPI(APIBaseTest):
         spec.update(overrides)
         return create_check(report=report or self.report, attribution=ArtefactAttribution.system(), **spec)
 
+    @parameterized.expand(
+        [
+            ("enabled", True),
+            ("disabled", False),
+            ("unavailable", RuntimeError("flag unavailable")),
+        ]
+    )
+    def test_monitoring_metric_definition_writes_and_reads_follow_the_organization_gate(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        monitoring = {
+            "reference_period_minutes": 10080,
+            "threshold_scaling": "linear",
+            "baseline_period_minutes": 20160,
+        }
+        config = _threshold_config(baseline_value=80, monitoring=monitoring)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            check = self._create(config=config)
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            if flag_result is True:
+                self._create(config=config)
+            else:
+                with self.assertRaisesMessage(CheckCreationError, "not enabled"):
+                    self._create(config=config)
+            response = self.client.get(f"{self.url}{check.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        returned_config = response.json()["config"]
+        assert ("monitoring" in returned_config) is (flag_result is True)
+        assert returned_config["query"] == _PAGEVIEWS
+        assert returned_config["comparison"] == config["comparison"]
+        check.refresh_from_db()
+        assert check.config["monitoring"] == monitoring
+
+    def test_monitoring_metric_definitions_do_not_cross_organization_rollouts(self) -> None:
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization)
+        other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="Other fix")
+        config = _threshold_config(monitoring={"reference_period_minutes": 10080, "threshold_scaling": "fixed"})
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=lambda flag, organization_id, **kwargs: organization_id == str(self.organization.id),
+        ):
+            check = self._create(config=config)
+            with self.assertRaisesMessage(CheckCreationError, "not enabled"):
+                self._create(report=other_report, config=config)
+            response = self.client.get(f"{self.url}{check.id}/")
+        assert response.json()["config"]["monitoring"] == config["monitoring"]
+        assert not SignalReportCheck.objects.for_team(other_team.id).exists()
+
     def test_the_endpoint_does_not_create_checks(self) -> None:
         response = self.client.post(
             self.url,
@@ -1324,6 +1473,7 @@ class TestReportCheckAPI(APIBaseTest):
             _MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)
         ) as measure:
             run_due_report_checks()
+        assert measure.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
         measured_query = measure.call_args.args[0]
         assert {key: value for key, value in measured_query["source"].items() if key != "dateRange"} == {
             key: value for key, value in _PAGEVIEWS["source"].items() if key != "dateRange"
@@ -1921,6 +2071,34 @@ class TestCheckResultTool(APIBaseTest):
         assert check.dispatched_at is None
         assert check.runs_remaining == 1
         assert check.next_run_at > timezone.now() + timedelta(minutes=MIN_CHECK_INTERVAL_MINUTES - 5)
+
+    @parameterized.expand(
+        [
+            ("emit_only", "emit", 0),
+            ("emit_and_edit", "both", 0),
+            ("edit_only", "edit", 1),
+            ("no_report_tools", "none", 1),
+            ("unstamped", None, 0),
+        ]
+    )
+    def test_a_failure_resurfaces_only_when_the_lane_cannot_file_the_follow_up(
+        self, _name: str, report_channel: str | None, expected_signals: int
+    ) -> None:
+        check = self._check()
+        if report_channel is not None:
+            self.scout_run.metadata = {"report_channel": report_channel}
+            self.scout_run.save(update_fields=["metadata"])
+
+        with patch(_EMIT_SIGNAL, new=AsyncMock(return_value=None)) as emit:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._record(check)
+
+        assert emit.call_count == expected_signals
+        if expected_signals:
+            sent = emit.call_args.kwargs
+            assert sent["source_type"] == SignalSourceType.CHECK_FAILED
+            assert sent["extra"]["report_id"] == str(self.report.id)
+            assert "fired 30 times yesterday" in sent["description"]
 
     @parameterized.expand(
         [
@@ -2746,19 +2924,89 @@ class TestResearchAuthoredChecks(APIBaseTest):
         payload.update(overrides)
         return CheckSpec.model_validate(payload)
 
-    def test_a_spec_becomes_a_pending_check_carrying_the_metrics_query(self) -> None:
-        with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
-            written = create_checks_from_specs(
-                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-            ).created
+    @parameterized.expand(
+        [("legacy", False, False), ("enabled", True, True), ("disabled", True, False), ("unavailable", True, None)]
+    )
+    def test_a_spec_becomes_a_pending_check_carrying_the_metrics_query(
+        self, _name: str, monitoring: bool, flag_result: bool | None
+    ) -> None:
+        spec = self._spec()
+        if monitoring:
+            spec.config["monitoring"] = {
+                "reference_period_minutes": 1440,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 1440,
+            }
+        with (
+            patch(_CAPTURE) as capture,
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_result),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = create_checks_from_specs(
+                report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
+            )
+        if monitoring and flag_result is not True:
+            assert not result.applied
+            assert not self.report.checks.exists()
+            return
+        written = result.created
 
         assert len(written) == 1
         check = written[0]
         assert check.status == SignalReportCheck.Status.PENDING
         assert check.soak_minutes == DEFAULT_CHECK_SOAK_HOURS * 60
+        assert check.run_interval_minutes == (360 if monitoring else None)
         assert check.config["query"] == _PAGEVIEWS
         assert capture.call_args.kwargs["event"] == "signals_report_check_created"
         assert capture.call_args.kwargs["properties"]["check_status"] == SignalReportCheck.Status.PENDING
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, True, False),
+            ("unchanged", {"run_interval_minutes": 1440}, True, False),
+            ("revised", {"run_interval_minutes": 720}, True, True),
+            ("inherited_interval_does_not_fit", {"soak_hours": 12}, False, False),
+            ("interval_equals_window", {"soak_hours": 24}, False, False),
+            ("revised_window_and_interval", {"soak_hours": 12, "run_interval_minutes": 360}, True, True),
+        ]
+    )
+    def test_monitoring_cadence_revisions_preserve_checks_until_valid(
+        self, _name: str, overrides: dict[str, int], applied: bool, replaced: bool
+    ) -> None:
+        config = self._spec().config
+        config["monitoring"] = {
+            "reference_period_minutes": 1440,
+            "threshold_scaling": "fixed",
+            "baseline_period_minutes": 1440,
+        }
+        spec = self._spec(config=config, soak_hours=48, run_interval_minutes=1440)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            existing = create_checks_from_specs(
+                report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
+            ).created[0]
+            existing.approved_at = timezone.now()
+            existing.save(update_fields=["approved_at", "updated_at"])
+            version = existing.updated_at
+            revised = self._spec(config=spec.config, existing_check_id=existing.id, **overrides)
+            result = create_checks_from_specs(
+                report=self.report,
+                specs=[revised],
+                attribution=ArtefactAttribution.system(),
+                checks_snapshot=check_versions([existing]),
+            )
+
+        existing.refresh_from_db()
+        assert result.applied is applied
+        assert existing.status == (SignalReportCheck.Status.CANCELLED if replaced else SignalReportCheck.Status.PENDING)
+        if replaced:
+            assert result.created[0].run_interval_minutes == overrides["run_interval_minutes"]
+            assert result.created[0].soak_minutes == overrides.get("soak_hours", 48) * 60
+            assert result.created[0].approved_at is None
+            assert result.created[0].runs_remaining == existing.runs_remaining
+        else:
+            assert not result.created
+            assert existing.updated_at == version
+            assert existing.approved_at is not None
 
     @parameterized.expand([("no_lane", False), ("lane", True)])
     def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(self, _name: str, has_lane: bool) -> None:
@@ -2800,6 +3048,10 @@ class TestResearchAuthoredChecks(APIBaseTest):
     @parameterized.expand(
         [
             ("current_config", False, "unchanged"),
+            ("hidden_monitoring_definition", False, "unchanged", "monitoring_disabled"),
+            ("hidden_monitoring_after_flag_recovery", False, "unchanged", "monitoring_recovered"),
+            ("visible_monitoring_removed", False, "revise", "monitoring_visible"),
+            ("revise_monitoring_with_null_interval", False, "revise", "monitoring_null_interval"),
             ("config_written_before_display_fields", True, "unchanged"),
             ("revise_approved", False, "revise"),
             ("retire_approved", False, "retire"),
@@ -2809,6 +3061,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             ("omitted_existing_wait", False, "unchanged", "omitted_wait"),
             ("revise_omitted_existing_wait", False, "revise", "omitted_wait"),
             ("longer_wait", False, "revise", "longer_wait"),
+            ("revise_legacy_null_wait", False, "revise", "legacy_null_wait"),
             ("invalid_stored_config", False, "revise", "invalid_stored"),
         ]
     )
@@ -2819,7 +3072,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
         spec = self._spec()
         if variant == "metric_defaults":
             spec.config["baseline_value"] = None
-        elif variant == "agent_defaults":
+        elif variant in {"agent_defaults", "legacy_null_wait"}:
             spec = self._spec(kind="agent", config={"instructions": "Check the issue again."})
         existing = create_checks_from_specs(
             report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
@@ -2833,8 +3086,16 @@ class TestResearchAuthoredChecks(APIBaseTest):
             stored_config.update(probe_hints=[], skill_name=None)
         if variant == "invalid_stored":
             stored_config["retired_config_field"] = "obsolete"
+        if variant in {"monitoring_disabled", "monitoring_recovered", "monitoring_visible", "monitoring_null_interval"}:
+            stored_config["monitoring"] = {
+                "reference_period_minutes": 10080,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 10080,
+            }
         if variant == "omitted_wait":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=72 * 60)
+        if variant == "legacy_null_wait":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=None)
         if variant == "recurring":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
                 soak_minutes=1450, run_interval_minutes=7 * 24 * 60, runs_remaining=3
@@ -2856,18 +3117,37 @@ class TestResearchAuthoredChecks(APIBaseTest):
             else [spec]
         )
 
+        if variant == "monitoring_visible":
+            specs = [spec]
+        if variant == "legacy_null_wait":
+            specs = [
+                self._spec(
+                    title="Revised goal", kind="agent", config=spec.config, existing_check_id=existing.id, soak_hours=1
+                )
+            ]
+        if variant == "monitoring_null_interval":
+            specs[0].config["monitoring"] = stored_config["monitoring"]
         if variant == "omitted_wait":
             specs[0] = self._spec(title=specs[0].title, existing_check_id=existing.id)
         if variant == "invalid_stored":
             specs = [self._spec(existing_check_id=existing.id)]
         elif variant == "longer_wait":
             specs[0] = specs[0].model_copy(update={"soak_hours": 72})
-        written = create_checks_from_specs(
-            report=self.report,
-            specs=specs,
-            attribution=ArtefactAttribution.system(),
-            checks_snapshot=check_versions([existing]),
-        ).created
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=variant in {"monitoring_recovered", "monitoring_visible", "monitoring_null_interval"},
+        ):
+            written = create_checks_from_specs(
+                report=self.report,
+                specs=specs,
+                attribution=ArtefactAttribution.system(),
+                checks_snapshot=check_versions([existing]),
+                monitoring_definitions_visible=(
+                    variant == "monitoring_visible"
+                    if variant in {"monitoring_recovered", "monitoring_visible"}
+                    else None
+                ),
+            ).created
 
         existing.refresh_from_db()
         assert existing.status == (
@@ -2876,11 +3156,18 @@ class TestResearchAuthoredChecks(APIBaseTest):
         assert existing.approved_at == approved_at
         if action == "unchanged":
             assert (existing.next_run_at, existing.expires_at, existing.updated_at) == original_schedule
+            assert existing.config == stored_config
         assert len(written) == (1 if action == "revise" else 0)
         if written:
-            assert written[0].title == (spec.title if variant == "invalid_stored" else "Revised goal")
+            assert written[0].title == specs[0].title
             assert written[0].approved_at is None
-            assert written[0].soak_minutes == (72 * 60 if variant == "longer_wait" else existing.soak_minutes)
+            assert written[0].soak_minutes == (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if variant == "legacy_null_wait"
+                else 72 * 60
+                if variant == "longer_wait"
+                else existing.soak_minutes
+            )
             assert written[0].run_interval_minutes == existing.run_interval_minutes
             assert written[0].runs_remaining == existing.runs_remaining
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == (

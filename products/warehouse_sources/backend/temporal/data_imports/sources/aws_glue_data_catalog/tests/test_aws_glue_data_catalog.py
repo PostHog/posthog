@@ -184,6 +184,7 @@ def test_body_retry_does_not_repeat_transport_retries(status: int, attempts: int
         ("jobs", "Jobs"),
         ("crawlers", "Crawlers"),
         ("data_quality_results", "Results"),
+        ("data_quality_results_v2", "Results"),
     ],
 )
 def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(endpoint: str, result_key: str) -> None:

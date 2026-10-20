@@ -30,6 +30,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { everyWarehouseSeriesReadsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
@@ -787,6 +788,8 @@ export const InsightDetails = React.memo(
         )
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
+        const ignoresPropertyOverrides =
+            hasDataWarehouseSeries && isInsightVizNode(query) && !everyWarehouseSeriesReadsFlagCalls(query.source)
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
@@ -817,7 +820,7 @@ export const InsightDetails = React.memo(
                                 override={dateOverride}
                             />
                         )}
-                        {hasDataWarehouseSeries && hasPropertyOverrides ? (
+                        {ignoresPropertyOverrides && hasPropertyOverrides ? (
                             <PropertiesIgnoredWarning />
                         ) : (
                             <PropertiesSummary

@@ -169,43 +169,70 @@ def get_dag_node_count_metric(outcome: str, engine: str) -> MetricHistogramFloat
 # Node-level metrics (v2 MaterializeViewWorkflow)
 
 
-def get_node_finished_metric(status: str) -> MetricCounter:
+def get_trino_shadow_start_metric(outcome: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"outcome": outcome})
         .create_counter(
-            "data_modeling_node_finished",
-            "Number of node materializations finished. Status is completed, failed, or cancelled.",
+            "data_modeling_trino_shadow_start",
+            "Trino shadow run start attempts. Outcome is started, skipped_still_running, or error.",
         )
     )
 
 
-def get_node_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_duration_seconds",
-        "Wall-clock duration of a single node materialization.",
-        "s",
+def get_node_finished_metric(status: str, engine: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"status": status, "engine": engine})
+        .create_counter(
+            "data_modeling_node_finished",
+            "Number of node materializations finished. Status is completed, failed, cancelled, or quality_blocked.",
+        )
     )
 
 
-def get_node_rows_materialized_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_rows_materialized",
-        "Number of rows materialized per node.",
+def get_node_duration_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_duration_seconds",
+            "Wall-clock duration of a single node materialization.",
+            "s",
+        )
     )
 
 
-def get_node_storage_delta_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_storage_delta_mib",
-        "Change in S3 storage size (MiB) after a node materialization.",
-        "MiB",
+def get_node_rows_materialized_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_rows_materialized",
+            "Number of rows materialized per node.",
+        )
     )
 
 
-def get_node_total_storage_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_total_storage_mib",
-        "Total S3 storage size (MiB) of the materialized table after a node materialization.",
-        "MiB",
+def get_node_storage_delta_mib_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_storage_delta_mib",
+            "Change in storage size (MiB) after a node materialization.",
+            "MiB",
+        )
+    )
+
+
+def get_node_total_storage_mib_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_total_storage_mib",
+            "Total storage size (MiB) of the materialized table after a node materialization.",
+            "MiB",
+        )
     )

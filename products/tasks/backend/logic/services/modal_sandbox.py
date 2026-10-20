@@ -91,6 +91,12 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
+from products.tasks.backend.logic.services.task_filesystem import (
+    TASK_FILESYSTEM_SCRIPT,
+    TASK_FILESYSTEM_VERSION,
+    read_task_filesystem_script,
+    task_filesystem_command,
+)
 from products.tasks.backend.models import DevStackImageTarget, SandboxSnapshot
 
 from .agent_server_launcher import (
@@ -753,6 +759,8 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_MEMORY_WATCHDOG, context_dir / LOCAL_MODAL_MEMORY_WATCHDOG)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        filesystem_script = Path("products/tasks/backend/sandbox/images/task_filesystem.py")
+        shutil.copy2(base_dir / filesystem_script, context_dir / filesystem_script)
         destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
         destination_hogli_shim_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(base_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT, destination_hogli_shim_path)
@@ -823,6 +831,36 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()
+
+    def _wrap_agent_server_command(self, command: str) -> str:
+        return f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} enter -- {command}"
+
+    def _prepare_task_filesystem(self) -> None:
+        if self.config.template not in {
+            SandboxTemplate.DEFAULT_BASE,
+            SandboxTemplate.AUTORESEARCH_BASE,
+            SandboxTemplate.VM_BASE,
+        }:
+            return
+        if (self.config.metadata or {}).get("purpose") == "dev_stack_image_bake":
+            return
+        enabled = settings.TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED
+        if self.config.snapshot_restored:
+            result = self.execute(f"test -f {TASK_FILESYSTEM_VERSION} && printf 1", timeout_seconds=30)
+            enabled = result.exit_code == 0 and result.stdout == "1"
+        elif enabled:
+            result = self.execute(
+                "test -d /opt/posthog/task-home && test ! -L /opt/posthog/task-home && printf 1", timeout_seconds=30
+            )
+            enabled = result.exit_code == 0 and result.stdout == "1"
+        if not enabled:
+            return
+        self._write_required_file(TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script())
+        result = self.execute(
+            f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} initialize {self._sandbox_runtime()}", timeout_seconds=120
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Task filesystem initialization failed: {result.stderr[-2000:]}")
 
     def _sandbox_runtime(self) -> str | None:
         return "vm" if self.config.is_vm else "gvisor"
@@ -1181,6 +1219,24 @@ class ModalSandbox(AgentServerLaunchMixin):
                 sb.set_tags(config.metadata)
 
             sandbox = cls(sandbox=sb, config=config)
+            try:
+                sandbox._prepare_task_filesystem()
+            except Exception as e:
+                try:
+                    cls._terminate_unready_sandbox(sb, config)
+                except SandboxProvisionError:
+                    logger.exception(
+                        "Failed to terminate sandbox after task filesystem initialization",
+                        extra={"sandbox_id": sb.object_id},
+                    )
+                if isinstance(e, SandboxControlPlaneError):
+                    sb = None
+                    raise
+                raise SandboxProvisionError(
+                    "Task filesystem initialization failed",
+                    {"config_name": config.name, "sandbox_id": sb.object_id},
+                    cause=e,
+                ) from e
             if modal_output is not None:
                 sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
@@ -1416,6 +1472,12 @@ class ModalSandbox(AgentServerLaunchMixin):
             {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
             cause=RuntimeError(redacted_error),
         )
+
+    def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+        self._write_required_file(
+            TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script(), timeout_seconds=timeout_seconds
+        )
+        return self.execute(task_filesystem_command(command), timeout_seconds=timeout_seconds)
 
     def execute(
         self,

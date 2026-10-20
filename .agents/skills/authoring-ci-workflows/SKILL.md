@@ -240,6 +240,14 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 - **Default:** plain `actions/checkout` (depth 1). Add nothing.
 
+- **Asking for changed files or a merge base:** ask the GitHub API, not local history.
+  On `pull_request` the checkout's HEAD is the merge commit, so `repos/{repo}/compare/{default_branch}...{merge_sha}?per_page=1` returns the merge base and the change set in one call.
+  It lists at most 300 files, so a list at the cap is truncated. Past it, fetch the merge base without blobs and `git diff --name-only --no-renames <sha> HEAD`, which reads only trees.
+  `repos/{repo}/pulls/{n}/files` is no substitute: it diffs the PR head against its own base, not the merge commit, and reads whatever head the PR has when the call runs.
+  List a rename's `previous_filename` too, since the old path counts as deleted.
+  To read one file at the merge base, `git fetch --no-tags --depth=1 --filter=blob:none origin <sha>` and `git show <sha>:<path>` it, or use the contents API.
+  `trunk-impacted-targets.yml` is the reference.
+
 - **Diffing against the PR base:** you need real history, so bound the depth, filter blobs, **and** sparse-checkout the files the job reads:
 
   ```yaml
@@ -511,6 +519,8 @@ A workflow edit hits every open PR the instant it merges (it runs against PR-mer
 If the workflow starts _requiring_ something unrebased branches lack, every in-flight PR fails before its tests run.
 Make new behavior degrade gracefully when the prerequisite is absent, or gate it.
 Roll out a new blocking lint the same way: ship `continue-on-error`, clear the inbox, promote to blocking.
+A new or tightened baseline ratchet in `posthog/test/repo_invariants/` meets queued PRs that passed CI before it existed, so report its mismatch through `enforce_baseline` in `ratchet.py` with a `blocking_from` date a few days out: new violations only warn until then.
+Before that date, fix or add to the baseline every violation that landed during the grace period, or master goes red on it.
 
 ## New-workflow checklist
 

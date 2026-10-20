@@ -43,11 +43,13 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    authored_monitoring_interval_minutes,
     check_schedule_expires_at,
     parse_check_config,
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
@@ -228,6 +230,12 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
     except CheckConfigValidationError as error:
         raise CheckCreationError(str(error)) from None
 
+    if (
+        isinstance(parsed, MetricThresholdConfig)
+        and parsed.monitoring is not None
+        and not team_report_monitoring_enabled(report.team_id)
+    ):
+        raise CheckCreationError("Monitoring metric definitions are not enabled for this organization.")
     stored_config = dict(config)
     if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
         if parsed.query is not None:
@@ -280,13 +288,25 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
     return filled
 
 
-def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired: dict) -> bool:
+def _check_configs_match(
+    report: SignalReport, check: SignalReportCheck, desired: dict, *, monitoring_definitions_visible: bool | None
+) -> bool:
     try:
         stored = parse_check_config(
             check.kind, _with_metric_display(report, check.config, check.config.get("metric_id"))
         )
     except CheckConfigValidationError:
         return False
+    if (
+        isinstance(stored, MetricThresholdConfig)
+        and stored.monitoring is not None
+        and not (
+            team_report_monitoring_enabled(report.team_id)
+            if monitoring_definitions_visible is None
+            else monitoring_definitions_visible
+        )
+    ):
+        stored = stored.model_copy(update={"monitoring": None})
     return stored == parse_check_config(check.kind, desired)
 
 
@@ -296,12 +316,33 @@ class CheckReconciliation:
     created: list[SignalReportCheck]
 
 
+def _spec_soak_minutes(spec: CheckSpec, previous: SignalReportCheck | None) -> int:
+    if previous is not None and (
+        "soak_hours" not in spec.model_fields_set
+        or spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
+    ):
+        return previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
+    return spec.soak_hours * 60
+
+
+def _spec_interval_minutes(spec: CheckSpec, previous: SignalReportCheck | None) -> int | None:
+    interval = spec.run_interval_minutes
+    if interval is None and previous is not None:
+        interval = previous.run_interval_minutes
+        if interval is None:
+            return None
+    if spec.config.get("monitoring") is not None:
+        return authored_monitoring_interval_minutes(_spec_soak_minutes(spec, previous), interval)
+    return interval
+
+
 def create_checks_from_specs(
     *,
     report: SignalReport,
     specs: list[CheckSpec],
     attribution: ArtefactAttribution,
     checks_snapshot: dict[str, str] | None = None,
+    monitoring_definitions_visible: bool | None = None,
     reconcile: bool = True,
 ) -> CheckReconciliation:
     """Reconcile a successful verification turn with the report's open checks.
@@ -358,10 +399,15 @@ def create_checks_from_specs(
                         and check.rationale == spec.rationale
                         and check.kind == spec.kind
                         and (
+                            spec.run_interval_minutes is None or check.run_interval_minutes == spec.run_interval_minutes
+                        )
+                        and (
                             "soak_hours" not in spec.model_fields_set
                             or max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
                         )
-                        and _check_configs_match(report, check, config)
+                        and _check_configs_match(
+                            report, check, config, monitoring_definitions_visible=monitoring_definitions_visible
+                        )
                     ),
                     None,
                 )
@@ -380,16 +426,8 @@ def create_checks_from_specs(
                     kind=spec.kind,
                     config=spec.config,
                     attribution=attribution,
-                    soak_minutes=(
-                        previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
-                    )
-                    if previous is not None
-                    and (
-                        "soak_hours" not in spec.model_fields_set
-                        or spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
-                    )
-                    else spec.soak_hours * 60,
-                    run_interval_minutes=previous.run_interval_minutes if previous is not None else None,
+                    soak_minutes=_spec_soak_minutes(spec, previous),
+                    run_interval_minutes=_spec_interval_minutes(spec, previous),
                     runs_remaining=previous.runs_remaining if previous is not None else 1,
                 )
                 for spec, previous in new_specs

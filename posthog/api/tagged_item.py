@@ -29,7 +29,8 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     This is the core tag-setting logic extracted for reuse across serializers
     and bulk operations.
     """
-    deduped_tags = list({tagify(t) for t in tags})
+    # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
+    deduped_tags = sorted({tagify(t) for t in tags})
     tagged_item_objects = []
 
     for tag in deduped_tags:

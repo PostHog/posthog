@@ -9,6 +9,7 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -85,11 +86,12 @@ type TrendsInfoProps = {
 function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { breakdownFilter } = useValues(insightVizDataLogic)
+    const { breakdownFilter, querySource } = useValues(insightVizDataLogic)
 
-    // Formula series carry no entity (`action` is null), so fall back to the series label.
-    const seriesName = dataset.action ? (
-        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
+    // A formula row has no series node, so fall back to the row label.
+    const seriesNode = getResultSeries(querySource, dataset).node
+    const seriesName = seriesNode ? (
+        <EntityFilterInfo filter={seriesNode} allowWrap={true} showSingleName={true} />
     ) : (
         dataset.label
     )
