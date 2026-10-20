@@ -61,4 +61,28 @@ describe('WorkflowsExternalDeliveryReporter', () => {
             capture.mockRestore()
         }
     })
+
+    it.each([
+        ['this worker claimed', 'OK'],
+        ['another worker claimed', null],
+    ])('skips Redis for a team whose hour %s', async (_name, claimResult) => {
+        const capture = jest.spyOn(analytics, 'captureTeamEvent').mockImplementation(() => {})
+        const redis = { useClient: jest.fn().mockResolvedValue(claimResult) } as unknown as RedisV2
+        const postgres = {
+            query: jest.fn().mockResolvedValue({ rows: [{ email: 'member@example.com' }] }),
+        } as unknown as PostgresRouter
+        const reporter = new WorkflowsExternalDeliveryReporter(
+            { getTeam: (id) => Promise.resolve({ id, organization_id: 'org-id' } as Team) },
+            postgres,
+            redis
+        )
+        try {
+            await reporter.report(1, 'flow-id', ['reader@example.com'])
+            await reporter.report(1, 'flow-id', ['reader@example.com'])
+            expect(redis.useClient).toHaveBeenCalledTimes(1)
+            expect(capture).toHaveBeenCalledTimes(claimResult === 'OK' ? 1 : 0)
+        } finally {
+            capture.mockRestore()
+        }
+    })
 })
