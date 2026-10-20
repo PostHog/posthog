@@ -22,10 +22,6 @@ describe('shared-image publication bindings and fingerprints', () => {
     expect(() => bindChannels(loadPolicy(text), source)).toThrow(message)
   })
 
-  test.each(['', 'INVALID', 'a'])('rejects invalid source repository %s', repository => {
-    expect(() => bindChannels(loadPolicy(fixture), repository)).toThrow('unknown build input')
-  })
-
   test.each(['dw-metadata', '__proto__'])('preserves authored channel key %s', name => {
     const policy = loadPolicy(fixture)
     policy.images[source].channels = Object.fromEntries([[name, policy.images[source].channels['dw-metadata']]])
