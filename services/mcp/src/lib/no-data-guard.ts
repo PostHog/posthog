@@ -11,6 +11,11 @@ export function noDataNoticeMode(variant: FlagValue): NoDataNoticeMode | undefin
 export const INGESTED_DATA_KINDS = ['events', 'events_or_warehouse', 'logs', 'traces', 'metrics'] as const
 export type IngestedDataKind = (typeof INGESTED_DATA_KINDS)[number]
 
+// The logs, traces and metrics pipelines do not set `ingested_event`, so a project that only sends those reads as empty.
+export function noticeCoversIngestedData(kind: IngestedDataKind): boolean {
+    return kind === 'events' || kind === 'events_or_warehouse'
+}
+
 export const WIZARD_INSTALL_START_TOOL = 'wizard-install-start'
 
 export interface NoDataNoticeAudience {

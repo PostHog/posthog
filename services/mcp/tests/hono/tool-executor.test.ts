@@ -267,7 +267,7 @@ describe('ToolExecutor', () => {
             { mode: 'direct', tool: 'query-trends', projectHasData: undefined, variant: 'block', outcome: 'none' },
             { mode: 'exec', tool: 'docs-search', ...block, outcome: 'none' },
             { mode: 'exec', tool: 'docs-search', ...warn, outcome: 'none' },
-            { mode: 'direct', tool: 'query-logs', ...block, outcome: 'blocked' },
+            { mode: 'direct', tool: 'query-logs', ...block, outcome: 'none' },
             { mode: 'direct', tool: 'execute-sql', ...block, hasWarehouseData: false, outcome: 'blocked' },
             { mode: 'exec', tool: 'execute-sql', ...block, hasWarehouseData: true, outcome: 'none' },
             { mode: 'exec', tool: 'execute-sql', ...warn, hasWarehouseData: true, outcome: 'none' },
