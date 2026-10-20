@@ -94,7 +94,7 @@ Finage fail:stall-budget
 FinancialModelling fail:rate-limit-budget,safe-point,stall-budget
 Finnhub fail:rate-limit-budget,stall-budget
 Finnworlds fail:rate-limit-budget,stall-budget
-Fintoc not-checkable:database
+Fintoc fail:stall-budget
 Firebase not-checkable:schemas
 Flagsmith fail:safe-point,stall-budget
 Formbricks fail:rate-limit-budget,safe-point,stall-budget
