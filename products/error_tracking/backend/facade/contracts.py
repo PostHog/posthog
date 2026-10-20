@@ -338,6 +338,34 @@ class MissingSymbolsReason(LabeledStrEnum):
 
 
 @dataclass(frozen=True)
+class MissingSymbolsIssue:
+    """An issue whose recent exceptions contain frames from one missing-symbols example."""
+
+    id: UUID
+    name: str | None
+    description: str | None
+    occurrences: int
+
+
+@dataclass(frozen=True)
+class MissingSymbolsStackFrame:
+    function: str | None
+    source: str | None
+    line: int | None
+    column: int | None
+    in_app: bool
+    missing_symbols: bool
+
+
+@dataclass(frozen=True)
+class MissingSymbolsExampleException:
+    type: str | None
+    value: str | None
+    # Most recent call first, the order the issue page shows.
+    frames: list[MissingSymbolsStackFrame]
+
+
+@dataclass(frozen=True)
 class MissingSymbolsExample:
     """Frames from one file or build that miss the same symbols, for the same reason."""
 
@@ -346,13 +374,16 @@ class MissingSymbolsExample:
     symbol_id: str | None
     http_status: int | None
     frames: int
-    example_function: str | None
+    issues: list[MissingSymbolsIssue]
+    example_exception: MissingSymbolsExampleException | None
 
 
 @dataclass(frozen=True)
 class MissingSymbolsExamples:
     platform: SymbolsPlatform
     lookback_hours: int
+    # False when the exception lookup failed, so the issues and examples are unknown rather than absent.
+    exceptions_loaded: bool
     results: list[MissingSymbolsExample]
 
 

@@ -1,53 +1,94 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    Skeleton,
+    Text,
+} from 'lib/ui/quill'
+
+import { SourceMapsExamplesBrowser } from './SourceMapsExamplesBrowser'
 import { sourceMapsExamplesLogic } from './sourceMapsExamplesLogic'
-import { SourceMapsExamplesTable } from './SourceMapsExamplesTable'
 import { SOURCE_MAPS_DOCS_URL, SOURCE_MAPS_PLATFORM_LABELS } from './sourceMapsFixWizardLogic'
 
 export function SourceMapsExamplesModal(): JSX.Element {
-    const { isOpen, platform, examples, examplesLoading, examplesFailed } = useValues(sourceMapsExamplesLogic)
-    const { closeExamples, loadExamples } = useActions(sourceMapsExamplesLogic)
+    const { isOpen, platform, examples, examplesLoading, examplesFailed, selectedExampleIndex } =
+        useValues(sourceMapsExamplesLogic)
+    const { closeExamples, loadExamples, selectExample } = useActions(sourceMapsExamplesLogic)
+    const closeRef = useRef<HTMLButtonElement>(null)
     const labels = SOURCE_MAPS_PLATFORM_LABELS[platform ?? 'javascript']
     const lookbackHours = examples?.lookback_hours ?? 24
+    const retry = (): void => {
+        if (platform) {
+            loadExamples(platform)
+        }
+    }
 
     return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={closeExamples}
-            width={880}
-            title={`${labels.platform} frames missing ${labels.symbols}`}
-            description={`The files and builds with the most frames missing ${labels.symbols} in the last ${lookbackHours} hours.`}
-            footer={
-                <>
-                    <LemonButton type="secondary" to={SOURCE_MAPS_DOCS_URL} targetBlank>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && closeExamples()}>
+            <DialogContent size="wide" initialFocus={closeRef}>
+                <DialogHeader>
+                    <DialogTitle>{`${labels.platform} frames missing ${labels.symbols}`}</DialogTitle>
+                    <DialogDescription>
+                        {`The files and builds with the most frames missing ${labels.symbols} in the last ${lookbackHours} hours.`}
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogBody>
+                    {examplesLoading || (examples === null && !examplesFailed) ? (
+                        <div className="flex flex-col gap-2">
+                            <Skeleton className="h-12" />
+                            <Skeleton className="h-12" />
+                            <Skeleton className="h-12" />
+                        </div>
+                    ) : examplesFailed || !examples ? (
+                        <Text size="xs" variant="destructive">
+                            Couldn't load the examples. If it keeps failing, contact support.{' '}
+                            <Button variant="link" size="inline" onClick={retry}>
+                                Try again
+                            </Button>
+                        </Text>
+                    ) : examples.results.length === 0 ? (
+                        <Empty>
+                            <EmptyHeader>
+                                <EmptyTitle>{`No frames are missing ${labels.symbols}`}</EmptyTitle>
+                                <EmptyDescription>
+                                    {`Nothing to upload from the last ${lookbackHours} hours.`}
+                                </EmptyDescription>
+                            </EmptyHeader>
+                        </Empty>
+                    ) : (
+                        <SourceMapsExamplesBrowser
+                            examples={examples}
+                            selectedIndex={selectedExampleIndex}
+                            onSelect={selectExample}
+                            onRetry={retry}
+                        />
+                    )}
+                </DialogBody>
+                <DialogFooter>
+                    <Button variant="outline" render={<LinkPrimitive to={SOURCE_MAPS_DOCS_URL} target="_blank" />}>
                         Read docs
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={closeExamples}>
+                        <IconExternal />
+                    </Button>
+                    <Button ref={closeRef} variant="primary" onClick={closeExamples}>
                         Close
-                    </LemonButton>
-                </>
-            }
-        >
-            {examplesLoading || (examples === null && !examplesFailed) ? (
-                <div className="flex justify-center py-8">
-                    <Spinner />
-                </div>
-            ) : examplesFailed ? (
-                <LemonBanner
-                    type="error"
-                    action={{ children: 'Try again', onClick: () => platform && loadExamples(platform) }}
-                >
-                    Couldn't load the examples. Try again, and if it keeps failing, contact support.
-                </LemonBanner>
-            ) : !examples?.results.length ? (
-                <p className="text-secondary text-center py-8 mb-0">
-                    No frames are missing {labels.symbols} in the last {lookbackHours} hours.
-                </p>
-            ) : (
-                <SourceMapsExamplesTable examples={examples.results} />
-            )}
-        </LemonModal>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     )
 }

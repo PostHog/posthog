@@ -2,7 +2,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -17,6 +17,8 @@ from products.error_tracking.backend.logic.recommendations.alerts import AlertsR
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
     ErrorTrackingSettings,
     ErrorTrackingStackFrame,
@@ -40,7 +42,40 @@ MOCK_ALERTS_META_UPDATED = {
 MOCK_SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
 
 
-class TestRecommendationsAPI(APIBaseTest):
+class _StackFrameFactory:
+    team: Team
+
+    def _make_frame(
+        self,
+        contents: dict | None = None,
+        resolved: bool = False,
+        with_symbol_set: bool = False,
+        created_hours_ago: int = 1,
+        team: Team | None = None,
+    ) -> ErrorTrackingStackFrame:
+        team = team or self.team
+        symbol_set = (
+            ErrorTrackingSymbolSet.objects.create(team=team, ref=str(uuid4()), storage_ptr=str(uuid4()))
+            if with_symbol_set
+            else None
+        )
+        frame = ErrorTrackingStackFrame.objects.create(
+            team=team,
+            raw_id=str(uuid4()),
+            contents={"lang": "javascript", **(contents or {})},
+            resolved=resolved,
+            symbol_set=symbol_set,
+        )
+        ErrorTrackingStackFrame.objects.filter(id=frame.id).update(
+            created_at=timezone.now() - timedelta(hours=created_hours_ago)
+        )
+        return frame
+
+    def _make_missing_symbols_frame(self, **kwargs) -> ErrorTrackingStackFrame:
+        return self._make_frame(contents={"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d"}, **kwargs)
+
+
+class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
     def _list(self):
         return self.client.get(f"/api/environments/{self.team.id}/error_tracking/recommendations/")
 
@@ -264,35 +299,6 @@ class TestRecommendationsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_alerts.assert_not_called()
 
-    def _make_frame(
-        self,
-        contents: dict | None = None,
-        resolved: bool = False,
-        with_symbol_set: bool = False,
-        created_hours_ago: int = 1,
-        team: Team | None = None,
-    ) -> ErrorTrackingStackFrame:
-        team = team or self.team
-        symbol_set = (
-            ErrorTrackingSymbolSet.objects.create(team=team, ref=str(uuid4()), storage_ptr=str(uuid4()))
-            if with_symbol_set
-            else None
-        )
-        frame = ErrorTrackingStackFrame.objects.create(
-            team=team,
-            raw_id=str(uuid4()),
-            contents={"lang": "javascript", **(contents or {})},
-            resolved=resolved,
-            symbol_set=symbol_set,
-        )
-        ErrorTrackingStackFrame.objects.filter(id=frame.id).update(
-            created_at=timezone.now() - timedelta(hours=created_hours_ago)
-        )
-        return frame
-
-    def _make_missing_symbols_frame(self, **kwargs) -> ErrorTrackingStackFrame:
-        return self._make_frame(contents={"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d"}, **kwargs)
-
     def test_source_maps_compute_with_no_frames(self):
         meta = SourceMapsRecommendation().compute(self.team)
 
@@ -477,64 +483,6 @@ class TestRecommendationsAPI(APIBaseTest):
         self.assertEqual(meta["platforms"]["java"]["total_frames"], 100)
         self.assertFalse(recommendation.is_completed(meta))
 
-    def test_source_maps_examples_group_missing_frames_by_file_or_build(self):
-        for _ in range(3):
-            self._make_frame(
-                contents={
-                    "resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d",
-                    "source": "/assets/app.js",
-                    "mangled_name": "e",
-                }
-            )
-        for _ in range(2):
-            self._make_frame(
-                contents={
-                    "resolve_failure": "HTTP error 404 while fetching: HTTP status client error (404 Not Found) for url (https://example.com/app.js.map)",
-                    "source": "/app.js",
-                }
-            )
-        self._make_frame(resolved=True, with_symbol_set=True)
-        self._make_frame(contents={"resolve_failure": "Request timed out while fetching: https://example.com/b.js"})
-        for module in ("a.b", "a.c"):
-            self._make_frame(
-                contents={"lang": "java", "module": module, "resolve_failure": "No proguard map uploaded for id: 5d2c"}
-            )
-
-        base = f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/"
-        javascript = self.client.get(f"{base}?platform=javascript")
-        java = self.client.get(f"{base}?platform=java")
-
-        self.assertEqual(javascript.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            javascript.json(),
-            {
-                "platform": "javascript",
-                "lookback_hours": 24,
-                "results": [
-                    {
-                        "reason": "chunk_not_uploaded",
-                        "location": "/assets/app.js",
-                        "symbol_id": "0f1e2d",
-                        "http_status": None,
-                        "frames": 3,
-                        "example_function": "e",
-                    },
-                    {
-                        "reason": "file_not_reachable",
-                        "location": "https://example.com/app.js.map",
-                        "symbol_id": None,
-                        "http_status": 404,
-                        "frames": 2,
-                        "example_function": None,
-                    },
-                ],
-            },
-        )
-        self.assertEqual(
-            [(r["reason"], r["symbol_id"], r["frames"]) for r in java.json()["results"]],
-            [("mapping_not_uploaded", "5d2c", 2)],
-        )
-
     def test_source_maps_compute_ignores_frames_outside_lookback(self):
         self._make_missing_symbols_frame(created_hours_ago=48)
         self._make_frame(resolved=True, with_symbol_set=True, created_hours_ago=1)
@@ -606,3 +554,159 @@ class TestRecommendationsAPI(APIBaseTest):
         source_maps.refresh_from_db()
         self.assertEqual(source_maps.status, ErrorTrackingRecommendation.Status.READY)
         mock_source_maps.assert_called_once()
+
+
+CHUNK_NOT_UPLOADED = "No sourcemap uploaded for chunk id: 0f1e2d"
+NOT_FOUND = (
+    "HTTP error 404 while fetching: HTTP status client error (404 Not Found) for url (https://example.com/app.js.map)"
+)
+
+
+class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBaseTest):
+    def _issue(self, description: str, fingerprint: str) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError", description=description)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
+    def _exception(self, fingerprint: str, value: str, frames: list[ErrorTrackingStackFrame]) -> None:
+        _create_event(
+            event="$exception",
+            team=self.team,
+            distinct_id="user",
+            properties={
+                "$exception_fingerprint": fingerprint,
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": value,
+                        "stacktrace": {
+                            "type": "resolved",
+                            "frames": [
+                                {"raw_id": frame.raw_id, "resolved": frame.resolved, **frame.contents}
+                                for frame in frames
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+    def test_source_maps_examples_group_missing_frames_with_the_exceptions_they_appear_in(self):
+        chunk_frames = [
+            self._make_frame(
+                contents={
+                    "resolve_failure": CHUNK_NOT_UPLOADED,
+                    "source": "/assets/app.js",
+                    "mangled_name": "e",
+                    "line": 1,
+                    "column": 4321,
+                    "in_app": True,
+                }
+            )
+            for _ in range(3)
+        ]
+        not_found_frames = [
+            self._make_frame(contents={"resolve_failure": NOT_FOUND, "source": "/app.js"}) for _ in range(2)
+        ]
+        entry = self._make_frame(
+            contents={"source": "src/main.ts", "resolved_name": "main", "line": 3, "in_app": True},
+            resolved=True,
+            with_symbol_set=True,
+        )
+        self._make_frame(contents={"resolve_failure": "Request timed out while fetching: https://example.com/b.js"})
+        for module in ("a.b", "a.c"):
+            self._make_frame(
+                contents={"lang": "java", "module": module, "resolve_failure": "No proguard map uploaded for id: 5d2c"}
+            )
+        type_error = self._issue("Cannot read properties of undefined", "fp-type-error")
+        fetch_error = self._issue("Failed to fetch", "fp-fetch-error")
+        for _ in range(2):
+            self._exception("fp-type-error", "Cannot read properties of undefined", [entry, chunk_frames[0]])
+        self._exception("fp-fetch-error", "Failed to fetch", [not_found_frames[0]])
+        self._exception("fp-unrelated", "Unrelated", [entry])
+
+        base = f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/"
+        javascript = self.client.get(f"{base}?platform=javascript")
+        java = self.client.get(f"{base}?platform=java")
+
+        self.assertEqual(javascript.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            javascript.json(),
+            {
+                "platform": "javascript",
+                "lookback_hours": 24,
+                "exceptions_loaded": True,
+                "results": [
+                    {
+                        "reason": "chunk_not_uploaded",
+                        "location": "/assets/app.js",
+                        "symbol_id": "0f1e2d",
+                        "http_status": None,
+                        "frames": 3,
+                        "issues": [
+                            {
+                                "id": str(type_error.id),
+                                "name": "TypeError",
+                                "description": "Cannot read properties of undefined",
+                                "occurrences": 2,
+                            }
+                        ],
+                        "example_exception": {
+                            "type": "TypeError",
+                            "value": "Cannot read properties of undefined",
+                            "frames": [
+                                {
+                                    "function": "e",
+                                    "source": "/assets/app.js",
+                                    "line": 1,
+                                    "column": 4321,
+                                    "in_app": True,
+                                    "missing_symbols": True,
+                                },
+                                {
+                                    "function": "main",
+                                    "source": "src/main.ts",
+                                    "line": 3,
+                                    "column": None,
+                                    "in_app": True,
+                                    "missing_symbols": False,
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "reason": "file_not_reachable",
+                        "location": "https://example.com/app.js.map",
+                        "symbol_id": None,
+                        "http_status": 404,
+                        "frames": 2,
+                        "issues": [
+                            {
+                                "id": str(fetch_error.id),
+                                "name": "TypeError",
+                                "description": "Failed to fetch",
+                                "occurrences": 1,
+                            }
+                        ],
+                        "example_exception": {
+                            "type": "TypeError",
+                            "value": "Failed to fetch",
+                            "frames": [
+                                {
+                                    "function": None,
+                                    "source": "/app.js",
+                                    "line": None,
+                                    "column": None,
+                                    "in_app": False,
+                                    "missing_symbols": True,
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        )
+        self.assertEqual(
+            [(r["reason"], r["symbol_id"], r["frames"], r["issues"]) for r in java.json()["results"]],
+            [("mapping_not_uploaded", "5d2c", 2, [])],
+        )

@@ -15,10 +15,13 @@ export type WizardOpenSource = 'issues_list'
 
 export const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
-export const SOURCE_MAPS_PLATFORM_LABELS: Record<SourceMapsPlatform, { platform: string; symbols: string }> = {
-    javascript: { platform: 'JavaScript', symbols: 'source maps' },
-    java: { platform: 'Android', symbols: 'mapping files' },
-    native: { platform: 'iOS and native', symbols: 'debug symbols' },
+export const SOURCE_MAPS_PLATFORM_LABELS: Record<
+    SourceMapsPlatform,
+    { platform: string; symbols: string; symbol: string }
+> = {
+    javascript: { platform: 'JavaScript', symbols: 'source maps', symbol: 'source map' },
+    java: { platform: 'Android', symbols: 'mapping files', symbol: 'mapping file' },
+    native: { platform: 'iOS and native', symbols: 'debug symbols', symbol: 'debug symbols' },
 }
 
 // Delay before we ask "how did the wizard do?" — long enough that the user has

@@ -68559,6 +68559,65 @@ export namespace Schemas {
       DebugSymbolsNotUploaded: 'debug_symbols_not_uploaded',
     } as const;
 
+    export interface MissingSymbolsIssue {
+      /** The issue ID. */
+      id: string;
+      /**
+         * The issue name, usually the exception type.
+         * @nullable
+         */
+      name: string | null;
+      /**
+         * The issue description, usually the message.
+         * @nullable
+         */
+      description: string | null;
+      /** How many of the issue's exceptions in the lookback window contain these frames. */
+      occurrences: number;
+    }
+
+    export interface MissingSymbolsStackFrame {
+      /**
+         * The function name, resolved when symbols were available.
+         * @nullable
+         */
+      function: string | null;
+      /**
+         * The file, script URL or module of the frame.
+         * @nullable
+         */
+      source: string | null;
+      /**
+         * The line number, when known.
+         * @nullable
+         */
+      line: number | null;
+      /**
+         * The column number, when known.
+         * @nullable
+         */
+      column: number | null;
+      /** Whether the frame is the team's own code. */
+      in_app: boolean;
+      /** Whether an upload of symbols would resolve this frame. */
+      missing_symbols: boolean;
+    }
+
+    export interface MissingSymbolsExampleException {
+      /**
+         * The exception type, such as TypeError.
+         * @nullable
+         */
+      type: string | null;
+      /**
+         * The exception message.
+         * @nullable
+         */
+      value: string | null;
+      /** The stack trace, most recent call first, cut to the frames nearest the crash. */
+      frames: MissingSymbolsStackFrame[];
+    }
+
     export interface MissingSymbolsExample {
       /** Why the frames miss symbols, as a code. Each code maps to one kind of setup gap.
        *
@@ -68589,11 +68648,10 @@ export namespace Schemas {
       http_status: number | null;
       /** How many distinct stack frames in the lookback window this covers. */
       frames: number;
-      /**
-         * The function name of one affected frame, as the SDK reported it.
-         * @nullable
-         */
-      example_function: string | null;
+      /** The issues whose exceptions in the lookback window contain these frames, most occurrences first. */
+      issues: MissingSymbolsIssue[];
+      /** A recent exception whose stack trace contains these frames, or null when none was found. */
+      example_exception: MissingSymbolsExampleException | null;
     }
 
     /**
@@ -68619,6 +68677,8 @@ export namespace Schemas {
       platform: SymbolsPlatformEnum;
       /** How many hours of recent stack frames the examples cover. */
       lookback_hours: number;
+      /** False when the exception lookup failed, so `issues` and `example_exception` are unknown, not empty. */
+      exceptions_loaded: boolean;
       /** The files and builds with the most frames missing symbols, most frames first. */
       results: MissingSymbolsExample[];
     }

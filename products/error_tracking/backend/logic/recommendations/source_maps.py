@@ -1,4 +1,3 @@
-import re
 import operator
 import functools
 import dataclasses
@@ -6,18 +5,12 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Case, Count, Max, Q, Value, When
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models import Case, Count, Q, Value, When
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from products.error_tracking.backend.facade.contracts import (
-    MissingSymbolsExample,
-    MissingSymbolsExamples,
-    MissingSymbolsReason,
-    SymbolsPlatform,
-)
+from products.error_tracking.backend.facade.contracts import MissingSymbolsReason
 from products.error_tracking.backend.models import ErrorTrackingStackFrame
 
 from .base import Recommendation
@@ -133,7 +126,7 @@ PLATFORM = Case(
 )
 
 
-def _frames_database() -> str:
+def frames_database() -> str:
     if READ_REPLICA_OPT_IN_KEY in settings.READ_REPLICA_OPT_IN and "replica" in settings.DATABASES:
         return "replica"
     return "default"
@@ -153,7 +146,7 @@ class SourceMapsRecommendation(Recommendation):
         # covering index helps here: recent frames sit on pages that vacuum has not marked
         # all-visible yet, so an index-only scan fetches the heap for them anyway.
         rows = (
-            ErrorTrackingStackFrame.objects.using(_frames_database())
+            ErrorTrackingStackFrame.objects.using(frames_database())
             .filter(NEEDS_SYMBOLS, team_id__in=team_ids, created_at__gte=since)
             .annotate(platform=PLATFORM)
             .values("team_id", "platform")
@@ -204,78 +197,3 @@ class SourceMapsRecommendation(Recommendation):
         unresolved_pct = meta.get("unresolved_pct") or 0.0
         threshold = meta.get("threshold_pct") or UNRESOLVED_THRESHOLD
         return unresolved_pct <= threshold
-
-
-EXAMPLES_LIMIT = 10
-
-_URL_PATTERN = re.compile(r"https?://[^\s)]+")
-_HTTP_STATUS_PATTERN = re.compile(r"^HTTP error (\d{3}) ")
-# The failure text of these reasons ends with the ID that the missing symbols must be uploaded under.
-_REASONS_WITH_SYMBOL_ID = {
-    MissingSymbolsReason.CHUNK_NOT_UPLOADED,
-    MissingSymbolsReason.MAPPING_NOT_UPLOADED,
-    MissingSymbolsReason.DSYM_NOT_UPLOADED,
-    MissingSymbolsReason.DEBUG_SYMBOLS_NOT_UPLOADED,
-}
-
-
-def missing_symbols_examples(team_id: int, platform: SymbolsPlatform) -> MissingSymbolsExamples:
-    """The files and builds with the most frames missing symbols on one platform, most frames first."""
-    since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
-    # A JavaScript failure names its script, so frames group per file. Android and native failures
-    # name the build's mapping or debug ID, so frames group per build and the class or image is an example.
-    location_field = "source" if platform == SymbolsPlatform.JAVASCRIPT else "module"
-    group_by = ("failure", "location") if platform == SymbolsPlatform.JAVASCRIPT else ("failure",)
-    rows = (
-        ErrorTrackingStackFrame.objects.using(_frames_database())
-        .filter(MISSING_SYMBOLS, team_id=team_id, created_at__gte=since)
-        .alias(platform=PLATFORM)
-        .filter(platform=platform.value)
-        .annotate(
-            failure=KeyTextTransform("resolve_failure", "contents"),
-            location=KeyTextTransform(location_field, "contents"),
-        )
-        .values(*group_by)
-        .annotate(
-            frames=Count("id"),
-            example_location=Max("location"),
-            example_function=Max(KeyTextTransform("mangled_name", "contents")),
-        )
-        .order_by("-frames")[: EXAMPLES_LIMIT * 5]
-    )
-
-    # Rows with different failure texts can name the same file, such as one script that failed to fetch
-    # under several URLs, so merge them on what the user sees.
-    frames: dict[tuple[MissingSymbolsReason, str | None, str | None, int | None], int] = {}
-    functions: dict[tuple[MissingSymbolsReason, str | None, str | None, int | None], str | None] = {}
-    for row in rows:
-        failure: str = row["failure"]
-        rule = next(rule for rule in MISSING_SYMBOLS_RULES if failure.startswith(rule.prefixes))
-        prefix = next(prefix for prefix in rule.prefixes if failure.startswith(prefix))
-        url = _URL_PATTERN.search(failure)
-        status = _HTTP_STATUS_PATTERN.match(failure)
-        key = (
-            rule.reason,
-            url.group(0) if url else row["example_location"],
-            failure[len(prefix) :].strip() if rule.reason in _REASONS_WITH_SYMBOL_ID else None,
-            int(status.group(1)) if status else None,
-        )
-        frames[key] = frames.get(key, 0) + row["frames"]
-        functions.setdefault(key, row["example_function"] or None)
-
-    examples = [
-        MissingSymbolsExample(
-            reason=reason,
-            location=location,
-            symbol_id=symbol_id,
-            http_status=http_status,
-            frames=count,
-            example_function=functions[(reason, location, symbol_id, http_status)],
-        )
-        for (reason, location, symbol_id, http_status), count in frames.items()
-    ]
-    return MissingSymbolsExamples(
-        platform=platform,
-        lookback_hours=LOOKBACK_HOURS,
-        results=sorted(examples, key=lambda example: -example.frames)[:EXAMPLES_LIMIT],
-    )

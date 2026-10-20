@@ -36,6 +36,34 @@ class MissingSymbolsExamplesQuerySerializer(serializers.Serializer):
     )
 
 
+class MissingSymbolsIssueSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The issue ID.")
+    name = serializers.CharField(allow_null=True, help_text="The issue name, usually the exception type.")
+    description = serializers.CharField(allow_null=True, help_text="The issue description, usually the message.")
+    occurrences = serializers.IntegerField(
+        help_text="How many of the issue's exceptions in the lookback window contain these frames."
+    )
+
+
+class MissingSymbolsStackFrameSerializer(serializers.Serializer):
+    function = serializers.CharField(
+        allow_null=True, help_text="The function name, resolved when symbols were available."
+    )
+    source = serializers.CharField(allow_null=True, help_text="The file, script URL or module of the frame.")
+    line = serializers.IntegerField(allow_null=True, help_text="The line number, when known.")
+    column = serializers.IntegerField(allow_null=True, help_text="The column number, when known.")
+    in_app = serializers.BooleanField(help_text="Whether the frame is the team's own code.")
+    missing_symbols = serializers.BooleanField(help_text="Whether an upload of symbols would resolve this frame.")
+
+
+class MissingSymbolsExampleExceptionSerializer(serializers.Serializer):
+    type = serializers.CharField(allow_null=True, help_text="The exception type, such as TypeError.")
+    value = serializers.CharField(allow_null=True, help_text="The exception message.")
+    frames = MissingSymbolsStackFrameSerializer(
+        many=True, help_text="The stack trace, most recent call first, cut to the frames nearest the crash."
+    )
+
+
 class MissingSymbolsExampleSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=MissingSymbolsReason.choices,
@@ -53,14 +81,22 @@ class MissingSymbolsExampleSerializer(serializers.Serializer):
         allow_null=True, help_text="The HTTP status the script or source map returned, for 'file_not_reachable'."
     )
     frames = serializers.IntegerField(help_text="How many distinct stack frames in the lookback window this covers.")
-    example_function = serializers.CharField(
-        allow_null=True, help_text="The function name of one affected frame, as the SDK reported it."
+    issues = MissingSymbolsIssueSerializer(
+        many=True,
+        help_text="The issues whose exceptions in the lookback window contain these frames, most occurrences first.",
+    )
+    example_exception = MissingSymbolsExampleExceptionSerializer(
+        allow_null=True,
+        help_text="A recent exception whose stack trace contains these frames, or null when none was found.",
     )
 
 
 class MissingSymbolsExamplesSerializer(serializers.Serializer):
     platform = serializers.ChoiceField(choices=SymbolsPlatform.choices, help_text="The platform the examples are for.")
     lookback_hours = serializers.IntegerField(help_text="How many hours of recent stack frames the examples cover.")
+    exceptions_loaded = serializers.BooleanField(
+        help_text="False when the exception lookup failed, so `issues` and `example_exception` are unknown, not empty."
+    )
     results = MissingSymbolsExampleSerializer(
         many=True, help_text="The files and builds with the most frames missing symbols, most frames first."
     )
