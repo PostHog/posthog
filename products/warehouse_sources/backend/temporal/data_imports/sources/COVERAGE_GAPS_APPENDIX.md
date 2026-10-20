@@ -12037,10 +12037,10 @@ Today (5): `course_enrollments`, `courses`, `pricing_plans`, `transactions`, `us
 
 Diffed against: <https://docs.teachable.com/reference/listcourses>
 
-- [ ] `courses/{course_id}/progress` — per-student completion percentage — the headline learning metric, and the only way to measure course engagement (high)
-- [ ] `courses/{course_id}/lectures/{lecture_id}` — lecture lookup table resolving the lecture IDs referenced by progress and quiz data (high)
-- [ ] `courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses` — individual learner answers and scores — the assessment fact table (medium)
-- [ ] `courses/{course_id}/lectures/{lecture_id}/quizzes` — quiz lookup needed to interpret quiz responses (medium)
+- [x] `courses/{course_id}/progress` — per-student completion percentage — the headline learning metric, and the only way to measure course engagement (high)
+- [x] `courses/{course_id}/lectures/{lecture_id}` — lecture lookup table resolving the lecture IDs referenced by progress and quiz data (high)
+- [x] `courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses` — individual learner answers and scores — the assessment fact table (medium)
+- [x] `courses/{course_id}/lectures/{lecture_id}/quizzes` — quiz lookup needed to interpret quiz responses (medium)
 
 Note: Full v1 path list read out of the embedded ReadMe OAS on the reference page: courses, enrollments, lectures, quizzes, quiz responses, progress, pricing_plans, transactions, users, webhooks. Lectures/quizzes/progress are per-course sub-resources that must be fanned out over the courses we already sync.
 
