@@ -1012,6 +1012,22 @@ class PostgresSource(
             # Match that message substring so the role-lacks-SELECT case is caught at both layers
             # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            # `RaiseException` is the psycopg exception class for SQLSTATE P0001, raised only by a
+            # plain `RAISE EXCEPTION` inside a PL/pgSQL function — never by Postgres itself, only by
+            # a trigger, row-level security policy, or computed-column function the customer wrote.
+            # This source only ever reads, so the same SELECT against the same data raises the same
+            # error on every retry; most often it's an RLS policy whose check function expects an
+            # authenticated application user that PostHog's sync connection doesn't carry. Matches
+            # the Temporal-wrapped `ApplicationError` stringification ("RaiseException: ..."), the
+            # same route `InsufficientPrivilege` above uses.
+            "RaiseException": (
+                "A database function used by one or more of the tables you selected to sync raised "
+                'an error while PostHog was reading it (PostgreSQL reported a custom "RAISE '
+                'EXCEPTION"). This is often a row-level security policy whose check expects an '
+                "authenticated application user, which PostHog's sync connection doesn't have. "
+                "Update the policy or function to allow PostHog's connecting role, or remove the "
+                "affected tables from the sync, then re-enable the sync."
+            ),
             # A view selected for sync calls a function the connecting role can't execute (SQLSTATE
             # 42501) — most often a view that decrypts secrets via Supabase Vault / pgsodium
             # (`crypto_aead_det_decrypt`). Distinct from the table/view SELECT denial below: granting

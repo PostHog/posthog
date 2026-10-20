@@ -1620,6 +1620,22 @@ class TestPostgresSourceNonRetryableErrors:
         assert first_match is not None, "Recursive RLS policy error should surface an actionable message"
         assert "BYPASSRLS" in first_match
 
+    def test_custom_raise_exception_is_non_retryable(self, source):
+        # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+        # The raw psycopg message is arbitrary customer-authored RAISE text with no fixed
+        # substring, so only this wrapped form can be matched generically across customers.
+        error_msg = "RaiseException: Access denied: No user ID provided"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Custom RAISE EXCEPTION error should be non-retryable: {error_msg}"
+
+    def test_custom_raise_exception_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "RaiseException: Access denied: No user ID provided"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Custom RAISE EXCEPTION error should surface an actionable message"
+        assert "row-level security" in friendly[0]
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -8757,6 +8773,14 @@ class TestHasDuplicatePrimaryKeys:
                 "permission_denied",
                 psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
                 psycopg.errors.InsufficientPrivilege,
+            ),
+            # A row-level security policy (or other PL/pgSQL function) blocked the read with a
+            # custom RAISE (SQLSTATE P0001). Already non-retryable via get_non_retryable_errors,
+            # so the probe must propagate it rather than capture it.
+            (
+                "raise_exception",
+                psycopg.errors.RaiseException("Access denied: No user ID provided"),
+                psycopg.errors.RaiseException,
             ),
         ]
     )
