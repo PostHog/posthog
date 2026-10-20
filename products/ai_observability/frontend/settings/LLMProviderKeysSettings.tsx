@@ -237,10 +237,10 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     const keyValidated = preValidationResult?.state === 'ok'
     const isSystemOne = provider === 'system_one'
     const isValid =
-        name.length > 0 &&
+        name.trim().length > 0 &&
         (isSystemOne ? systemOneBaseUrl.length > 0 && systemOneModel.length > 0 : apiKey.length > 0) &&
-        (!isAzure || azureEndpoint.length > 0) &&
-        (!isOpenAICompatible || baseUrl.length > 0)
+        (!isAzure || (azureEndpoint.trim().length > 0 && apiVersion.trim().length > 0)) &&
+        (!isOpenAICompatible || baseUrl.trim().length > 0)
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const endpointErrorField =
         hasEndpointField && validationFailed ? endpointErrorFieldFromResult(preValidationResult) : null
@@ -540,9 +540,11 @@ function EditKeyModal({
     keyToEdit: LLMProviderKey
     restrictionReason: string | null
 }): JSX.Element {
-    const { providerKeysLoading, preValidationResult, preValidationResultLoading } = useValues(llmProviderKeysLogic)
+    const { providerKeysLoading, preValidationResult, preValidationResultLoading, editKeyFieldError } =
+        useValues(llmProviderKeysLogic)
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
-    const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation } = useActions(llmProviderKeysLogic)
+    const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation, setEditKeyFieldError } =
+        useActions(llmProviderKeysLogic)
     const isAzureEdit = keyToEdit.provider === 'azure_openai'
     const isSystemOne = keyToEdit.provider === 'system_one'
     const endpointChanged =
@@ -557,6 +559,19 @@ function EditKeyModal({
     const [azureEndpoint, setAzureEndpoint] = useState(keyToEdit.azure_endpoint_display ?? '')
     const [apiVersion, setApiVersion] = useState(keyToEdit.api_version_display ?? DEFAULT_AZURE_API_VERSION)
     const [baseUrl, setBaseUrl] = useState(keyToEdit.base_url_display ?? '')
+
+    const fieldErrorFor = (field: string): string | null =>
+        editKeyFieldError?.field === field ? editKeyFieldError.message : null
+
+    // A rejected field keeps its error until the user edits that field again.
+    const withFieldErrorCleared =
+        (field: string, onChange: (value: string) => void): ((value: string) => void) =>
+        (value) => {
+            onChange(value)
+            if (editKeyFieldError?.field === field) {
+                setEditKeyFieldError(null)
+            }
+        }
 
     const handleClose = (): void => {
         setEditingKey(null)
@@ -631,8 +646,10 @@ function EditKeyModal({
         }
 
     const keyValidated = isSystemOne || apiKey.length === 0 || preValidationResult?.state === 'ok'
-    const baseUrlMissing = isOpenAICompatibleEdit && baseUrl.length === 0
-    const foundryEndpointMissing = isFoundryEdit && azureEndpoint.length === 0
+    const baseUrlMissing = isOpenAICompatibleEdit && baseUrl.trim().length === 0
+    const foundryEndpointMissing = isFoundryEdit && azureEndpoint.trim().length === 0
+    const azureEndpointMissing = isAzureEdit && azureEndpoint.trim().length === 0
+    const apiVersionMissing = isAzureEdit && apiVersion.trim().length === 0
     // The backend rejects a base URL change that arrives without a key, so the key can't stay
     // masked here: re-entering it is what proves the caller already has it.
     const baseUrlChanged = isOpenAICompatibleEdit && !baseUrlMissing && baseUrl !== (keyToEdit.base_url_display ?? '')
@@ -647,13 +664,17 @@ function EditKeyModal({
                 ? 'Enter the API key again to change the Microsoft Foundry endpoint'
                 : null
     const missingFieldReason =
-        name.length === 0
+        name.trim().length === 0
             ? 'Enter a name'
             : baseUrlMissing
               ? 'Enter a base URL'
               : foundryEndpointMissing
                 ? 'Enter a Microsoft Foundry endpoint'
-                : null
+                : azureEndpointMissing
+                  ? 'Enter an Azure endpoint'
+                  : apiVersionMissing
+                    ? 'Enter an API version'
+                    : null
     const disabledReason = restrictionReason ?? missingFieldReason ?? apiKeyRequiredReason
     const isValid =
         keyValidated && !disabledReason && (!isSystemOne || (systemOneBaseUrl.length > 0 && systemOneModel.length > 0))
@@ -661,6 +682,19 @@ function EditKeyModal({
     const hasEndpointField = isAzureEdit || isFoundryEdit || isOpenAICompatibleEdit
     const endpointErrorField =
         hasEndpointField && validationFailed ? endpointErrorFieldFromResult(preValidationResult) : null
+    const endpointValidationError = endpointErrorField === 'endpoint' ? preValidationResult?.error_message : null
+    const azureEndpointError =
+        fieldErrorFor('azure_endpoint') ??
+        (endpointErrorField === 'endpoint' ? endpointValidationError || 'Invalid Azure endpoint' : null)
+    const foundryEndpointError =
+        fieldErrorFor('azure_endpoint') ??
+        (endpointErrorField === 'endpoint' ? endpointValidationError || 'Invalid Microsoft Foundry endpoint' : null)
+    const baseUrlError =
+        fieldErrorFor('base_url') ??
+        (endpointErrorField === 'endpoint' ? endpointValidationError || 'Invalid base URL' : null)
+    const apiVersionError = fieldErrorFor('api_version')
+    const nameError = fieldErrorFor('name')
+    const apiKeyError = fieldErrorFor('api_key')
 
     return (
         <LemonModal
@@ -698,27 +732,25 @@ function EditKeyModal({
                             <label className="text-sm font-medium">Azure endpoint</label>
                             <LemonInput
                                 value={azureEndpoint}
-                                onChange={setAzureEndpoint}
+                                onChange={withFieldErrorCleared('azure_endpoint', setAzureEndpoint)}
                                 placeholder="https://my-resource.openai.azure.com/"
                                 className="mt-1"
                                 fullWidth
-                                status={endpointErrorField === 'endpoint' ? 'danger' : undefined}
+                                status={azureEndpointError ? 'danger' : undefined}
                             />
-                            {endpointErrorField === 'endpoint' && (
-                                <p className="text-xs text-danger mt-1">
-                                    {preValidationResult?.error_message || 'Invalid Azure endpoint'}
-                                </p>
-                            )}
+                            {azureEndpointError && <p className="text-xs text-danger mt-1">{azureEndpointError}</p>}
                         </div>
                         <div>
                             <label className="text-sm font-medium">API version</label>
                             <LemonInput
                                 value={apiVersion}
-                                onChange={setApiVersion}
+                                onChange={withFieldErrorCleared('api_version', setApiVersion)}
                                 placeholder={DEFAULT_AZURE_API_VERSION}
                                 className="mt-1"
                                 fullWidth
+                                status={apiVersionError ? 'danger' : undefined}
                             />
+                            {apiVersionError && <p className="text-xs text-danger mt-1">{apiVersionError}</p>}
                         </div>
                     </>
                 )}
@@ -726,12 +758,8 @@ function EditKeyModal({
                     <FoundryEndpointField
                         optional={false}
                         value={azureEndpoint}
-                        onChange={handleEndpointChange(setAzureEndpoint)}
-                        errorMessage={
-                            endpointErrorField === 'endpoint'
-                                ? preValidationResult?.error_message || 'Invalid Microsoft Foundry endpoint'
-                                : null
-                        }
+                        onChange={withFieldErrorCleared('azure_endpoint', handleEndpointChange(setAzureEndpoint))}
+                        errorMessage={foundryEndpointError}
                     />
                 )}
                 {isSystemOne && <SystemOneConnectionFields />}
@@ -740,28 +768,31 @@ function EditKeyModal({
                         <label className="text-sm font-medium">Base URL</label>
                         <LemonInput
                             value={baseUrl}
-                            onChange={handleEndpointChange(setBaseUrl)}
+                            onChange={withFieldErrorCleared('base_url', handleEndpointChange(setBaseUrl))}
                             placeholder="https://api.example.com/v1"
                             className="mt-1"
                             fullWidth
-                            status={endpointErrorField === 'endpoint' ? 'danger' : undefined}
+                            status={baseUrlError ? 'danger' : undefined}
                         />
-                        {endpointErrorField === 'endpoint' && (
-                            <p className="text-xs text-danger mt-1">
-                                {preValidationResult?.error_message || 'Invalid base URL'}
-                            </p>
-                        )}
+                        {baseUrlError && <p className="text-xs text-danger mt-1">{baseUrlError}</p>}
                     </div>
                 )}
                 <div>
                     <label className="text-sm font-medium">Name</label>
-                    <LemonInput value={name} onChange={setName} className="mt-1" fullWidth />
+                    <LemonInput
+                        value={name}
+                        onChange={withFieldErrorCleared('name', setName)}
+                        className="mt-1"
+                        fullWidth
+                        status={nameError ? 'danger' : undefined}
+                    />
+                    {nameError && <p className="text-xs text-danger mt-1">{nameError}</p>}
                 </div>
                 <div>
                     <label className="text-sm font-medium">API key</label>
                     <LemonInput
                         value={apiKey}
-                        onChange={handleApiKeyChange}
+                        onChange={withFieldErrorCleared('api_key', handleApiKeyChange)}
                         onBlur={handleApiKeyBlur}
                         placeholder={
                             isSystemOne && endpointChanged
@@ -773,12 +804,14 @@ function EditKeyModal({
                         className="mt-1"
                         fullWidth
                         status={
-                            validationFailed && (!hasEndpointField || endpointErrorField === 'key')
+                            apiKeyError || (validationFailed && (!hasEndpointField || endpointErrorField === 'key'))
                                 ? 'danger'
                                 : undefined
                         }
                     />
-                    {apiKey.length > 0 ? (
+                    {apiKeyError ? (
+                        <p className="text-xs text-danger mt-1">{apiKeyError}</p>
+                    ) : apiKey.length > 0 ? (
                         <KeyValidationStatus
                             result={preValidationResult}
                             isValidating={preValidationResultLoading}

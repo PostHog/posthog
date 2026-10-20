@@ -184,6 +184,32 @@ export interface KeyValidationResult {
     error_field?: string | null
 }
 
+export interface ProviderKeyFieldError {
+    // Serializer field the backend rejected, e.g. 'azure_endpoint'.
+    field: string
+    message: string
+}
+
+/**
+ * Attributes a validation 400 from saving an edited key to the edit modal input that shows it.
+ * Returns null when the modal has no input for the rejected field, so the caller toasts instead.
+ */
+export function getEditKeyFieldError(key: LLMProviderKey, errorObject: unknown): ProviderKeyFieldError | null {
+    const { status, attr, detail } = (errorObject ?? {}) as Partial<Pick<ApiError, 'status' | 'attr' | 'detail'>>
+    if (status !== 400 || !attr || !detail) {
+        return null
+    }
+    const inlineFields = ['name', 'api_key']
+    if (key.provider === 'azure_openai') {
+        inlineFields.push('azure_endpoint', 'api_version')
+    } else if (key.provider === 'anthropic' && key.azure_endpoint_display) {
+        inlineFields.push('azure_endpoint')
+    } else if (key.provider === 'openai_compatible') {
+        inlineFields.push('base_url')
+    }
+    return inlineFields.includes(attr) ? { field: attr, message: detail } : null
+}
+
 export interface DependentEvaluation {
     id: string
     name: string
@@ -206,6 +232,7 @@ export interface llmProviderKeysLogicValues {
     activeProviderKey: LLMProviderKey | null | undefined
     dependentConfigs: DependentConfigsResponse | null
     dependentConfigsLoading: boolean
+    editKeyFieldError: ProviderKeyFieldError | null
     editingKey: LLMProviderKey | null
     evaluationConfig: EvaluationConfig | null
     evaluationConfigLoading: boolean
@@ -370,6 +397,9 @@ export interface llmProviderKeysLogicActions {
             base_url?: string
         }
     }
+    setEditKeyFieldError: (fieldError: ProviderKeyFieldError | null) => {
+        fieldError: ProviderKeyFieldError | null
+    }
     setEditingKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
     }
@@ -456,6 +486,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setEditKeyFieldError: (fieldError: ProviderKeyFieldError | null) => ({ fieldError }),
         setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
         confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
@@ -487,6 +518,14 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as LLMProviderKey | null,
             {
                 setEditingKey: (_, { key }) => key,
+            },
+        ],
+        editKeyFieldError: [
+            null as ProviderKeyFieldError | null,
+            {
+                setEditKeyFieldError: (_, { fieldError }) => fieldError,
+                updateProviderKey: () => null,
+                setEditingKey: () => null,
             },
         ],
         validatingKeyId: [
@@ -717,7 +756,12 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         createProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to create API key: ${error || 'Unknown error'}`)
         },
-        updateProviderKeyFailure: ({ error }) => {
+        updateProviderKeyFailure: ({ error, errorObject }) => {
+            const fieldError = values.editingKey ? getEditKeyFieldError(values.editingKey, errorObject) : null
+            if (fieldError) {
+                actions.setEditKeyFieldError(fieldError)
+                return
+            }
             lemonToast.error(`Failed to update API key: ${error || 'Unknown error'}`)
         },
         deleteProviderKeyFailure: ({ error }) => {
