@@ -53406,6 +53406,31 @@ export namespace Schemas {
       readonly path: string | null;
     }
 
+    export interface FileSystemRankedSearchItem {
+      /** The matching file system entry. */
+      entry: FileSystem;
+      /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+      rank: number[];
+    }
+
+    export interface FileSystemRankedSearchTypeCount {
+      /** File system type, for example insight or dashboard. */
+      type: string;
+      /** Number of matches of this type. */
+      count: number;
+    }
+
+    export interface FileSystemRankedSearchResponse {
+      /** Matches, best first. */
+      results: FileSystemRankedSearchItem[];
+      /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+      matched_all_words: boolean;
+      /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+      matched_words: string[];
+      /** Number of matches for each type, largest first. */
+      type_counts: FileSystemRankedSearchTypeCount[];
+    }
+
     export interface FileSystemShortcut {
       readonly id: string;
       /** Display path of the shortcut in the sidebar. */
@@ -127075,6 +127100,27 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
+    };
+
+    export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number;
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 500
+     */
+    search: string;
     };
 
     export type FileSystemShortcutListParams = {

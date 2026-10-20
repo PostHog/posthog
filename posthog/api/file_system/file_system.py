@@ -11,8 +11,9 @@ from django.apps import apps
 from django.db import transaction
 from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
+from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -32,7 +33,9 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.ranked_search import FileSystemRankedSearch
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -236,6 +239,54 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=1)
 
 
+class FileSystemRankedSearchQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        max_length=500,
+        help_text="Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of results to return, best first.",
+    )
+    per_type = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=10,
+        help_text="Also include the best matches of every type, up to this many per type, so each type can show a preview.",
+    )
+
+
+class FileSystemRankedSearchItemSerializer(serializers.Serializer):
+    entry = FileSystemSerializer(help_text="The matching file system entry.")
+    rank = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="Sort key of the match. Lower sorts first. Compare element by element with other results.",
+    )
+
+
+class FileSystemRankedSearchTypeCountSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="File system type, for example insight or dashboard.")
+    count = serializers.IntegerField(help_text="Number of matches of this type.")
+
+
+class FileSystemRankedSearchResponseSerializer(serializers.Serializer):
+    results = FileSystemRankedSearchItemSerializer(many=True, help_text="Matches, best first.")
+    matched_all_words = serializers.BooleanField(
+        help_text="True when every result contains every search word. False when no entry matched every word and the results match only some words."
+    )
+    matched_words = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false.",
+    )
+    type_counts = FileSystemRankedSearchTypeCountSerializer(
+        many=True, help_text="Number of matches for each type, largest first."
+    )
+
+
 class UndoDeleteItemSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
@@ -288,6 +339,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "search",
         "unfiled",
         "count",
         "count_by_path",
@@ -1203,6 +1255,48 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(
             FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        query_serializer=FileSystemRankedSearchQuerySerializer,
+        responses={200: OpenApiResponse(response=FileSystemRankedSearchResponseSerializer)},
+        summary="Search files by relevance",
+        description="Ranks entries by words matched, typos, word proximity, name before folder, exact words, word position, exactness, the user's recent views, and recency.",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        params = request.validated_query_data
+        filter_tokens, free_tokens = [], []
+        for token in tokenize_search(params["search"]):
+            bare = token.lstrip("-!")
+            (filter_tokens if ":" in bare or bare != token else free_tokens).append(token)
+        queryset = self._scope_by_project_and_environment(FileSystem.objects.select_related("created_by"))
+        queryset = queryset.exclude(type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"])
+        if filter_tokens:
+            queryset = self._apply_search_to_queryset(queryset, " ".join(shlex.quote(t) for t in filter_tokens))
+        queryset = self._filter_by_access_control(queryset)
+        ranker = FileSystemRankedSearch(
+            " ".join(free_tokens), user_id=request.user.id, team_id=self.team.id, today=timezone.now().date()
+        )
+        if ranker.tokens:
+            result = ranker.rank(ranker.candidates(queryset))
+            entries = result.top(params["limit"], per_type=params["per_type"])
+            matched_all_words = result.matched_all_words
+            matched_words = list(entries[0].matched_tokens) if entries else []
+            type_counts = sorted(result.type_counts.items(), key=lambda item: -item[1])
+            items = [(r.entry, list(r.rank)) for r in entries]
+        else:
+            items = [(entry, []) for entry in queryset.order_by("-created_at")[: params["limit"]]]
+            matched_all_words, matched_words = True, []
+            type_counts = []
+        serialized = self.get_serializer([entry for entry, _ in items], many=True).data
+        return Response(
+            {
+                "results": [{"entry": data, "rank": rank} for data, (_, rank) in zip(serialized, items)],
+                "matched_all_words": matched_all_words,
+                "matched_words": matched_words,
+                "type_counts": [{"type": t, "count": c} for t, c in type_counts],
+            }
         )
 
     @action(methods=["POST"], detail=True)
