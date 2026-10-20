@@ -214,20 +214,19 @@ class TestCheckCommonEligibility(BaseTest):
             resolve_date_range=_date_range,
         )
 
-    @parameterized.expand(
-        [(None,), (HogQLQueryModifiers(useNewEventsCluster=False),), (HogQLQueryModifiers(useNewEventsCluster=True),)]
-    )
+    @parameterized.expand([(None,), (HogQLQueryModifiers(useNewEventsCluster=False),)])
     def test_enrolled_team_untouched_toggle_defaults_on(self, modifiers: HogQLQueryModifiers | None) -> None:
         # Re-introducing the old opt-in requirement would silently send every
         # enrolled team without the UI toggle back to the raw path.
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            if modifiers and modifiers.useNewEventsCluster:
-                with self.assertRaises(PerQueryOptedOut):
-                    self._check(use_precompute=None, modifiers=modifiers)
-                return
             self._check(use_precompute=None, modifiers=modifiers)
             with self.assertRaises(PerQueryOptedOut):
                 self._check(use_precompute=False)
+
+    def test_native_cluster_opt_in_skips_precompute_for_enrolled_team(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(PerQueryOptedOut):
+                self._check(use_precompute=True, modifiers=HogQLQueryModifiers(useNewEventsCluster=True))
 
     @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)

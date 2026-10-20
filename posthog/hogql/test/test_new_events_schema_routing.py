@@ -302,6 +302,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         ]
         + [
             ({"useNewEventsCluster": True}, True, True, True, "SELECT 1", "force_async"),
+            ({"useNewEventsCluster": True}, True, True, True, "SELECT count() AS n FROM events", "blocking"),
             ({"useNewEventsCluster": True}, True, True, True, "SELECT 1", "force_blocking", True),
             (
                 {"useNewEventsCluster": True},
