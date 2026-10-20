@@ -703,8 +703,9 @@ def version_outcome(
             app_source_id=f"{hog_flow_id}/{version}",
             breakdown_by="name",
             after=after,
-            # The read includes its upper bound and compares whole seconds; the hour starting at `before` is the next interval's.
-            before=before - timedelta(seconds=1) if before else None,
+            # A merged hourly row keeps a sub-second timestamp, so only an exclusive bound keeps the whole last hour.
+            before=before,
+            before_exclusive=True,
             instance_id=step_id or None,
             name=[
                 TARGET_SEND_METRIC,
