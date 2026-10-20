@@ -48,6 +48,7 @@ import {
 } from '~/types'
 
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import { dashboardTileGroupChoicesLogic } from 'products/dashboards/frontend/dashboardTileGroupChoicesLogic'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -380,6 +381,57 @@ describe('dashboardLogic', () => {
         it('parses a full numeric route id', () => {
             expect(parseDashboardId('12')).toBe(12)
         })
+    })
+
+    it.each([
+        { beforeLoad: true, viewerChoice: false },
+        { beforeLoad: true, viewerChoice: true },
+        { beforeLoad: false, viewerChoice: false },
+        { beforeLoad: false, viewerChoice: true },
+    ])('reveals a highlighted group once with %j', async ({ beforeLoad, viewerChoice }) => {
+        localStorage.clear()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+            [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+        })
+        const target = dashboards[5].tiles[0].insight!.short_id
+        dashboards[5] = {
+            ...dashboards[5],
+            customization: { groups: { target: { collapsed: !viewerChoice }, other: { collapsed: true } } },
+            tiles: dashboards[5].tiles.map((tile, index) => ({
+                ...tile,
+                group_key: index === 0 ? 'target' : 'other',
+            })),
+        }
+        useMocks({ get: { '/api/environments/:team_id/dashboards/5/': dashboards[5] } })
+        if (viewerChoice) {
+            dashboardTileGroupChoicesLogic.mount()
+            dashboardTileGroupChoicesLogic.actions.setTileGroupCollapsed(5, 'target', true)
+        }
+        if (beforeLoad) {
+            router.actions.push('/dashboard/5', { highlightInsightId: target })
+        }
+        logic = dashboardLogic({ id: 5 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        if (!beforeLoad) {
+            expect(logic.values.collapsedTileGroupKeys).toContain('target')
+            await expectLogic(logic, () => {
+                router.actions.push('/dashboard/5', { highlightInsightId: target })
+            }).toFinishAllListeners()
+        }
+        expect(logic.values.collapsedTileGroupKeys).not.toContain('target')
+        expect(logic.values.collapsedTileGroupKeys).toContain('other')
+
+        logic.actions.toggleTileGroup('target')
+        await expectLogic(logic, () => logic.actions.tileStreamingComplete()).toFinishAllListeners()
+        expect(logic.values.collapsedTileGroupKeys).toContain('target')
+        await expectLogic(logic, () => {
+            router.actions.push('/dashboard/5', { highlightInsightId: 'missing-insight' })
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            router.actions.push('/dashboard/5', { highlightInsightId: target })
+        }).toFinishAllListeners()
+        expect(logic.values.collapsedTileGroupKeys).not.toContain('target')
     })
 
     describe('tile layouts', () => {

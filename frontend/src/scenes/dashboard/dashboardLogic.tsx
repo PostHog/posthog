@@ -838,6 +838,9 @@ export interface dashboardLogicActions {
     retryDashboardLoad: () => {
         value: true
     }
+    revealHighlightedInsight: () => {
+        value: true
+    }
     saveDashboardChanges: () => {
         value: true
     }
@@ -1496,6 +1499,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions(() => ({
+        revealHighlightedInsight: true,
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
@@ -3813,6 +3817,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         handleDashboardLoadComplete: () => {
+            actions.revealHighlightedInsight()
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
             if (values.placement !== DashboardPlacement.Export) {
                 const loadAction = values.dashboardLoadData.action!
@@ -3826,6 +3831,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        revealHighlightedInsight: () => {
+            const highlightedInsightId = values.highlightedInsightId
+            if (!highlightedInsightId) {
+                cache.revealedHighlightedInsightId = undefined
+                return
+            }
+            if (!values.tileGroupSectionsEnabled || cache.revealedHighlightedInsightId === highlightedInsightId) {
+                return
+            }
+            const tile = values.tiles.find((tile) => tile.insight?.short_id === highlightedInsightId)
+            if (tile?.group_key) {
+                dashboardTileGroupChoicesLogic.actions.setTileGroupCollapsed(props.id, tile.group_key, false)
+                cache.revealedHighlightedInsightId = highlightedInsightId
+            } else {
+                cache.revealedHighlightedInsightId = undefined
+            }
+        },
         [dashboardsModel.actionTypes.updateDashboardSuccess]: ({
             dashboard,
             payload,
@@ -5787,6 +5809,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
 
         '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
+            actions.revealHighlightedInsight()
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             actions.setButtonTileId(null)
