@@ -69,6 +69,8 @@ class TestOauthIntegrationModel(BaseTest):
         "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
         "LINEAR_APP_CLIENT_ID": "linear-client-id",
         "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
+        "HELPSCOUT_APP_CLIENT_ID": "helpscout-client-id",
+        "HELPSCOUT_APP_CLIENT_SECRET": "helpscout-client-secret",
     }
 
     def create_integration(
@@ -109,6 +111,20 @@ class TestOauthIntegrationModel(BaseTest):
             params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
             state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
             assert state["team_id"] == "228502"
+
+    def test_authorize_url_sends_an_opaque_state_to_providers_that_mangle_it(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url(
+                "helpscout", token="state_token", next="/data-warehouse/new-source?kind=helpscout", team_id=228502
+            )
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert all(char in "0123456789abcdef" for char in params["state"])
+            state = {k: v[0] for k, v in parse_qs(bytes.fromhex(params["state"]).decode()).items()}
+            assert state == {
+                "next": "/data-warehouse/new-source?kind=helpscout",
+                "token": "state_token",
+                "team_id": "228502",
+            }
 
     def test_authorize_url_omits_team_id_when_not_provided(self):
         with self.settings(**self.mock_settings):
