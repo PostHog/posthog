@@ -23,11 +23,13 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.alerts_platform.backend.facade.testing import create_configuration
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -3693,6 +3695,77 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "events" in str(response.json())
+
+    def _alert_configuration(self, source_kind: str = "logs") -> Any:
+        with team_scope(self.team.id):
+            return create_configuration(
+                team=self.team, name="API errors", source_kind=source_kind, check_interval_minutes=5
+            )
+
+    def _post_alert_trigger_flow(self, value: Any, headers: dict | None = None) -> Any:
+        properties = (
+            []
+            if value is None
+            else [{"key": "alert_configuration_id", "value": value, "operator": "exact", "type": "event"}]
+        )
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": "$alert_transition", "type": "events"}],
+                    "properties": properties,
+                },
+            },
+        }
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Alert flow", "status": "active", "actions": [trigger_action]},
+            format="json",
+            headers=headers or {},
+        )
+
+    def test_hog_flow_alert_trigger_saves_for_the_alerts_it_names(self):
+        response = self._post_alert_trigger_flow([str(self._alert_configuration().id)])
+
+        assert response.status_code == 201, response.json()
+        stored = response.json()["trigger"]["filters"]["properties"]
+        assert [p["key"] for p in stored] == ["alert_configuration_id"]
+
+    @parameterized.expand(
+        [
+            ("no_alert", None, "Pick an alert"),
+            ("not_an_alert_id", ["not-a-uuid"], "Pick alerts from the list"),
+            ("unknown_alert", ["unknown"], "does not exist"),
+            ("insight_alert", ["insight"], "Insight alerts"),
+        ]
+    )
+    def test_hog_flow_alert_trigger_refuses_what_it_cannot_scope(self, _name, value, message):
+        if value == ["unknown"]:
+            value = [str(uuid4())]
+        elif value == ["insight"]:
+            value = [str(self._alert_configuration(source_kind="insight").id)]
+
+        response = self._post_alert_trigger_flow(value)
+
+        assert response.status_code == 400, response.json()
+        assert message in str(response.json())
+
+    def test_hog_flow_alert_trigger_needs_read_access_to_the_source_on_an_api_key(self):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="flows only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
+        )
+
+        response = self._post_alert_trigger_flow(
+            [str(self._alert_configuration().id)], headers={"authorization": f"Bearer {key}"}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "logs:read" in str(response.json())
 
     @staticmethod
     def _github_trigger_action(properties: list[dict]) -> dict:

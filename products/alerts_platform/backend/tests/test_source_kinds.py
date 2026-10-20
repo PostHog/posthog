@@ -1,9 +1,6 @@
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind
-from products.alerts_platform.backend.presentation.views.platform_alert import (
-    SOURCE_KIND_RESOURCE,
-    UNSERVED_SOURCE_KINDS,
-)
+from products.alerts_platform.backend.logic.source_access import SOURCE_KIND_RESOURCE, UNSERVED_SOURCE_KINDS
 
 
 def test_a_storable_source_kind_is_one_the_contract_names() -> None:

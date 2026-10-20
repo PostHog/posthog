@@ -17,7 +17,7 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
 )
-from posthog.scopes import APIScopeObject, scopes_not_covered
+from posthog.scopes import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
@@ -42,6 +42,7 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertState,
 )
 from products.alerts_platform.backend.facade.source_configs import editable_source_configs
+from products.alerts_platform.backend.logic.source_access import SOURCE_KIND_RESOURCE
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 
 
@@ -193,18 +194,6 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         read_only=True,
         help_text="Runtime state for each result group of this configuration.",
     )
-
-
-# A configuration shows the source product's data (its filters and firing state), so a reader
-# also needs read access to that product. `alert:read` alone must not reveal it.
-SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
-    PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
-}
-
-# Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
-# and a reader can hold access to insights in general but not to that insight. This product
-# cannot check access to one insight, so the copies stay out of the API until it can.
-UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
 
 
 class PlatformAlertConfigurationEditSerializer(serializers.Serializer):

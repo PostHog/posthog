@@ -87,6 +87,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.alerts_platform.backend.facade.api import workflow_trigger_refusal
+from products.cdp.backend.internal_events import ALERT_TRANSITION_EVENT
 from products.cdp.backend.presentation.hog_functions import (
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
@@ -602,6 +604,46 @@ def _strip_replay_vision_code(inputs: Any) -> None:
     if isinstance(analysis, dict):
         for key in ("bytecode", "transpiled", "templating"):
             analysis.pop(key, None)
+
+
+def _alert_configuration_ids(filters: dict) -> list[uuid_mod.UUID] | None:
+    """The alerts an `$alert_transition` trigger names, or None when a named one is not an alert id."""
+    ids: list[uuid_mod.UUID] = []
+    for prop in filters.get("properties") or []:
+        if not isinstance(prop, dict) or prop.get("key") != "alert_configuration_id":
+            continue
+        if (prop.get("operator") or "exact") != "exact":
+            continue
+        value = prop.get("value")
+        for item in value if isinstance(value, list) else [value]:
+            try:
+                ids.append(uuid_mod.UUID(str(item)))
+            except ValueError:
+                return None
+    return ids
+
+
+def _alert_trigger_error(request: Request | None, team: Team, filters: dict, *, is_draft: bool) -> str | None:
+    """Why the caller may not save this `$alert_transition` trigger, or None.
+
+    An alert's transitions carry its source product's data, and a workflow runs without the
+    person who saved it, so access is checked here, against each named alert.
+    """
+    configuration_ids = _alert_configuration_ids(filters)
+    if configuration_ids is None:
+        return "Pick alerts from the list for this trigger."
+    if not configuration_ids:
+        return (
+            None if is_draft else "Pick an alert for this trigger. Without one it runs for every alert in the project."
+        )
+    user = getattr(request, "user", None)
+    person = user is not None and user.is_authenticated and not isinstance(user, SyntheticUser)
+    return workflow_trigger_refusal(
+        team_id=team.id,
+        configuration_ids=configuration_ids,
+        user_access_control=UserAccessControl(user=user, team=team) if person else None,
+        token_scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+    )
 
 
 def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
@@ -1828,6 +1870,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"filters": "Pick at least one event, or the trigger will never fire."}
                         )
+                if _subscribes_to(ALERT_TRANSITION_EVENT):
+                    alert_error = _alert_trigger_error(
+                        self.context.get("request"), self.context["get_team"](), filters, is_draft=is_draft
+                    )
+                    if alert_error:
+                        raise serializers.ValidationError({"filters": alert_error})
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                 serializer.is_valid(raise_exception=True)
                 data["config"]["filters"] = serializer.validated_data

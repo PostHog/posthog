@@ -1147,6 +1147,9 @@ depends_on = [
     # Facade-only: the Replay Vision step's endpoint starts a scan through
     # products.replay_vision.backend.facade.api.
     "products.replay_vision",
+    # Facade-only: saving an alert trigger checks access through
+    # products.alerts_platform.backend.facade.api.
+    "products.alerts_platform",
 ]
 layer = "modules"
 

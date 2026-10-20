@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -25,7 +26,10 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
+from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes, source_access
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def due_checks(
@@ -179,3 +183,23 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
     platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def workflow_trigger_refusal(
+    *,
+    team_id: int,
+    configuration_ids: Collection[UUID],
+    user_access_control: UserAccessControl | None,
+    token_scopes: list[str] | None,
+) -> str | None:
+    """Why the caller may not subscribe a workflow to these alerts' `$alert_transition` events, or None.
+
+    Pass None for `user_access_control` when no person is behind the call, and for `token_scopes`
+    on session auth, which carries no scopes.
+    """
+    return source_access.workflow_trigger_refusal(
+        team_id=team_id,
+        configuration_ids=configuration_ids,
+        user_access_control=user_access_control,
+        token_scopes=token_scopes,
+    )

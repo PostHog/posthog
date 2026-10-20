@@ -1,3 +1,4 @@
+import './alert'
 import './cohort'
 import './conversations'
 import './customer_analytics'
