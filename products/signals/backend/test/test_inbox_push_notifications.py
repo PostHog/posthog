@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
@@ -12,11 +13,18 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.inbox_push_notifications import notify_pull_request_ready
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.inbox_push_notifications import _push_report, notify_pull_request_ready
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
 from products.signals.backend.pull_requests import (
     PullRequestStateSource,
     link_pull_request,
@@ -24,9 +32,18 @@ from products.signals.backend.pull_requests import (
     update_pull_request_state,
 )
 from products.signals.backend.report_assignments import PullRequestDetails, create_claim
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 # Task ORM model needed for a task-claim fixture; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.push_dispatcher import (
+    notify_task_pull_request_outcome,
+    notify_task_run_awaiting_input,
+    notify_task_run_cancelled,
+    notify_task_run_completed,
+    notify_task_run_failed,
+    notify_task_run_turn_completed,
+)
 
 PR_URL = "https://github.com/posthog/posthog/pull/123"
 VISIBLE_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -35,6 +52,7 @@ VISIBLE_AT = datetime(2026, 1, 1, tzinfo=UTC)
 class TestInboxPushNotifications(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self.reviewer = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
         send_patch = patch("products.signals.backend.inbox_push_notifications.send_user_push.delay")
         flag_patch = patch(
@@ -216,6 +234,7 @@ class TestInboxPushNotifications(BaseTest):
         expected_users = sorted([self.user.id, self.reviewer.id, login_reviewer.id]) if has_project_access else []
         assert first_pushed == expected_users
         self.send_push.reset_mock()
+        cache.clear()
 
         for index in range(1, 5):
             add_linked_report(index)
@@ -236,3 +255,214 @@ class TestInboxPushNotifications(BaseTest):
         assert [push.args[0] for push in self.send_push.call_args_list] == expected_users
         assert all(push.args[3]["report_id"] == str(oldest_report.id) for push in self.send_push.call_args_list)
         assert len(many_report_queries) == len(one_report_queries)
+
+    @parameterized.expand(
+        [
+            ("web_implementation", "implementation", False, True, notify_task_run_completed),
+            ("slack_implementation", "implementation", False, True, notify_task_run_failed),
+            ("web_research", "research", False, True, notify_task_run_awaiting_input),
+            ("web_discussion", "discussion", False, False, notify_task_run_cancelled),
+            ("mobile_discussion", "discussion", True, True, notify_task_run_turn_completed),
+            ("cancelled_implementation", "implementation", False, True, notify_task_run_cancelled),
+            ("turn_implementation", "implementation", False, True, notify_task_run_turn_completed),
+            ("picked_up_implementation", "implementation", False, True, notify_task_run_completed),
+        ]
+    )
+    def test_report_work_and_discussions_use_their_own_channels(self, name, relationship, mobile, expect_push, notify):
+        report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
+        self._add_reviewers(report, self.user)
+        task = Task.objects.create(
+            team=self.team,
+            title="Internal task",
+            created_by=self.user,
+            origin_product=Task.OriginProduct.SLACK if name.startswith("slack") else Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            state={"created_on_mobile": mobile},
+        )
+        if name == "picked_up_implementation":
+            picked = User.objects.create_and_join(self.organization, "picked@example.com", None)
+            task.state = {**(task.state or {}), "mobile_push_user_ids": [picked.id]}
+            task.save(update_fields=["state"])
+        run = TaskRun.objects.create(task=task, team=self.team)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type=relationship,
+            task_id=str(task.id),
+            run_id=str(run.id),
+        )
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            notify(run)
+            notify(run)
+        self.assertEqual(self.send_push.call_count, 2 if name == "picked_up_implementation" else int(expect_push))
+        if expect_push and relationship != "discussion":
+            self.assertEqual(self.send_push.call_args.args[3]["type"], "report")
+            self.assertEqual(self.send_push.call_args.args[3]["taskRunId"], str(run.id))
+            self.assertIn(report.title, self.send_push.call_args.args[2])
+            self.assertNotIn(task.title, self.send_push.call_args.args[2])
+
+    @parameterized.expand([("merged", True), ("closed", False)])
+    def test_report_pr_outcomes_use_report_preferences_and_pr_identity(self, outcome, merged):
+        self.user.partial_notification_settings = {"mobile_push_tasks_enabled": False}
+        self.user.save(update_fields=["partial_notification_settings"])
+        report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Internal work",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+            run_id=str(run.id),
+        )
+        for number in (1, 1, 2):
+            cache.clear()
+            with self.captureOnCommitCallbacks(execute=True):
+                notify_task_pull_request_outcome(
+                    task_id=str(task.id),
+                    run_id=str(run.id),
+                    team_id=self.team.id,
+                    pr_url=f"https://github.com/example/project/pull/{number}",
+                    merged=merged,
+                )
+        self.assertEqual(self.send_push.call_count, 2)
+        args = self.send_push.call_args.args
+        self.assertEqual(args[1:3], ("Report update", f'"{report.title}" pull request was {outcome}'))
+        self.assertEqual(args[3]["type"], "report")
+        self.assertEqual(args[3]["notificationKind"], f"report_pr_{outcome}")
+        self.assertEqual(args[3]["pullRequestUrl"], "https://github.com/example/project/pull/2")
+
+    @parameterized.expand([("unpublished",), ("hidden",), ("preferences",), ("lost_access",)])
+    def test_report_work_suppresses_unavailable_updates(self, reason):
+        report = self._report(
+            SignalReport.Status.SUPPRESSED if reason == "hidden" else SignalReport.Status.READY,
+            first_visible_at=None if reason == "unpublished" else VISIBLE_AT,
+        )
+        self._add_reviewers(report, self.user)
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Internal work",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+            run_id=str(run.id),
+        )
+        if reason == "preferences":
+            self.user.partial_notification_settings = {"mobile_push_report_updates_enabled": False}
+            self.user.save(update_fields=["partial_notification_settings"])
+        if reason == "lost_access":
+            self.organization.members.remove(self.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(run)
+        self.send_push.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("mobile_push_enabled", "report_visible", False),
+            ("mobile_push_reports_enabled", "report_visible", False),
+            ("mobile_push_report_updates_enabled", "report_completed", False),
+            ("mobile_push_tasks_enabled", "report_completed", True),
+            ("mobile_push_reports_enabled", "report_completed", True),
+            ("mobile_push_report_updates_enabled", "report_visible", True),
+        ]
+    )
+    @patch("posthog.tasks.push_notifications.send_push_to_user", return_value=1)
+    def test_report_preferences_select_category_at_delivery(self, key, kind, allowed, mock_send):
+        report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
+        self.user.partial_notification_settings = {key: False}
+        self.user.save(update_fields=["partial_notification_settings"])
+        send_user_push(
+            self.user.id,
+            "Report",
+            "Update",
+            {"type": "report", "project_id": self.team.id, "report_id": str(report.id), "notificationKind": kind},
+        )
+        self.assertEqual(mock_send.call_count, int(allowed))
+
+    @parameterized.expand(
+        [
+            ("report_visible", False, False, False),
+            ("pull_request_ready", False, False, False),
+            ("report_completed", False, False, False),
+            ("report_pr_merged", False, False, False),
+            ("report_completed", None, False, True),
+            ("report_completed", True, False, True),
+            ("report_completed", False, True, True),
+        ]
+    )
+    @patch("posthog.tasks.push_notifications.send_push_to_user", return_value=1)
+    def test_report_inbox_destination_gates_producer_and_queued_delivery(
+        self, kind: str, inbox: bool | None, editor_only: bool, allowed: bool, mock_send
+    ) -> None:
+        report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
+        config = SignalScoutConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            skill_name="signals-scout-example",
+            output_destinations={} if inbox is None else {"inbox": inbox},
+        )
+        task = Task.objects.create(team=self.team, created_by=self.user)
+        run = TaskRun.objects.create(task=task, team=self.team)
+        SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[] if editor_only else [str(report.id)],
+            edited_report_ids=[str(report.id)] if editor_only else [],
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            _push_report(report, [self.user], kind=kind, title="Report update", body="Updated")
+        self.assertEqual(self.send_push.call_count, int(allowed))
+        if kind == "report_completed" and not allowed:
+            task.state = {"created_on_mobile": True}
+            task.signal_report = report
+            task.save(update_fields=["state", "signal_report"])
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                product="signals",
+                type="implementation",
+                task_id=str(task.id),
+                run_id=str(run.id),
+            )
+            with self.captureOnCommitCallbacks(execute=True):
+                notify_task_run_completed(run)
+            self.send_push.assert_not_called()
+        send_user_push(
+            self.user.id,
+            "Report update",
+            "Updated",
+            {
+                "type": "report",
+                "project_id": self.team.id,
+                "report_id": str(report.id),
+                "notificationKind": kind,
+            },
+        )
+        self.assertEqual(mock_send.call_count, int(allowed))
+        if allowed and not editor_only:
+            config.output_destinations = {"inbox": False}
+            config.save(update_fields=["output_destinations"])
+            queued_user_id, queued_title, queued_body, queued_data = self.send_push.call_args.args
+            send_user_push(queued_user_id, queued_title, queued_body, queued_data)
+            self.assertEqual(mock_send.call_count, 1)

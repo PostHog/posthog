@@ -4,7 +4,10 @@ Schedules the underlying Expo HTTP call as a Celery task via
 ``transaction.on_commit`` so nothing here can block a request/response cycle
 or a Temporal activity's event loop.
 
-Two guards before we enqueue:
+Guards before we enqueue:
+
+Tasks created or actively continued on mobile use task pushes; report research and implementation
+use the report notification channel instead. User preferences apply to both.
 
 1. **Cooldown.** A per-source Redis lock collapses duplicate triggers in a
    short window.
@@ -13,6 +16,7 @@ Two guards before we enqueue:
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Collection
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -25,27 +29,39 @@ import structlog
 
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
+from posthog.push_notifications import mobile_push_preference_enabled
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
-from products.tasks.backend.models import Task, TaskPresence
+from products.tasks.backend.mobile_push import claim_mobile_pr_outcome, mobile_push_user_ids, task_mobile_push_eligible
+from products.tasks.backend.models import Task, TaskPresence, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from products.tasks.backend.models import TaskRun, TaskThreadMessage
+    from products.tasks.backend.models import TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "posthog"
+PUSH_TITLE = "PostHog"
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message", "handoff"]
+PushKind = Literal[
+    "completed",
+    "failed",
+    "cancelled",
+    "awaiting",
+    "turn_completed",
+    "thread_message",
+    "handoff",
+    "pr_merged",
+    "pr_closed",
+]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
@@ -54,6 +70,8 @@ _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "turn_completed": 30,
     "thread_message": 600,
     "handoff": 600,
+    "pr_merged": 600,
+    "pr_closed": 600,
 }
 
 
@@ -82,6 +100,22 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def notify_task_pull_request_outcome(*, task_id: str, run_id: str, team_id: int, pr_url: str, merged: bool) -> None:
+    """Push a verified PR outcome independently of whether Slack announced the PR."""
+    kind: PushKind = "pr_merged" if merged else "pr_closed"
+    try:
+        task_run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).select_related("task").first()
+        if task_run is None:
+            return
+        outcome = "merged" if merged else "closed"
+        _enqueue_inner(
+            task_run, kind=kind, body=f'"{_task_title(task_run)}" pull request was {outcome}', pull_request_url=pr_url
+        )
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason=_failure_reason(exc)).inc()
+        logger.warning("push_dispatcher.pr_outcome_failed", task_id=task_id, team_id=team_id, exc_info=True)
 
 
 def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:
@@ -126,7 +160,8 @@ def notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: C
 
 
 def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
-    recipient_ids = set(mentioned_user_ids)
+    message.task.refresh_from_db(fields=["state"])
+    recipient_ids = set(mentioned_user_ids) | mobile_push_user_ids(message.task)
     if message.task.created_by_id is not None:
         recipient_ids.add(message.task.created_by_id)
     if message.author_id is not None:
@@ -136,7 +171,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
     author = message.author
     author_name = (author.first_name.strip() or author.email) if author else "PostHog"
     task_title = (message.task.title or "").strip() or "Untitled task"
-    data = {
+    data: dict[str, str | int] = {
         "taskId": str(message.task_id),
         "messageId": str(message.id),
     }
@@ -228,33 +263,50 @@ def _failure_reason(exc: BaseException) -> str:
     return "db_connection" if isinstance(exc, OperationalError | InterfaceError) else "other"
 
 
-def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
+def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str, pull_request_url: str | None = None) -> None:
     if not settings.TEST:
         close_old_connections()
 
-    user = task_run.task.created_by
-    if user is None:
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — avoid a product import cycle
+        notify_report_task_push,
+    )
+
+    if notify_report_task_push(
+        team_id=task_run.team_id,
+        task_id=str(task_run.task_id),
+        run_id=str(task_run.id),
+        kind=kind,
+        pull_request_url=pull_request_url,
+    ):
+        return
+
+    task = Task.objects.filter(id=task_run.task_id, team_id=task_run.team_id).first()
+    if task is None:
+        return
+    recipient_ids = mobile_push_user_ids(task)
+    if task.created_by_id is not None:
+        recipient_ids.add(task.created_by_id)
+    if not recipient_ids:
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="no_recipient").inc()
         return
-
-    if not user.teams.filter(id=task_run.team_id).exists():
-        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
-        logger.debug(
-            "push_dispatcher.recipient_lost_access",
-            user_id=user.id,
-            task_id=str(task_run.task_id),
-            team_id=task_run.team_id,
-        )
-        return
-
-    _enqueue_user(
-        user,
-        task=task_run.task,
-        kind=kind,
-        cooldown_subject=str(task_run.id),
-        body=body,
-        data={"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)},
+    subject = (
+        f"pr:{task.id}:{hashlib.sha256(pull_request_url.encode()).hexdigest()}"
+        if pull_request_url
+        else str(task_run.id)
     )
+    for user in User.objects.filter(id__in=recipient_ids):
+        data: dict[str, str | int] = {"taskId": str(task.id), "taskRunId": str(task_run.id)}
+        if pull_request_url is not None:
+            data["pullRequestUrl"] = pull_request_url
+        _enqueue_user(
+            user,
+            task=task,
+            kind=kind,
+            cooldown_subject=f"{subject}:{user.id}",
+            body=body,
+            data=data,
+            pull_request_url=pull_request_url,
+        )
 
 
 def _enqueue_user(
@@ -264,9 +316,29 @@ def _enqueue_user(
     kind: PushKind,
     cooldown_subject: str,
     body: str,
-    data: dict[str, str],
+    data: dict[str, str | int],
+    pull_request_url: str | None = None,
 ) -> None:
+    task.refresh_from_db(fields=["state"])
     if task.is_scout_experiment:
+        return
+    if not task_mobile_push_eligible(task, user.id):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="source_disabled").inc()
+        return
+    if not mobile_push_preference_enabled(user, "tasks"):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="preferences_disabled").inc()
+        return
+    if (
+        not user.teams.filter(id=task.team_id).exists()
+        or not Task.objects.filter(id=task.id, team_id=task.team_id, deleted=False)
+        .filter(task_visibility_q(user.id))
+        .exists()
+    ):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
+        return
+    if pull_request_url is not None and not claim_mobile_pr_outcome(
+        task_id=task.id, team_id=task.team_id, user_id=user.id, pr_url=pull_request_url, kind=kind
+    ):
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
@@ -276,7 +348,9 @@ def _enqueue_user(
         return
 
     suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
+    data["type"] = "task"
     data["notificationKind"] = kind
+    data["projectId"] = task.team_id
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.

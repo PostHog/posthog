@@ -357,6 +357,8 @@ __all__ = [
     "read_task_run_conversation_logs",
     "read_task_run_logs",
     "record_comment_activity",
+    "record_task_mobile_pickup",
+    "task_mobile_push_taken_over",
     "record_run_failure_cause",
     "signal_task_run_client_activity",
     "redispatch_task_run",
@@ -7934,6 +7936,9 @@ def create_task(
             description = (validated_data.get("description") or "").strip()
             requested_title = (validated_data.get("title") or "").strip()
             update_fields: list[str] = []
+            if "created_on_mobile" not in (warm_task.state or {}):
+                warm_task.state = {**(warm_task.state or {}), **validated_data.get("state", {})}
+                update_fields.append("state")
             if requested_title and not (warm_task.title or "").strip():
                 warm_task.title = requested_title
                 warm_task.title_manually_set = True
@@ -12427,3 +12432,28 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
     run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
     actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
     return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
+
+
+def record_task_mobile_pickup(*, task_id: str, team_id: int, user_id: int | None) -> None:
+    from products.tasks.backend.mobile_push import (
+        record_mobile_pickup,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    if user_id is None:
+        return
+
+    try:
+        record_mobile_pickup(task_id=task_id, team_id=team_id, user_id=user_id)
+    except Exception:
+        logger.exception(
+            "mobile_push.pickup_failed", extra={"task_id": task_id, "team_id": team_id, "user_id": user_id}
+        )
+
+
+def task_mobile_push_taken_over(*, task_id: str, team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.mobile_push import (
+        mobile_push_user_ids,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    return task is not None and user_id in mobile_push_user_ids(task)

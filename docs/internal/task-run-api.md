@@ -113,3 +113,36 @@ Other task streams include the effective summary.
 The two run-start tools require the agent-run feature flag.
 Sandbox tokens can use them only within the sandbox rules above.
 These operations are not idempotent. If a response is lost, inspect the task and its runs before you retry.
+
+## Mobile notifications and task pickup
+
+A task created with `X-PostHog-Client-Platform: mobile` is eligible for mobile task notifications.
+Tasks created elsewhere remain quiet on mobile until a user actively continues them there.
+Successfully starting or resuming a run, sending a user message, or resolving a permission request
+with that header subscribes only the acting user. Viewing a task, opening its event stream,
+sending presence beacons, changing configuration, and rejected actions do not subscribe anyone.
+This choice persists when the person returns to the web app.
+
+After pickup, that person's automatic Slack mentions and proactive private-thread updates move
+to mobile. Shared Slack discussions remain available without pinging the picked-up person,
+and a direct Slack request still receives its answer. Other participants' notifications are unchanged.
+Existing Slack streams stop proactively delivering to a private thread when their recipient picks up on mobile.
+
+Mobile task notifications cover completion, failure, cancellation, waiting for input, thread replies,
+handoffs, and verified pull-request merges or closes. Recipients must still have access to the task;
+active task presence suppresses device fanout. PR outcomes are deduplicated per person, task, PR, and outcome,
+independently of whether Slack announced the PR.
+
+Report notifications are independent of task origin: suggested reviewers receive new reports;
+reviewers, claimants, task initiators, and picked-up participants can receive meaningful research or
+implementation updates and verified PR outcomes. Ready-for-review PR notifications retain their reviewer
+and claimant recipients. Report discussions follow task notification preferences.
+Reports authored by a scout with `output_destinations.inbox: false` do not send mobile pushes;
+the delivery worker also checks this setting for queued notifications.
+Report pushes retain the `posthog-code-mobile-push` feature gate. Ordinary task pushes use their existing
+released behavior and do not require that report gate.
+
+`PATCH /api/users/@me/` persists four boolean keys under `notification_settings`, all enabled by default:
+`mobile_push_enabled`, `mobile_push_tasks_enabled`, `mobile_push_reports_enabled`, and
+`mobile_push_report_updates_enabled`. Disabling the master switch or a category also stops queued
+notifications when the delivery worker checks the current preferences and access again.

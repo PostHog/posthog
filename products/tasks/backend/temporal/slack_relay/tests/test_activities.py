@@ -23,6 +23,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     stream_pending_slack_attachments,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
+from products.tasks.backend.temporal.process_task.utils import record_delivered_message
 from products.tasks.backend.temporal.slack_relay.activities import (
     RelaySlackMessageInput,
     _append_unconfirmed_attachment_notice,
@@ -81,6 +82,44 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.state = {}
         self.task_run.save(update_fields=["artifacts", "state", "updated_at"])
         SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=None)
+
+    @parameterized.expand(
+        [
+            ("mobile_private", True, False, False),
+            ("explicit_slack_private", True, True, True),
+            ("shared_mobile", False, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mobile_takeover_preserves_shared_and_explicit_slack_answers(
+        self, _name, private, explicit_slack, expected_post, _delete_progress, post
+    ) -> None:
+        self.task.state = {"mobile_push_user_ids": [self.user.id]}
+        self.task.save(update_fields=["state"])
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(
+            conversation_type=(
+                SlackThreadTaskMapping.ConversationType.IM
+                if private
+                else SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
+            )
+        )
+        message_id = f"slack-message-{_name}" if explicit_slack else None
+        if message_id:
+            record_delivered_message(
+                str(self.task_run.id), message_id, actor_slack_user_id="U123", person_message="Continue"
+            )
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-{_name}",
+                message_id=message_id,
+                text="<@U123> Finished with <@UOTHER>.",
+            )
+        )
+        assert post.called is expected_post
+        if expected_post:
+            assert post.call_args.args[0] == "Finished with <@UOTHER>."
 
     @parameterized.expand(
         [

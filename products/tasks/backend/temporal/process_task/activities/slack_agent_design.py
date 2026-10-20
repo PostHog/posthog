@@ -119,7 +119,9 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context, actor_slack_user_id=_reply_target(input.run_id, input.message_id))
+        handler = SlackThreadHandler.for_run(
+            context, input.run_id, actor_slack_user_id=_reply_target(input.run_id, input.message_id)
+        )
         markdown_text = _rewrite_object_tags(input.first_markdown_text, handler.project_url)
         new_ts = handler.start_status_stream(
             task_updates=_chunk_dicts(input.task_updates),
@@ -145,6 +147,9 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
+        if handler.proactive_notifications_muted():
+            handler.stop_status_stream(ts=input.ts, mention_sent=True)
+            return False
         return handler.append_status_chunks(
             ts=input.ts,
             task_updates=_chunk_dicts(input.task_updates),
@@ -178,6 +183,9 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             turn_trace_id=input.trace_id,
             turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
         )
+        if input.run_id and handler.proactive_notifications_muted():
+            handler.stop_status_stream(ts=input.ts, final_markdown=None, mention_sent=True)
+            return
         task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
         deliveries: list[SlackFileDeliveryResult] = []
 

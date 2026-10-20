@@ -45,6 +45,7 @@ from products.slack_app.backend.services.slack_messages import (
     slack_message_exists,
     turn_feedback_block,
 )
+from products.slack_app.backend.services.task_notifications import task_slack_notifications_muted
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -261,6 +262,7 @@ class SlackThreadHandler:
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
+        self.task_run_id = self.run_footer.run_id
         # Beside the footer rather than in it: a trace id belongs to one turn, and the
         # next turn in the same thread has its own.
         self.turn_trace_id = turn_trace_id
@@ -291,12 +293,41 @@ class SlackThreadHandler:
         The footer's project segment is judged against the install this context posts through,
         so the footer always loads with ``context.integration_id``.
         """
-        return cls(
+        handler = cls(
             context,
             load_run_footer(run_id, integration_id=context.integration_id),
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
+        )
+
+        handler.task_run_id = str(run_id) if run_id is not None else None
+        return handler
+
+    def notification_target(self, slack_user_id: str | None) -> str | None:
+        if not self.task_run_id:
+            return slack_user_id
+        if task_slack_notifications_muted(
+            integration_id=self.context.integration_id,
+            channel=self.context.channel,
+            thread_ts=self.context.thread_ts,
+            slack_user_id=slack_user_id,
+        ):
+            return None
+        return slack_user_id
+
+    def notification_text(self, text: str, slack_user_id: str | None) -> str:
+        if slack_user_id and self.notification_target(slack_user_id) is None:
+            return re.sub(rf"^\s*<@{re.escape(slack_user_id)}(?:\|[^>]+)?>\s*", "", text, count=1)
+        return text
+
+    def proactive_notifications_muted(self) -> bool:
+        return task_slack_notifications_muted(
+            integration_id=self.context.integration_id,
+            channel=self.context.channel,
+            thread_ts=self.context.thread_ts,
+            slack_user_id=self.context.mentioning_slack_user_id,
+            private_only=True,
         )
 
     def _get_integration(self) -> Integration:
@@ -462,7 +493,8 @@ class SlackThreadHandler:
         """chat.startStream in plan-block mode. Seed with plan-block steps, a
         markdown_text chunk, or both. The plan block stays where its first step
         lands, and later task_update chunks change that block in place."""
-        if not self.actor_slack_user_id:
+        recipient = self.notification_target(self.actor_slack_user_id)
+        if not recipient:
             return None
         if first_markdown_text:
             first_markdown_text = self._with_leading_mention(first_markdown_text)
@@ -480,7 +512,7 @@ class SlackThreadHandler:
             response = client.chat_startStream(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
-                recipient_user_id=self.actor_slack_user_id,
+                recipient_user_id=recipient,
                 recipient_team_id=integration.integration_id,
                 task_display_mode="plan",
                 chunks=chunks,
@@ -577,7 +609,7 @@ class SlackThreadHandler:
         placed = self._append_reply_suggestions(ts, reply_suggestions_for) if reply_suggestions_for else []
 
         final_chunks: list[dict[str, Any]] = []
-        recipient = self.actor_slack_user_id
+        recipient = self.notification_target(self.actor_slack_user_id)
         if recipient and not final_markdown and not mention_sent:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
             final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{recipient}>"})
@@ -612,7 +644,8 @@ class SlackThreadHandler:
         return all(posted)
 
     def _with_leading_mention(self, markdown: str) -> str:
-        return leading_mention_prefix(markdown, self.actor_slack_user_id) + markdown
+        markdown = self.notification_text(markdown, self.actor_slack_user_id)
+        return leading_mention_prefix(markdown, self.notification_target(self.actor_slack_user_id)) + markdown
 
     def attach_files(self, ts: str, file_ids: list[str]) -> bool:
         """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.
@@ -718,6 +751,7 @@ class SlackThreadHandler:
         becomes visible, and it is the only surface guaranteed to reach someone
         who only ever talks to @PostHog from Slack.
         """
+        reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
 
@@ -743,6 +777,7 @@ class SlackThreadHandler:
         It leaves any progress message alone, because the run can still be working.
         Returns whether the card went out. A Slack failure is logged, never raised.
         """
+        reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
         header = f"{mention_prefix}{outcome}"
