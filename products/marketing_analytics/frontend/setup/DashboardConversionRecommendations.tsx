@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { conversionGoalFormLogic } from './conversionGoalFormLogic'
 import { ConversionGoalRecommendations } from './ConversionGoalRecommendations'
@@ -11,6 +12,7 @@ import { DashboardSetupPrompt } from './DashboardSetupPrompt'
 import { dashboardSetupPromptsLogic } from './dashboardSetupPromptsLogic'
 
 export function DashboardConversionRecommendations(): JSX.Element | null {
+    const { setupEnabled } = useValues(marketingAnalyticsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -19,7 +21,7 @@ export function DashboardConversionRecommendations(): JSX.Element | null {
         conversionGoalFormLogic({ projectId: currentTeamId ?? -1 })
     )
 
-    if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]) {
+    if (!setupEnabled || !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]) {
         return null
     }
 

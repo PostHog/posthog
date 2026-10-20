@@ -15,7 +15,6 @@ export interface SourceOnboardingScanProps {
     onRescan: () => void
     rescanLoading?: boolean
     rescanDisabledReason?: string | null
-    headerAction?: ReactNode
 }
 
 export function SourceOnboardingScan({
@@ -29,11 +28,9 @@ export function SourceOnboardingScan({
     onRescan,
     rescanLoading,
     rescanDisabledReason,
-    headerAction,
 }: SourceOnboardingScanProps): JSX.Element {
     return (
         <SourceSetupPanel
-            headerAction={headerAction}
             state={
                 loading
                     ? 'scanning'
@@ -63,4 +60,3 @@ export function SourceOnboardingScan({
         />
     )
 }
-import type { ReactNode } from 'react'

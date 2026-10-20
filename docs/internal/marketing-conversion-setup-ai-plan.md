@@ -3,7 +3,8 @@
 Conversion recommendations scan a project's custom events and existing actions and suggest up to three business outcomes to measure.
 They appear in the existing Marketing analytics Setup, under Suggestions and Conversion goals.
 With source onboarding enabled, the dashboard also shows the same conversion recommendations beside source setup.
-Each dashboard setup block has a dismiss button in its header, including while loading or after a failure.
+Dashboard suggestions have a dismiss button in their header when the Setup tab is available.
+Source onboarding, source loading failures, and connection diagnostics stay visible even when source suggestions have been dismissed.
 Dismiss hides the whole block for that user and project in the current browser and opens a dialog linking to the relevant Setup section.
 Setup keeps the sources and conversion recommendations available, with **Show suggestions on dashboard** to restore a hidden block.
 The `marketing-analytics-conversion-setup-ai` feature flag gates the UI, API, and MCP tools.
@@ -28,7 +29,7 @@ Expanding the row shows the explanation, amount property, and up to two actionab
 Count-only suggestions do not ask about revenue units, currency, or hypothetical revenue upgrades.
 Each row has **Dismiss**. Dismissed source references and names persist per user and project in the current browser and stay hidden across scans.
 **Dismissed suggestions** lists those sources and provides **Restore**.
-Restoring makes a source eligible to appear again; it appears immediately when the latest scan still recommends it and no equivalent goal is configured.
+Restoring makes a source eligible to appear again; it appears immediately when the latest scan still recommends it and no goal for that event or action is configured.
 Earlier suggestions remain listed after a scan, without treating their old evidence as current results.
 **Scan details** contains the analysis period and discovery limits.
 **Scan again** scans recent events and actions and generates updated suggestions.
@@ -42,14 +43,15 @@ In Setup, **Review suggestion** opens the existing goal editor with the proposed
 Revenue suggestions select the sum of the proposed amount property; customer suggestions select the customer flag.
 Business questions remain visible for review, and nothing is saved until the user clicks **Add conversion goal**.
 The form blocks duplicate submissions and keeps the draft after a failed save so the user can retry.
-Recommendations matching a saved goal are hidden from the pending list, even if the saved goal has a different name.
-Matching compares the event or action, measurement, filters, revenue and customer flags, and schema mapping.
+Recommendations for an event or action with a saved goal are hidden from the pending list, even if the user changed the name, measurement, filters, or revenue and customer flags before saving.
+Opening a stale suggestion reviews a goal for that source, preferring an exact measurement match when there are several.
+Manual goals still use full measurement equivalence to prevent duplicate saves while allowing distinct filtered goals for the same source.
 The list updates after a successful save, without another AI analysis.
 If no suggestions remain to review, the recommendation block disappears from the dashboard after a successful scan, including when all are configured or dismissed.
 Setup shows a compact confirmation and keeps **Scan again** available after the cooldown; saved goals remain in the configured goals list.
 A failed refresh explains that the latest attempt failed while the saved goals and last successful results remain available.
 An active scan or a failed request remains visible on the dashboard so its status and retry action are available.
-Deleting an equivalent goal makes its suggestion available again.
+Deleting the last goal for a source makes its suggestion available again.
 The form also checks for an equivalent saved goal before submitting, including when settings changed after the draft opened.
 The setup plan no longer generates rules that suggest creating conversion goals or enabling Revenue or Customer.
 The backend removes those suggestions for both the UI and the setup plan's MCP tool, and stops running the event-ranking scan that supplied them.

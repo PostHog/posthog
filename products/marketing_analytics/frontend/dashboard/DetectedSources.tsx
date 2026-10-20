@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -15,6 +14,7 @@ import {
     nativeSourceDisplayLabel,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { DashboardSetupPrompt } from '../setup/DashboardSetupPrompt'
 import { detectedSourcesLogic } from './detectedSourcesLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceSetupPanel } from './SourceSetupPanel'
@@ -22,11 +22,11 @@ import { SourceSetupPanel } from './SourceSetupPanel'
 export function DetectedSources({
     compact = false,
     showRescan = true,
-    headerAction,
+    dismissible = false,
 }: {
     compact?: boolean
     showRescan?: boolean
-    headerAction?: ReactNode
+    dismissible?: boolean
 }): JSX.Element | null {
     const {
         visibleSuggestions,
@@ -76,7 +76,6 @@ export function DetectedSources({
             <>
                 <MarketingAnalyticsSourceStatusBanner />
                 <SourceCatalog
-                    headerAction={headerAction}
                     hasSources={connections.length > 0 || hasSyncedMarketingSources}
                     onBack={() => setShowIntegrations(false)}
                 />
@@ -94,39 +93,46 @@ export function DetectedSources({
             <MarketingAnalyticsSourceStatusBanner
                 hiddenSourceIds={pendingConnections.map((connection) => connection.id)}
             />
-            <SourceSetupPanel
-                headerAction={headerAction}
-                compact={compact || hasSyncedMarketingSources}
-                state={
-                    pendingConnections.length
-                        ? 'waiting'
-                        : !setupPlan
-                          ? setupPlanFailed
-                              ? 'error'
-                              : 'scanning'
-                          : sources.length
-                            ? 'suggestions'
-                            : dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')
-                              ? 'dismissed'
-                              : 'empty'
-                }
-                suggestions={sources}
-                connections={pendingConnections}
-                onRetry={showRescan ? rescanSources : undefined}
-                rescanLoading={setupPlanLoading}
-                rescanDisabledReason={sourceScanDisabledReason}
-                onDismiss={dismissSource}
-                onRestore={restoreAllDismissed}
-                footer={
-                    <LemonButton
-                        type={sources.length || connections.length ? 'secondary' : 'primary'}
-                        onClick={openIntegrations}
-                        data-attr="marketing-dashboard-connect-source"
-                    >
-                        Browse integrations
-                    </LemonButton>
-                }
-            />
+            <DashboardSetupPrompt
+                kind="sources"
+                dismissible={dismissible && !pendingConnections.length && !!setupPlan && !setupPlanFailed}
+            >
+                {(dismissButton) => (
+                    <SourceSetupPanel
+                        headerAction={dismissButton}
+                        compact={compact || hasSyncedMarketingSources}
+                        state={
+                            pendingConnections.length
+                                ? 'waiting'
+                                : !setupPlan
+                                  ? setupPlanFailed
+                                      ? 'error'
+                                      : 'scanning'
+                                  : sources.length
+                                    ? 'suggestions'
+                                    : dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')
+                                      ? 'dismissed'
+                                      : 'empty'
+                        }
+                        suggestions={sources}
+                        connections={pendingConnections}
+                        onRetry={showRescan ? rescanSources : undefined}
+                        rescanLoading={setupPlanLoading}
+                        rescanDisabledReason={sourceScanDisabledReason}
+                        onDismiss={dismissSource}
+                        onRestore={restoreAllDismissed}
+                        footer={
+                            <LemonButton
+                                type={sources.length || connections.length ? 'secondary' : 'primary'}
+                                onClick={openIntegrations}
+                                data-attr="marketing-dashboard-connect-source"
+                            >
+                                Browse integrations
+                            </LemonButton>
+                        }
+                    />
+                )}
+            </DashboardSetupPrompt>
         </>
     )
 }
