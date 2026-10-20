@@ -88,11 +88,7 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
 
 def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
-        alert = (
-            AlertConfiguration.objects.select_for_update(no_key=True)
-            .select_related("insight", "threshold")
-            .get(id=alert_id)
-        )
+        alert = AlertConfiguration.objects.select_for_update(no_key=True).select_related("threshold").get(id=alert_id)
         # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
         at = now or timezone.now()
         if alert.platform_owned:
