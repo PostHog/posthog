@@ -56,9 +56,7 @@ export function PageHistoryTile({
               : 'Failed'
           : !usable
             ? 'Unavailable'
-            : selected
-              ? 'Displayed'
-              : (capturedTime ?? 'Captured')
+            : (capturedTime ?? 'Captured')
     const details = pending
         ? usable
             ? 'A new capture is in progress. You can view the previous screenshot.'
@@ -73,6 +71,7 @@ export function PageHistoryTile({
         <LemonButton
             type="secondary"
             fullWidth
+            active={selected}
             noPadding
             aria-pressed={selected}
             aria-label={`Inspect ${formatCaptureDay(capture.captured_on, 'long')}${selected ? ', displayed screenshot' : ''}${failed && usable ? ', previous screenshot kept' : !usable ? ', no screenshot' : ''}`}
@@ -88,7 +87,7 @@ export function PageHistoryTile({
             className={cn('min-w-0 overflow-hidden rounded', selected && 'ring-2 ring-accent')}
         >
             <div className="w-full min-w-0 font-normal">
-                <div className="h-16 overflow-hidden bg-surface-secondary flex items-center justify-center">
+                <div className="h-20 overflow-hidden bg-surface-secondary flex items-center justify-center">
                     {usable && capture.thumbnail_url && capture.thumbnail_url !== failedThumbnailUrl ? (
                         <img
                             src={capture.thumbnail_url}

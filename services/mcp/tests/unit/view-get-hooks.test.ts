@@ -13,7 +13,6 @@ function suggestion(canAct: boolean): Record<string, unknown> {
         subject_id: 'view-1',
         payload: { subject_name: 'orders' },
         status: 'proposed',
-        score: 3,
         can_act: canAct,
     }
 }

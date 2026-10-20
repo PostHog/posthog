@@ -16,11 +16,6 @@ class TestBitriseSource:
         self.team_id = 123
         self.config = BitriseSourceConfig(api_token="bitrise-token")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["builds"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "builds"
-
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [

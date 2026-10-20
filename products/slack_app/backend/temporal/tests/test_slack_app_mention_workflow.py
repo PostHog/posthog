@@ -98,6 +98,8 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
+        # True makes discovery report that the team is out of AI credits.
+        self.discover_usage_limited = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -191,7 +193,9 @@ def _fake_activities(rec: _Recorder) -> list:
         thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
-        return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
+        return SlackRepoSelectionOutcome(
+            status="failed", repository=None, reason="agent crashed", usage_limited=rec.discover_usage_limited
+        )
 
     @activity.defn(name="post_posthog_code_repo_picker_activity")
     async def post_picker(
@@ -595,6 +599,21 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
 
 
 @pytest.mark.asyncio
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+    rec.discover_usage_limited = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert not rec.picker_posted.is_set()
+    assert rec.created == []
+    assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
 async def test_hung_child_times_out_and_queue_continues(monkeypatch):
     # A child that never finishes used to stall the conversation forever: the queue
     # awaits it serially, so every later message in the thread sat behind it with no
@@ -616,7 +635,8 @@ async def test_hung_child_times_out_and_queue_continues(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
+@pytest.mark.parametrize("carried_key_prefix", ["slack-app-mention-processing-", "posthog-code-mention-"])
+async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen(carried_key_prefix: str):
     rec = _Recorder()
     pending = _message("1.1", event_id="Ev-pending")
     already_seen = _message("1.2", event_id="Ev-seen")
@@ -631,7 +651,10 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
             SlackAppMentionWorkflow.run,
             SlackAppMentionWorkflowInputs(
                 pending_messages=[pending],
-                processed_event_keys=[derive_mention_workflow_id(already_seen)],
+                processed_event_keys=[
+                    carried_key_prefix
+                    + derive_mention_workflow_id(already_seen).removeprefix("slack-app-mention-processing-")
+                ],
             ),
             id=f"wf-{uuid.uuid4()}",
             task_queue=h.task_queue,

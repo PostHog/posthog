@@ -183,6 +183,7 @@ def test_activity_error_properties_names_the_application_failure_class():
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
+@pytest.mark.usefixtures("sandbox_ai_gateway")
 class TestProcessTaskWorkflow:
     """
     End-to-end workflow tests using real Modal sandboxes.
@@ -946,13 +947,53 @@ class TestSandboxRotation:
         assert rotation.credential_refresh_task is refresh_old
         provision.assert_not_awaited()
 
+    async def test_the_replacements_own_agent_server_boot_keeps_the_rotation(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement()))
+
+        async def boot_reports_activity(_output: GetSandboxForRepositoryOutput) -> None:
+            await wf.heartbeat(True)
+
+        monkeypatch.setattr(wf, "_start_agent_server", boot_reports_activity)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id == "sb-new"
+        assert rotation.reason == "none"
+
+    async def test_a_history_without_the_patch_still_aborts_after_the_boot(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(
+            process_task_workflow_module, "_check_rotation_activity_before_boot", Mock(return_value=False)
+        )
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement()))
+
+        async def boot_reports_activity(_output: GetSandboxForRepositoryOutput) -> None:
+            await wf.heartbeat(True)
+
+        monkeypatch.setattr(wf, "_start_agent_server", boot_reports_activity)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert rotation.reason == "activity_during_handoff"
+
     @pytest.mark.parametrize(
         "reason, phase, event_ingest",
         [
             ("provision_failed", "provision", False),
             ("activity_during_handoff", "provision", False),
-            ("activity_during_handoff", "startup", False),
-            ("activity_during_handoff", "relay_shutdown", False),
             ("activity_during_handoff", "provision", True),
             ("provision_failed", "startup", False),
         ],
@@ -973,14 +1014,10 @@ class TestSandboxRotation:
 
         async def relay_activity() -> None:
             relay_ready.set()
-            try:
-                await activity_started.wait()
-                await report_activity()
-                activity_observed.set()
-                await asyncio.Future[None]()
-            finally:
-                if phase == "relay_shutdown":
-                    await report_activity()
+            await activity_started.wait()
+            await report_activity()
+            activity_observed.set()
+            await asyncio.Future[None]()
 
         async def refresh_credentials() -> None:
             await asyncio.Event().wait()
@@ -3467,7 +3504,8 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].failed_repositories == ["posthog/code"]
         assert ready_inputs[1].release_barrier is False
 
-    async def test_overlap_releases_agent_and_continues_when_primary_clone_fails(self, monkeypatch):
+    @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
+    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3516,8 +3554,22 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "patched",
+            lambda patch_id: (
+                fail_on_primary_clone_failure
+                or patch_id != process_task_workflow_module._PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE
+            ),
+        )
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        if fail_on_primary_clone_failure:
+            with pytest.raises(RuntimeError, match="clone timed out"):
+                await workflow._get_sandbox_for_repository()
+            assert mark_repo_ready not in calls
+            assert checkout_branch_in_sandbox not in calls
+            return
 
         result = await workflow._get_sandbox_for_repository()
 

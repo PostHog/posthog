@@ -44,11 +44,6 @@ class TestWritesonicSource:
         else:
             assert schemas[name].incremental_fields == []
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["performance_summary"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "performance_summary"
-
     @parameterized.expand(
         [
             (

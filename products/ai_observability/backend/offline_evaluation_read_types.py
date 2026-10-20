@@ -32,6 +32,8 @@ class OfflineReadQuery:
     prompt_version: str | None = None
     scorer_definition_id: UUID | None = None
     scorer_version_ids: tuple[UUID, ...] = ()
+    tags: tuple[str, ...] = ()
+    tag_match: Literal["any", "all"] = "any"
 
     def __post_init__(self) -> None:
         if not 1 <= self.limit <= 100:
@@ -62,6 +64,7 @@ class OfflineResultCellQuery:
 
 @frozen
 class OfflineExperimentRead:
+    tags: tuple[str, ...] = ()
     id: UUID
     name: str
     run_source: str | None

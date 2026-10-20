@@ -108,6 +108,8 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
                 "events": "Only syncs the last 365 days on initial sync",
                 "conversation_messages": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
                 "conversation_comments": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
+                "conversation_followers": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
+                "contact_list_contacts": "Fetched one contact list at a time, so a sync takes longer the more contact lists you have",
             },
         )
 

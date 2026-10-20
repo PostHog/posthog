@@ -256,6 +256,8 @@ export const messagingTemplatesCreateBodyNameMax = 400
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesCreateBodyTypeMax = 24
 
+export const messagingTemplatesCreateBodyDraftContentOneTemplatingDefault = `liquid`
+
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -278,7 +280,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
@@ -338,12 +340,85 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    draft_content: zod
+        .union([
+            zod.object({
+                templating: zod
+                    .enum(['liquid'])
+                    .describe('\* `liquid` - liquid')
+                    .default(messagingTemplatesCreateBodyDraftContentOneTemplatingDefault)
+                    .describe(
+                        "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
+                    ),
+                email: zod
+                    .union([
+                        zod.object({
+                            subject: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
+                                ),
+                            text: zod
+                                .string()
+                                .optional()
+                                .describe("Plain-text fallback body for clients that can't render the email."),
+                            html: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
+                                ),
+                            design: zod
+                                .object({
+                                    counters: zod
+                                        .looseObject({})
+                                        .optional()
+                                        .describe(
+                                            'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
+                                        ),
+                                    schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
+                                    body: zod.object({
+                                        id: zod.string().optional().describe('Any unique string.'),
+                                        rows: zod
+                                            .array(zod.looseObject({}))
+                                            .describe(
+                                                'Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.'
+                                            ),
+                                        headers: zod.array(zod.looseObject({})).optional(),
+                                        footers: zod.array(zod.looseObject({})).optional(),
+                                        values: zod
+                                            .looseObject({})
+                                            .optional()
+                                            .describe(
+                                                "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor."
+                                            ),
+                                    }),
+                                })
+                                .optional()
+                                .describe(
+                                    "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft."
+        ),
 })
 
 export const messagingTemplatesUpdateBodyNameMax = 400
 
 export const messagingTemplatesUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesUpdateBodyTypeMax = 24
+
+export const messagingTemplatesUpdateBodyDraftContentOneTemplatingDefault = `liquid`
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -367,7 +442,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
@@ -427,12 +502,85 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    draft_content: zod
+        .union([
+            zod.object({
+                templating: zod
+                    .enum(['liquid'])
+                    .describe('\* `liquid` - liquid')
+                    .default(messagingTemplatesUpdateBodyDraftContentOneTemplatingDefault)
+                    .describe(
+                        "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
+                    ),
+                email: zod
+                    .union([
+                        zod.object({
+                            subject: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
+                                ),
+                            text: zod
+                                .string()
+                                .optional()
+                                .describe("Plain-text fallback body for clients that can't render the email."),
+                            html: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
+                                ),
+                            design: zod
+                                .object({
+                                    counters: zod
+                                        .looseObject({})
+                                        .optional()
+                                        .describe(
+                                            'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
+                                        ),
+                                    schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
+                                    body: zod.object({
+                                        id: zod.string().optional().describe('Any unique string.'),
+                                        rows: zod
+                                            .array(zod.looseObject({}))
+                                            .describe(
+                                                'Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.'
+                                            ),
+                                        headers: zod.array(zod.looseObject({})).optional(),
+                                        footers: zod.array(zod.looseObject({})).optional(),
+                                        values: zod
+                                            .looseObject({})
+                                            .optional()
+                                            .describe(
+                                                "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor."
+                                            ),
+                                    }),
+                                })
+                                .optional()
+                                .describe(
+                                    "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft."
+        ),
 })
 
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
+
+export const messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault = `liquid`
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -457,7 +605,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
@@ -517,6 +665,77 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    draft_content: zod
+        .union([
+            zod.object({
+                templating: zod
+                    .enum(['liquid'])
+                    .describe('\* `liquid` - liquid')
+                    .default(messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault)
+                    .describe(
+                        "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
+                    ),
+                email: zod
+                    .union([
+                        zod.object({
+                            subject: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
+                                ),
+                            text: zod
+                                .string()
+                                .optional()
+                                .describe("Plain-text fallback body for clients that can't render the email."),
+                            html: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
+                                ),
+                            design: zod
+                                .object({
+                                    counters: zod
+                                        .looseObject({})
+                                        .optional()
+                                        .describe(
+                                            'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
+                                        ),
+                                    schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
+                                    body: zod.object({
+                                        id: zod.string().optional().describe('Any unique string.'),
+                                        rows: zod
+                                            .array(zod.looseObject({}))
+                                            .describe(
+                                                'Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.'
+                                            ),
+                                        headers: zod.array(zod.looseObject({})).optional(),
+                                        footers: zod.array(zod.looseObject({})).optional(),
+                                        values: zod
+                                            .looseObject({})
+                                            .optional()
+                                            .describe(
+                                                "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor."
+                                            ),
+                                    }),
+                                })
+                                .optional()
+                                .describe(
+                                    "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft."
+        ),
 })
 
 export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.object({

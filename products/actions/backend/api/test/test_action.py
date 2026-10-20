@@ -17,6 +17,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import Tag, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
@@ -303,6 +304,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         action.refresh_from_db()
         assert action.name == "user signed up 2"
+
+        update_log = ActivityLog.objects.get(scope="Action", item_id=str(action.pk), activity="updated")
+        assert update_log.user == user
 
         # Assert analytics are sent
         patch_capture.assert_called_with(

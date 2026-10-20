@@ -67,7 +67,7 @@
                                     "type": "object"
                                 },
                                 "subject": {
-                                    "description": "Email subject line. Supports Liquid templating. Required for email-type templates.",
+                                    "description": "Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.",
                                     "type": "string"
                                 },
                                 "text": {

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import date
+from functools import cached_property
 from typing import TypeVar, cast
 
 from django.core.cache import cache
@@ -8,7 +9,6 @@ import structlog
 
 from posthog.hogql.errors import ExposedHogQLError
 
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.scopes import APIScopeObject, scopes_not_covered
@@ -21,8 +21,17 @@ from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
 )
 
-from ..facade import contracts
-from ..facade.enums import HighlightLabel
+from ..facade.contracts import (
+    DailyValueNotReady,
+    HighlightCandidate,
+    HighlightContext,
+    HighlightFindings,
+    HighlightSource,
+)
+
+# Legacy names for the sources still in highlight_sources/. New sources use the facade contract.
+Candidate = HighlightCandidate
+Found = HighlightFindings
 
 logger = structlog.get_logger(__name__)
 T = TypeVar("T")
@@ -32,43 +41,15 @@ DAILY_CACHE_SECONDS = 24 * 60 * 60
 DAILY_LOCK_SECONDS = 30
 
 
-class DailyValueNotReady(Exception):
-    pass
-
-
 def property_restrictions(team: Team, user: User) -> str:
     return restriction_fingerprint(
         get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.id)
     )[:16]
 
 
-@frozen
-class Candidate:
-    key: str
-    label: HighlightLabel
-    family: str
-    importance: float
-    relevance: float
-    title: str
-    detail: str
-    url: str | None = None
-    series: list[float] | None = None
-    ref: str | None = None
-    source: str = ""
-
-    @property
-    def score(self) -> float:
-        floor = 0.5 if self.importance >= 0.9 else 0.2
-        return self.importance * (floor + (1 - floor) * self.relevance)
-
-
-@frozen
-class Found:
-    items: tuple[Candidate, ...] = ()
-    pulse: tuple[contracts.HighlightMetric, ...] = ()
-
-
 class Context:
+    """Today's `HighlightContext`. A source sees only the protocol, so these internals stay private."""
+
     def __init__(self, team: Team, user: User, today: date, scopes: frozenset[str] | None = None) -> None:
         self.team = team
         self.user = user
@@ -76,7 +57,11 @@ class Context:
         self.scopes = scopes
         self.failures: list[str] = []
         self.access = UserAccessControl(user=user, team=team)
-        self.restrictions = property_restrictions(team, user)
+
+    @cached_property
+    def restrictions(self) -> str:
+        # Only daily() reads this. Computing it on first use keeps the context free to build in a source's tests.
+        return property_restrictions(self.team, self.user)
 
     def allows(self, *required: str) -> bool:
         covered = self.scopes is None or "*" in self.scopes or not scopes_not_covered(self.scopes, required)
@@ -120,9 +105,13 @@ class Context:
             return default
 
 
-@frozen
-class Source:
-    name: str
-    find: Callable[[Context], Found]
-    scopes: tuple[str, ...] = ()
-    pulse_order: int = 0
+def Source(  # noqa: N802 - keeps the legacy name the sources in highlight_sources/ call
+    *, name: str, find: Callable[[Context], HighlightFindings], scopes: tuple[str, ...] = (), pulse_order: int = 0
+) -> HighlightSource:
+    # A legacy source reads Today's own Context. Today always calls it with one, so the cast holds.
+    return HighlightSource(
+        name=name,
+        find=cast(Callable[[HighlightContext], HighlightFindings], find),
+        scopes=scopes,
+        pulse_order=pulse_order,
+    )

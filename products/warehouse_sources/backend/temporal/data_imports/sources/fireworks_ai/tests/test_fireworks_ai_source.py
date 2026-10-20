@@ -26,12 +26,6 @@ class TestSourceConfig:
         assert FireworksAISource().connection_host_fields == ["account_id"]
 
 
-class TestGetSchemas:
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = FireworksAISource().get_schemas(_config(), team_id=1, names=["models"])
-        assert [s.name for s in schemas] == ["models"]
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [

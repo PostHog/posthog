@@ -78,6 +78,17 @@ class TestBetterStackValidateCredentials:
         assert (error is None) is expected_ok
         assert network.requests_log[0].headers["authorization"] == "Bearer bs_test"
 
+    @parameterized.expand([("v2", "/api/v2/policies"), ("v3", "/api/v3/policies"), (None, "/api/v3/policies")])
+    def test_probe_follows_the_pin(self, api_version: str | None, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse()]) as network:
+            BetterStackSource().validate_credentials(
+                BetterStackSourceConfig(api_token="bs_test"),
+                team_id=1,
+                schema_name="escalation_policies",
+                api_version=api_version,
+            )
+        assert network.requests_log[0].path == expected_path
+
 
 class TestBetterStackNonRetryableErrors:
     @parameterized.expand(

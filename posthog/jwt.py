@@ -32,6 +32,7 @@ class PosthogJwtAudience(Enum):
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
     WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
     WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = "posthog:workflows:send_transactional_email"
+    WORKFLOWS_RESUME_BATCH = "posthog:workflows:resume_batch"
     CREDENTIALS_SERVICE = "posthog:credentials_service"
     TASKS_CREATE = "posthog:tasks:create"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"

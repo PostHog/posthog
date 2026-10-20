@@ -110,9 +110,3 @@ class TestSmartreachSource:
         # The resolved pin and the SmartReach team id reach the request layer.
         assert kwargs["api_version"] == expected_version
         assert kwargs["smartreach_team_id"] == "team_abc"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown SmartReach schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

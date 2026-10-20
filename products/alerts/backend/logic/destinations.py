@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 from uuid import UUID
@@ -19,6 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
+from products.alerts.backend.facade.contracts import AlertInternalEvent, AlertInternalEventsNotDelivered
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
 from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
@@ -501,3 +502,33 @@ def alert_internal_event_delivered(
         ALERT_INTERNAL_EVENT_DELIVERY_FAILURES.labels(event_name=event_name).inc()
         logger.warning("Alert internal event was not delivered", error=str(error), **context)
         return False
+
+
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Produce the events and return once the broker took all of them. Raise otherwise."""
+    pending = [
+        (
+            event.event_name,
+            produce_alert_internal_event(
+                team_id=team_id,
+                event_name=event.event_name,
+                properties=event.properties,
+                timestamp=event.timestamp,
+                uuid=event.uuid,
+            ),
+        )
+        for event in events
+    ]
+    if not pending:
+        return
+    flush_alert_internal_events(flush_timeout_seconds)
+    undelivered = [
+        event_name
+        for event_name, result in pending
+        if result is None
+        or not alert_internal_event_delivered(result, team_id=team_id, alert_id=alert_id, event_name=event_name)
+    ]
+    if undelivered:
+        raise AlertInternalEventsNotDelivered(f"{len(undelivered)} of {len(pending)} alert events were not delivered")

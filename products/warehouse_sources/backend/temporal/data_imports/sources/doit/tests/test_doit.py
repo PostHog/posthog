@@ -4,8 +4,10 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    SourceDriver,
     always,
     scripted_network,
 )
@@ -16,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit 
     doit_source,
     resolve_report_id,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.doit.source import DoItSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit"
@@ -90,3 +93,68 @@ class TestRequestTimeouts:
             list(cast(Iterable[Any], source.items()))
 
         assert mock_session.return_value.get.call_args.kwargs["timeout"] == REPORT_TIMEOUT_SECONDS
+
+
+class TestDoitEndpointSource:
+    @pytest.mark.parametrize(
+        "endpoint,path,data_key,next_page",
+        [
+            ("Budgets", "/analytics/v1/budgets", "budgets", lambda token: {"pageToken": token}),
+            ("Insights", "/insights/v1/results", "results", lambda token: {"pagination": {"pageToken": token}}),
+            ("Anomalies", "/anomalies/v1", "anomalies", lambda token: {"pageToken": token}),
+            ("Invoices", "/billing/v1/invoices", "invoices", lambda token: {"pageToken": token}),
+            ("Assets", "/billing/v1/assets", "assets", lambda token: {"pageToken": token}),
+            ("Annotations", "/analytics/v1/annotations", "annotations", lambda token: {"pageToken": token}),
+            ("SupportTickets", "/support/v1/tickets", "tickets", lambda token: {"pageToken": token}),
+        ],
+    )
+    def test_follows_the_page_token_to_the_last_page(self, endpoint, path, data_key, next_page) -> None:
+        result = SourceDriver(DoItSource(), CONFIG).run(
+            endpoint,
+            [
+                ScriptedResponse(json={data_key: [{"id": "1"}], **next_page("tok-2")}),
+                ScriptedResponse(json={data_key: [{"id": "2"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [path, path]
+        assert result.params("pageToken") == [None, "tok-2"]
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert result.requests[0].headers["authorization"] == "Bearer key"
+
+    def test_insight_resource_results_fan_out_over_every_insight(self) -> None:
+        resource_results = "/insights/v1/results/source/{}/insight/{}/resource-results"
+        result = SourceDriver(DoItSource(), CONFIG).run(
+            "InsightResourceResults",
+            [
+                ScriptedResponse(
+                    json={"results": [{"source": "doit", "key": "idle/vms #2"}, {"source": "aws", "key": "gone"}]}
+                ),
+                ScriptedResponse(json={"resourceResults": [{"resourceId": "vm-1"}], "pageToken": "tok-2"}),
+                ScriptedResponse(json={"resourceResults": [{"resourceId": "vm-2"}]}),
+                # An insight removed after the listing is skipped, not fatal.
+                ScriptedResponse(status=404, json={"error": "not found"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/insights/v1/results",
+            resource_results.format("doit", "idle%2Fvms%20%232"),
+            resource_results.format("doit", "idle%2Fvms%20%232"),
+            resource_results.format("aws", "gone"),
+        ]
+        assert result.params("pageToken") == [None, None, "tok-2", None]
+        assert [(row["insight_source"], row["insight_key"], row["resourceId"]) for row in result.rows] == [
+            ("doit", "idle/vms #2", "vm-1"),
+            ("doit", "idle/vms #2", "vm-2"),
+        ]
+
+    def test_forbidden_table_fails_as_non_retryable(self) -> None:
+        result = SourceDriver(DoItSource(), CONFIG).run(
+            "Invoices", always(ScriptedResponse(status=403, json={"error": "forbidden"}))
+        )
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), DoItSource().get_non_retryable_errors().keys())

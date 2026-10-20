@@ -172,6 +172,49 @@ class TestFanOut:
         expected_start = ["1700000000"] * 3 if use_incremental else [None] * 3
         assert result.params("start_time")[1:] == expected_start
 
+    def test_agent_deployments_walk_page_numbers_and_carry_the_agent_id(self) -> None:
+        result = _driver().run(
+            "agent_deployments",
+            [
+                ScriptedResponse(json={"agents": [{"agent_id": "a1"}], "has_more": False, "next_cursor": None}),
+                ScriptedResponse(json={"results": [{"id": "d1"}], "meta": {"page": 1, "page_size": 100}}),
+                ScriptedResponse(json={"results": [{"id": "d2"}], "meta": {"page": 2, "page_size": 100}}),
+                ScriptedResponse(json={"results": [], "meta": {"page": 3, "page_size": 100}}),
+            ],
+        )
+
+        assert result.raised is None
+        # Deployment rows carry no agent id; without the parent id the primary key is not table-unique.
+        assert result.rows == [{"id": "d1", "agent_id": "a1"}, {"id": "d2", "agent_id": "a1"}]
+        assert result.params("page")[1:] == ["1", "2", "3"]
+        assert result.params("page_size")[1:] == ["100"] * 3
+
+    def test_flow_template_runs_walk_every_template_and_page(self) -> None:
+        result = _driver().run(
+            "flow_template_runs",
+            [
+                ScriptedResponse(
+                    json={"templates": [{"id": "t1"}, {"id": "t2"}], "has_more": False, "next_cursor": None}
+                ),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r1", "template_id": "t1"}], "has_more": True, "next_cursor": "c1"}
+                ),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r2", "template_id": "t1"}], "has_more": False, "next_cursor": None}
+                ),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r3", "template_id": "t2"}], "has_more": False, "next_cursor": None}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r1", "r2", "r3"]
+        # The template list rejects a page size above 25.
+        assert result.requests[0].param("page_size") == "25"
+        assert result.requests[0].param("versions_per_template") == "1"
+        assert result.requests[2].param("cursor") == "c1"
+
 
 class TestSecretRedaction:
     @parameterized.expand(
@@ -272,6 +315,13 @@ class TestUnpaginatedEndpoints:
                 ["p1", "p2"],
                 "phone_number_id",
             ),
+            (
+                "voice_collections_wrapped",
+                "voice_collections",
+                {"collections": [{"collection_id": "c1"}, {"collection_id": "c2"}]},
+                ["c1", "c2"],
+                "collection_id",
+            ),
             # The subscription is one object, not a list, and must land as a single snapshot row.
             (
                 "subscription_single_object",
@@ -370,6 +420,11 @@ class TestSourceResponse:
             ("tool_executions", ["tool_id", "id"], "desc", None),
             ("phone_numbers", ["phone_number_id"], "asc", None),
             ("batch_calls", ["id"], "asc", "created_at_unix"),
+            ("agent_deployments", ["agent_id", "id"], "desc", "deployed_at_unix_secs"),
+            ("flow_templates", ["id"], "asc", None),
+            # Runs from different templates interleave, and run ids are only documented per template.
+            ("flow_template_runs", ["template_id", "id"], "desc", None),
+            ("voice_collections", ["collection_id"], "asc", None),
             # A single snapshot row has no unique column to merge on; full refresh replaces it.
             ("subscription", None, "asc", None),
         ]
