@@ -1185,7 +1185,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             "runtime_adapter": "codex",
             "codex_model_access": "own-subscription",
             "codex_subscription_user_id": self.user.id,
-            "slack_plan_owner_slack_user_id": "U_ALICE",
+            "slack_actor_user_id": self.user.id,
+            "slack_actor_slack_user_id": "U_ALICE",
         }
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")

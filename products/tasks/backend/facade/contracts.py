@@ -1132,3 +1132,11 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class UnattendedPlanStatus:
+    """A user's plan for runs that start with no client, where the plan rollout is on."""
+
+    plan_name: str
+    connected: bool

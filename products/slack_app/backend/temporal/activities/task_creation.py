@@ -15,7 +15,6 @@ from posthog.temporal.common.utils import close_db_connections
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.services.slack_messages import (
-    PLAN_OWNER_SLACK_USER_STATE_KEY,
     SlackThreadMessage,
     context_block,
     parse_slack_file_refs,
@@ -67,35 +66,25 @@ def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str,
     return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
-def _own_plan_state(
-    integration: Any, *, user_id: int, slack_user_id: str, runtime_adapter: str | None
-) -> dict[str, Any]:
+def _own_plan_state(integration: Any, user: Any, *, runtime_adapter: str | None) -> dict[str, Any]:
     """The run-state keys that bill a new run to this user's own plan, or none to keep PostHog credits.
 
     The user who starts the run owns the plan, so a reply from someone else never spends it.
     A failed check keeps the run on credits rather than blocking the mention.
     """
-    from posthog.models.user import User  # noqa: PLC0415 — keep the model off the slack_app import path
-
     from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled  # noqa: PLC0415
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
     try:
-        distinct_id = User.objects.filter(id=user_id).values_list("distinct_id", flat=True).first()
-        if not is_slack_app_byos_enabled(integration, distinct_id):
-            return {}
         state: dict[str, Any] = tasks_facade.unattended_model_access_state(
-            team_id=integration.team_id,
-            user_id=user_id,
-            organization_id=str(integration.team.organization_id),
-            runtime_adapter=runtime_adapter,
+            user, organization_id=str(integration.team.organization_id), runtime_adapter=runtime_adapter
         )
+        # Checked last: most mentions stop at the local plan checks and send no flag request.
+        if state and is_slack_app_byos_enabled(integration, user.distinct_id):
+            return state
     except Exception:
-        logger.exception("slack_app_own_plan_resolution_failed", user_id=user_id)
-        return {}
-    if state:
-        state[PLAN_OWNER_SLACK_USER_STATE_KEY] = slack_user_id
-    return state
+        logger.exception("slack_app_own_plan_resolution_failed", user_id=user.id)
+    return {}
 
 
 def _strip_context_tag(text: str) -> str:
@@ -603,6 +592,7 @@ def create_posthog_code_task_for_repo_activity(
     model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user import User
 
     from products.signals.backend.facade import api as signals_facade
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -744,8 +734,9 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
     run_prefs = resolve_run_preferences(override=model_override, team_id=integration.team_id, user_id=user_id)
-    own_plan_state = _own_plan_state(
-        integration, user_id=user_id, slack_user_id=slack_user_id, runtime_adapter=run_prefs.runtime_adapter
+    mentioner = User.objects.filter(id=user_id, is_active=True).first()
+    own_plan_state = (
+        _own_plan_state(integration, mentioner, runtime_adapter=run_prefs.runtime_adapter) if mentioner else {}
     )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
@@ -780,7 +771,7 @@ def create_posthog_code_task_for_repo_activity(
             model=run_prefs.model,
             reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
-            extra_run_state=own_plan_state or None,
+            extra_run_state=own_plan_state,
         )
     except Exception as e:
         logger.exception(
@@ -1050,16 +1041,16 @@ def forward_posthog_code_followup_activity(
         clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
         return handled
 
-    plan = tasks_facade.get_run_plan(task_run.state)
-    if plan is not None and plan.owner_user_id != (actor_user.id if actor_user else None):
-        # The live sandbox holds the owner's plan token, and the tasks facade refuses
-        # anyone else's message. Say why here rather than report a failed delivery.
+    refused_plan = tasks_facade.plan_refused_to(task_run.state, actor_user.id if actor_user else None)
+    if refused_plan is not None:
+        # The live sandbox holds the owner's plan token, and the facade refuses anyone else's
+        # message at delivery. Refuse here, before attachment uploads, and say why.
         _post_owner_plan_refusal(
             slack,
             channel,
             thread_ts,
-            plan_name=plan.plan_name,
-            owner_slack_user_id=(task_run.state or {}).get(PLAN_OWNER_SLACK_USER_STATE_KEY),
+            plan_name=refused_plan,
+            owner_slack_user_id=(task_run.state or {}).get("slack_actor_slack_user_id"),
         )
         logger.info(
             "slack_app_followup_refused_owner_plan",
@@ -1523,14 +1514,7 @@ def _resume_task_with_new_run(
     # picked up too.
     extra_state.update(_run_preference_state(model_override, team_id=mapping.task.team_id, user_id=run_actor.id))
     # The replying user's own plan, never the plan of the run this one continues.
-    extra_state.update(
-        _own_plan_state(
-            integration,
-            user_id=run_actor.id,
-            slack_user_id=slack_user_id,
-            runtime_adapter=extra_state.get("runtime_adapter"),
-        )
-    )
+    extra_state.update(_own_plan_state(integration, run_actor, runtime_adapter=extra_state.get("runtime_adapter")))
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)

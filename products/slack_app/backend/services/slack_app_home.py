@@ -103,7 +103,6 @@ ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
-ACTION_SET_OWN_PLAN = "slack_app_home:set_own_plan"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -131,7 +130,6 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
-        ACTION_SET_OWN_PLAN,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -413,15 +411,9 @@ class GitHubState:
 
 @dataclass(frozen=True)
 class OwnPlanState:
-    """The viewer's choice to bill the Codex tasks they start from Slack to their ChatGPT plan.
+    """Whether the Codex tasks this viewer starts from Slack bill to their ChatGPT plan."""
 
-    Stored per project, so it belongs to the project this viewer's mentions launch in.
-    """
-
-    team_id: int
-    user_id: int
     connected: bool
-    enabled: bool
     settings_url: str | None = None
 
 
@@ -964,44 +956,17 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     ]
 
 
-OWN_PLAN_VALUE = "on"
-
-
 def _own_plan_blocks(state: OwnPlanState) -> list[dict]:
-    if not state.connected:
+    if state.connected:
+        text = "Codex tasks you start here use your ChatGPT plan. While one runs, only you can send it messages."
+    else:
         connect = (
             f"<{state.settings_url}|Connect your ChatGPT plan>" if state.settings_url else "Connect your ChatGPT plan"
         )
-        return [
-            _subsection_label("ChatGPT plan"),
-            {
-                "type": "context",
-                "elements": [
-                    {"type": "mrkdwn", "text": f"{connect} in PostHog to use it for Codex tasks you start here."}
-                ],
-            },
-        ]
-    option = {
-        "text": {"type": "mrkdwn", "text": "*Use my ChatGPT plan*"},
-        # Slack rejects the whole `views.publish` call when a description is over 75 characters.
-        "description": {"type": "mrkdwn", "text": "Codex tasks you start from Slack use your plan."},
-        "value": OWN_PLAN_VALUE,
-    }
-    checkbox: dict[str, Any] = {"type": "checkboxes", "action_id": ACTION_SET_OWN_PLAN, "options": [option]}
-    if state.enabled:
-        checkbox["initial_options"] = [option]
+        text = f"{connect} in PostHog to use it for Codex tasks you start here."
     return [
         _subsection_label("ChatGPT plan"),
-        {"type": "actions", "elements": [checkbox]},
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": "Other tasks use PostHog credits. While a task runs on your plan, only you can send it messages.",
-                }
-            ],
-        },
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]},
     ]
 
 
@@ -1773,24 +1738,6 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
-    if action_id == ACTION_SET_OWN_PLAN:
-        own_plan = _resolve_own_plan_state(
-            integration, slack_user_id, accessible=_accessible_integrations(integration, slack_user_id)
-        )
-        # Only a connected plan is offered, so a stale view cannot turn on a plan that cannot run.
-        if own_plan is not None and own_plan.connected:
-            from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
-
-            enabled = any(option.get("value") == OWN_PLAN_VALUE for option in action.get("selected_options") or [])
-            tasks_facade.set_preferred_model_access(
-                own_plan.team_id, own_plan.user_id, "codex", "own-subscription" if enabled else "posthog-gateway"
-            )
-            capture_slack_event(
-                integration, "slack app own plan toggled", slack_user_id=slack_user_id, enabled=enabled, plan="codex"
-            )
-        republish()
-        return HttpResponse(status=200)
-
     if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
         slack = SlackIntegration(integration)
         if not _is_admin(slack, integration, slack_user_id):
@@ -2215,6 +2162,8 @@ def _build_home_view(
         selected_status=view_state.selected_status,
         page=view_state.tasks_page,
     )
+    # Resolved once: the auto model choice card and the plan card both need it.
+    home_user = _resolve_home_user(integration, slack_user_id)
     stats_state = _resolve_stats_state(
         integration,
         accessible=accessible,
@@ -2233,11 +2182,9 @@ def _build_home_view(
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
-            resolve_auto_model_choice(integration.integration_id, slack_user_id)
-            if _auto_model_choice_offered(integration, slack_user_id)
-            else None
+            resolve_auto_model_choice(integration.integration_id, slack_user_id) if home_user is not None else None
         ),
-        own_plan=_resolve_own_plan_state(integration, slack_user_id, accessible=accessible),
+        own_plan=_resolve_own_plan_state(integration, slack_user_id, home_user, accessible=accessible),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2486,29 +2433,25 @@ def _resolve_run_defaults_state(
 
 
 def _resolve_own_plan_state(
-    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+    integration: Integration, slack_user_id: str, home_user: User | None, *, accessible: list[Integration]
 ) -> OwnPlanState | None:
     """The ChatGPT plan card for this viewer, or `None` when the card is not offered."""
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
+    if home_user is None:
+        return None
     try:
-        user = _resolve_home_user(integration, slack_user_id)
-        if user is None or not is_slack_app_byos_enabled(integration, user.distinct_id):
-            return None
         target = _routed_project_integration(integration, slack_user_id, accessible=accessible)
-        if target is None:
+        if target is None or not is_slack_app_byos_enabled(integration, home_user.distinct_id):
             return None
-        organization_id = str(target.team.organization_id)
-        if not tasks_facade.own_subscription_cloud_enabled(
-            "codex", distinct_id=user.distinct_id, organization_id=organization_id
-        ):
+        status = tasks_facade.unattended_plan_status(
+            home_user, "codex", organization_id=str(target.team.organization_id)
+        )
+        if status is None:
             return None
         site_url = (settings.SITE_URL or "").rstrip("/")
         return OwnPlanState(
-            team_id=target.team_id,
-            user_id=user.id,
-            connected=tasks_facade.can_bill_plan_unattended(user, "codex", organization_id=organization_id),
-            enabled=tasks_facade.get_preferred_model_access(target.team_id, user.id, "codex") == "own-subscription",
+            connected=status.connected,
             settings_url=(
                 f"{site_url}/project/{target.team_id}/settings/environment-ai-subscriptions" if site_url else None
             ),

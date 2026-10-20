@@ -105,19 +105,13 @@ from products.tasks.backend.facade.gateway import mint_private_gateway_token, re
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     is_workflow_dispatch_shadow_enabled,
-    own_subscription_cloud_enabled as _own_subscription_cloud_enabled,
     pi_cloud_runtime_enabled,
 )
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.logic.model_access import (
-    InvalidModelAccess,
-    ModelAccessMode,
-    SubscriptionAdapter,
-    resolve_model_access,
-)
-from products.tasks.backend.logic.services import subscription_preferences
+from products.tasks.backend.logic.model_access import InvalidModelAccess, SubscriptionAdapter, resolve_model_access
+from products.tasks.backend.logic.services import unattended_plan
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
@@ -257,10 +251,8 @@ __all__ = [
     "ensure_task_run_session",
     "ensure_subscription_owner",
     "get_run_plan",
-    "get_preferred_model_access",
-    "set_preferred_model_access",
-    "can_bill_plan_unattended",
-    "own_subscription_cloud_enabled",
+    "plan_refused_to",
+    "unattended_plan_status",
     "unattended_model_access_state",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -4091,42 +4083,37 @@ def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
     return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
 
 
-def get_preferred_model_access(team_id: int, user_id: int, adapter: SubscriptionAdapter) -> ModelAccessMode:
-    return subscription_preferences.get_preferred_model_access(team_id, user_id, adapter)
+def unattended_plan_status(
+    user: User, adapter: SubscriptionAdapter, *, organization_id: str
+) -> contracts.UnattendedPlanStatus | None:
+    return unattended_plan.unattended_plan_status(user, adapter, organization_id=organization_id)
 
 
-def set_preferred_model_access(team_id: int, user_id: int, adapter: SubscriptionAdapter, mode: ModelAccessMode) -> None:
-    subscription_preferences.set_preferred_model_access(team_id, user_id, adapter, mode)
-
-
-def own_subscription_cloud_enabled(
-    adapter: SubscriptionAdapter, *, distinct_id: str | None, organization_id: str
-) -> bool:
-    return _own_subscription_cloud_enabled(adapter, distinct_id=distinct_id, organization_id=organization_id)
-
-
-def can_bill_plan_unattended(user: User, adapter: SubscriptionAdapter, *, organization_id: str) -> bool:
-    return subscription_preferences.can_bill_plan_unattended(user, adapter, organization_id=organization_id)
-
-
-def unattended_model_access_state(
-    *, team_id: int, user_id: int, organization_id: str, runtime_adapter: str | None
-) -> dict[str, str]:
-    """See `subscription_preferences.unattended_model_access_state`."""
-    return subscription_preferences.unattended_model_access_state(
-        team_id=team_id, user_id=user_id, organization_id=organization_id, runtime_adapter=runtime_adapter
+def unattended_model_access_state(user: User, *, organization_id: str, runtime_adapter: str | None) -> dict[str, str]:
+    return unattended_plan.unattended_model_access_state(
+        user, organization_id=organization_id, runtime_adapter=runtime_adapter
     )
 
 
-def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
-    """Refuse anyone but the owner of the plan a run bills to. A run on PostHog credits allows everyone."""
+def plan_refused_to(state: dict[str, Any] | None, actor_user_id: int | None) -> str | None:
+    """The name of the plan the actor may not use on this run, or `None` when they may send it messages.
+
+    A run on PostHog credits allows everyone; a run on a user's plan allows only that user.
+    """
     run_state = state or {}
     for adapter, plan_name in SUBSCRIPTION_PLAN_NAMES.items():
         if (
             run_state.get(f"{adapter}_model_access") == "own-subscription"
             and run_state.get(f"{adapter}_subscription_user_id") != actor_user_id
         ):
-            raise PermissionDenied(f"Only the user who started this run can use its {plan_name}.")
+            return plan_name
+    return None
+
+
+def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
+    """Refuse anyone but the owner of the plan a run bills to. A run on PostHog credits allows everyone."""
+    if plan_name := plan_refused_to(state, actor_user_id):
+        raise PermissionDenied(f"Only the user who started this run can use its {plan_name}.")
 
 
 def validate_task_run_sandbox_token(

@@ -5,14 +5,12 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     load_run_footer,
@@ -106,49 +104,39 @@ class TestLoadRunFooter(SimpleTestCase):
         assert f"/tasks/{task_id}" in (footer.task_url or "")
         assert footer.model == "claude-opus-5"
 
-    @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
-    def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
-        assert load_run_footer("run-1", integration_id=None) == RunFooter()
-
-
-class TestLoadRunFooterPlan(TestCase):
-    def setUp(self) -> None:
-        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="team")
-        self.integration = Integration.objects.create(team=team, kind="slack", integration_id="T1", config={})
-        SlackUserProfileCache.objects.create(
-            integration=self.integration, slack_user_id="U_VOJTA", display_name="vojta"
-        )
-
     @parameterized.expand(
         [
             ("posthog_credits", {}, None),
-            ("the_owner_is_speaking", {"slack_actor_slack_user_id": "U_VOJTA"}, "Your ChatGPT plan"),
-            # A real mention here would notify the owner under every reply in the thread.
-            ("someone_else_is_speaking", {"slack_actor_slack_user_id": "U_ANA"}, "@vojta's ChatGPT plan"),
             (
-                "the_owner_has_no_cached_name",
-                {"slack_actor_slack_user_id": "U_ANA", "slack_plan_owner_slack_user_id": "U_GONE"},
+                "the_owner_is_speaking",
+                {
+                    "runtime_adapter": "codex",
+                    "codex_model_access": "own-subscription",
+                    "codex_subscription_user_id": 7,
+                    "slack_actor_user_id": 7,
+                },
+                "Your ChatGPT plan",
+            ),
+            (
+                "no_known_speaker",
+                {"runtime_adapter": "codex", "codex_model_access": "own-subscription", "codex_subscription_user_id": 7},
                 "ChatGPT plan",
             ),
         ]
     )
     @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_names_whose_plan_pays_for_the_run(
+    def test_names_the_plan_that_pays_for_the_run(
         self, _name: str, state: dict, expected: str | None, mock_get_run
     ) -> None:
-        if state:
-            state = {
-                "runtime_adapter": "codex",
-                "codex_model_access": "own-subscription",
-                "codex_subscription_user_id": 1,
-                "slack_plan_owner_slack_user_id": "U_VOJTA",
-                **state,
-            }
         mock_get_run.return_value = SimpleNamespace(
             id=uuid4(), task_id=uuid4(), team_id=1, state=state, created_by_id=None
         )
 
-        assert load_run_footer("run-1", integration_id=self.integration.id).plan == expected
+        assert load_run_footer("run-1", integration_id=None).plan == expected
+
+    @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
+    def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
+        assert load_run_footer("run-1", integration_id=None) == RunFooter()
 
 
 class TestViewerHasCodeAccess(SimpleTestCase):
