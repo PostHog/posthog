@@ -104,6 +104,14 @@ export async function checkPreviousRecipients(
             // The exclusion is saved, so keep it even when the count to show could not be made.
             return { kind: 'some', audience: narrowed, skipped: null }
         }
+        const realtimeCohort = after.realtime_cohort_with_other_conditions
+        if (realtimeCohort) {
+            // A realtime cohort has to be the audience's only condition, so the broadcast would drop the exclusion.
+            return {
+                kind: 'failed',
+                reason: `Cohort '${realtimeCohort.name}' is a realtime cohort, so the broadcast can't leave out people who already got an email about this.`,
+            }
+        }
         // The counts dedupe by email and can sample, so equal counts do not prove nobody overlaps. Keep the exclusion.
         const skipped = Math.max(before.affected - after.affected, 0)
         return after.affected === 0 && skipped > 0

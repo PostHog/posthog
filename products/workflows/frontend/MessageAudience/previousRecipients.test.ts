@@ -46,6 +46,22 @@ describe('checkPreviousRecipients', () => {
         }
     })
 
+    it('asks before sending to a realtime cohort, which would drop the exclusion', async () => {
+        const mixed = { realtime_cohort_with_other_conditions: { id: 42, name: 'Upgraded' } }
+        jest.mocked(workflowPreviousRecipientsCreate).mockResolvedValue({ cohort_id: 77, people: 4 } as never)
+        jest.mocked(hogFlowsUserBlastRadiusCreate)
+            .mockReset()
+            .mockResolvedValueOnce({ affected: 10, ...mixed } as never)
+            .mockResolvedValueOnce({ affected: 6, ...mixed } as never)
+
+        const check = await checkPreviousRecipients('1', {
+            ...audience,
+            properties: [{ key: 'id', type: PropertyFilterType.Cohort, value: 42, operator: PropertyOperator.In }],
+        })
+
+        expect(check).toEqual({ kind: 'failed', reason: expect.stringContaining("'Upgraded' is a realtime cohort") })
+    })
+
     it('keeps the saved exclusion when a count never answers', async () => {
         jest.useFakeTimers()
         try {
