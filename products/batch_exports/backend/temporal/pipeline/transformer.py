@@ -393,13 +393,10 @@ def get_parquet_column_paths(schema: pa.Schema, field_names: collections.abc.Ite
     `ParquetWriter` matches `use_dictionary` and `write_statistics` against leaf column paths, such as
     `tags.list.element` for a list field, not against top-level field names.
     """
-    paths: list[str] = []
-    for name in field_names:
-        buffer = io.BytesIO()
-        pq.write_table(pa.schema([schema.field(name)]).empty_table(), buffer)
-        parquet_schema = pq.ParquetFile(buffer).schema
-        paths.extend(parquet_schema.column(index).path for index in range(len(parquet_schema)))
-    return paths
+    buffer = io.BytesIO()
+    pq.write_table(pa.schema([schema.field(name) for name in field_names]).empty_table(), buffer)
+    parquet_schema = pq.ParquetFile(buffer).schema
+    return [parquet_schema.column(index).path for index in range(len(parquet_schema))]
 
 
 class ParquetStreamTransformer:
@@ -408,6 +405,7 @@ class ParquetStreamTransformer:
     # Close a file when less than this fraction of its max size is left. Otherwise, the last row
     # group ends up being very small and we're also more likely to go over the max file size.
     MIN_REMAINING_FILE_SIZE_FRACTION = 0.05
+    JSON_COLUMNS = frozenset({"properties", "person_properties", "set", "set_once"})
 
     def __init__(
         self,
@@ -424,6 +422,11 @@ class ParquetStreamTransformer:
 
         if target_row_group_size_bytes is None:
             target_row_group_size_bytes = settings.BATCH_EXPORT_PARQUET_TARGET_ROW_GROUP_SIZE_BYTES
+        if max_file_size_bytes:
+            # Row groups near the end of a file are sized with the compression ratio of the previous row
+            # group, so data that compresses much worse can overshoot. Never holding more than one max file
+            # size of record batches bounds that overshoot to about one max file size.
+            target_row_group_size_bytes = min(target_row_group_size_bytes, max_file_size_bytes)
         self.target_row_group_size_bytes = target_row_group_size_bytes
 
         self._parquet_writer: pq.ParquetWriter | None = None
@@ -432,7 +435,7 @@ class ParquetStreamTransformer:
         self._pending_record_batches: list[pa.RecordBatch] = []
         self._pending_record_batches_bytes = 0
         self._pending_record_batches_rows = 0
-        self._non_json_column_paths: list[str] | None = None
+        self._non_json_column_paths: list[str] = []
         self._current_file_size = 0
         # The compression ratio (Parquet bytes written per Arrow byte) achieved when writing the
         # previous row group. We use this as an estimate for calculating how many bytes will be
@@ -482,13 +485,6 @@ class ParquetStreamTransformer:
 
     def _get_parquet_writer(self) -> pq.ParquetWriter:
         if self._parquet_writer is None:
-            if self._non_json_column_paths is None:
-                json_columns = {"properties", "person_properties", "set", "set_once"}
-                # self.schema is set before getting a ParquetWriter.
-                self._non_json_column_paths = get_parquet_column_paths(
-                    self.schema, [col for col in self.schema.names if col not in json_columns]
-                )
-
             self._parquet_writer = pq.ParquetWriter(
                 self._parquet_buffer,
                 schema=self.schema,
@@ -518,9 +514,12 @@ class ParquetStreamTransformer:
                 schema = schema.remove(index)
 
         self._schema = schema
+        self._non_json_column_paths = get_parquet_column_paths(
+            schema, [name for name in schema.names if name not in self.JSON_COLUMNS]
+        )
 
     def _finish_parquet_file(self) -> bytes:
-        """Ensure underlying Parquet writer is closed before flushing buffer."""
+        """Write any pending row group, close the file, and return the rest of its bytes."""
         self._write_pending_row_group()
         self._get_parquet_writer().close()
         self._parquet_writer = None
@@ -542,15 +541,9 @@ class ParquetStreamTransformer:
             return self._pending_record_batches_bytes >= self.target_row_group_size_bytes
 
         # Near the end of a file, the limit is the space left in the file converted to Arrow bytes
-        # using our compression ratio estimate. The estimate comes from the previous row group, so
-        # data that compresses much worse than it can overshoot. Also limiting a row group to the max
-        # file size bounds that overshoot to about one max file size.
+        # using our compression ratio estimate.
         remaining_bytes = self.max_file_size_bytes - self._current_file_size
-        limit_bytes = min(
-            self.target_row_group_size_bytes,
-            remaining_bytes / self._compression_ratio,
-            self.max_file_size_bytes,
-        )
+        limit_bytes = min(self.target_row_group_size_bytes, remaining_bytes / self._compression_ratio)
         return self._pending_record_batches_bytes >= limit_bytes
 
     def _add_pending_record_batch(self, record_batch: pa.RecordBatch) -> None:

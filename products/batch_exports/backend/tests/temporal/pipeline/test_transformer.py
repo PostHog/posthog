@@ -6,6 +6,7 @@ import typing
 import hashlib
 import datetime as dt
 import functools
+import collections.abc
 
 import pytest
 
@@ -153,6 +154,26 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert row == expected_row
 
 
+async def iterate_record_batches(
+    record_batches: list[pa.RecordBatch],
+) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+    for record_batch in record_batches:
+        yield record_batch
+
+
+async def collect_parquet_files(
+    transformer: ParquetStreamTransformer, record_batches: list[pa.RecordBatch]
+) -> list[bytes]:
+    files: list[bytes] = []
+    current_file = b""
+    async for chunk in transformer.iter(iterate_record_batches(record_batches)):
+        current_file += chunk.data
+        if chunk.is_eof:
+            files.append(current_file)
+            current_file = b""
+    return files
+
+
 @pytest.mark.parametrize(
     "max_file_size_bytes,compression",
     [(0, None), (256 * 1024, None), (256 * 1024, "zstd")],
@@ -178,18 +199,7 @@ async def test_parquet_stream_transformer_writes_small_record_batches_as_large_r
     transformer = ParquetStreamTransformer(
         compression=compression, max_file_size_bytes=max_file_size_bytes, target_row_group_size_bytes=64 * 1024
     )
-
-    async def iter_record_batches():
-        for record_batch in record_batches:
-            yield record_batch
-
-    files: list[bytes] = []
-    current_file = b""
-    async for chunk in transformer.iter(iter_record_batches()):
-        current_file += chunk.data
-        if chunk.is_eof:
-            files.append(current_file)
-            current_file = b""
+    files = await collect_parquet_files(transformer, record_batches)
 
     parquet_files = [pq.ParquetFile(io.BytesIO(file)) for file in files]
     assert all(parquet_file.metadata.num_rows > 0 for parquet_file in parquet_files)
@@ -215,18 +225,8 @@ async def test_parquet_stream_transformer_bounds_file_size_when_compression_gets
         pa.RecordBatch.from_pydict({"properties": [rng.randbytes(5_000).hex() for _ in range(20)]}) for _ in range(40)
     ]
 
-    async def iter_record_batches():
-        for record_batch in compressible + incompressible:
-            yield record_batch
-
     transformer = ParquetStreamTransformer(compression="zstd", max_file_size_bytes=max_file_size_bytes)
-    files: list[bytes] = []
-    current_file = b""
-    async for chunk in transformer.iter(iter_record_batches()):
-        current_file += chunk.data
-        if chunk.is_eof:
-            files.append(current_file)
-            current_file = b""
+    files = await collect_parquet_files(transformer, compressible + incompressible)
 
     assert max(len(file) for file in files) <= 2 * max_file_size_bytes
 
@@ -240,11 +240,8 @@ async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only
         ]
     )
 
-    async def iter_record_batches():
-        yield record_batch
-
     transformer = ParquetStreamTransformer()
-    data = b"".join([chunk.data async for chunk in transformer.iter(iter_record_batches())])
+    (data,) = await collect_parquet_files(transformer, [record_batch])
 
     row_group = pq.ParquetFile(io.BytesIO(data)).metadata.row_group(0)
     columns = [row_group.column(index) for index in range(row_group.num_columns)]
