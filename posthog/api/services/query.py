@@ -476,9 +476,12 @@ def process_query_dict(
 
 
 def native_events_cluster_modifiers_for_user(
-    team: Team, user: User | AnonymousUser | None, query: BaseModel
+    team: Team, user: User | AnonymousUser | None, query: BaseModel, *, is_query_service: bool
 ) -> HogQLQueryModifiers | None:
-    if not isinstance(user, User) or isinstance(query, HogQLQuery):
+    # The flag covers app queries only. Personal API key traffic keeps its usual cluster.
+    if is_query_service or not isinstance(user, User) or isinstance(query, HogQLQuery):
+        return None
+    if isinstance(team.modifiers, dict) and team.modifiers.get("useNewEventsSchema") is not None:
         return None
     if not isinstance(query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
         return None

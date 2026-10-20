@@ -93,8 +93,25 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             "posthog.api.services.query.posthoganalytics.feature_enabled",
             side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
         ):
-            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query)
+            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query, is_query_service=False)
         self.assertEqual(modifiers, expected)
+
+    @parameterized.expand(
+        [("personal_api_key", True, {}), ("project_schema_choice", False, {"useNewEventsSchema": False})]
+    )
+    def test_rollout_flag_leaves_api_traffic_and_project_schema_choices_alone(
+        self, _name: str, is_query_service: bool, team_modifiers: dict[str, bool]
+    ) -> None:
+        self.team.modifiers = team_modifiers
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        with patch(
+            "posthog.api.services.query.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+        ):
+            modifiers = native_events_cluster_modifiers_for_user(
+                self.team, self.user, query, is_query_service=is_query_service
+            )
+        self.assertIsNone(modifiers)
 
     def _enqueue(self, runner: QueryRunner) -> dict[str, Any]:
         with (
