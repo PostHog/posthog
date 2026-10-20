@@ -7,12 +7,19 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    AccessControlLevel,
+    ExternalDataJobStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    IntegrationType,
+} from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
@@ -282,23 +289,64 @@ describe('signalSourcesLogic', () => {
         createConfig.mockRestore()
     })
 
-    // The roster shows what runs and the catalog shows the rest. A regression that lists the whole
-    // registry in the roster again, or filters the catalog wrong, fails here.
-    it('rosters connected sources and filters the catalog', () => {
-        logic.actions.loadSourceConfigsSuccess([])
+    // The roster shows what runs and the catalog shows the rest, with the recommendations built only
+    // once both the configs and the connections are known. A recommendation computed from a half-loaded
+    // picture would tell someone to connect a tool they already sync.
+    it('rosters connected sources, filters the catalog, and recommends by effort once everything has loaded', () => {
+        integrationsLogic.actions.loadIntegrationsSuccess([{ id: 1, kind: 'github' } as IntegrationType])
+        logic.actions.loadSourceConfigsSuccess([
+            {
+                ...githubIssuesConfig,
+                id: 'conversations_ticket',
+                source_product: SignalSourceProduct.Conversations,
+                source_type: SignalSourceType.Ticket,
+                enabled: true,
+            },
+        ])
+        expect(logic.values.recommendedSources).toEqual([])
+
+        const recommended = (): string[][] =>
+            logic.values.visibleSourceRecommendations.map(({ agent, reason }) => [agent.source, reason])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: [], next: null, previous: null })
+        expect(recommended()).toEqual([
+            ['github', 'integration'],
+            ['linear', 'default'],
+        ])
+
+        // One connected tool retires the defaults and joins the roster. Jira was synced before onboarding
+        // finished, so the person already left it off there; Gitea came later and is still worth a nudge.
+        logic.actions.loadOnboardingStateSuccess({ draft: null, completed_at: '2024-03-10T00:00:00Z', variant: null })
         sourcesDataLogic.actions.loadSourcesSuccess({
             results: [
-                { ...githubSource, source_type: 'Jira' },
-                { ...githubSource, id: 'source-gitea', source_type: 'Gitea' },
+                { ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' },
+                { ...githubSource, id: 'source-gitea', source_type: 'Gitea', created_at: '2024-03-20T00:00:00Z' },
             ],
             next: null,
             previous: null,
         })
-        expect(
-            logic.values.rosterGroups.find((group) => group.id === 'external')?.agents.map((agent) => agent.source)
-        ).toEqual(['jira', 'gitea'])
+        const external = (): string[] =>
+            logic.values.rosterGroups.find((group) => group.id === 'external')?.agents.map((agent) => agent.source) ??
+            []
+        expect(external()).toEqual(['jira', 'gitea'])
         expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
         expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
+        expect(recommended()).toEqual([
+            ['gitea', 'synced'],
+            ['github', 'integration'],
+        ])
+
+        logic.actions.hideSourceRecommendations()
+        expect(recommended()).toEqual([])
+        sourcesDataLogic.actions.loadSourcesSuccess({
+            results: [
+                { ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' },
+                { ...githubSource, id: 'source-gitea', source_type: 'Gitea', created_at: '2024-03-20T00:00:00Z' },
+                { ...githubSource, id: 'source-bugsnag', source_type: 'Bugsnag', created_at: '2024-03-21T00:00:00Z' },
+            ],
+            next: null,
+            previous: null,
+        })
+        expect(recommended()).toEqual([['bugsnag', 'synced']])
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true })
         expect(logic.values.sourceCategoryOptions).toContainEqual({ label: 'Engineering', value: 'Engineering' })

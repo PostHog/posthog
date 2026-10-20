@@ -26,6 +26,7 @@ import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRost
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceCatalogModal } from './SourceCatalogModal'
+import { SourceRecommendations } from './SourceRecommendations'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -992,6 +993,7 @@ export function AgentsRoster(): JSX.Element {
                 </div>
             ))}
 
+            <SourceRecommendations />
             <SourceCatalogModal />
 
             {linearTeamsPicker && (
