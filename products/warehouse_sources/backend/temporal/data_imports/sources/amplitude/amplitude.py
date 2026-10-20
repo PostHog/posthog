@@ -177,16 +177,22 @@ def _iter_export_window(
         buffer.seek(0)
         try:
             archive = zipfile.ZipFile(buffer)
-        except zipfile.BadZipFile:
-            raise AmplitudeRetryableError(f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url={url}")
+        except zipfile.BadZipFile as e:
+            raise AmplitudeRetryableError(f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url={url}") from e
 
-        with archive:
-            for entry in archive.namelist():
-                with archive.open(entry) as raw, gzip.open(raw) as decompressed:
-                    for line in decompressed:
-                        if not line.strip():
-                            continue
-                        yield _normalize_event(json.loads(line))
+        # A central directory can parse fine while an individual entry's payload is corrupt
+        # (truncated gzip member, bad CRC) — that only surfaces once the entry is read, so it
+        # needs its own retryable classification alongside the archive-open check above.
+        try:
+            with archive:
+                for entry in archive.namelist():
+                    with archive.open(entry) as raw, gzip.open(raw) as decompressed:
+                        for line in decompressed:
+                            if not line.strip():
+                                continue
+                            yield _normalize_event(json.loads(line))
+        except (zipfile.BadZipFile, gzip.BadGzipFile, EOFError) as e:
+            raise AmplitudeRetryableError(f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url={url}") from e
 
 
 def _get_events_rows(

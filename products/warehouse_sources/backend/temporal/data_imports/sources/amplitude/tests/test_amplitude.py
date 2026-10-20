@@ -211,6 +211,21 @@ class TestIterExportWindow:
                 )
             )
 
+    def test_corrupt_entry_payload_raises_retryable_error(self) -> None:
+        # The central directory parses fine, but an entry's payload isn't valid gzip data.
+        # That only surfaces while the entry is being read, not when the archive is opened.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("part_0.json.gz", b"not actually gzip data")
+        session = self._session_returning(_response(status=200, content=buf.getvalue()))
+
+        with pytest.raises(AmplitudeRetryableError):
+            list(
+                _iter_export_window(
+                    session, "https://amplitude.com", {}, "20260101T00", "20260101T23", mock.MagicMock()
+                )
+            )
+
     def test_non_ok_status_raises(self) -> None:
         response = _response(status=400, text="bad request")
         # Assign the class (not an instance) so the requests-stubs `response` arg isn't required;
