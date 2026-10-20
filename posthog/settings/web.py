@@ -417,6 +417,8 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
     "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
 )
+# Research desk runs only on PostHog's own project. Unset disables its scheduled jobs.
+RESEARCH_DESK_TEAM_ID: int | None = get_from_env("RESEARCH_DESK_TEAM_ID", None, type_cast=int, optional=True)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")

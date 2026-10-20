@@ -133,6 +133,7 @@ depends_on = [
     "products.product_tours",
     "products.pulse",
     "products.reminders",
+    "products.research_desk",
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
@@ -1810,7 +1811,7 @@ from = [
 
 [[modules]]
 path = "products.research_desk"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.cohorts", "products.customer_analytics"]
 layer = "modules"
 
 [[interfaces]]

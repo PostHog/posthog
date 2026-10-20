@@ -4678,6 +4678,40 @@ def trigger_google_account_backfill(
     return "started"
 
 
+def list_meetings_in_window(
+    team_id: int, *, start_after: datetime, start_before: datetime, limit: int = 500
+) -> list[contracts.SyncedMeeting]:
+    """Synced calendar meetings that start in a window, across all accounts, oldest first."""
+    meetings = (
+        Meeting.objects.for_team(team_id)
+        .filter(start_time__gte=start_after, start_time__lt=start_before)
+        .order_by("start_time")
+        .prefetch_related("participants")[:limit]
+    )
+    return [
+        contracts.SyncedMeeting(
+            id=meeting.id,
+            title=meeting.title,
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+            organizer_email=meeting.organizer_email,
+            status=meeting.status,
+            meet_code=meeting.meet_code,
+            participants=[
+                contracts.MeetingParticipantView(
+                    email=participant.email,
+                    display_name=participant.display_name,
+                    response_status=participant.response_status,
+                    is_organizer=participant.is_organizer,
+                    person_id=participant.person_id,
+                )
+                for participant in meeting.participants.all()
+            ],
+        )
+        for meeting in meetings
+    ]
+
+
 def list_account_meetings(
     team_id: int,
     account_id: str,

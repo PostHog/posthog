@@ -16,3 +16,8 @@ def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
     A soft-deleted cohort still counts, so a caller that holds a reference to one keeps it.
     """
     return Cohort.objects.filter(team_id=team_id, id=cohort_id).exists()
+
+
+def list_cohort_names(*, team_id: int) -> dict[int, str]:
+    """Names of the team's cohorts that are not deleted, keyed by cohort ID."""
+    return dict(Cohort.objects.filter(team_id=team_id, deleted=False).values_list("id", "name"))

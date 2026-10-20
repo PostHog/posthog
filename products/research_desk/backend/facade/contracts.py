@@ -110,3 +110,15 @@ class ContactCheckResult:
     recently_contacted: bool
     warn_within_days: int
     lookback_days: int
+
+
+@dataclass(frozen=True)
+class CalendarScoutResult:
+    meetings: int
+    sessions_created: int
+    sessions_updated: int
+
+
+@dataclass(frozen=True)
+class SourceDiscoveryResult:
+    sources_created: list[ResearchSourceDTO]
