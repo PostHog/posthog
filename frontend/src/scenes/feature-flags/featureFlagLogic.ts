@@ -90,6 +90,7 @@ import {
 } from '~/types'
 
 import { cohortsList, cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+import { getCohortsActivityRetrieveUrl } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import {
@@ -114,7 +115,6 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
-import { activityLogList } from 'products/platform_features/frontend/generated/api'
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
@@ -214,8 +214,15 @@ function reusableFlagCohorts(
 
 async function flagCohortWasEdited(projectId: string, cohortId: number): Promise<boolean> {
     // Creating and filling the snapshot logs no activity, so any entry means someone edited its people by hand.
-    const { results } = await activityLogList(projectId, { scope: 'Cohort', item_id: String(cohortId), page_size: 1 })
-    return results.length > 0
+    // When the history can't be read, a fresh snapshot is the safe choice.
+    try {
+        const { results } = await api.get<{ results: unknown[] }>(
+            `${getCohortsActivityRetrieveUrl(projectId, cohortId)}?limit=1`
+        )
+        return results.length > 0
+    } catch {
+        return true
+    }
 }
 
 /** Why a broadcast to this flag's audience would reach no one, if it would. */

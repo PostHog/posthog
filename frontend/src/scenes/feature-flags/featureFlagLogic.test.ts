@@ -1493,6 +1493,12 @@ describe('featureFlagLogic', () => {
                 usesCohortId: 42,
             },
             {
+                scenario: "creates a cohort when the recent one's history can't be read",
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                activityFails: true,
+                usesCohortId: 42,
+            },
+            {
                 scenario: 'creates a cohort when another user made the recent one',
                 listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10), 'another-user-uuid'),
                 usesCohortId: 42,
@@ -1502,71 +1508,73 @@ describe('featureFlagLogic', () => {
                 listed: () => listedCohort(`${MOCK_FEATURE_FLAG.key}-2`, minutesAgo(10)),
                 usesCohortId: 42,
             },
-        ])('$scenario', async ({ listed, usesCohortId, flagUpdatedAt, serverUpdatedAt, newerPage, edited }) => {
-            jest.useFakeTimers()
-            jest.setSystemTime(NOW)
-            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
-            const createStaticCohort = jest.fn(() => [201, { cohort: FILLING }])
-            const existing = listed()
-            const listParams: URLSearchParams[] = []
-            let flagLoads = 0
-            useMocks({
-                post: {
-                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
-                },
-                get: {
-                    [FLAG_URL]: () => {
-                        const updatedAt = flagLoads++ === 0 ? flagUpdatedAt : (serverUpdatedAt ?? flagUpdatedAt)
-                        return [200, { ...MOCK_FEATURE_FLAG, updated_at: updatedAt ?? minutesAgo(120) }]
+        ])(
+            '$scenario',
+            async ({ listed, usesCohortId, flagUpdatedAt, serverUpdatedAt, newerPage, edited, activityFails }) => {
+                jest.useFakeTimers()
+                jest.setSystemTime(NOW)
+                router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+                const createStaticCohort = jest.fn(() => [201, { cohort: FILLING }])
+                const existing = listed()
+                const listParams: URLSearchParams[] = []
+                let flagLoads = 0
+                useMocks({
+                    post: {
+                        '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
                     },
-                    '/api/projects/:projectId/cohorts/': ({ request }) => {
-                        const params = new URL(request.url).searchParams
-                        listParams.push(params)
-                        if (newerPage && params.get('offset') === '0') {
-                            const others = Array.from({ length: 20 }, (_, index) => ({
-                                ...listedCohort(`other-flag-${index}`, minutesAgo(5)),
-                                id: 100 + index,
-                            }))
-                            return [200, { count: 21, next: 'more', results: others }]
-                        }
-                        return [200, { count: 1, results: [existing] }]
+                    get: {
+                        [FLAG_URL]: () => {
+                            const updatedAt = flagLoads++ === 0 ? flagUpdatedAt : (serverUpdatedAt ?? flagUpdatedAt)
+                            return [200, { ...MOCK_FEATURE_FLAG, updated_at: updatedAt ?? minutesAgo(120) }]
+                        },
+                        '/api/projects/:projectId/cohorts/': ({ request }) => {
+                            const params = new URL(request.url).searchParams
+                            listParams.push(params)
+                            if (newerPage && params.get('offset') === '0') {
+                                const others = Array.from({ length: 20 }, (_, index) => ({
+                                    ...listedCohort(`other-flag-${index}`, minutesAgo(5)),
+                                    id: 100 + index,
+                                }))
+                                return [200, { count: 21, next: 'more', results: others }]
+                            }
+                            return [200, { count: 1, results: [existing] }]
+                        },
+                        '/api/projects/:projectId/cohorts/7/activity/': () =>
+                            activityFails
+                                ? [402, { detail: 'This feature is part of the premium PostHog offering.' }]
+                                : [
+                                      200,
+                                      {
+                                          next: null,
+                                          previous: null,
+                                          results: edited ? [{ activity: 'persons_added_manually' }] : [],
+                                      },
+                                  ],
+                        '/api/projects/:projectId/cohorts/7/': () => [200, { ...existing, is_calculating: false }],
+                        '/api/projects/:projectId/cohorts/42/': () => [200, READY],
                     },
-                    '/api/projects/:projectId/activity_log/': ({ request }) => {
-                        const params = new URL(request.url).searchParams
-                        const hasEdit = edited && params.get('scope') === 'Cohort' && params.get('item_id') === '7'
-                        return [
-                            200,
-                            {
-                                next: null,
-                                previous: null,
-                                results: hasEdit ? [{ activity: 'persons_added_manually' }] : [],
-                            },
-                        ]
-                    },
-                    '/api/projects/:projectId/cohorts/7/': () => [200, { ...existing, is_calculating: false }],
-                    '/api/projects/:projectId/cohorts/42/': () => [200, READY],
-                },
-            })
+                })
 
-            logic.unmount()
-            logic = featureFlagLogic({ id: 1 })
-            logic.mount()
-            await jest.advanceTimersByTimeAsync(1_000)
+                logic.unmount()
+                logic = featureFlagLogic({ id: 1 })
+                logic.mount()
+                await jest.advanceTimersByTimeAsync(1_000)
 
-            logic.actions.findOrCreateBroadcastCohort()
-            await jest.advanceTimersByTimeAsync(5_000)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(Object.fromEntries(listParams[0])).toEqual({
-                type: 'static',
-                created_by_id: String(MOCK_DEFAULT_USER.id),
-                limit: '20',
-                offset: '0',
-            })
-            expect(createStaticCohort).toHaveBeenCalledTimes(usesCohortId === 7 ? 0 : 1)
-            expect(JSON.parse(router.values.searchParams.audience)).toEqual([
-                expect.objectContaining({ type: 'cohort', value: usesCohortId }),
-            ])
-        })
+                logic.actions.findOrCreateBroadcastCohort()
+                await jest.advanceTimersByTimeAsync(5_000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(Object.fromEntries(listParams[0])).toEqual({
+                    type: 'static',
+                    created_by_id: String(MOCK_DEFAULT_USER.id),
+                    limit: '20',
+                    offset: '0',
+                })
+                expect(createStaticCohort).toHaveBeenCalledTimes(usesCohortId === 7 ? 0 : 1)
+                expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                    expect.objectContaining({ type: 'cohort', value: usesCohortId }),
+                ])
+            }
+        )
     })
 
     describe('setMultivariateEnabled functionality', () => {
