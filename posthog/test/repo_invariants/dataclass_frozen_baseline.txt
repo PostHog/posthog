@@ -1029,7 +1029,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/similarweb/similarweb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/simplecast/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/simplecast/simplecast.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/simplesat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/simplesat/simplesat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/skyvern/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/skyvern/skyvern.py
