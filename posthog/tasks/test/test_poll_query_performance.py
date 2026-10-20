@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 import posthog.tasks.tasks
+from posthog.clickhouse.metadata_worker import run_metadata_job
 from posthog.clickhouse.native_metadata import metadata_connection
 from posthog.clickhouse.workload import Workload
 from posthog.redis import get_client
@@ -45,6 +46,20 @@ class TestPollQueryPerformance(SimpleTestCase):
         ):
             connection = metadata_connection(polling=True)
         self.assertEqual(connection["host"], CLICKHOUSE_HOST)
+
+    @override_settings(CLICKHOUSE_USE_HTTP=True)
+    def test_legacy_probe_keeps_the_http_transport(self) -> None:
+        job = {"operation": "poll", "sql": "SELECT 1", "cluster": "c", "log_comment": ""}
+        job["connection"] = metadata_connection(polling=True)
+        with (
+            patch("clickhouse_connect.get_client") as get_client,
+            patch("posthog.clickhouse.metadata_worker.Client") as tcp,
+        ):
+            get_client.return_value.query.return_value.result_set = [("44_query",)]
+            self.assertEqual(run_metadata_job(job), [("44_query",)])
+        tcp.assert_not_called()
+        self.assertNotIn("transport", get_client.call_args.kwargs)
+        self.assertEqual(get_client.call_args.kwargs["host"], CLICKHOUSE_HOST)
 
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_healthy_native_progress_survives_stalled_legacy_probe(self) -> None:

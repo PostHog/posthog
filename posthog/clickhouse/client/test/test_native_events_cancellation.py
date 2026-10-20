@@ -48,23 +48,27 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         legacy.assert_called_once_with(45, "example-query")
         native.assert_not_called()
 
-    def test_native_kill_continues_past_an_unreachable_host(self) -> None:
+    def test_native_kill_reaches_healthy_hosts_while_another_host_stalls(self) -> None:
         job = {"operation": "native_cancel", "connection": {}, "cluster": "c", "prefix": "44_q_", "log_comment": ""}
         killed: list[str] = []
+        healthy_kill_started = Event()
 
         def execute(sql: str, params: dict, **_kwargs: object) -> object:
             if sql.startswith("SELECT"):
                 return [("down.example.com", "44_q_00000001"), ("up.example.com", "44_q_00000002")]
             killed.append(params["query_id"])
             if params["query_id"] == "44_q_00000001":
+                if not healthy_kill_started.wait(2):
+                    raise AssertionError("the stalled host blocked the healthy host")
                 raise ConnectionError("host unreachable")
+            healthy_kill_started.set()
             return [("44_q_00000002", "finished")], [("query_id", "String"), ("kill_status", "String")]
 
         with patch("posthog.clickhouse.metadata_worker.Client") as client:
             client.return_value.__enter__.return_value.execute.side_effect = execute
             with self.assertRaises(ConnectionError):
                 run_metadata_job(job)
-        self.assertEqual(killed, ["44_q_00000001", "44_q_00000002"])
+        self.assertCountEqual(killed, ["44_q_00000001", "44_q_00000002"])
 
     def test_metadata_failure_reports_the_error_type(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "ValueError"):
