@@ -5,11 +5,10 @@ import { Meta, StoryObj } from '@storybook/react'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
-
-import __sqlBarChartValueLabels from '../../../mocks/fixtures/api/projects/team_id/insights/sqlBarChartValueLabels.json'
-import __sqlLineChart from '../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json'
-import __sqlLineChartBreakdown from '../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartBreakdown.json'
-import __sqlLineChartTrendLine from '../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartTrendLine.json'
+import __sqlBarChartValueLabels from '~/mocks/fixtures/api/projects/team_id/insights/sqlBarChartValueLabels.json'
+import __sqlLineChart from '~/mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json'
+import __sqlLineChartBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/sqlLineChartBreakdown.json'
+import __sqlLineChartTrendLine from '~/mocks/fixtures/api/projects/team_id/insights/sqlLineChartTrendLine.json'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
