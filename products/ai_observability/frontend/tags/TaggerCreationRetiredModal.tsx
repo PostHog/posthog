@@ -17,15 +17,19 @@ export function TaggerCreationRetiredModal({
     isOpen,
     onClose,
     action = 'create',
+    inline = false,
 }: {
     isOpen: boolean
     onClose: () => void
     action?: TaggerRetiredAction
+    // Renders inline rather than in a portal, so Storybook can snapshot it.
+    inline?: boolean
 }): JSX.Element {
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
+            inline={inline}
             title="Taggers are deprecated in favor of evaluations"
             width={520}
             data-attr="tagger-creation-retired-modal"

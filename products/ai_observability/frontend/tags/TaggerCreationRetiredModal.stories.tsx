@@ -14,9 +14,9 @@ export default meta
 type Story = StoryObj<typeof TaggerCreationRetiredModal>
 
 export const Default: Story = {
-    args: { isOpen: true, onClose: () => {} },
+    args: { isOpen: true, onClose: () => {}, inline: true },
 }
 
 export const TurnBackOn: Story = {
-    args: { isOpen: true, onClose: () => {}, action: 'enable' },
+    args: { isOpen: true, onClose: () => {}, action: 'enable', inline: true },
 }
