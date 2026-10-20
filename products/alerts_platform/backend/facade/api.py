@@ -100,10 +100,22 @@ def disable_configurations(
 
 
 def list_configurations(
-    *, team_id: int, source_kinds: Sequence[str], limit: int, offset: int
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    limit: int,
+    offset: int,
+    legacy_configuration_id: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
-    """One page of configurations a caller may read, with the total behind it."""
-    return platform_reads.list_configurations(team_id=team_id, source_kinds=source_kinds, limit=limit, offset=offset)
+    """One page of configurations a caller may read, with the total behind it. With a
+    `legacy_configuration_id`, only the copy of that source row."""
+    return platform_reads.list_configurations(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        limit=limit,
+        offset=offset,
+        legacy_configuration_id=legacy_configuration_id,
+    )
 
 
 def get_configuration(
