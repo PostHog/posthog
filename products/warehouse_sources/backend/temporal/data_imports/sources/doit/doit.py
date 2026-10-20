@@ -1,6 +1,6 @@
 import hashlib
 import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 import pyarrow as pa
@@ -20,8 +20,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.doit.settings import DOIT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.doit.settings import DOIT_ENDPOINTS, DoItEndpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -253,40 +261,73 @@ def doit_source(
     return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])
 
 
+def _endpoint_resource(name: str, settings: DoItEndpoint) -> EndpointResource:
+    return {
+        "name": name,
+        "table_name": name.lower(),
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": settings.path,
+            "params": dict(settings.params),
+            "data_selector": settings.data_selector,
+            "data_selector_required": True,
+            "paginator": {
+                "type": "cursor",
+                "cursor_path": settings.cursor_path,
+                "cursor_param": "pageToken",
+                "param_location": "query",
+                "raise_on_repeated_cursor": True,
+            },
+        },
+        "table_format": "delta",
+    }
+
+
 def doit_endpoint_source(config: DoItSourceConfig, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
     settings = DOIT_ENDPOINTS[endpoint]
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": DOIT_BASE_URL,
-            "auth": {"type": "bearer", "token": config.api_key},
-        },
-        "resource_defaults": {"write_disposition": "replace"},
-        "resources": [
-            {
-                "name": endpoint,
-                "table_name": endpoint.lower(),
-                "endpoint": {
-                    "path": settings.path,
-                    "params": dict(settings.params),
-                    "data_selector": settings.data_selector,
-                    "data_selector_required": True,
-                    "paginator": {
-                        "type": "cursor",
-                        "cursor_path": settings.cursor_path,
-                        "cursor_param": "pageToken",
-                        "param_location": "query",
-                        "raise_on_repeated_cursor": True,
-                    },
-                },
-                "table_format": "delta",
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": DOIT_BASE_URL,
+        "auth": {"type": "bearer", "token": config.api_key},
     }
-    resource = rest_api_resource(rest_config, team_id, job_id, None)
+
+    if settings.parent is None:
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [_endpoint_resource(endpoint, settings)],
+        }
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=settings.primary_keys,
+            column_hints=resource.column_hints,
+        )
+
+    parent = settings.parent
+    child = _endpoint_resource(endpoint, settings)
+    child["include_from_parent"] = list(parent.include_fields)
+    child_endpoint = cast(Endpoint, child["endpoint"])
+    child_endpoint["params"] = {
+        **(child_endpoint.get("params") or {}),
+        **{
+            param: {"type": "resolve", "resource": parent.name, "field": field}
+            for param, field in parent.resolve_fields.items()
+        },
+    }
+    # An insight that DoiT drops between the insights listing and this fetch must not sink the run.
+    child_endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: build_chained_resource(
+            resources=[_endpoint_resource(parent.name, DOIT_ENDPOINTS[parent.name]), child],
+            child_name=endpoint,
+            parent_name=parent.name,
+            parent_field_renames=parent.include_fields,
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
+        ),
         primary_keys=settings.primary_keys,
-        column_hints=resource.column_hints,
     )
