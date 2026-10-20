@@ -178,7 +178,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
         original = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [], "interval": "day"}}
         insight = await Insight.objects.acreate(team=self.team, query=original)
-        with self.assertRaises(MaxToolRetryableError):
+        with self.assertRaisesRegex(MaxToolRetryableError, "- /source/interval"):
             await tool._arun_impl(
                 viz_title="Chart",
                 viz_description="",
@@ -189,6 +189,17 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, original)
+
+    @parameterized.expand([(None,), ("",)])
+    async def test_saved_update_without_patch_fails_before_approval(self, query_patch):
+        tool = await self._create_tool()
+        insight = await Insight.objects.acreate(team=self.team, query={"kind": "TrendsQuery", "series": []})
+        with (
+            patch.object(tool, "_handle_dangerous_operation") as handle_approval,
+            self.assertRaisesRegex(MaxToolRetryableError, "provide query_patch"),
+        ):
+            await tool._check_dangerous_operation({"insight_id": insight.short_id, "query_patch": query_patch})
+        handle_approval.assert_not_called()
 
     async def test_saved_update_requires_object_edit_permission(self):
         tool = await self._create_tool()

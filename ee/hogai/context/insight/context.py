@@ -125,16 +125,22 @@ class InsightContext:
             insight_url=self.insight_url,
         )
 
-    async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
+    async def format_schema(
+        self, prompt_template: str = INSIGHT_RESULT_TEMPLATE, *, saved_query: str | None = None
+    ) -> str:
         """Format insight as schema-only (no execution)."""
-        effective_query = await self._get_effective_query()
-        query_schema = effective_query.model_dump_json(exclude_none=True)
+        if saved_query is not None:
+            query_schema = saved_query
+        else:
+            effective_query = await self._get_effective_query()
+            query_schema = effective_query.model_dump_json(exclude_none=True)
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
+            saved_query=saved_query is not None,
             insight_url=self.insight_url,
         )
 

@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
@@ -50,7 +51,7 @@ from products.warehouse_sources.backend.facade.models import (
     WarehouseColumnAnnotation,
 )
 
-from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
+from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
@@ -200,7 +201,8 @@ class TestReadDataTool(BaseTest):
         assert "TrendsQuery" in result
         assert artifact is None
 
-    async def test_read_insight_with_execution(self):
+    @parameterized.expand([("state", False), ("saved", True)])
+    async def test_read_insight_with_execution(self, _name: str, saved: bool) -> None:
         """Test reading an insight with execution returns results and artifact."""
         team = MagicMock()
         user = MagicMock()
@@ -218,9 +220,16 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_visualization = AsyncMock(
-            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
-        )
+        result_source: VisualizationWithSourceResult
+        if saved:
+            mock_insight = MagicMock(spec=Insight)
+            mock_insight.query = {"kind": "InsightVizNode", "source": mock_query.model_dump(mode="json")}
+            result_source = ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight](
+                content=mock_content, source=ArtifactSource.INSIGHT, model=mock_insight
+            )
+        else:
+            result_source = StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
+        context_manager.artifacts.aget_visualization = AsyncMock(return_value=result_source)
 
         with patch(
             "ee.hogai.context.insight.context.execute_and_format_query",
@@ -234,7 +243,8 @@ class TestReadDataTool(BaseTest):
                 node_path=(NodePath(name="test_node", tool_call_id=tool_call_id, message_id="test"),),
             )
 
-            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": True})
+            with patch.object(ReadDataTool, "check_object_access", new_callable=AsyncMock):
+                result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": True})
 
             # When execute=True, returns empty string and artifact
             assert result == ""
@@ -245,7 +255,7 @@ class TestReadDataTool(BaseTest):
             artifact_ref = artifact.messages[0]
             assert isinstance(artifact_ref, ArtifactRefMessage)
             assert artifact_ref.artifact_id == "abc123"
-            assert artifact_ref.source == ArtifactSource.STATE
+            assert artifact_ref.source == result_source.source
 
             # Second message is the tool call message with results
             tool_call_msg = artifact.messages[1]
@@ -253,6 +263,9 @@ class TestReadDataTool(BaseTest):
             assert tool_call_msg.content is not None
             assert "Test Insight" in tool_call_msg.content
             assert "Formatted results" in tool_call_msg.content
+            assert "TrendsQuery" in tool_call_msg.content
+            assert "InsightVizNode" not in tool_call_msg.content
+            assert "Saved query (JSON Patch paths start at this root):" not in tool_call_msg.content
 
     async def test_read_insight_not_found(self):
         """Test that not found insight raises MaxToolRetryableError."""
@@ -1563,7 +1576,8 @@ class TestReadDataTool(BaseTest):
 
             mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
 
-    async def test_read_insight_allowed_when_user_has_object_access(self):
+    @parameterized.expand([("wrapped", True), ("direct", False)])
+    async def test_read_insight_allowed_when_user_has_object_access(self, _name: str, wrapped: bool) -> None:
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -1574,6 +1588,15 @@ class TestReadDataTool(BaseTest):
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(name="Allowed Insight", query=mock_query)
         mock_insight = MagicMock(spec=Insight)
+        saved_query: dict[str, object] = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "interval": "day",
+            "properties": None,
+        }
+        if wrapped:
+            saved_query = {"kind": "InsightVizNode", "source": saved_query, "showHeader": False}
+        mock_insight.query = saved_query
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_visualization = AsyncMock(
@@ -1590,6 +1613,11 @@ class TestReadDataTool(BaseTest):
             result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "allowed123", "execute": False})
 
             assert "Allowed Insight" in result
+            assert "Saved query (JSON Patch paths start at this root):" in result
+            assert result.count("```json") == 1
+            returned_query = json.loads(result.split("```json\n", 1)[1].split("\n```", 1)[0])
+            assert returned_query == saved_query
+            assert artifact is None
             mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
 
     async def test_read_insight_skips_object_check_for_state_source(self):

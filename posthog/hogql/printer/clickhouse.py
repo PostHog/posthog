@@ -56,6 +56,20 @@ if TYPE_CHECKING:
     from posthog.hogql.database.postgres_table import PostgresTable
 
 
+NON_NULLABLE_JSON_EXTRACT_TYPE_PATTERN = re.compile(r"^\s*(Array|Map|Tuple|Nested)\s*\(")
+
+
+def _json_extract_needs_non_nullable_input(args: list[ast.Expr]) -> bool:
+    type_arg = args[-1]
+    already_guarded = isinstance(args[0], ast.Call) and args[0].name == "ifNull"
+    return (
+        not already_guarded
+        and isinstance(type_arg, ast.Constant)
+        and isinstance(type_arg.value, str)
+        and NON_NULLABLE_JSON_EXTRACT_TYPE_PATTERN.match(type_arg.value) is not None
+    )
+
+
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
     if isinstance(table_type, ast.ColumnAliasedTableType):
         return ast.TableAliasType(alias=table_type.alias, table_type=table_type.table_type)
@@ -210,6 +224,9 @@ class ClickHousePrinter(BasePrinter):
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
+        elif node.name == "JSONExtract" and _json_extract_needs_non_nullable_input(node_args):
+            # ClickHouse makes the result Nullable for a Nullable input, and Array, Map and Tuple cannot be inside Nullable
+            args = [f"ifNull({self.visit(node_args[0])}, '')", *(self.visit(arg) for arg in node_args[1:])]
         else:
             args = [self.visit(arg) for arg in node_args]
 

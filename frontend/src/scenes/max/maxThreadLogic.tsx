@@ -2136,7 +2136,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     feedback: prompt ?? undefined,
                 }
                 actions.clearPendingApproval()
-                actions.setResolvedApprovalStatus(pendingProposalId, 'auto_rejected')
+                // The backend rejects every parallel approval in the batch, so resolve all unresolved cards
+                const unresolvedProposalIds = Object.values(values.pendingApprovalsData)
+                    .filter(
+                        (approval) =>
+                            approval.decision_status === 'pending' &&
+                            !values.resolvedApprovalStatuses[approval.proposal_id]?.status
+                    )
+                    .map((approval) => approval.proposal_id)
+                for (const proposalId of new Set([pendingProposalId, ...unresolvedProposalIds])) {
+                    actions.setResolvedApprovalStatus(proposalId, 'auto_rejected')
+                }
             }
             // A pending task-bind (inbox "Open task") makes this first message a sandbox task-resume:
             // the conversation is created bound to the Task and its run is resumed. Force sandbox mode
