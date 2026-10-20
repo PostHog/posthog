@@ -3427,6 +3427,15 @@ class TestConnectCertificateVerification:
 
         assert seen == {"ssl_ca": "CA PEM", "ssl_cert": "CERT PEM", "ssl_key": "KEY PEM", "verify": True}
 
+    def test_client_certificate_without_verification_still_refuses_plaintext(self, mocker):
+        plain = mocker.patch(f"{_MYSQL_MODULE}._SourceConnection", return_value=MagicMock())
+        refusing = mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", return_value=MagicMock())
+
+        with MySQLImplementation().connect(_make_config(client_certificate="CERT PEM", client_key="KEY PEM")):
+            pass
+
+        assert refusing.called and not plain.called
+
     @pytest.mark.parametrize("capabilities,refused", [(0, True), (CLIENT.SSL, False)])
     def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):
         # The credentials go out during `_request_authentication`, and every reconnect runs it

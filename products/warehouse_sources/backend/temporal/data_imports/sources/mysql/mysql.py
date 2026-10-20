@@ -913,8 +913,8 @@ class _TLSRequiredConnection(_SourceConnection):
         if self.ssl and not offers_tls:
             raise pymysql.err.OperationalError(
                 CR.CR_SSL_CONNECTION_ERROR,
-                "The MySQL server did not offer a TLS connection. Turn off certificate "
-                "verification for this source, or enable TLS on the server.",
+                "The MySQL server did not offer a TLS connection. Enable TLS on the server, or turn off "
+                "certificate verification and remove the client certificate for this source.",
             )
         super()._request_authentication()
 
@@ -933,8 +933,8 @@ def connection_timeouts(read_timeout: int) -> dict[str, int]:
 
 
 def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
-    """Build the connection, refusing plaintext when this source verifies the certificate."""
-    if kwargs.get("ssl_verify_cert"):
+    """Build the connection, refusing plaintext when this source verifies or presents a certificate."""
+    if kwargs.get("ssl_verify_cert") or kwargs.get("ssl_cert"):
         return _TLSRequiredConnection(**kwargs, **extra)
     return _SourceConnection(**kwargs, **extra)
 
