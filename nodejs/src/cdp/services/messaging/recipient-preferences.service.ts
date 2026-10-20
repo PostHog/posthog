@@ -105,12 +105,8 @@ export class RecipientPreferencesService {
             return null
         }
 
-        if (action.type === 'function_email' && !this.recipientIdentifier(invocation, action) && !isTest) {
-            void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
-                reason: 'missing_recipient',
-                channel: 'email',
-                workflow_id: invocation.functionId,
-            })
+        if (!isTest) {
+            this.reportMissingEmailRecipient(invocation, action)
         }
 
         // Suppression is a deliverability signal, not a messaging preference: an address that can't
@@ -166,6 +162,17 @@ export class RecipientPreferencesService {
 
     private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
         return ['function_email', 'function_sms', 'function_push'].includes(action.type)
+    }
+
+    private reportMissingEmailRecipient(invocation: CyclotronJobInvocationHogFunction, action: MessageAction): void {
+        if (action.type !== 'function_email' || this.recipientIdentifier(invocation, action)?.trim()) {
+            return
+        }
+        void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+            reason: 'missing_recipient',
+            channel: 'email',
+            workflow_id: invocation.functionId,
+        })
     }
 
     private recipientIdentifier(
