@@ -86,6 +86,7 @@ export interface distinctIdSelectLogicMeta {
         mergedOptions: (
             persons: PersonType[],
             resolvedNames: Record<string, string>,
+            searchQuery: string,
             value: string[]
         ) => {
             key: string
@@ -147,10 +148,11 @@ export const distinctIdSelectLogic = kea<distinctIdSelectLogicType>([
     })),
     selectors({
         mergedOptions: [
-            (s, p) => [s.persons, s.resolvedNames, p.value],
+            (s, p) => [s.persons, s.resolvedNames, s.searchQuery, p.value],
             (
                 persons: PersonType[],
                 resolvedNames: Record<string, string>,
+                searchQuery: string,
                 value: string[]
             ): { key: string; label: string }[] => {
                 // Emit one option per (person, distinct_id) so the user can see and pick any of
@@ -173,6 +175,14 @@ export const distinctIdSelectLogic = kea<distinctIdSelectLogicType>([
                     if (!optionMap.has(v)) {
                         optionMap.set(v, { key: v, label: resolvedNames[v] ?? v })
                     }
+                }
+                // LemonInputSelect selects the first option on Enter and hides its typed-value row once that value
+                // is an option. Put the exact match first so that a pasted id is not swapped for another id of the
+                // same person.
+                const exactMatch = optionMap.get(searchQuery)
+                if (exactMatch) {
+                    optionMap.delete(searchQuery)
+                    return [exactMatch, ...optionMap.values()]
                 }
                 return Array.from(optionMap.values())
             },

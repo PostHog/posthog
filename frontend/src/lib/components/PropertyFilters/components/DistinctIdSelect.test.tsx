@@ -168,6 +168,43 @@ describe('DistinctIdSelect', () => {
         })
     })
 
+    it('selects the pasted distinct_id on Enter when its person owns other ids listed first', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/persons/': {
+                    results: [
+                        {
+                            id: 99,
+                            uuid: 'person-uuid-multi',
+                            distinct_ids: ['anon-uuid-aaa', 'customer-user-id'],
+                            properties: {},
+                            created_at: '2024-01-01',
+                            is_identified: true,
+                        },
+                    ],
+                    next: null,
+                },
+            },
+        })
+        const onChange = jest.fn()
+        render(
+            <Provider>
+                <DistinctIdSelect value={null} operator={PropertyOperator.Exact} onChange={onChange} />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        await userEvent.click(input)
+        await waitFor(() => {
+            expect(screen.getAllByText('anon-uuid-aaa').length).toBeGreaterThanOrEqual(1)
+        })
+
+        await userEvent.paste('customer-user-id')
+        await userEvent.keyboard('{Enter}')
+
+        expect(onChange).toHaveBeenCalledWith(['customer-user-id'])
+    })
+
     it('keeps state isolated when two pickers are mounted side by side', async () => {
         const onChangeA = jest.fn()
         const onChangeB = jest.fn()
