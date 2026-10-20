@@ -150,6 +150,7 @@ function ColumnHeaderTitle({
 
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
+    const virtualized = !!props.embedded && !!props.context?.dataVisualizationTableVirtualized
 
     const {
         tabularData,
@@ -418,6 +419,9 @@ export const Table = (props: TableProps): JSX.Element => {
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
+                virtualized={virtualized}
+                tableLayout={virtualized ? 'fixed' : 'auto'}
+                tableStyle={virtualized ? { minWidth: `${tabularColumns.length * 12}rem` } : undefined}
             />
         </>
     )
