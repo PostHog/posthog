@@ -21,7 +21,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailSuppressionService } from './email-suppression.service'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
+import { ConfirmedWorkflowDelivery, SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -436,6 +436,7 @@ export class EmailTrackingService {
                 hardBounceRecipients,
                 complainedRecipients,
                 deliveredRecipients,
+                confirmedWorkflowDeliveries,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
@@ -520,43 +521,35 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
-            let reportingTimeout: NodeJS.Timeout | undefined
-            try {
-                await Promise.race([
-                    (async () => {
-                        for (const delivery of deliveredRecipients || []) {
-                            const teamId = Number(delivery.teamId)
-                            if (!Number.isSafeInteger(teamId) || teamId <= 0 || !delivery.functionId) {
-                                continue
-                            }
-                            const flow = await this.hogFlowManager.getHogFlow(delivery.functionId).catch(() => null)
-                            if (flow?.team_id === teamId || (!flow && delivery.workflowVersion !== undefined)) {
-                                await this.workflowsExternalDeliveryReporter.report(
-                                    teamId,
-                                    delivery.functionId,
-                                    delivery.confirmedRecipients || []
-                                )
-                            }
-                        }
-                    })(),
-                    new Promise<never>((_resolve, reject) => {
-                        reportingTimeout = setTimeout(
-                            () => reject(new Error('Workflows external delivery reporting timed out')),
-                            1000
-                        )
-                    }),
-                ])
-            } catch (error) {
-                logger.warn('Failed to report workflows external delivery', { error })
-            } finally {
-                clearTimeout(reportingTimeout)
-            }
+            await this.reportConfirmedWorkflowDeliveries(confirmedWorkflowDeliveries || [])
 
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: SES webhook error', { error })
             throw error
+        }
+    }
+
+    private async reportConfirmedWorkflowDeliveries(deliveries: ConfirmedWorkflowDelivery[]): Promise<void> {
+        let reportingTimeout: NodeJS.Timeout | undefined
+        const reportingLimit = new Promise<never>((_resolve, reject) => {
+            reportingTimeout = setTimeout(
+                () => reject(new Error('Workflows external delivery reporting timed out')),
+                1000
+            )
+        })
+        const reporting = (async () => {
+            for (const { teamId, workflowId, recipients } of deliveries) {
+                await this.workflowsExternalDeliveryReporter.report(teamId, workflowId, recipients)
+            }
+        })()
+        try {
+            await Promise.race([reporting, reportingLimit])
+        } catch (error) {
+            logger.warn('Failed to report workflows external delivery', { error })
+        } finally {
+            clearTimeout(reportingTimeout)
         }
     }
 

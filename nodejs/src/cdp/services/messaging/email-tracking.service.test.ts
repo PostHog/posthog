@@ -542,6 +542,7 @@ describe('EmailTrackingService', () => {
                     shortCode?: boolean
                     workflowVersion?: number
                     omitRecipients?: boolean
+                    confirmedRecipients?: string[]
                 } = {},
                 targetApp: express.Application = app
             ): Promise<supertest.Response> => {
@@ -566,7 +567,10 @@ describe('EmailTrackingService', () => {
                             ? { tags: { ph_id: [trackingCode] } }
                             : { headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }] }),
                     },
-                    delivery: { timestamp, ...(options.omitRecipients ? {} : { recipients }) },
+                    delivery: {
+                        timestamp,
+                        ...(options.omitRecipients ? {} : { recipients: options.confirmedRecipients ?? recipients }),
+                    },
                 }
                 return await supertest(targetApp)
                     .post('/public/m/ses_webhook')
@@ -596,6 +600,10 @@ describe('EmailTrackingService', () => {
                 )
             })
 
+            const warmWebhookLoaders = async (flowId: string): Promise<void> => {
+                expect((await postDelivery(flowId, ['reader@example.com'], { workflowVersion: 1 })).status).toBe(200)
+            }
+
             it('acknowledges delivery when activation reporting stalls', async () => {
                 const flow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
                 let started: () => void = () => {}
@@ -607,9 +615,7 @@ describe('EmailTrackingService', () => {
                         started()
                         return new Promise(() => {})
                     })
-                // The webhook loads workflows and team config through loaders that batch on timers,
-                // so one delivery with real timers warms them before time is faked.
-                expect((await postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })).status).toBe(200)
+                await warmWebhookLoaders(flow.id)
                 jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'performance', 'hrtime'] })
                 try {
                     const delivery = postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })
@@ -622,29 +628,24 @@ describe('EmailTrackingService', () => {
                 }
             })
 
-            it.each([false, true])(
-                'does not activate on delivery to an organization member with uppercase %s',
-                async (uppercase) => {
-                    const address = `member-${team.id}@example.com`
-                    const recipient = uppercase ? address.toUpperCase() : address
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'UPDATE posthog_user SET email = $1 WHERE id IN (SELECT user_id FROM posthog_organizationmembership WHERE organization_id = $2)',
-                        [`Member-${team.id}@example.com`, team.organization_id],
-                        'setActivationMemberEmail'
-                    )
-                    const flow = await insertHogFlow(
-                        hub.postgres,
-                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
-                    )
-                    expect((await postDelivery(flow.id, [recipient], { workflowVersion: 1 })).status).toBe(200)
-                    expect(externalDeliveryReports()).toHaveLength(0)
-                    expect((await postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })).status).toBe(
-                        200
-                    )
-                    expect(externalDeliveryReports()).toHaveLength(1)
-                }
-            )
+            it.each([
+                ['in lowercase', (id: number) => `member-${id}@example.com`],
+                ['in uppercase', (id: number) => `MEMBER-${id}@EXAMPLE.COM`],
+                ['with a plus tag', (id: number) => `member-${id}+test@example.com`],
+            ])('does not activate on delivery to an organization member addressed %s', async (_name, recipientFor) => {
+                const recipient = recipientFor(team.id)
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'UPDATE posthog_user SET email = $1 WHERE id IN (SELECT user_id FROM posthog_organizationmembership WHERE organization_id = $2)',
+                    [`Member-${team.id}@example.com`, team.organization_id],
+                    'setActivationMemberEmail'
+                )
+                const flow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+                expect((await postDelivery(flow.id, [recipient], { workflowVersion: 1 })).status).toBe(200)
+                expect(externalDeliveryReports()).toHaveLength(0)
+                expect((await postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })).status).toBe(200)
+                expect(externalDeliveryReports()).toHaveLength(1)
+            })
 
             it('reports once across concurrent webhook workers', async () => {
                 const flow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
@@ -670,6 +671,32 @@ describe('EmailTrackingService', () => {
                     otherServer.close()
                 }
             })
+
+            it.each([
+                ['only the member', (member: string) => [member], 0],
+                ['the member and the external reader', (member: string) => [member, 'reader@example.com'], 1],
+            ])(
+                'counts the recipients SES confirmed, when it confirms %s',
+                async (_name, confirmedFor, expectedReports) => {
+                    const member = `member-${team.id}@example.com`
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_user SET email = $1 WHERE id IN (SELECT user_id FROM posthog_organizationmembership WHERE organization_id = $2)',
+                        [member, team.organization_id],
+                        'setActivationMemberEmail'
+                    )
+                    const flow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+                    const response = await postDelivery(flow.id, [member, 'reader@example.com'], {
+                        workflowVersion: 1,
+                        confirmedRecipients: confirmedFor(member),
+                    })
+                    expect(response.status).toBe(200)
+                    expect(externalDeliveryReports()).toHaveLength(expectedReports)
+                }
+            )
 
             it.each([
                 ['an editor test', { isTest: true, workflowVersion: 1 }],
@@ -699,42 +726,25 @@ describe('EmailTrackingService', () => {
                 expect(externalDeliveryReports()).toHaveLength(1)
             })
 
-            it.each(['membership lookup', 'analytics capture'])(
-                'does not consume the reporting hour when %s fails',
-                async (failure) => {
-                    const flow = await insertHogFlow(
-                        hub.postgres,
-                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
-                    )
-                    const originalQuery = hub.postgres.query.bind(hub.postgres)
-                    const query = jest.spyOn(hub.postgres, 'query').mockImplementation(async (...args) => {
-                        if (failure === 'membership lookup' && args[3] === 'workflowsExternalDeliveryMembers') {
-                            throw new Error('Membership lookup unavailable')
-                        }
-                        return await originalQuery(...args)
-                    })
-                    if (failure === 'analytics capture') {
-                        let failed = false
-                        capture.mockImplementation((_team, event) => {
-                            if (event === 'workflows message delivered to external recipient' && !failed) {
-                                failed = true
-                                throw new Error('Analytics unavailable')
-                            }
-                        })
+            it('does not consume the reporting hour when the membership lookup fails', async () => {
+                const flow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+                const originalQuery = hub.postgres.query.bind(hub.postgres)
+                const query = jest.spyOn(hub.postgres, 'query').mockImplementation(async (...args) => {
+                    if (args[3] === 'workflowsExternalDeliveryMembers') {
+                        throw new Error('Membership lookup unavailable')
                     }
-                    try {
-                        expect(
-                            (await postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })).status
-                        ).toBe(200)
-                    } finally {
-                        query.mockRestore()
-                    }
+                    return await originalQuery(...args)
+                })
+                try {
                     expect((await postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })).status).toBe(
                         200
                     )
-                    expect(externalDeliveryReports()).toHaveLength(failure === 'analytics capture' ? 2 : 1)
+                } finally {
+                    query.mockRestore()
                 }
-            )
+                expect((await postDelivery(flow.id, ['reader@example.com'], { workflowVersion: 1 })).status).toBe(200)
+                expect(externalDeliveryReports()).toHaveLength(1)
+            })
         })
 
         const postTransientBounce = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {

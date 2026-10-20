@@ -3,7 +3,14 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import * as analytics from '~/common/utils/posthog'
 import { Team } from '~/types'
 
-import { WorkflowsExternalDeliveryReporter } from './workflows-external-delivery-reporter'
+import {
+    WorkflowsExternalDeliveryReporter,
+    workflowsExternalDeliveryReportsCounter,
+} from './workflows-external-delivery-reporter'
+
+const droppedReports = async (): Promise<number> =>
+    (await workflowsExternalDeliveryReportsCounter.get()).values.find(({ labels }) => labels.outcome === 'dropped_busy')
+        ?.value ?? 0
 
 describe('WorkflowsExternalDeliveryReporter', () => {
     it('bounds pending Redis claims and resumes reporting when they finish', async () => {
@@ -33,9 +40,11 @@ describe('WorkflowsExternalDeliveryReporter', () => {
         try {
             const reports = [1, 2, 3, 4].map((id) => reporter.report(id, 'flow-id', ['reader@example.com']))
             await claimsStarted
+            const droppedBefore = await droppedReports()
             const overflow = reporter.report(5, 'flow-id', ['reader@example.com'])
             await overflow
             expect(redis.useClient).toHaveBeenCalledTimes(4)
+            expect((await droppedReports()) - droppedBefore).toBe(1)
             for (const claim of claims) {
                 claim()
             }
