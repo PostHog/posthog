@@ -149,16 +149,19 @@ describe('traceViewAdapterLogic', () => {
         })
     })
 
-    it('prefetches only the row the pointer rests on', async () => {
+    it('prefetches only the row the pointer rests on, without rebuilding the shown step or the thread', async () => {
         mountAt()
         await expectLogic(logic).toFinishAllListeners()
         nodeRequests = []
+        const { detailData, thread } = logic.values
 
         logic.actions.prefetchNode('span-1')
         logic.actions.prefetchNode('gen-1')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(nodeRequests).toEqual(['gen-1'])
+        expect(logic.values.detailData).toBe(detailData)
+        expect(logic.values.thread).toBe(thread)
     })
 
     it('builds the thread from the thread node', async () => {
