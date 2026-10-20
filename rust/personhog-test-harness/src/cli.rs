@@ -323,7 +323,7 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub migrate_kill_leader: bool,
 
-    /// SIGKILL the busiest leader (lease revoked) once the saga reaches Sealing, so its peers seal its partitions.
+    /// SIGSTOP the busiest leader once it has drained, then SIGKILL it (lease revoked) at Sealing, so its peers seal its partitions.
     #[arg(long, default_value_t = false)]
     pub migrate_kill_leader_at_sealing: bool,
 
@@ -335,7 +335,7 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub migrate_stall_leader: bool,
 
-    /// SIGSTOP the busiest leader at Sealing, lease kept: its peers must seal for it after the seal grace and the saga complete. Pair with --migrate-slow-coordinator-ms so Sealing is observable.
+    /// SIGSTOP the busiest leader once it has drained, lease kept: its peers must seal for it after the seal grace and the saga complete. Pair with --migrate-slow-coordinator-ms so the drained holder is observable before Sealing.
     #[arg(long, default_value_t = false)]
     pub migrate_stall_leader_at_sealing: bool,
 

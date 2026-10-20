@@ -263,7 +263,8 @@ pub struct HandoffModel {
     pub migrations: u8,
     /// Partition count a migration moves to.
     pub migrate_to: u8,
-    /// Distinct keys the workload writes and reads.
+    /// Distinct keys the workload writes and reads, at least one per starting
+    /// partition so every partition takes writes.
     pub keys: u8,
     pub seal_rule: SealRule,
     pub warm_replay: WarmReplay,
@@ -341,7 +342,7 @@ impl HandoffModel {
         0..self.partitions.max(self.migrate_to)
     }
     fn key_ids(&self) -> impl Iterator<Item = Key> {
-        0..self.keys
+        0..self.keys.max(self.partitions)
     }
 
     /// `fleet_quiet` over production views; the model's registered pods are all Ready.
@@ -927,11 +928,10 @@ impl HandoffModel {
                 matches!(state.handoffs.get(&p), Some(h) if h.phase == Phase::Complete)
             }
 
-            // Admission refuses a start mid-rollout; the model holds one draining generation.
             Action::MigrateRequest => {
                 state.migrations_left > 0 && !state.requested && state.migration.is_none()
             }
-            // Admission refuses a start mid-rollout; the model holds one draining generation.
+            // Admission refuses a start mid-rollout or while a generation drains.
             Action::MigrateStart => {
                 state.requested
                     && state.migration.is_none()
@@ -1995,7 +1995,7 @@ impl Model for HandoffModel {
             // Liveness: every full run ends quiescent and converged —
             // no handoffs in flight, every assignment served by a warm,
             // unfenced, registered pod, all routers agreeing, nothing
-            // parked in a stash.
+            // parked in a stash, and no migration left to request.
             Property::<Self>::eventually("converges_to_stable", |m, s| {
                 // Ordered cheapest-first on purpose. This runs at every
                 // explored state, and the placement computation below is
@@ -2005,6 +2005,7 @@ impl Model for HandoffModel {
                     || !s.pending_plan.is_empty()
                     || s.migration.is_some()
                     || s.requested
+                    || s.migrations_left > 0
                 {
                     return false;
                 }

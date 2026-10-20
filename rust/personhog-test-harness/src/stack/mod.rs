@@ -629,11 +629,42 @@ impl Stack {
     /// owning, but unable to drain, ack or serve until `resume_stalled`.
     pub async fn stall_leader(&mut self) -> Result<String> {
         let victim = self.busiest_leader().await?;
-        let (pod_name, proc) = self.remove_leader(&victim)?;
+        self.stall_named(&victim)
+    }
+
+    fn stall_named(&mut self, victim: &str) -> Result<String> {
+        let (pod_name, proc) = self.remove_leader(victim)?;
         proc.sigstop();
         tracing::info!(pod = %pod_name, "SIGSTOPped leader (stalled, lease kept)");
         self.paused.push((pod_name.clone(), proc));
         Ok(pod_name)
+    }
+
+    /// SIGKILL the stalled leader and revoke its lease.
+    async fn kill_stalled(&mut self) -> Result<String> {
+        let (pod_name, mut proc) = self.paused.pop().context("no stalled leader to kill")?;
+        proc.kill_now().await;
+        etcd::revoke_pod_lease(&self.store, &pod_name).await?;
+        tracing::info!(pod = %pod_name, "killed stalled leader");
+        self.retired.push(proc);
+        Ok(pod_name)
+    }
+
+    /// Whether every partition the saga holds on `pod` carries its drained ack.
+    async fn holder_drained(&self, pod: &str) -> Result<bool> {
+        for held in self.store.list_handoffs().await? {
+            if held.held_by.is_none() || held.new_owner != pod {
+                continue;
+            }
+            let acks = self.store.list_drained_acks(held.partition).await?;
+            if !acks
+                .iter()
+                .any(|a| a.pod_name == pod && a.handoff_id == held.handoff_id)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// SIGCONT the stalled leader; it resumes exactly where it was.
@@ -1051,6 +1082,10 @@ impl Stack {
     /// Run a changelog migration to its end, with chaos keyed to its phases.
     /// Retirement of the old generation is deferred to `retire_drained`.
     pub async fn migrate(&mut self, chaos: MigrationChaos) -> Result<Duration> {
+        // Admission refuses a migration while an earlier generation still drains.
+        if !self.pending_retire.is_empty() {
+            self.retire_drained().await?;
+        }
         let from = self
             .store
             .get_changelog_config()
@@ -1128,6 +1163,12 @@ impl Stack {
         let mut leader_killed = chaos.kill_leader_at.is_none();
         let mut leader_restarted = !chaos.restart_leader;
         let mut sealed_while_stalled = chaos.stall != Some(StallAt::Sealing);
+        // A leader stopped at Sealing may already have sealed, which tests nothing, so the
+        // victim is stopped once it has drained and must hold no seal ack when Sealing begins.
+        let seal_victim_wanted = chaos.kill_leader_at == Some(MigrationPhase::Sealing)
+            || chaos.stall == Some(StallAt::Sealing);
+        let mut seal_victim: Option<String> = None;
+        let mut seal_victim_checked = false;
         loop {
             if let Some(pause) = writer_paused {
                 if start.elapsed() >= pause {
@@ -1151,15 +1192,37 @@ impl Stack {
                 current.phase,
                 MigrationPhase::Freezing | MigrationPhase::Draining
             );
-            if chaos.stall == Some(StallAt::Sealing) {
-                if stalled.is_none()
-                    && !sealed_while_stalled
-                    && current.phase == MigrationPhase::Sealing
-                {
-                    let name = self.stall_leader().await?;
-                    println!("Migration chaos: stalled leader {name} at Sealing");
-                    stalled = Some(name);
+            if seal_victim_wanted
+                && seal_victim.is_none()
+                && current.phase == MigrationPhase::Draining
+            {
+                let name = self.busiest_leader().await?;
+                if self.holder_drained(&name).await? {
+                    self.stall_named(&name)?;
+                    println!("Migration chaos: stalled leader {name} once drained");
+                    seal_victim = Some(name);
                 }
+            }
+            if let Some(name) = seal_victim.clone().filter(|_| !seal_victim_checked) {
+                if current.phase == MigrationPhase::Sealing {
+                    let sealed = self
+                        .store
+                        .list_seal_acks()
+                        .await?
+                        .into_iter()
+                        .any(|a| a.migration_id == current.id && a.pod_name == name);
+                    ensure!(!sealed, "leader {name} sealed before it stalled");
+                    seal_victim_checked = true;
+                    if chaos.kill_leader_at == Some(MigrationPhase::Sealing) {
+                        self.kill_stalled().await?;
+                        println!("Migration chaos: killed leader {name} at Sealing");
+                        leader_killed = true;
+                    } else {
+                        stalled = Some(name);
+                    }
+                }
+            }
+            if chaos.stall == Some(StallAt::Sealing) {
                 // Past Sealing, the seal grace let its peers seal for it; resume it so Resuming can restart it.
                 if stalled.is_some()
                     && matches!(
@@ -1185,7 +1248,10 @@ impl Stack {
                 println!("Migration chaos: killed coordinator router {name}");
                 coordinator_killed = true;
             }
-            if !leader_killed && Some(current.phase) == chaos.kill_leader_at {
+            if !leader_killed
+                && chaos.kill_leader_at != Some(MigrationPhase::Sealing)
+                && Some(current.phase) == chaos.kill_leader_at
+            {
                 let name = self.kill_leader(true).await?;
                 println!("Migration chaos: killed leader {name}");
                 leader_killed = true;
@@ -1318,14 +1384,15 @@ pub enum StallAt {
     /// Before the request: its partitions are held and never drain, so the
     /// pre-flip deadline cancels the saga.
     BeforeStart,
-    /// At Sealing: its peers seal for it after the seal grace, and the saga completes.
+    /// Once drained, before Sealing: its peers seal for it after the seal grace, and the saga completes.
     Sealing,
 }
 
 pub struct MigrationChaos {
     pub to_partitions: u32,
     pub kill_coordinator: bool,
-    /// SIGKILL the busiest leader, lease revoked, when the saga reaches this phase.
+    /// SIGKILL the busiest leader, lease revoked, when the saga reaches this phase; for Sealing it
+    /// is stalled once drained first.
     pub kill_leader_at: Option<MigrationPhase>,
     /// Crash-restart the busiest leader under its own name while the saga holds.
     pub restart_leader: bool,

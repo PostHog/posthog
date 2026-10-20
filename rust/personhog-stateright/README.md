@@ -157,7 +157,7 @@ implementation so the model executes `converge` and
 | `holds_stop_at_draining` (safety) | The ordinary handoff loop never moves a migration hold past Draining |
 | `old_generation_quiet_after_flip` (safety) | Once flipped, no pod can produce to the old generation |
 | `migration_completes`, `migration_cancels` (sanity) | Both saga outcomes are reachable in a migration config |
-| `converges_to_stable` (liveness) | Every full run ends quiescent: no handoffs, every partition served warm and unfenced by its sticky target, all live routers agreeing, no stashed traffic, and no saga in flight |
+| `converges_to_stable` (liveness) | Every full run ends quiescent: no handoffs, every partition served warm and unfenced by its sticky target, all live routers agreeing, no stashed traffic, and no saga in flight or left to request |
 
 ## Results
 
@@ -275,7 +275,7 @@ owner to still claim its partitions, so an owner that refuses its own
 reads while looking alive to the coordinator fails liveness rather than
 passing quietly.
 
-Migration coverage: one migration per run with at most one draining generation, so the retire step and a second migration are not modeled; the key hash is `key % partitions`, which keeps the congruence structure of the real hash without its constant; the seal is instant (production claims and drops every lane's transactional id); the cancel is unbudgeted, standing in for the pre-flip deadline as well as the operator; the writer is not modeled, since its drain only gates retirement. Coordinator passes are atomic steps in the model, so a stalled pass that wakes after a successor acted cannot occur here; the rule that every plan requires the record it was decided on unchanged is pinned by the coordination store tests instead.
+Migration coverage: one migration per run with at most one draining generation, which admission also enforces, so the retire step and a second migration are not modeled; the key hash is `key % partitions`, which keeps the congruence structure of the real hash without its constant; the seal is instant (production claims and drops every lane's transactional id); the cancel is unbudgeted, standing in for the pre-flip deadline as well as the operator; the writer is not modeled, since its drain only gates retirement. Coordinator passes are atomic steps in the model, so a stalled pass that wakes after a successor acted cannot occur here; the rule that every plan requires the record it was decided on unchanged is pinned by the coordination store tests instead.
 
 Known remaining abstractions: warming is instant and atomic (production
 streams from Kafka with retries — availability, not safety); stash

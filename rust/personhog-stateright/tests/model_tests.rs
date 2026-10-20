@@ -823,6 +823,7 @@ fn a_grow_migration_with_a_stale_router_is_safe_and_live() {
 fn a_two_to_four_grow_is_safe_and_live() {
     HandoffModel {
         writes: 1,
+        keys: 4,
         ..migration(2, 4)
     }
     .explore("a_two_to_four_grow_is_safe_and_live")
