@@ -359,7 +359,7 @@ def _should_suppress_notification(verdict: str | None, inconclusive_action: str 
     return verdict == "false_positive" or _inconclusive_is_suppressed(verdict, inconclusive_action)
 
 
-def resolve_alert_render_user(alert: AlertConfiguration) -> User | None:
+def _resolve_alert_render_user(alert: AlertConfiguration) -> User | None:
     """Pick the user the chart render is attributed to: the alert creator, then any
     subscribed user, then None. The render checks this user's view access to the insight,
     so it mirrors who the alert was set up for."""
@@ -392,7 +392,7 @@ def prepare_alert_insight_chart_url(
     """
     if _should_suppress_notification(verdict, alert.investigation_inconclusive_action):
         return None
-    render_user = user or resolve_alert_render_user(alert)
+    render_user = user or _resolve_alert_render_user(alert)
     if render_user is None:
         return None
     pending = AlertCheck.objects.filter(
@@ -403,11 +403,15 @@ def prepare_alert_insight_chart_url(
     return render_alert_insight_chart_url(alert, render_user)
 
 
-def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User) -> str | None:
+def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User | None = None) -> str | None:
     """Render the alerted insight for its Slack destinations, or None when none would show it.
 
-    Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None.
+    Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None. The render user
+    defaults the way that function's does.
     """
+    render_user = render_user or _resolve_alert_render_user(alert)
+    if render_user is None:
+        return None
     try:
         destinations = list_active_alert_destinations(
             team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)

@@ -160,7 +160,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     def test_a_firing_records_what_production_sends_beside_it(
         self, _name: str, owner: str, expected: dict[str, Any]
     ) -> None:
-        configuration = self._copy(self._alert(created_by=self.user), owner=owner)
+        configuration = self._copy(self._alert(), owner=owner)
 
         with patch(f"{_MODULE}.render_alert_insight_chart_url", return_value="https://example.com/chart.png") as render:
             outcome, _ = self._evaluate(
