@@ -1444,6 +1444,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
