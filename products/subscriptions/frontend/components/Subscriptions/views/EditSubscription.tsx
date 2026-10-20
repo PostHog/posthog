@@ -239,6 +239,7 @@ export function EditSubscription({
         insightShortId,
         dashboardId,
         dashboardName: dashboard?.name,
+        dashboardTiles: dashboard?.tiles,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({

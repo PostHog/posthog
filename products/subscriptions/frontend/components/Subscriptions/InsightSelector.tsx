@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -21,37 +23,27 @@ export function InsightSelector({
     onChange,
     onDefaultsApplied,
 }: InsightSelectorProps): JSX.Element {
-    const logic = insightSelectorLogic({ tiles })
-    const { filteredTiles, insightTiles, showSearch, searchTerm, userHasInteracted } = useValues(logic)
+    const logic = insightSelectorLogic({ tiles, selectedInsightIds })
+    const {
+        filteredTiles,
+        insightTiles,
+        showSearch,
+        searchTerm,
+        userHasInteracted,
+        validSelectedIds,
+        unavailableSelectedIds,
+    } = useValues(logic)
     const { setSearchTerm, setUserHasInteracted } = useActions(logic)
-
-    // Filter out stale IDs that no longer exist in current tiles
-    const validSelectedIds = useMemo(() => {
-        const currentInsightIds = new Set(insightTiles.map((tile) => tile.insight!.id))
-        return selectedInsightIds.filter((id) => currentInsightIds.has(id))
-    }, [insightTiles, selectedInsightIds])
-
-    // If there are stale IDs, update the form state to remove them
-    useEffect(() => {
-        if (validSelectedIds.length < selectedInsightIds.length) {
-            onChange(validSelectedIds)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [validSelectedIds, selectedInsightIds])
 
     useEffect(() => {
         // Auto-select the first N insights for new subscriptions (when nothing is selected yet)
-        if (insightTiles.length > 0 && validSelectedIds.length === 0 && !userHasInteracted) {
+        if (insightTiles.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
             const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
             onChange(defaultSelection)
             onDefaultsApplied?.(defaultSelection)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [insightTiles, validSelectedIds, userHasInteracted])
-
-    if (insightTiles.length === 0) {
-        return <div className="text-secondary text-sm">No insights found in this dashboard.</div>
-    }
+    }, [insightTiles, selectedInsightIds, userHasInteracted])
 
     const selectedCount = validSelectedIds.length
     const selectableCount = Math.min(insightTiles.length, MAX_INSIGHTS)
@@ -60,16 +52,69 @@ export function InsightSelector({
     const toggleInsight = (insightId: number): void => {
         setUserHasInteracted()
         if (validSelectedIds.includes(insightId)) {
-            const newIds = validSelectedIds.filter((id) => id !== insightId)
+            const newIds = selectedInsightIds.filter((id) => id !== insightId)
             onChange(newIds)
         } else if (!atMaxLimit) {
-            onChange([...validSelectedIds, insightId])
+            onChange([...selectedInsightIds, insightId])
         }
     }
 
     return (
         <div className="border rounded p-2 space-y-2">
-            <div className="flex justify-between items-center text-sm">
+            {unavailableSelectedIds.length > 0 && (
+                <LemonBanner type="warning">
+                    <div className="space-y-2">
+                        <strong>Selected insights are unavailable on this dashboard.</strong>
+                        <p>
+                            <span>Unavailable insights: </span>
+                            <span>{unavailableSelectedIds.length}</span>
+                        </p>
+                        {validSelectedIds.length === 0 && (
+                            <p>This subscription cannot send because none of its selected insights are available.</p>
+                        )}
+                        <p>
+                            Remove the unavailable insights and select replacements if needed. Save to apply your
+                            changes.
+                        </p>
+                        <ul className="space-y-1">
+                            {unavailableSelectedIds.map((id) => (
+                                <li key={id} className="flex flex-wrap items-center justify-between gap-2">
+                                    <span>Unavailable insight (ID: {id})</span>
+                                    <LemonButton
+                                        size="small"
+                                        data-attr="subscription-remove-unavailable-insight"
+                                        aria-label={`Remove insight ${id} from subscription`}
+                                        onClick={() => {
+                                            setUserHasInteracted()
+                                            onChange(selectedInsightIds.filter((selectedId) => selectedId !== id))
+                                        }}
+                                    >
+                                        Remove from subscription
+                                    </LemonButton>
+                                </li>
+                            ))}
+                        </ul>
+                        {unavailableSelectedIds.length > 1 && (
+                            <LemonButton
+                                size="small"
+                                data-attr="subscription-remove-all-unavailable-insights"
+                                onClick={() => {
+                                    setUserHasInteracted()
+                                    onChange(validSelectedIds)
+                                }}
+                            >
+                                Remove all unavailable
+                            </LemonButton>
+                        )}
+                    </div>
+                </LemonBanner>
+            )}
+            {insightTiles.length === 0 && (
+                <p className="text-secondary text-sm">
+                    No insights found in this dashboard. Add an insight before saving.
+                </p>
+            )}
+            <div className="flex flex-wrap justify-between items-center gap-2 text-sm">
                 <span className="font-medium">
                     {selectedCount} of {selectableCount} insights selected
                 </span>
@@ -85,7 +130,7 @@ export function InsightSelector({
                 />
             )}
             <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
-                {filteredTiles.length === 0 ? (
+                {filteredTiles.length === 0 && insightTiles.length > 0 ? (
                     <div className="text-secondary text-sm py-2">No insights match your search.</div>
                 ) : (
                     filteredTiles.map((tile) => {

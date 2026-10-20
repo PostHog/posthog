@@ -108,6 +108,72 @@ describe('EditSubscription unsaved changes', () => {
         expect(await screen.findByText('Not found')).toBeInTheDocument()
     })
 
+    it.each([[[998, 999]], [[11, 999]]])(
+        'saves only the explicit correction to %j',
+        async (selectedIds) => {
+            const subscription = subscriptionFixture({
+                target_type: 'email',
+                target_value: 'subscriber@example.com',
+                dashboard_export_insights: selectedIds,
+            })
+            let savedIds: number[] | undefined
+            const patch = jest.fn(async ({ request }) => {
+                const body = await request.json()
+                savedIds = body.dashboard_export_insights
+                return [200, { ...subscription, ...body }]
+            })
+            useMocks({
+                get: {
+                    '/_preflight/': { ...preflightJson, email_service_available: true },
+                    '/api/environments/:team/subscriptions/1': subscription,
+                    '/api/environments/:team/subscriptions': { count: 0, results: [] },
+                    '/api/projects/:team/subscriptions/1/deliveries/': { next: null, previous: null, results: [] },
+                    '/api/projects/:team/integrations': { count: 1, results: [SLACK_INTEGRATION] },
+                    '/api/environments/:team/subscriptions/summary_quota': {
+                        active_count: 0,
+                        limit: null,
+                        at_limit: false,
+                    },
+                    '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
+                    '/api/organizations/@current/members/': { count: 0, results: [] },
+                },
+                patch: { '/api/environments/:team/subscriptions/1': patch },
+            })
+            initKeaTests()
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            router.actions.push('/dashboard/5/subscriptions/1')
+            render(
+                <Provider>
+                    <EditSubscription id={1} dashboard={DASHBOARD} onCancel={jest.fn()} onDelete={jest.fn()} />
+                </Provider>
+            )
+
+            await screen.findByText('Unavailable insight (ID: 999)', {}, { timeout: 10000 })
+            expect(isClean()).toBe(true)
+            const name = screen.getByPlaceholderText('e.g. Weekly team report')
+            await userEvent.type(name, ' corrected')
+            await userEvent.click(saveButton())
+            expect(await screen.findByText('Remove unavailable insights before saving')).toBeInTheDocument()
+            expect(patch).not.toHaveBeenCalled()
+
+            if (selectedIds.includes(998)) {
+                await userEvent.click(screen.getByText('Remove all unavailable'))
+                await userEvent.click(saveButton())
+                expect(patch).not.toHaveBeenCalled()
+                await userEvent.click(screen.getByText('Pageviews'))
+            } else {
+                await userEvent.click(screen.getByLabelText('Remove insight 999 from subscription'))
+            }
+            await userEvent.click(saveButton())
+            await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))
+            expect(savedIds).toEqual([11])
+            await waitFor(() => expect(isClean()).toBe(true))
+            expect(screen.queryByText('Unavailable insight (ID: 999)')).not.toBeInTheDocument()
+        },
+        30000
+    )
+
     it.each([
         [
             'an email destination',

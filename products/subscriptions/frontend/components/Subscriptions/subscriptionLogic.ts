@@ -19,7 +19,7 @@ import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { DashboardTile, ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import {
     subscriptionsDeliveriesList,
@@ -180,12 +180,27 @@ function validateTargetValue(
 
 function validateDashboardExportInsights(
     subscription: Partial<SubscriptionType>,
-    dashboardId: number | undefined
+    dashboardId: number | undefined,
+    dashboardTiles?: DashboardTile[]
 ): any {
     if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !dashboardId) {
         return undefined
     }
-    return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
+    const selectedIds = subscription.dashboard_export_insights ?? []
+    if (!selectedIds.length) {
+        return 'Select at least one insight'
+    }
+    if (dashboardTiles) {
+        const availableIds = new Set(
+            dashboardTiles
+                .filter((tile) => !tile.deleted && tile.insight && !tile.insight.deleted)
+                .map((tile) => tile.insight!.id)
+        )
+        if (selectedIds.some((id) => !availableIds.has(id))) {
+            return 'Remove unavailable insights before saving'
+        }
+    }
+    return undefined
 }
 
 function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): string | null {
@@ -298,6 +313,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
+    dashboardTiles?: DashboardTile[]
     /** Used to build the prefilled title when the form is opened via the subscribe-nudge notification. */
     dashboardName?: string | null
     insightName?: string
@@ -709,7 +725,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     subscription.target_value,
                     isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
                 ),
-                dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
+                dashboard_export_insights: validateDashboardExportInsights(
+                    subscription,
+                    props.dashboardId,
+                    props.dashboardTiles
+                ),
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
