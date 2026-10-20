@@ -211,7 +211,10 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         kinds.append(outcome.failure.kind)
     if not any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds):
         return None
-    legacy_id = str(check.legacy_configuration_id) if check.legacy_configuration_id is not None else None
+    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
+    if check.legacy_configuration_id is None:
+        return None
+    legacy_id = str(check.legacy_configuration_id)
     if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
         return None
     return AlertDeliveryRequest(
