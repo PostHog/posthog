@@ -3038,6 +3038,38 @@ class TestCanvasOperations(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert Annotation.objects.count() == 0
 
+    def test_sandbox_tokens_cannot_invoke_operations_or_publish_the_skill(self) -> None:
+        canvas_id = self._operations_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Operations",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
+        # The token holds the verb's own write scope, so only the sandbox check can refuse it.
+        client = self._sandbox_client(task.id, scope="canvas:read canvas:write annotation:write llm_skill:write")
+
+        invoked = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/mark-incident/invoke/",
+            {"arguments": {}},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        published = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/publish_skill/",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+
+        assert invoked.status_code == status.HTTP_403_FORBIDDEN, invoked.json()
+        assert invoked.json()["detail"] == "Canvas operations are invoked by viewers; sandbox tokens cannot use them."
+        assert published.status_code == status.HTTP_403_FORBIDDEN, published.json()
+        assert published.json()["detail"] == "Skills are published by viewers; sandbox tokens cannot publish them."
+        assert Annotation.objects.count() == 0
+        assert not LLMSkill.objects.filter(team=self.team).exists()
+
     def test_publish_skill_creates_a_team_skill_and_versions_it_on_republish(self):
         canvas_id = self._operations_canvas()
 
