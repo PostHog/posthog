@@ -37,10 +37,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml
-
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
+from .reusable_secret_passthrough import _callee_name
 
 BAD_FALLBACK = re.compile(r"head_ref\s*\|\|\s*github\.run_id")
 PER_SHA_PUSH_ARM = re.compile(r"event_name\s*==\s*['\"]push['\"]\s*&&\s*github\.sha")
@@ -48,7 +47,6 @@ MASTER_CANCEL_MARKER = "hogli-lint: allow-master-cancel"
 SHARED_PUSH_GROUP_MARKER = "hogli-lint: allow-shared-push-group"
 PUSH_DIFF_SELECTORS = ("paths-filter", "github.event.before")
 PUBLISHERS = ("commit_state_update", "build-push-action")
-LOCAL_REUSABLE_PREFIX = "./.github/workflows/"
 
 
 class PrConcurrencyCheck(WorkflowCheck):
@@ -98,6 +96,7 @@ class PrConcurrencyCheck(WorkflowCheck):
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
+        by_name = {wf.path.name: wf for wf in workflows}
         for wf in workflows:
             group_expr = _concurrency_group_expr(wf.concurrency)
             if _cancels_master_pushes(wf, group_expr):
@@ -113,7 +112,7 @@ class PrConcurrencyCheck(WorkflowCheck):
                     )
                 )
 
-            if _drops_pending_push_builds(wf, group_expr):
+            if _drops_pending_push_builds(wf, group_expr, by_name):
                 result.issues.append(
                     Issue(
                         workflow=wf.path.name,
@@ -170,26 +169,21 @@ def _cancels_master_pushes(wf: Workflow, group_expr: str) -> bool:
     return not _has_marker(wf.path, MASTER_CANCEL_MARKER)
 
 
-def _drops_pending_push_builds(wf: Workflow, group_expr: str) -> bool:
+def _drops_pending_push_builds(wf: Workflow, group_expr: str, by_name: dict[str, Workflow]) -> bool:
     if not group_expr or not wf.is_push_triggered or _keys_pushes_per_sha(group_expr):
         return False
     # The parsed workflow holds no comments, so a comment that names a selector or publisher does not match.
-    source = str(wf.raw)
-    if not any(selector in source for selector in PUSH_DIFF_SELECTORS):
+    if not any(selector in str(wf.raw) for selector in PUSH_DIFF_SELECTORS):
         return False
-    if not any(publisher in source for publisher in PUBLISHERS) and not _calls_local_publisher(wf):
+    callees = (by_name.get(_callee_name(job.uses) or "") for job in wf.jobs if job.uses)
+    if not _publishes(wf) and not any(callee and _publishes(callee) for callee in callees):
         return False
     return not _has_marker(wf.path, SHARED_PUSH_GROUP_MARKER)
 
 
-def _calls_local_publisher(wf: Workflow) -> bool:
-    for job in wf.jobs:
-        if not job.uses or not job.uses.startswith(LOCAL_REUSABLE_PREFIX):
-            continue
-        called = wf.path.parent / job.uses.removeprefix(LOCAL_REUSABLE_PREFIX)
-        if called.is_file() and any(publisher in str(yaml.safe_load(called.read_text())) for publisher in PUBLISHERS):
-            return True
-    return False
+def _publishes(wf: Workflow) -> bool:
+    source = str(wf.raw)
+    return any(publisher in source for publisher in PUBLISHERS)
 
 
 def _keys_pushes_per_sha(group_expr: str) -> bool:
