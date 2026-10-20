@@ -295,6 +295,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         self.environment = environment.strip() if environment and environment.strip() else None
         self.compare = compare
         self.baseline_date_range = baseline_date_range
+        self._pristine_scope = self._scope()
 
     def get_cache_payload(self) -> dict[str, Any]:
         return {
@@ -508,7 +509,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     [(name, s["status"]) for name, s in zip([*current, *silent_names], services)],
                     current_window,
                     baseline_window,
-                    self._scope(),
+                    self._pristine_scope,
                 ),
             }
         )

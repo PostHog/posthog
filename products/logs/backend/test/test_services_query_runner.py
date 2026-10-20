@@ -469,11 +469,18 @@ class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel(_COMPARE_NOW, tick=False)
     def test_next_keeps_the_original_scope(self) -> None:
-        result = self._services(compare="previous_period", searchTerm="log line")
+        excluded = {
+            "key": "k8s.namespace.name",
+            "operator": "is_not",
+            "value": ["staging"],
+            "type": "log_resource_attribute",
+        }
+        result = self._services(compare="previous_period", searchTerm="log line", filterGroup=[excluded])
 
         assert result["next"]
         for step in result["next"]:
             assert step["query"]["searchTerm"] == "log line"
+            assert step["query"]["filterGroup"] == [excluded]
         diff = next(step for step in result["next"] if step["tool"] == "logs-patterns-diff")
         assert diff["baselineDateRange"] == {"date_from": "2026-06-23T11:00:00Z", "date_to": "2026-06-23T12:00:00Z"}
         assert self._services(compare="previous_period", environment="production")["next"] == []
