@@ -66,6 +66,7 @@ import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../gene
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
+import { showIssueResolvedToast } from './issueResolvedToast'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -1102,6 +1103,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
                 if (mutationName === 'createIssueCohort' && issueId === props.id) {
                     actions.loadIssue()
+                }
+                if (
+                    mutationName === 'updateIssueStatus' &&
+                    issueId === props.id &&
+                    values.issue?.status === 'resolved'
+                ) {
+                    void showIssueResolvedToast(String(teamLogic.values.currentProjectId), {
+                        issueId: props.id,
+                        issueName: values.issue.name,
+                    })
                 }
             },
         }
