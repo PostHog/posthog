@@ -7,11 +7,13 @@ from django.utils.functional import Promise
 
 import structlog
 
-from posthog.event_usage import report_team_action
+from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
+from posthog.ph_client import ph_scoped_capture
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
+from posthog.utils import get_instance_region
 
 from products.actions.backend.models.action import Action
 from products.workflows.backend.facade.enums import (
@@ -223,11 +225,17 @@ class HogFlow(UUIDTModel):
 def report_workflow_created(team_id: int, workflow_id: str, origin_product: str | None, actions_count: int) -> None:
     try:
         team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-        report_team_action(
-            team,
-            "workflows workflow created",
-            {"workflow_id": workflow_id, "origin_product": origin_product, "actions_count": actions_count},
-        )
+        with ph_scoped_capture(event_region=get_instance_region()) as capture:
+            capture(
+                distinct_id=str(team.uuid),
+                event="workflows workflow created",
+                properties={
+                    "workflow_id": workflow_id,
+                    "origin_product": origin_product,
+                    "actions_count": actions_count,
+                },
+                groups=groups(team=team),
+            )
     except Exception:
         logger.exception("Failed to report workflow creation", team_id=team_id, workflow_id=workflow_id)
 
