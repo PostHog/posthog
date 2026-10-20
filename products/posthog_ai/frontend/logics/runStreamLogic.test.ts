@@ -2740,6 +2740,24 @@ describe('runStreamLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        it('keeps a newer bootstrap prefetch when a replaced bootstrap fails', async () => {
+            const stale = deferred<Record<string, any>[]>()
+            const signals: (AbortSignal | undefined)[] = []
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockImplementation((_task, _run, options) => {
+                signals.push(options?.signal)
+                return signals.length === 1 ? stale.promise : new Promise(() => {})
+            })
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            logic.actions.bootstrapRun({ taskId: 'task-2', runId: 'run-2' })
+            await flushPromises()
+            stale.reject({ status: 404 })
+            await flushPromises()
+
+            expect(signals[1]?.aborted).toBe(false)
+        })
+
         it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
             jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'failed', state: {} } as any)
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
@@ -6711,7 +6729,7 @@ describe('runStreamLogic', () => {
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
-            expect(logsSpy).not.toHaveBeenCalled()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
             if (historyFirst) {
                 resolveLogs(history)
             } else {
@@ -6730,6 +6748,7 @@ describe('runStreamLogic', () => {
                 expect(options.startLatest).toBe(false)
             }
             expect(MockStream.connections).toHaveLength(1)
+            expect(logsSpy).toHaveBeenCalledTimes(1)
             expect(
                 logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
             ).toEqual(['Checking the layout.'])
