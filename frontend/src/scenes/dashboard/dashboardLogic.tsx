@@ -2568,8 +2568,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 applyDashboardUpdate: (_, { layouts }) => layouts,
-                saveEditModeChangesSuccess: (state, { dashboard, payload }) =>
-                    payload?.scope === 'layout' ? tileLayoutsFromDashboard(dashboard) : state,
+                // Not saveEditModeChangesSuccess: a failed save also fires it, and the moves must stay unsaved.
+                tileGroupKeysSaved: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 receiveTileFromStream: (state, { tile }) => ({
                     ...state,
                     [tile.id]: tile.layouts,
@@ -5521,7 +5521,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         saveEditModeChangesSuccess: ({ dashboard, payload }) => {
-            if (dashboard && payload?.scope !== 'colors') {
+            // A failed or no-op save resolves the loader with the pre-save dashboard, not a persisted one,
+            // so only a real persist (cache.dashboardChangesPersisted) may claim layoutsPersisted here.
+            if (dashboard && payload?.scope !== 'colors' && cache.dashboardChangesPersisted) {
                 // Sync the saved dashboard (including any name/description changes) to
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, { layoutsPersisted: true })

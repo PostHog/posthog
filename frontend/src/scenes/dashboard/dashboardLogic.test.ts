@@ -1767,6 +1767,33 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
+        it('discarding after a failed save restores the tile position from before the move', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const movedTile = logic.values.dashboard!.tiles[0]
+            const originalSm = logic.values.dashboardLayouts[movedTile.id]?.sm
+
+            const movedLayout = logic.values.layouts.sm?.map((layout) =>
+                layout.i === String(movedTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+            )
+            await expectLogic(logic, () => {
+                logic.actions.moveTileToGroup(movedTile.id, 'plans', movedLayout ?? [])
+            }).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockRejectedValueOnce(new Error('network down'))
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === movedTile.id)?.layouts?.sm).toEqual(
+                originalSm
+            )
+            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === movedTile.id)?.group_key ?? null).toBeNull()
+        })
+
         it('discarding puts a tile moved into a group back where it was', async () => {
             const movedTile = await moveFirstTileIntoGroup()
 
