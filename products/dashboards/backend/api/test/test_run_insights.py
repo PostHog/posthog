@@ -8,7 +8,16 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import ActionsNode, CompareFilter, DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
+from posthog.schema import (
+    ActionsNode,
+    ChartDisplayType,
+    CompareFilter,
+    DateRange,
+    EventsNode,
+    InsightVizNode,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
@@ -24,12 +33,20 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile, Tex
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
-def _trends_query_dict(event: str = "$pageview", date_from: str = "-7d") -> dict:
+def _trends_query_dict(
+    event: str = "$pageview",
+    date_from: str = "-7d",
+    *,
+    series: list[EventsNode | ActionsNode] | None = None,
+    display: ChartDisplayType = ChartDisplayType.ACTIONS_LINE_GRAPH,
+    compare_filter: CompareFilter | None = None,
+) -> dict:
     return InsightVizNode(
         source=TrendsQuery(
-            series=[EventsNode(event=event)],
+            series=series or [EventsNode(event=event)],
             dateRange=DateRange(date_from=date_from),
-            trendsFilter=TrendsFilter(display="ActionsLineGraph"),
+            trendsFilter=TrendsFilter(display=display),
+            compareFilter=compare_filter,
         ),
     ).model_dump()
 
@@ -110,14 +127,11 @@ class TestDashboardRunInsights(APIBaseTest):
 
     def test_optimized_format_labels_compared_totals_with_their_ranges_and_saved_series_names(self) -> None:
         action = Action.objects.create(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
-        query = InsightVizNode(
-            source=TrendsQuery(
-                series=[ActionsNode(id=action.pk, name="Old purchase name")],
-                dateRange=DateRange(date_from="-7d"),
-                trendsFilter=TrendsFilter(display="BoldNumber"),
-                compareFilter=CompareFilter(compare=True),
-            ),
-        ).model_dump()
+        query = _trends_query_dict(
+            series=[ActionsNode(id=action.pk, name="Old purchase name")],
+            display=ChartDisplayType.BOLD_NUMBER,
+            compare_filter=CompareFilter(compare=True),
+        )
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": query, "dashboards": [dashboard_id]})
 
