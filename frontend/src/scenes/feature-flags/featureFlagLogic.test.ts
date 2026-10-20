@@ -1487,6 +1487,12 @@ describe('featureFlagLogic', () => {
                 usesCohortId: 42,
             },
             {
+                scenario: 'creates a cohort when someone changed who is in the recent one',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                edited: true,
+                usesCohortId: 42,
+            },
+            {
                 scenario: 'creates a cohort when another user made the recent one',
                 listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10), 'another-user-uuid'),
                 usesCohortId: 42,
@@ -1496,7 +1502,7 @@ describe('featureFlagLogic', () => {
                 listed: () => listedCohort(`${MOCK_FEATURE_FLAG.key}-2`, minutesAgo(10)),
                 usesCohortId: 42,
             },
-        ])('$scenario', async ({ listed, usesCohortId, flagUpdatedAt, serverUpdatedAt, newerPage }) => {
+        ])('$scenario', async ({ listed, usesCohortId, flagUpdatedAt, serverUpdatedAt, newerPage, edited }) => {
             jest.useFakeTimers()
             jest.setSystemTime(NOW)
             router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
@@ -1524,6 +1530,18 @@ describe('featureFlagLogic', () => {
                             return [200, { count: 21, next: 'more', results: others }]
                         }
                         return [200, { count: 1, results: [existing] }]
+                    },
+                    '/api/projects/:projectId/activity_log/': ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        const hasEdit = edited && params.get('scope') === 'Cohort' && params.get('item_id') === '7'
+                        return [
+                            200,
+                            {
+                                next: null,
+                                previous: null,
+                                results: hasEdit ? [{ activity: 'persons_added_manually' }] : [],
+                            },
+                        ]
                     },
                     '/api/projects/:projectId/cohorts/7/': () => [200, { ...existing, is_calculating: false }],
                     '/api/projects/:projectId/cohorts/42/': () => [200, READY],

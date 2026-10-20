@@ -114,6 +114,7 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
+import { activityLogList } from 'products/platform_features/frontend/generated/api'
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
@@ -181,15 +182,15 @@ function flagCohortNamePrefix(flagKey: string): string {
     return `Users with feature flag ${flagKey} enabled at`
 }
 
-function newestReusableFlagCohort(
+function reusableFlagCohorts(
     cohorts: CohortApi[],
     flag: Pick<FeatureFlagType, 'key' | 'updated_at'>,
     userUuid: string,
     now: number
-): CohortApi | null {
+): CohortApi[] {
     // A cohort made before the flag's last save can hold people the current conditions no longer match.
     if (!flag.updated_at) {
-        return null
+        return []
     }
     const flagUpdatedAt = new Date(flag.updated_at).getTime()
     const prefix = `${flagCohortNamePrefix(flag.key)} `
@@ -208,7 +209,13 @@ function newestReusableFlagCohort(
                 (cohort.is_calculating ? FLAG_COHORT_MAX_FILL_MS : REUSABLE_FLAG_COHORT_MAX_AGE_MS)
     )
     reusable.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())
-    return reusable[0] ?? null
+    return reusable
+}
+
+async function flagCohortWasEdited(projectId: string, cohortId: number): Promise<boolean> {
+    // Creating and filling the snapshot logs no activity, so any entry means someone edited its people by hand.
+    const { results } = await activityLogList(projectId, { scope: 'Cohort', item_id: String(cohortId), page_size: 1 })
+    return results.length > 0
 }
 
 /** Why a broadcast to this flag's audience would reach no one, if it would. */
@@ -3840,7 +3847,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 offset,
                             })
                             breakpoint()
-                            cohortId = newestReusableFlagCohort(results, flag, user.uuid, now)?.id ?? null
+                            for (const candidate of reusableFlagCohorts(results, flag, user.uuid, now)) {
+                                const edited = await flagCohortWasEdited(projectId, candidate.id)
+                                breakpoint()
+                                if (!edited) {
+                                    cohortId = candidate.id
+                                    break
+                                }
+                            }
                             const oldest = results[results.length - 1]?.created_at
                             if (!next || !oldest || now - new Date(oldest).getTime() >= FLAG_COHORT_MAX_FILL_MS) {
                                 break
