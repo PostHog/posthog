@@ -2,7 +2,13 @@ import datetime
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseDestroyTablesMixin,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -11,11 +17,12 @@ from django.test import override_settings
 from dateutil import parser
 from parameterized import parameterized
 
-from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
+from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, HogQLQueryModifiers, IntervalType
 
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
@@ -25,6 +32,7 @@ from posthog.hogql_queries.utils.timestamp_utils import (
     get_earliest_timestamp_from_series,
     get_earliest_timestamp_unfiltered,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import WeekStartDay
 
 from products.actions.backend.models.action import Action
@@ -505,7 +513,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
         captured: dict[str, object] = {}
 
-        def capture(team, node, user=None):
+        def capture(team, node, user=None, modifiers=None):
             captured[node.table_name] = get_query_tags().product
             return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
 
@@ -553,7 +561,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_single_path_query_tags(self, _name, caller_product, caller_feature, expected_product, expected_feature):
         captured: dict[str, object] = {}
 
-        def capture(query, team, user=None):
+        def capture(query, team, user=None, modifiers=None):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature
@@ -572,3 +580,30 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         self.assertEqual(captured["product"], expected_product)
         self.assertEqual(captured["feature"], expected_feature)
         self.assertEqual(captured["lookup"], "earliest_timestamp")
+
+
+class TestEarliestTimestampRouting(BaseTest):
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_native_lookup_reads_the_native_cluster_and_skips_the_legacy_cache(self) -> None:
+        node = EventsNode(event="$pageview")
+        legacy = datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
+        native = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+        cache.set(_get_earliest_timestamp_cache_key(self.team, node), legacy)
+        modifiers = HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True)
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch(
+                "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
+            ) as execute,
+        ):
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node], modifiers=modifiers), native)
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node], modifiers=modifiers), native)
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), legacy)
+        execute.assert_called_once()
+        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
+        self.assertIn("events_json", execute.call_args.args[0])

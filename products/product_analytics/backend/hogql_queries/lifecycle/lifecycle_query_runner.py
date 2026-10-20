@@ -315,7 +315,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
             return get_earliest_timestamp_from_series(
-                team=self.team, series=list(self.query.series or []), user=self.user
+                team=self.team, series=list(self.query.series or []), user=self.user, modifiers=self.modifiers
             )
 
         return None
