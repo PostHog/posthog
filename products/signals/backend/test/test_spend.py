@@ -789,7 +789,7 @@ class TestSignalSpend(BaseTest):
             is_task=True,
             token_cost_microusd=200,
         )
-        migration = import_module("products.signals.backend.migrations.0188_backfill_owner_spend")
+        migration = import_module("products.signals.backend.migrations.0189_backfill_owner_spend")
         for _ in range(2):
             migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
         assert SignalSpend.objects.for_team(self.team.id).count() == 2

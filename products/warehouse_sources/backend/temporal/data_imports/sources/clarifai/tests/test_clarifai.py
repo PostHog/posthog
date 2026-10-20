@@ -58,6 +58,8 @@ class TestClarifaiTransport:
             ("concept_relations", "concepts/relations", "concept_relations", {}),
             ("annotations", "annotations", "annotations", {"list_all_annotations": ["true"]}),
             ("evaluations", "evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
+            ("tasks", "tasks", "tasks", {"including_label_order_tasks": ["true"]}),
+            ("collaborators", "collaborators", "collaborators", {"list_all_collaborators": ["true"]}),
         ],
     )
     @pytest.mark.parametrize("resume_page", [None, 4])

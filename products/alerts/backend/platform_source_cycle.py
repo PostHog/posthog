@@ -418,7 +418,10 @@ def _decide_grouped(
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
     return decision.as_outcome(
-        configuration_id=check.id, evaluation_key=_evaluation_key(check, now), query_duration_ms=duration_ms
+        configuration_id=check.id,
+        evaluation_key=_evaluation_key(check, now),
+        grouping=check.grouping,
+        query_duration_ms=duration_ms,
     )
 
 
