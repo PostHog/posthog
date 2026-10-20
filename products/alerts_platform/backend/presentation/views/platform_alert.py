@@ -2,6 +2,8 @@ from dataclasses import replace
 from functools import cache, cached_property
 from typing import Any, Literal, cast
 
+from django.db import transaction
+
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -509,7 +511,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise ValidationError({error.field_name: str(error)}) from error
         except PlatformAlertCreateRefused as error:
             raise ValidationError(str(error)) from error
-        self._track("created", created)
+        # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
+        transaction.on_commit(lambda: self._track("created", created), robust=True)
         return Response(PlatformAlertConfigurationSerializer(created).data, status=status.HTTP_201_CREATED)
 
     def _track(self, action: Literal["created", "deleted"], configuration: PlatformAlertConfigurationView) -> None:
@@ -556,7 +559,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise Conflict(str(error)) from error
         if not deleted:
             raise NotFound()
-        self._track("deleted", target.configuration)
+        transaction.on_commit(lambda: self._track("deleted", target.configuration), robust=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(parameters=[PlatformAlertConfigurationListQuerySerializer])
