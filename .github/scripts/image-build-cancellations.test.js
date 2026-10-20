@@ -18,7 +18,8 @@ function fakeGithub(runsByWorkflow) {
         rest: {
             actions: {
                 listWorkflowRuns: async ({ workflow_id, branch, event, status, created }) => {
-                    const scoped = branch === 'master' && event === 'push' && status === 'cancelled' && created?.startsWith('>=')
+                    const scoped =
+                        branch === 'master' && event === 'push' && status === 'cancelled' && created?.startsWith('>=')
                     return { data: { workflow_runs: scoped ? runsByWorkflow[workflow_id] || [] : [] } }
                 },
             },
@@ -36,24 +37,49 @@ function fakeSlack(messages) {
     }
 }
 
-const activeAnchor = { ts: '1.0', metadata: { event_type: 'image_build_cancellations', event_payload: { status: 'active' } } }
-const resolvedAnchor = { ts: '0.5', metadata: { event_type: 'image_build_cancellations', event_payload: { status: 'resolved' } } }
+const activeAnchor = {
+    ts: '1.0',
+    metadata: { event_type: 'image_build_cancellations', event_payload: { status: 'active' } },
+}
+const resolvedAnchor = {
+    ts: '0.5',
+    metadata: { event_type: 'image_build_cancellations', event_payload: { status: 'resolved' } },
+}
 
 describe('image build cancellations', () => {
     const cases = [
         { title: 'opens an alert at the threshold', cancelled: 3, history: [resolvedAnchor], posts: 1, updates: [] },
-        { title: 'updates an open alert instead of posting again', cancelled: 5, history: [activeAnchor], posts: 0, updates: ['active'] },
-        { title: 'resolves an open alert once runs stop being cancelled', cancelled: 2, history: [activeAnchor], posts: 0, updates: ['resolved'] },
-        { title: 'stays quiet below the threshold with no open alert', cancelled: 2, history: [], posts: 0, updates: [] },
+        {
+            title: 'updates an open alert instead of posting again',
+            cancelled: 5,
+            history: [activeAnchor],
+            posts: 0,
+            updates: ['active'],
+        },
+        {
+            title: 'resolves an open alert once runs stop being cancelled',
+            cancelled: 2,
+            history: [activeAnchor],
+            posts: 0,
+            updates: ['resolved'],
+        },
+        {
+            title: 'stays quiet below the threshold with no open alert',
+            cancelled: 2,
+            history: [],
+            posts: 0,
+            updates: [],
+        },
     ]
     for (const { title, cancelled, history, posts, updates } of cases) {
         it(title, async () => {
             process.env.IMAGE_BUILD_WORKFLOWS = 'ci-nodejs-container.yml,rust-docker-build.yml'
             process.env.CANCELLED_BUILD_THRESHOLD = '3'
+            process.env.CANCELLED_BUILD_LOOKBACK_MINUTES = '120'
             const github = fakeGithub({ 'ci-nodejs-container.yml': cancelledRuns('Node image', cancelled) })
             const slack = fakeSlack(history)
 
-            await imageBuildCancellations({ context, github }, { slack, now: new Date('2026-10-20T17:00:00Z') })
+            await imageBuildCancellations({ context, github }, { slack })
 
             assert.equal(slack.calls.postMessage.length, posts)
             assert.deepEqual(
