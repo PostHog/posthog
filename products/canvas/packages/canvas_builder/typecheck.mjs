@@ -34,6 +34,7 @@ const COMPILER_OPTIONS = {
     esModuleInterop: true,
     resolveJsonModule: true,
     allowArbitraryExtensions: true,
+    allowImportingTsExtensions: true,
 }
 
 function typeCheck(files, resolveDir) {
@@ -52,9 +53,19 @@ function typeCheck(files, resolveDir) {
     const declarations = path.join(root, '__platform__.d.ts')
     sources.set(declarations, PLATFORM_DECLARATIONS)
 
+    // Module resolution skips a directory it cannot see, so the virtual folders must exist for relative imports.
+    const directories = new Set()
+    for (const file of sources.keys()) {
+        for (let dir = path.dirname(file); dir.startsWith(root); dir = path.dirname(dir)) {
+            directories.add(dir)
+        }
+    }
+
     const host = ts.createCompilerHost(COMPILER_OPTIONS, true)
-    const { fileExists, readFile, getSourceFile } = host
+    const { fileExists, readFile, getSourceFile, directoryExists, realpath } = host
     host.fileExists = (file) => sources.has(file) || fileExists(file)
+    host.directoryExists = (dir) => directories.has(dir) || (directoryExists?.(dir) ?? false)
+    host.realpath = (file) => (sources.has(file) || directories.has(file) ? file : (realpath?.(file) ?? file))
     host.readFile = (file) => sources.get(file) ?? readFile(file)
     host.getSourceFile = (file, language, onError) =>
         sources.has(file)
@@ -69,6 +80,11 @@ function typeCheck(files, resolveDir) {
             if (diagnostics.length >= MAX_DIAGNOSTICS) {
                 return diagnostics
             }
+            const message = ts.flattenDiagnosticMessageText(entry.messageText, '\n')
+            // A value the canvas's own code left as `unknown` is not a library misuse, and dozens of them would bury the ones that are.
+            if (/\bunknown\b/.test(message)) {
+                continue
+            }
             const line =
                 entry.file && entry.start !== undefined
                     ? entry.file.getLineAndCharacterOfPosition(entry.start).line + 1
@@ -76,10 +92,7 @@ function typeCheck(files, resolveDir) {
             diagnostics.push({
                 severity: 'warning',
                 code: 'type_error',
-                message: `TS${entry.code}: ${ts.flattenDiagnosticMessageText(entry.messageText, '\n')}`.slice(
-                    0,
-                    MAX_MESSAGE_LENGTH
-                ),
+                message: `TS${entry.code}: ${message}`.slice(0, MAX_MESSAGE_LENGTH),
                 path: path.relative(root, file),
                 ...(line ? { line } : {}),
             })

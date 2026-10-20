@@ -242,21 +242,50 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         self.assertEqual(validate_builder_output(result)[2], [])
 
-    def test_ready_build_warns_about_a_prop_the_library_does_not_accept(self) -> None:
-        result = run_cloud_builder(
-            synthetic_source_project(
+    @parameterized.expand(
+        [
+            (
+                "a prop the library does not accept",
                 'import { Card } from "@posthog/quill"\n'
-                "export default function Canvas() { return <Card notARealProp /> }\n"
-            )
-        )
+                "export default function Canvas() { return <Card notARealProp /> }\n",
+                {},
+                [("warning", "type_error", "src/canvas.tsx", 2, "notARealProp")],
+            ),
+            (
+                "a canvas split across files",
+                'import { Title } from "./title"\nexport default function Canvas() { return <Title /> }\n',
+                {"src/title.tsx": "export function Title() { return <h1>Board</h1> }\n"},
+                [],
+            ),
+            (
+                "an import that names the file extension",
+                'import { Title } from "./title.tsx"\nexport default function Canvas() { return <Title /> }\n',
+                {"src/title.tsx": "export function Title() { return <h1>Board</h1> }\n"},
+                [],
+            ),
+            (
+                "a value the canvas's own code leaves unknown",
+                "const rows: unknown = []\nexport default function Canvas() { return <p>{rows.length}</p> }\n",
+                {},
+                [],
+            ),
+        ]
+    )
+    def test_ready_build_reports_type_errors_in_the_canvas_files(
+        self, _name: str, source: str, extra_files: dict[str, str], expected: list[tuple[str, str, str, int, str]]
+    ) -> None:
+        project = synthetic_source_project(source)
+        project["files"].update(extra_files)
+        result = run_cloud_builder(project)
 
         _, _, diagnostics = validate_builder_output(result)
         self.assertEqual(result["status"], "ready")
         self.assertEqual(
             [(item["severity"], item["code"], item["path"], item["line"]) for item in diagnostics],
-            [("warning", "type_error", "src/canvas.tsx", 2)],
+            [entry[:4] for entry in expected],
         )
-        self.assertIn("notARealProp", diagnostics[0]["message"])
+        for item, entry in zip(diagnostics, expected):
+            self.assertIn(entry[4], item["message"])
 
     def test_bundles_the_canvas_sdk_import_inline(self) -> None:
         payload = synthetic_source_project(
