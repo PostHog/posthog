@@ -223,7 +223,7 @@ class TestOrders:
         throttled = ScriptedResponse(status=429, json={"errors": [{"code": "QuotaExceeded"}]})
         result = _driver().run(
             "orders",
-            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 9 + [_orders_page([_order("1")])]}),
+            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 8 + [_orders_page([_order("1")])]}),
         )
 
         assert result.raised is None

@@ -28,12 +28,10 @@ TRANSACTIONS_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
 # re-reads the transactions released in this many days.
 DEFERRED_RELEASE_SWEEP_DAYS = 60
 # searchOrders refills at one request every 179 seconds once its burst is spent, and SP-API sends
-# no Retry-After. Ten attempts wait 1, 2, 4 ... 128 then 180 seconds, 435 in all, past that interval.
-SP_API_MAX_RETRY_ATTEMPTS = 10
-SP_API_RETRY_BACKOFF_MAX_SECONDS = 180.0
-# The shared retry budget is shorter than those 435 seconds of waits, so it would end the request
-# before the last attempt. The client carries its own, the waits plus a margin for the tries.
-SP_API_RETRY_BUDGET_SECONDS = 435.0 + 60.0
+# no Retry-After. Nine attempts wait 1, 2, 4 ... 128 seconds, 255 in all, past that interval and
+# inside the shared retry budget, which ends a request 300 seconds after its first try.
+SP_API_MAX_RETRY_ATTEMPTS = 9
+SP_API_RETRY_BACKOFF_MAX_SECONDS = 128.0
 
 ORDERS = "orders"
 ORDER_ITEMS = "order_items"

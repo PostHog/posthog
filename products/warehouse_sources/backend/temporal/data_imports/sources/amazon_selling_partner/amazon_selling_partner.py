@@ -31,7 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     SP_API_HOSTS,
     SP_API_MAX_RETRY_ATTEMPTS,
     SP_API_RETRY_BACKOFF_MAX_SECONDS,
-    SP_API_RETRY_BUDGET_SECONDS,
     TRANSACTIONS,
     TRANSACTIONS_PATH,
     TRANSACTIONS_WINDOW_DAYS,
@@ -165,7 +164,9 @@ def _build_resource(
             "auth": auth,
             "max_retries": SP_API_MAX_RETRY_ATTEMPTS,
             "retry_backoff_max_seconds": SP_API_RETRY_BACKOFF_MAX_SECONDS,
-            "retry_budget_seconds": SP_API_RETRY_BUDGET_SECONDS,
+            # Without this a stalled SP-API host holds the whole retry budget in one try, and the
+            # waits above never run. The seller's other calls use the same bound.
+            "request_timeout": REQUEST_TIMEOUT,
             # Order bodies carry buyer data that only the row maps remove, after any sample is taken.
             "capture": False,
         },
