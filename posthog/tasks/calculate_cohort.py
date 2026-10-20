@@ -12,7 +12,7 @@ import grpc
 import structlog
 import posthoganalytics
 from celery import Task, chain, shared_task
-from celery.exceptions import Retry, SoftTimeLimitExceeded
+from celery.exceptions import MaxRetriesExceededError, Retry, SoftTimeLimitExceeded
 from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
@@ -1248,6 +1248,15 @@ def collect_cohort_query_stats(
         # This runs even if the worker OOM'd, since this task was scheduled before the calculation
         _collect_cohort_calculation_metrics(history, start_time)
 
+    except Retry:
+        raise
+    except MaxRetriesExceededError:
+        logger.warning(
+            "Gave up collecting delayed cohort query stats",
+            tag_matcher=tag_matcher,
+            cohort_id=cohort_id,
+            history_id=history_id,
+        )
     except Exception as e:
         logger.exception(
             "Failed to collect delayed cohort query stats",

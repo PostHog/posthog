@@ -33,6 +33,15 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
  * Sync the paths with AutoProjectMiddleware!
  */
 
+/** The filters the analytics list reads from its URL. */
+export interface AnalyticsListUrlParams {
+    type?: string
+    createdBy?: string[]
+    folder?: string
+    search?: string
+    tags?: string[]
+}
+
 export const urls = {
     ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
@@ -172,8 +181,11 @@ export const urls = {
     projectHomepage: (): string => '/home',
     todayReport: (reportId: string): string => `/home/reports/${reportId}`,
     library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
-    views: (): string => '/views',
-    viewsNew: (): string => '/views/new',
+    analytics: (): string => '/analytics',
+    analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
+    analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
+    analyticsSpaces: (): string => '/analytics/spaces',
+    analyticsProductHome: (): string => '/analytics/product-analytics',
     tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,

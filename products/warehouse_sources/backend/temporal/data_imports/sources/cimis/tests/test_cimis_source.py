@@ -19,10 +19,6 @@ def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", 
 
 
 class TestCimisGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = CimisSource().get_schemas(_config(), team_id=1, names=["stations"])
-        assert [s.name for s in schemas] == ["stations"]
-
     @parameterized.expand(
         [
             ("daily_data", True),

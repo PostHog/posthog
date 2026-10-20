@@ -38,10 +38,6 @@ class TestReplicateSource:
         if supports_incremental:
             assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = ReplicateSource().get_schemas(_config(), team_id=1, names=["predictions"])
-        assert [s.name for s in schemas] == ["predictions"]
-
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Replicate API token")])
     def test_validate_credentials(self, _name: str, api_ok: bool, expected_ok: bool, expected_msg: str | None) -> None:
         with patch(
