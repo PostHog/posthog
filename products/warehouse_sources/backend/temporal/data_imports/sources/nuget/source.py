@@ -46,7 +46,7 @@ class NugetSource(ResumableSource[NugetSourceConfig, NugetResumeConfig]):
             name=ExternalDataSourceType.NUGET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="NuGet",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["dotnet", ".net", "csharp", "package registry"],
             caption="""Track adoption of .NET libraries over time: package metadata, per-version download counts, and publish/delete events for the NuGet packages you care about.
 

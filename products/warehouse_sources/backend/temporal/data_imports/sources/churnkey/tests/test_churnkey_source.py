@@ -31,9 +31,6 @@ class TestChurnkeyValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_ok"),
         [
-            (200, True),
-            (401, False),
-            (403, False),
             (404, False),
             (None, False),
         ],

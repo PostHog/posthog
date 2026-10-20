@@ -2070,9 +2070,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         // The two deep links combine rather than compete: the replay filters entry
                         // point sends targeting and filters together, because exposure can't ride
                         // inside `query` and dropping either one silently rescopes the scanner.
-                        const experimentBase = prefillQuery
-                            ? { ...newScanner(teamName), query: prefillQuery }
-                            : newScanner(teamName)
+                        // A blank start carries the monitor's default name, which reads wrong once the
+                        // prefill turns it into an experiment scanner.
+                        const experimentBase = {
+                            ...newScanner(teamName),
+                            ...(experimentScannersEnabled()
+                                ? { name: defaultScannerName(teamName, 'experiment') }
+                                : {}),
+                            ...(prefillQuery ? { query: prefillQuery } : {}),
+                        }
                         // An experiment deep link expresses fresh intent, so it outranks a saved
                         // draft; restoringDraft guards persistDraft so the prefill can't clobber the
                         // draft this user may already have for the next plain entry.

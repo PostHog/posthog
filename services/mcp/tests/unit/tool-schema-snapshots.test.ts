@@ -86,7 +86,7 @@ async function formatSnapshotJson(snapshotPath: string, schema: unknown): Promis
 
 async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // Enable flag-gated tools we snapshot here: tracing (APM spans), tasks, loops,
-    // dashboard-widgets and experiment setup context. Other flag-gated tools (logs-alerts,
+    // experiment setup context. Other flag-gated tools (logs-alerts,
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
@@ -94,7 +94,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         tasks: true,
         'tasks-mcp-agent-run-start': true,
         loops: true,
-        'dashboard-widgets': true,
         'agent-platform': true,
         'experiment-setup-context': true,
         'scout-trials': true,
@@ -106,6 +105,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'subscription-source-summaries': true,
         'workflows-data-suggestions': true,
         'workflows-mcp-onboarding': true,
+        'insight-data-checks': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

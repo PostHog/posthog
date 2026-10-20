@@ -12,8 +12,8 @@ from .retries import DEFAULT_INFRA_RETRIES
 # bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and the agent
 # finishes without doing anything. A run that dies at the gate fails as an error rather than
 # scoring zero on every outcome scorer.
-DEFAULT_AGENT_MODEL = "claude-opus-5"
-DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
+DEFAULT_AGENT_MODEL = "claude-opus-5-5"
+DEFAULT_CODEX_AGENT_MODEL = "gpt-6.1-sol"
 
 # Literal mirror of products.tasks' RuntimeAdapter values: this module must stay
 # Django-free (see harness/AGENTS.md), so it cannot import the enum.
