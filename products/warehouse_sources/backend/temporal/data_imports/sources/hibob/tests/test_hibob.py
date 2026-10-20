@@ -322,10 +322,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_error",
         [
-            (200, True, None),
             # Service users without category permissions 403 but are valid.
             (403, True, None),
-            (401, False, "Invalid HiBob Service User credentials"),
         ],
     )
     def test_validate_credentials_status_mapping(

@@ -543,8 +543,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/firehydrant/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fireworks_ai/fireworks_ai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fireworks_ai/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/first_promoter.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/fleetio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/float_app.py
@@ -1031,7 +1029,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/similarweb/similarweb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/simplecast/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/simplecast/simplecast.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/simplesat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/simplesat/simplesat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/skyvern/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/skyvern/skyvern.py
@@ -1052,8 +1049,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/snowplow/snowplow.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/snyk/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/snyk/snyk.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/solarwinds_service_desk/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/solarwinds_service_desk/solarwinds_service_desk.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonar_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonar_cloud/sonar_cloud.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonarqube/settings.py
@@ -1198,11 +1193,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/woocommerce/woocommerce.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/wordpress.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workable/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workable/workable.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workday/workday.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/workos.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/world_bank/world_bank.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/wrike.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/settings.py

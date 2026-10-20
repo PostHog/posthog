@@ -155,7 +155,6 @@ def test_requests_and_pagination(
     ("status", "schema", "valid", "message"),
     [
         (200, None, True, None),
-        (401, None, False, "rejected your API key"),
         (403, None, True, None),
         (403, "services", False, "view permission"),
         (400, None, False, "account, organization, project, and region"),

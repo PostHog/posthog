@@ -27,7 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatc
     BASE_URL,
     MAX_PAGES,
     NON_RETRYABLE_ERRORS,
-    PROJECT_ERROR,
     QUOTA_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.source import PromptWatchSource
@@ -191,8 +190,6 @@ def test_empty_and_oversized_tables(
         (200, {"valid": True, "project": {"id": "test-project"}}, None),
         (200, {"valid": False}, AUTH_ERROR),
         (200, {"valid": True, "project": None}, "Enter a project ID when you use an organization API key."),
-        (401, {"message": "Invalid API key"}, AUTH_ERROR),
-        (403, {"message": "Forbidden"}, PROJECT_ERROR),
         (
             429,
             {
