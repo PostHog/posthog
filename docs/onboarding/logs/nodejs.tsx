@@ -21,32 +21,36 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
+                                    npm install @opentelemetry/sdk-node@latest @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
+                                    yarn add @opentelemetry/sdk-node@latest @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
+                                    pnpm add @opentelemetry/sdk-node@latest @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
+                                    bun add @opentelemetry/sdk-node@latest @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                         ]}
                     />
+                    <Markdown>
+                        These steps need `@opentelemetry/sdk-logs` 0.220.0 or later. The `@latest` tags upgrade any
+                        older version already in your project.
+                    </Markdown>
                 </>
             ),
         },
