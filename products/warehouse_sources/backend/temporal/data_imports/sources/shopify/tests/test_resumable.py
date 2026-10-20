@@ -159,7 +159,7 @@ class TestMakePaginatedShopifyRequest:
         captured: list[tuple[int, str | None]] = []
         sess = MagicMock()
 
-        def post(url: str, json: dict[str, Any]) -> MagicMock:
+        def post(url: str, json: dict[str, Any], **kwargs: Any) -> MagicMock:
             captured.append((json["variables"]["pageSize"], json["variables"].get("cursor")))
             outcome = outcomes[len(captured) - 1]
             if isinstance(outcome, Exception):
