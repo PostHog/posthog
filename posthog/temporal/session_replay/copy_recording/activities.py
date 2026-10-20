@@ -60,9 +60,10 @@ WHERE team_id = %(target_team_id)s AND `$session_id` = %(session_id)s
 SYNC_INSERT_SETTINGS = {"insert_distributed_sync": 1}
 
 # dmat_* columns are per-team slot allocations, so the target team reads these properties from `properties` instead.
+# `writable_events` lives only on the ingestion hosts, so the worker writes through the `events` Distributed table.
 COPY_EVENTS_QUERY = (
     """
-INSERT INTO writable_events (
+INSERT INTO events (
     uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at,
     person_id, person_created_at, person_properties,
     group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
