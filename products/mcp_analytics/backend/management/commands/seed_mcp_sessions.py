@@ -1133,6 +1133,22 @@ class EvenPicker(Generic[K]):
         return picked
 
 
+class ProbabilityDebt:
+    """Fires on a share of calls close to `probability`, evenly spaced rather than from independent
+    draws, so a rare event does not cluster or go an unusually long stretch without happening.
+    """
+
+    def __init__(self, rng: random.Random) -> None:
+        self._debt = rng.random()
+
+    def fires(self, probability: float) -> bool:
+        self._debt += probability
+        if self._debt >= 1:
+            self._debt -= 1
+            return True
+        return False
+
+
 @frozen
 class _PlannedSession:
     end_offset_min: int
@@ -1156,15 +1172,11 @@ def plan_sessions(
         for age_day in range(days)
     }
     day_picker: EvenPicker[int] = EvenPicker()
-    blocked_debt, fast_debt = rng.random(), rng.random()
+    blocked_debt, fast_debt = ProbabilityDebt(rng), ProbabilityDebt(rng)
     planned: list[_PlannedSession] = []
     for _ in range(count):
-        blocked_debt += BLOCKED_SESSION_PROBABILITY
-        is_blocked = blocked_debt >= 1
-        blocked_debt -= int(is_blocked)
-        fast_debt += 0 if is_blocked else FAST_SESSION_PROBABILITY
-        is_fast = fast_debt >= 1
-        fast_debt -= int(is_fast)
+        is_blocked = blocked_debt.fires(BLOCKED_SESSION_PROBABILITY)
+        is_fast = not is_blocked and fast_debt.fires(FAST_SESSION_PROBABILITY)
         # Skewed toward short sessions, with a long tail of long ones.
         calls = (
             rng.randint(min_calls, max(min_calls, min(max_calls, 4)))
@@ -1419,7 +1431,7 @@ class Command(BaseCommand):
         primary_tool_picker: EvenPicker[str] = EvenPicker()
         # Expected errors not yet emitted, per tool. A call fails once its tool's debt reaches 1, so the
         # daily error rate follows the target rates instead of swinging with random draws.
-        error_debt = {tool: rng.random() for tool in TOOL_NAMES}
+        error_debts = {tool: ProbabilityDebt(rng) for tool in TOOL_NAMES}
         client_weights = {index: client.weight for index, client in enumerate(CLIENT_PROFILES)}
         tool_weights = {tool: float(weight) for tool, weight in TOOL_WEIGHTS.items()}
 
@@ -1555,12 +1567,9 @@ class Command(BaseCommand):
                 failure: _Failure | None = None
                 if is_blocked:
                     failure = FAILURES["permission"]
-                elif not is_fast:
-                    error_debt[tool_name] += error_rate
-                    if error_debt[tool_name] >= 1:
-                        error_debt[tool_name] -= 1
-                        error_type = rng.choices(list(error_types), weights=list(error_types.values()), k=1)[0]
-                        failure = FAILURES[error_type]
+                elif not is_fast and error_debts[tool_name].fires(error_rate):
+                    error_type = rng.choices(list(error_types), weights=list(error_types.values()), k=1)[0]
+                    failure = FAILURES[error_type]
                 tool_properties: dict[str, Any] = {
                     **model_properties,
                     "$mcp_resource_name": tool_name,
