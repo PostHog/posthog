@@ -7402,6 +7402,30 @@ snapshots:
         hash: v1.k794b7964.07fbb23b3942035a85dc6d01935b8bd6ac19d0dabeeb9e791e4927d5baf4ef72.axXUR1_1SAlWjxI7MO8me8EhFHP-K4K8BK7nz9MYixk
     products-growth-enrichment-scoring--ten-companies--light:
         hash: v1.k794b7964.0408b3b6fd529316505baa5fead85a26cbac63ccc65cd2c969e1e76429ac7378.gGeycoxbfN15Ye7CZYv6cM1xGDS3zD_ba9rJKHpj354
+    products-logs-alerting-group-by--group-firing-alert-confirmation--dark:
+        hash: v1.k794b7964.290738f433db9582da1a4b88791af12198cf8ff6ec5ec3ab093980fd0873d85a.gTiEBLZZbJ7o1Sk04fInxFlrfIlaedm4Ek9THJnjpTQ
+    products-logs-alerting-group-by--group-firing-alert-confirmation--light:
+        hash: v1.k794b7964.75a91aec6007d7bdc350d5b93d400ea27f3b90ebd5bdf6ad683d37d9927f5f2f.Fis5m55hg7q_SZyUgLe4mDYveFiTyYuMwLaWx0ZRvTQ
+    products-logs-alerting-group-by--group-limit-out-of-range--dark:
+        hash: v1.k794b7964.10afb442752f92f7bec6c8c730292c6e79f09d0cf386f68317ff40868cabf4cc.Yitnk2TD6Vt8vBK27Y_aytdlouMsZUWxz4uuepAMbPA
+    products-logs-alerting-group-by--group-limit-out-of-range--light:
+        hash: v1.k794b7964.52f7e282bc5f9b15ed7da0295056cf8bbef5acf6c179a267c0a4ca1cf86669ea.9exy1BYwSaqaB57xYnD6wI9e37Zx8msshSQQXXKu3po
+    products-logs-alerting-group-by--grouped-by-service--dark:
+        hash: v1.k794b7964.be221a1ac5d999374bec56104be50b09c1cf1deab974629cd891ac8a5c7bbce6.L7UPr3B5tJq8MCmV6t58mEyJLsHDxK6Pdolsxnct-rU
+    products-logs-alerting-group-by--grouped-by-service--light:
+        hash: v1.k794b7964.9843ec9753d92f2376b1589e6342147829c94099be930b2338f3ac19e60cf8f3.2WoR21D11d1cUOakQk18UrN_x69pFAE8XKZ34QkvQ6Q
+    products-logs-alerting-group-by--grouped-by-service-narrow--dark:
+        hash: v1.k794b7964.6c95308004becdd1443fdca3eb77d32f2241722376d54c76113ad5542ffe1334.pZ4Gaqb-J-xHMGRtjopaTZH9KwJYFcNV37O8D7U6hos
+    products-logs-alerting-group-by--grouped-by-service-narrow--light:
+        hash: v1.k794b7964.2fef9a44569587ce95b8111b7b64c54b486bc584aeb2788f331c0ac39c488b1a.HPvRL7lns5R1uLrscIqv_3oMMHBN4cFdMXtNJ3b2bPs
+    products-logs-alerting-group-by--regroup-confirmation--dark:
+        hash: v1.k794b7964.9f43995beecfa4a7217dcbd4cd12fe7b56ff280e4da78ca628c17f092147c529.4En13fN0SKhDSaPEVJiKcChgoOuLzHlK2r9ORChRZ_w
+    products-logs-alerting-group-by--regroup-confirmation--light:
+        hash: v1.k794b7964.5e2c72f756e107885621f42fbc1f1edc494cb4e24e29fa2f5cf17ca4c3841630.GPR9xF9SvNKlw-yS186LzTpSGrsn7kvsahIXRHiKhbo
+    products-logs-alerting-group-by--ungrouped--dark:
+        hash: v1.k794b7964.58a264d2615832f3e96be1bb5a7f07cc9fc5858adce4b7582aab491f4e34281b.F6Uvo-RwN6NUscIkcmR-BHShSAuHtkpW5NX-XLChMJU
+    products-logs-alerting-group-by--ungrouped--light:
+        hash: v1.k794b7964.bbe4c79ee9117cc0df57531110e19b7e2584fe3bc8075bfd08b7f35cd9d3a5b8.hyGeBtgGbsX5I0W6XUtLOayiFlXZPxoEJfaIkg_jtC8
     products-mcp-analytics-brand-marks--all-marks--dark:
         hash: v1.k794b7964.7c7d7c7233c5a27dbfa3aa4b3487fa34fdf05b7f0434b3e333eb5fb1cbb9fc5a.f8oq1fyw6uRkercF_yNDT5tdUIRZ7h9ONcxngwkQtqE
     products-mcp-analytics-brand-marks--all-marks--light:
