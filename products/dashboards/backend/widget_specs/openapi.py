@@ -266,7 +266,7 @@ WidgetCatalogEntryOpenApi = PolymorphicProxySerializer(
 class WidgetCatalogResponseSerializer(serializers.Serializer):
     results = serializers.ListField(
         child=WidgetCatalogEntryOpenApi,
-        help_text="Registered dashboard widget types available when dashboard-widgets is enabled.",
+        help_text="Registered dashboard widget types.",
     )
 
 
