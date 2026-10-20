@@ -1,4 +1,9 @@
-import { DataWarehouseNode, MarketingAnalyticsConstants, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataWarehouseNode,
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsConstants,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { HogQLMathType } from '~/types'
 
 import { ExternalTable } from './marketingAnalyticsLogic'
@@ -59,7 +64,26 @@ export const externalAdsCostTile = (
 
     let mathHogql: string
 
-    if (tileColumnSelection === 'roas') {
+    if (tileColumnSelection === 'cpc' || tileColumnSelection === 'ctr') {
+        const numerator = externalAdsCostTile(
+            table,
+            baseCurrency,
+            tileColumnSelection === 'cpc'
+                ? MarketingAnalyticsColumnsSchemaNames.Cost
+                : MarketingAnalyticsColumnsSchemaNames.Clicks
+        )
+        const denominator = externalAdsCostTile(
+            table,
+            baseCurrency,
+            tileColumnSelection === 'cpc'
+                ? MarketingAnalyticsColumnsSchemaNames.Clicks
+                : MarketingAnalyticsColumnsSchemaNames.Impressions
+        )
+        if (!numerator || !denominator) {
+            return null
+        }
+        mathHogql = `(${numerator.math_hogql}) / nullIf(${denominator.math_hogql}, 0)${tileColumnSelection === 'ctr' ? ' * 100' : ''}`
+    } else if (tileColumnSelection === 'roas') {
         const costColumn = sanitizeColumnName(table.source_map.cost)
         const conversionValueColumn = table.source_map.reported_conversion_value
             ? sanitizeColumnName(table.source_map.reported_conversion_value)
@@ -86,7 +110,10 @@ export const externalAdsCostTile = (
         const currencyExpr = buildCurrencyExpr(table.source_map.currency, baseCurrency)
         const dateExpr = buildDateExpr(table)
         const safeCurrency = sanitizeCurrencyCode(baseCurrency) ?? 'USD'
-        mathHogql = `SUM(convertCurrency(${currencyExpr}, '${safeCurrency}', ${safeFloat(column)}, _toDate(${dateExpr})))`
+        mathHogql =
+            tileColumnSelection === 'cost' || tileColumnSelection === 'reported_conversion_value'
+                ? `SUM(convertCurrency(${currencyExpr}, '${safeCurrency}', ${safeFloat(column)}, _toDate(${dateExpr})))`
+                : sumSafeFloat(column)
     }
 
     const dateField = sanitizeColumnName(table.source_map.date)

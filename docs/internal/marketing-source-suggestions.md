@@ -301,3 +301,8 @@ With source onboarding disabled, the existing banner remains available.
 
 The Ad performance summary uses the same metric cards as Web analytics.
 Cards preserve period comparisons, currency formatting, and missing-value labels, and wrap to the available scene width.
+
+Ad performance cards include time-series sparklines for advertising metrics, including platform-reported conversions.
+Select an advertising metric card to update the existing trend chart while keeping the date range, interval, and source filters.
+CPC, CTR, reported ROAS, and cost per reported conversion use ratios of bucket totals; undefined ratios leave gaps rather than zeroes.
+Attributed PostHog conversion goals retain their summary cards without sparklines or selection.
