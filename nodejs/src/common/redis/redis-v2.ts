@@ -54,6 +54,7 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             min: config.poolMinSize,
             max: config.poolMaxSize,
             autostart: true,
+            ...(config.acquireTimeoutMillis !== undefined ? { acquireTimeoutMillis: config.acquireTimeoutMillis } : {}),
         }
     )
 

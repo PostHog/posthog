@@ -16,6 +16,10 @@ const VALKEY_TIMEOUT_MS = 1000
 // Deletes the key only while it still holds this request's reservation, so a late release never frees
 // a key that another request reserved after this one expired.
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
+// Records the queued run when the key is absent or still holds this request's reservation. The key is
+// absent when the queue write took longer than the pending TTL, and the run is queued all the same.
+const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
+const MARK_QUEUED_ATTEMPTS = 2
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     let timeoutId: NodeJS.Timeout | undefined
@@ -58,11 +62,18 @@ export function createIdempotencyValkeyPool(config: IdempotencyValkeyConfig): Re
                 port: config.CDP_IDEMPOTENCY_VALKEY_PORT,
                 password: config.CDP_IDEMPOTENCY_VALKEY_PASSWORD,
                 tls: config.CDP_IDEMPOTENCY_VALKEY_TLS ? {} : undefined,
+                // The caller's timeout only stops the wait. This one aborts the command, so a hung
+                // Valkey cannot keep every pool connection borrowed.
+                commandTimeout: VALKEY_TIMEOUT_MS,
             },
             name,
+            // The store is optional, so its outage must not stop cdp-api.
+            exitOnRepeatedErrors: false,
         },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        // No connection at boot, so cdp-api starts without the store.
+        poolMinSize: 0,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        acquireTimeoutMillis: VALKEY_TIMEOUT_MS,
     })
 }
 
@@ -136,16 +147,36 @@ export class IdempotencyKeys {
 
     async markQueued(teamId: number, key: string, fingerprint: string, invocationId: string): Promise<void> {
         const value: StoredKey = { fingerprint, invocationId, queued: true }
-        try {
-            await withTimeout(
-                this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
-                    client.set(this.redisKey(teamId, key), JSON.stringify(value), 'EX', QUEUED_TTL_SECONDS, 'XX')
-                ) ?? Promise.resolve(null),
-                VALKEY_TIMEOUT_MS
-            )
-        } catch (error) {
-            // The run is already queued, so the request still succeeds. The pending key expires on its own.
-            logger.error('🔑', 'idempotency key completion failed', { scope: this.scope, error: String(error) })
+        for (let attempt = 1; attempt <= MARK_QUEUED_ATTEMPTS; attempt++) {
+            try {
+                const written = await withTimeout(
+                    this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
+                        client.eval(
+                            MARK_QUEUED_SCRIPT,
+                            1,
+                            this.redisKey(teamId, key),
+                            JSON.stringify(value),
+                            invocationId,
+                            QUEUED_TTL_SECONDS
+                        )
+                    ) ?? Promise.resolve(null),
+                    VALKEY_TIMEOUT_MS
+                )
+                if (written === 0) {
+                    logger.warn('🔑', 'idempotency key held by another request, run not recorded', {
+                        scope: this.scope,
+                    })
+                }
+                return
+            } catch (error) {
+                // The run is already queued, so the request still succeeds. Without this record a retry
+                // after the pending TTL queues the run again.
+                logger.error('🔑', 'idempotency key completion failed', {
+                    scope: this.scope,
+                    attempt,
+                    error: String(error),
+                })
+            }
         }
     }
 

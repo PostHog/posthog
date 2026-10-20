@@ -1,5 +1,8 @@
+import Redis from 'ioredis'
+
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { createRedisClient } from '~/common/utils/db/redis'
 import { UUIDT } from '~/common/utils/utils'
 
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './idempotency-keys'
@@ -40,9 +43,32 @@ describe('IdempotencyKeys', () => {
         expect(await keys.reserve(1, key, 'request-a', 'run-4')).toEqual({ status: 'reserved' })
     })
 
+    it('records the run when the queue write outlasts the pending hold', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        // The pending hold expires while the queue write is still running.
+        await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
+
+        await keys.markQueued(1, key, 'request-a', 'run-1')
+
+        expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
+    })
+
     it('reports the store as unavailable when it is not configured', async () => {
         expect(await new IdempotencyKeys(null, 'test').reserve(1, key, 'request-a', 'run-1')).toEqual({
             status: 'unavailable',
         })
+    })
+
+    it('closes the client of an unreachable store instead of reconnecting until the process stops', async () => {
+        const disconnect = jest.spyOn(Redis.prototype, 'disconnect')
+        try {
+            // Nothing listens on port 1. A client left open keeps reconnecting and counts each error.
+            await expect(
+                createRedisClient('127.0.0.1', { port: 1, commandTimeout: 200 }, 'test', false)
+            ).rejects.toThrow()
+            expect(disconnect).toHaveBeenCalled()
+        } finally {
+            disconnect.mockRestore()
+        }
     })
 })
