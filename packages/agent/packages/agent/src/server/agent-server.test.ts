@@ -582,12 +582,25 @@ it.each([false, true])(
   },
 );
 
+function sentRunEvents(api: {
+  sendAgentCallback: ReturnType<typeof vi.fn>;
+}): unknown[] {
+  return api.sendAgentCallback.mock.calls
+    .map((call) => call[2] as { kind: string; event?: unknown })
+    .filter((callback) => callback.kind === "run_event")
+    .map((callback) => callback.event);
+}
+
+function runEvent(event: Record<string, unknown>) {
+  return { kind: "run_event", agent_active: false, event };
+}
+
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
   let mswServer: SetupServerApi;
   let appendLogCalls: unknown[][];
-  let updateTaskRunCalls: unknown[];
+  let agentCallbackCalls: unknown[];
   let port: number;
 
   // msw patches fetch process-wide. A second listen() on an already-patched
@@ -597,7 +610,7 @@ describe("AgentServer HTTP Mode", () => {
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
         onAppendLog: (entries) => appendLogCalls.push(entries),
-        onUpdateTaskRun: (body) => updateTaskRunCalls.push(body),
+        onAgentCallback: (body) => agentCallbackCalls.push(body),
       }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
@@ -610,7 +623,7 @@ describe("AgentServer HTTP Mode", () => {
   beforeEach(async () => {
     repo = await createTestRepo("agent-server-http");
     appendLogCalls = [];
-    updateTaskRunCalls = [];
+    agentCallbackCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
   }, 30_000);
@@ -1082,11 +1095,11 @@ describe("AgentServer HTTP Mode", () => {
             stop: () => Promise<void>;
           };
           posthogAPI: {
-            updateTaskRun: (
+            sendAgentCallback: (
               taskId: string,
               runId: string,
-              payload: Record<string, unknown>,
-            ) => Promise<unknown>;
+              callback: Record<string, unknown>,
+            ) => Promise<boolean>;
           };
           signalTaskComplete(
             payload: JwtPayload,
@@ -1104,9 +1117,9 @@ describe("AgentServer HTTP Mode", () => {
           }),
         };
         testServer.posthogAPI = {
-          updateTaskRun: vi.fn(async () => {
+          sendAgentCallback: vi.fn(async () => {
             order.push("update");
-            return {};
+            return true;
           }),
         };
 
@@ -1134,15 +1147,15 @@ describe("AgentServer HTTP Mode", () => {
             }),
           }),
         );
-        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-          "task-1",
-          "run-1",
-          {
-            status: "failed",
-            error_message: `agent_error: ${expected}`,
+        expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledWith(
+          "test-task-id",
+          "test-run-id",
+          runEvent({
+            type: "failed",
             error_type: "agent_error",
-            state: { agent_version: expect.any(String) },
-          },
+            cause: expected,
+            agent_version: expect.any(String),
+          }),
         );
       },
     );
@@ -1174,7 +1187,10 @@ describe("AgentServer HTTP Mode", () => {
           enqueue: ReturnType<typeof vi.fn>;
           stop: () => Promise<void>;
         };
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         session: unknown;
         signalTaskComplete(
           payload: JwtPayload,
@@ -1187,7 +1203,10 @@ describe("AgentServer HTTP Mode", () => {
         enqueue: vi.fn(),
         stop: vi.fn(async () => {}),
       };
-      testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
+      testServer.posthogAPI = {
+        updateTaskRun: vi.fn(async () => ({})),
+        sendAgentCallback: vi.fn(async () => true),
+      };
       testServer.session = {
         acpSessionId: "acp-1",
         payload: { run_id: "run-1" },
@@ -1240,7 +1259,10 @@ describe("AgentServer HTTP Mode", () => {
           enqueue: ReturnType<typeof vi.fn>;
           stop: ReturnType<typeof vi.fn>;
         };
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         session: unknown;
         handleTurnFailure(
           payload: JwtPayload,
@@ -1252,7 +1274,10 @@ describe("AgentServer HTTP Mode", () => {
         enqueue: vi.fn(),
         stop: vi.fn(async () => {}),
       };
-      testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
+      testServer.posthogAPI = {
+        updateTaskRun: vi.fn(async () => ({})),
+        sendAgentCallback: vi.fn(async () => true),
+      };
       testServer.session = {
         payload: { run_id: "run-2" },
         logWriter: { appendRawLine, flush },
@@ -1277,15 +1302,15 @@ describe("AgentServer HTTP Mode", () => {
       expect(appendRawLine).not.toHaveBeenCalled();
       expect(flush).not.toHaveBeenCalled();
       expect(shutdown).not.toHaveBeenCalled();
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        {
-          status: "failed",
-          error_message: "agent_error: old run failed",
+      expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        runEvent({
+          type: "failed",
           error_type: "agent_error",
-          state: { agent_version: expect.any(String) },
-        },
+          cause: "old run failed",
+          agent_version: expect.any(String),
+        }),
       );
     });
 
@@ -1300,7 +1325,10 @@ describe("AgentServer HTTP Mode", () => {
           enqueue: ReturnType<typeof vi.fn>;
           stop: ReturnType<typeof vi.fn>;
         };
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         session: unknown;
         signalTaskComplete(
           payload: JwtPayload,
@@ -1342,7 +1370,10 @@ describe("AgentServer HTTP Mode", () => {
           enqueue: ReturnType<typeof vi.fn>;
           stop: ReturnType<typeof vi.fn>;
         };
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         session: unknown;
         emitRtkSavings: ReturnType<typeof vi.fn>;
         signalTaskComplete(
@@ -1396,11 +1427,11 @@ describe("AgentServer HTTP Mode", () => {
           stop: () => Promise<void>;
         };
         posthogAPI: {
-          updateTaskRun: (
+          sendAgentCallback: (
             taskId: string,
             runId: string,
-            payload: Record<string, unknown>,
-          ) => Promise<unknown>;
+            callback: Record<string, unknown>,
+          ) => Promise<boolean>;
         };
         signalTaskComplete(
           payload: JwtPayload,
@@ -1413,7 +1444,7 @@ describe("AgentServer HTTP Mode", () => {
         stop: vi.fn(async () => {}),
       };
       testServer.posthogAPI = {
-        updateTaskRun: vi.fn(async () => {
+        sendAgentCallback: vi.fn(async () => {
           throw new Error("update failed");
         }),
       };
@@ -1432,7 +1463,7 @@ describe("AgentServer HTTP Mode", () => {
       );
 
       expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledOnce();
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledOnce();
+      expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(3);
       expect(testServer.eventStreamSender.stop).toHaveBeenCalledOnce();
     });
 
@@ -1509,11 +1540,17 @@ describe("AgentServer HTTP Mode", () => {
         runId: "test-run-id",
       }) as unknown as {
         session: { payload: JwtPayload } | null;
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         recordTurnUsage(usage: unknown): void;
         handleAcpTransportMessage(message: unknown): void;
       };
-      testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
+      testServer.posthogAPI = {
+        updateTaskRun: vi.fn(async () => ({})),
+        sendAgentCallback: vi.fn(async () => true),
+      };
       testServer.session = {
         payload: {
           run_id: "run-1",
@@ -1527,7 +1564,18 @@ describe("AgentServer HTTP Mode", () => {
       return testServer;
     }
 
-    it("reports cumulative run token usage into TaskRun.state after each settled turn", async () => {
+    function usage(totals: Record<string, number>) {
+      return {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        thought_tokens: 0,
+        ...totals,
+      };
+    }
+
+    it("reports cumulative run token usage after each settled turn", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
@@ -1538,47 +1586,38 @@ describe("AgentServer HTTP Mode", () => {
       };
 
       testServer.recordTurnUsage(turnUsage);
-      testServer.recordTurnUsage(turnUsage);
-
       await vi.waitFor(() =>
-        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2),
+        expect(sentRunEvents(testServer.posthogAPI)).toHaveLength(1),
       );
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenNthCalledWith(
-        1,
-        "task-1",
-        "run-1",
+      testServer.recordTurnUsage(turnUsage);
+      await vi.waitFor(() =>
+        expect(sentRunEvents(testServer.posthogAPI)).toHaveLength(2),
+      );
+
+      expect(sentRunEvents(testServer.posthogAPI)).toEqual([
         {
-          state: {
-            token_usage: {
-              input_tokens: 100,
-              output_tokens: 50,
-              cache_read_tokens: 10,
-              cache_write_tokens: 5,
-              thought_tokens: 0,
-              total_tokens: 165,
-              turns: 1,
-            },
-          },
+          type: "usage",
+          token_usage: usage({
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 10,
+            cache_write_tokens: 5,
+            total_tokens: 165,
+            turns: 1,
+          }),
         },
-      );
-      // The second report carries run-cumulative totals, not per-turn figures.
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
-        "task-1",
-        "run-1",
         {
-          state: {
-            token_usage: {
-              input_tokens: 200,
-              output_tokens: 100,
-              cache_read_tokens: 20,
-              cache_write_tokens: 10,
-              thought_tokens: 0,
-              total_tokens: 330,
-              turns: 2,
-            },
-          },
+          type: "usage",
+          token_usage: usage({
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_tokens: 20,
+            cache_write_tokens: 10,
+            total_tokens: 330,
+            turns: 2,
+          }),
         },
-      );
+      ]);
     });
 
     it("does not report anything when a turn settles without usage", () => {
@@ -1586,7 +1625,7 @@ describe("AgentServer HTTP Mode", () => {
 
       testServer.recordTurnUsage(undefined);
 
-      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(testServer.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
     });
 
     it("resets run usage and the budget snapshot on session cleanup so a later run starts from zero", async () => {
@@ -1600,14 +1639,8 @@ describe("AgentServer HTTP Mode", () => {
         usageUpdateWithBudget({ stage: "critical", steers: [] }),
       );
       testServer.recordTurnUsage(turnUsage);
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
-        "task-1",
-        "run-1",
-        expect.objectContaining({
-          state: expect.objectContaining({
-            budget_guard: { stage: "critical", steers: [] },
-          }),
-        }),
+      await vi.waitFor(() =>
+        expect(sentRunEvents(testServer.posthogAPI)).toHaveLength(2),
       );
 
       const cleanupServer = stubSessionCleanup(testServer);
@@ -1624,50 +1657,42 @@ describe("AgentServer HTTP Mode", () => {
         },
       };
       testServer.recordTurnUsage(turnUsage);
-
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
-        "task-1",
-        "run-2",
-        {
-          state: {
-            token_usage: {
-              input_tokens: 100,
-              output_tokens: 50,
-              cache_read_tokens: 0,
-              cache_write_tokens: 0,
-              thought_tokens: 0,
-              total_tokens: 150,
-              turns: 1,
-            },
-          },
-        },
+      await vi.waitFor(() =>
+        expect(sentRunEvents(testServer.posthogAPI)).toHaveLength(3),
       );
+
+      const expectedUsage = usage({
+        input_tokens: 100,
+        output_tokens: 50,
+        total_tokens: 150,
+        turns: 1,
+      });
+      expect(sentRunEvents(testServer.posthogAPI)).toEqual([
+        { type: "usage", budget_guard: { stage: "critical", steers: [] } },
+        { type: "usage", token_usage: expectedUsage },
+        { type: "usage", token_usage: expectedUsage },
+      ]);
     });
 
-    it("retries a budget snapshot whose write failed, and skips one that landed", async () => {
+    it("reports a budget snapshot once per change", async () => {
       const testServer = createUsageTestServer();
-      testServer.posthogAPI.updateTaskRun
-        .mockRejectedValueOnce(new Error("503"))
-        .mockResolvedValue({});
-      const budget = { stage: "warn", steers: [{ stage: "warn" }] };
+      const warn = { stage: "warn", steers: [{ stage: "warn" }] };
+      const critical = { stage: "critical", steers: [{ stage: "critical" }] };
 
-      const settled = () => new Promise((resolve) => setImmediate(resolve));
-
-      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
-      await settled();
-      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
-      await settled();
-      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
-      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
-        "task-1",
-        "run-1",
-        { state: { budget_guard: budget } },
-        expect.any(AbortSignal),
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(warn));
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(warn));
+      await vi.waitFor(() =>
+        expect(sentRunEvents(testServer.posthogAPI)).toHaveLength(1),
       );
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(critical));
+      await vi.waitFor(() =>
+        expect(sentRunEvents(testServer.posthogAPI)).toHaveLength(2),
+      );
+
+      expect(sentRunEvents(testServer.posthogAPI)).toEqual([
+        { type: "usage", budget_guard: warn },
+        { type: "usage", budget_guard: critical },
+      ]);
     });
 
     // Sandbox teardown kills the exec'd agent-server without SIGTERM, so the
@@ -1811,7 +1836,10 @@ describe("AgentServer HTTP Mode", () => {
           enqueue: ReturnType<typeof vi.fn>;
           stop: ReturnType<typeof vi.fn>;
         };
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         session: unknown;
         handleTurnFailure(
           payload: JwtPayload,
@@ -1823,7 +1851,10 @@ describe("AgentServer HTTP Mode", () => {
         enqueue: vi.fn(),
         stop: vi.fn(async () => {}),
       };
-      testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
+      testServer.posthogAPI = {
+        updateTaskRun: vi.fn(async () => ({})),
+        sendAgentCallback: vi.fn(async () => true),
+      };
       testServer.session = {
         acpSessionId: "acp-1",
         payload: { run_id: "run-1" },
@@ -1836,31 +1867,39 @@ describe("AgentServer HTTP Mode", () => {
       [
         "ACP internal error details",
         RequestError.internalError({ details: "Session setup timed out" }),
-        "Agent server crashed: Internal error: Session setup timed out",
+        "Internal error: Session setup timed out",
       ],
       [
         "ACP internal error without details",
         RequestError.internalError({}),
-        "Agent server crashed: Internal error",
+        "Internal error",
       ],
       [
         "ACP internal error with circular data",
         RequestError.internalError(circularData()),
-        "Agent server crashed: Internal error",
+        "Internal error",
       ],
-      ["plain error", new Error("boom"), "Agent server crashed: boom"],
+      ["plain error", new Error("boom"), "boom"],
     ])("reports %s on a fatal crash", async (_name, error, expected) => {
       const testServer = createFailureTestServer() as unknown as {
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         reportFatalError(error: unknown): Promise<void>;
       };
 
       await testServer.reportFatalError(error);
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+      expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledWith(
         "test-task-id",
         "test-run-id",
-        expect.objectContaining({ status: "failed", error_message: expected }),
+        runEvent({
+          type: "failed",
+          error_type: "agent_server_crash",
+          cause: expected,
+          agent_version: expect.any(String),
+        }),
       );
     });
 
@@ -1958,13 +1997,11 @@ describe("AgentServer HTTP Mode", () => {
               }),
             }),
           );
-          expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-            "task-1",
-            "run-1",
-            expect.objectContaining({ status: "failed" }),
-          );
+          expect(sentRunEvents(testServer.posthogAPI)).toEqual([
+            expect.objectContaining({ type: "failed" }),
+          ]);
         } else {
-          expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+          expect(sentRunEvents(testServer.posthogAPI)).toEqual([]);
         }
       },
     );
@@ -1992,23 +2029,20 @@ describe("AgentServer HTTP Mode", () => {
       );
 
       expect(disposition).toBe("recoverable");
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
+      expect(sentRunEvents(testServer.posthogAPI)).toEqual([
         {
-          state: {
-            token_usage: {
-              input_tokens: 100,
-              output_tokens: 50,
-              cache_read_tokens: 0,
-              cache_write_tokens: 0,
-              thought_tokens: 0,
-              total_tokens: 150,
-              turns: 1,
-            },
+          type: "usage",
+          token_usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            thought_tokens: 0,
+            total_tokens: 150,
+            turns: 1,
           },
         },
-      );
+      ]);
     });
 
     it("keeps replaced-run usage and completion out of the active run", async () => {
@@ -2028,10 +2062,10 @@ describe("AgentServer HTTP Mode", () => {
           payload: JwtPayload,
         ): Promise<void>;
       };
-      testServer.posthogAPI.updateTaskRun = vi
+      testServer.posthogAPI.sendAgentCallback = vi
         .fn()
-        .mockImplementationOnce(() => usagePending)
-        .mockResolvedValue({});
+        .mockImplementationOnce(() => usagePending.then(() => true))
+        .mockResolvedValue(true);
       const error = new RequestError(-32603, "upstream timeout", {
         classification: "upstream_timeout",
         result: "upstream_timeout",
@@ -2044,7 +2078,7 @@ describe("AgentServer HTTP Mode", () => {
         error,
       );
       await vi.waitFor(() =>
-        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledOnce(),
+        expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledOnce(),
       );
       const replacementPayload = { ...interactivePayload, run_id: "run-2" };
       testServer.session = {
@@ -2066,19 +2100,14 @@ describe("AgentServer HTTP Mode", () => {
         { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
         replacementPayload,
       );
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
-        "task-1",
-        "run-2",
-        expect.objectContaining({
-          state: {
-            token_usage: expect.objectContaining({
-              input_tokens: 20,
-              output_tokens: 10,
-              total_tokens: 30,
-            }),
-          },
+      expect(sentRunEvents(testServer.posthogAPI).at(-1)).toEqual({
+        type: "usage",
+        token_usage: expect.objectContaining({
+          input_tokens: 20,
+          output_tokens: 10,
+          total_tokens: 30,
         }),
-      );
+      });
     });
 
     it("reports the app-server cause, not the generic display text, on a fatal error", async () => {
@@ -2129,12 +2158,11 @@ describe("AgentServer HTTP Mode", () => {
           }),
         }),
       );
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
+      expect(sentRunEvents(testServer.posthogAPI)).toContainEqual(
         expect.objectContaining({
-          status: "failed",
-          error_message: "agent_error: unexpected status 403",
+          type: "failed",
+          error_type: "agent_error",
+          cause: "unexpected status 403",
         }),
       );
     });
@@ -2154,12 +2182,11 @@ describe("AgentServer HTTP Mode", () => {
         ),
       );
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
+      expect(sentRunEvents(testServer.posthogAPI)).toContainEqual(
         expect.objectContaining({
-          status: "failed",
-          error_message: "upstream_request_rejected: router rejected request",
+          type: "failed",
+          error_type: "upstream_request_rejected",
+          cause: "router rejected request",
         }),
       );
     });
@@ -2173,12 +2200,11 @@ describe("AgentServer HTTP Mode", () => {
         new Error("API Error: 503 private provider body"),
       );
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
+      expect(sentRunEvents(testServer.posthogAPI)).toContainEqual(
         expect.objectContaining({
-          status: "failed",
-          error_message: `upstream_provider_failure: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+          type: "failed",
+          error_type: "upstream_provider_failure",
+          cause: UPSTREAM_PROVIDER_FAILURE_MESSAGE,
         }),
       );
     });
@@ -2244,7 +2270,10 @@ describe("AgentServer HTTP Mode", () => {
       testServer.session = session;
       return testServer as unknown as {
         eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
-        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          updateTaskRun: ReturnType<typeof vi.fn>;
+          sendAgentCallback: ReturnType<typeof vi.fn>;
+        };
         session: typeof session;
         executeCommand(
           method: string,
@@ -2568,7 +2597,9 @@ describe("AgentServer HTTP Mode", () => {
         }),
       );
       const testServer = createRetryTestServer(prompt);
-      testServer.posthogAPI.updateTaskRun = vi.fn(() => usageStored);
+      testServer.posthogAPI.sendAgentCallback = vi.fn(() =>
+        usageStored.then(() => true),
+      );
       let settled = false;
       const resultPromise = testServer
         .promptWithUpstreamRetry({
@@ -2580,11 +2611,9 @@ describe("AgentServer HTTP Mode", () => {
         });
 
       await vi.waitFor(() =>
-        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-          "task-1",
-          "run-1",
-          expect.objectContaining({ state: expect.any(Object) }),
-        ),
+        expect(sentRunEvents(testServer.posthogAPI)).toEqual([
+          expect.objectContaining({ type: "usage" }),
+        ]),
       );
       expect(settled).toBe(false);
       releaseUsage();
@@ -2741,19 +2770,16 @@ describe("AgentServer HTTP Mode", () => {
           prompt: [{ type: "text", text: "do the task" }],
         }),
       ).rejects.toThrow("Usage limit reached");
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        expect.objectContaining({
-          state: {
-            token_usage: expect.objectContaining({
-              input_tokens: 20,
-              output_tokens: 10,
-              total_tokens: 30,
-            }),
-          },
-        }),
-      );
+      expect(sentRunEvents(testServer.posthogAPI)).toEqual([
+        {
+          type: "usage",
+          token_usage: expect.objectContaining({
+            input_tokens: 20,
+            output_tokens: 10,
+            total_tokens: 30,
+          }),
+        },
+      ]);
     });
 
     it("stops continuing once the bounded retry budget is exhausted", async () => {
@@ -5397,17 +5423,19 @@ describe("AgentServer HTTP Mode", () => {
       ["a configured version", "9.9.9", "9.9.9"],
       ["the package version", undefined, undefined],
     ])(
-      "stamps %s on the in_progress run update",
+      "stamps %s on the run started event",
       async (_label, version, expected) => {
         await createServer({ version }).start();
 
         await vi.waitFor(
           () => {
-            const inProgress = updateTaskRunCalls.find(
-              (body) => (body as { status?: string }).status === "in_progress",
-            ) as { state?: { agent_version?: unknown } } | undefined;
-            expect(inProgress).toBeDefined();
-            const agentVersion = inProgress?.state?.agent_version;
+            const started = agentCallbackCalls.find(
+              (body) =>
+                (body as { event?: { type?: string } }).event?.type ===
+                "started",
+            ) as { event?: { agent_version?: unknown } } | undefined;
+            expect(started).toBeDefined();
+            const agentVersion = started?.event?.agent_version;
             if (expected === undefined) {
               expect(typeof agentVersion).toBe("string");
               expect((agentVersion as string).length).toBeGreaterThan(0);
@@ -7123,7 +7151,7 @@ describe("AgentServer HTTP Mode", () => {
       detectedPrUrl: string | null;
       posthogAPI: {
         getTaskRun: ReturnType<typeof vi.fn>;
-        updateTaskRun: ReturnType<typeof vi.fn>;
+        sendAgentCallback: ReturnType<typeof vi.fn>;
       };
     };
 
@@ -7149,19 +7177,9 @@ describe("AgentServer HTTP Mode", () => {
       }));
       s.fetchGhLogin = vi.fn(async () => GH_LOGIN);
       s.getCurrentCheckout = vi.fn(async () => RUN_CHECKOUT);
-      let storedOutput: Record<string, unknown> | null = null;
       s.posthogAPI = {
-        getTaskRun: vi.fn(async () => ({ output: storedOutput })),
-        updateTaskRun: vi.fn(
-          async (
-            _taskId: string,
-            _runId: string,
-            updates: { output: Record<string, unknown> },
-          ) => {
-            storedOutput = updates.output;
-            return {};
-          },
-        ),
+        getTaskRun: vi.fn(async () => ({ output: null })),
+        sendAgentCallback: vi.fn(async () => true),
       };
       return s;
     };
@@ -7172,9 +7190,9 @@ describe("AgentServer HTTP Mode", () => {
       const s = setup(justNow());
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledWith("t", "r", {
-        output: { pr_url: PR_URL, pr_urls: [PR_URL] },
-      });
+      expect(sentRunEvents(s.posthogAPI)).toEqual([
+        { type: "pr_detected", pr_url: PR_URL },
+      ]);
       expect(s.detectedPrUrl).toBe(PR_URL);
     });
 
@@ -7182,7 +7200,7 @@ describe("AgentServer HTTP Mode", () => {
       const s = setup(longAgo);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
       expect(s.detectedPrUrl).toBeNull();
     });
 
@@ -7191,7 +7209,7 @@ describe("AgentServer HTTP Mode", () => {
       s.maybeAttachCreatedPr(payload, { sessionUpdate: "agent_thought_chunk" });
       await flush();
       expect(s.fetchPrAttribution).not.toHaveBeenCalled();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
     });
 
     it("attributes once and looks up GitHub once across repeated updates", async () => {
@@ -7201,19 +7219,19 @@ describe("AgentServer HTTP Mode", () => {
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
       expect(s.fetchPrAttribution).toHaveBeenCalledTimes(1);
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      expect(s.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(1);
     });
 
-    it("accumulates every PR a run opens, keeping the first as primary", async () => {
+    it("reports every PR a run opens", async () => {
       const s = setup(justNow());
       const second = "https://github.com/PostHog/posthog.com/pull/17765";
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       s.maybeAttachCreatedPr(payload, terminalUpdate(second));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith("t", "r", {
-        output: { pr_url: PR_URL, pr_urls: [PR_URL, second] },
-      });
+      expect(sentRunEvents(s.posthogAPI)).toEqual([
+        { type: "pr_detected", pr_url: PR_URL },
+        { type: "pr_detected", pr_url: second },
+      ]);
       expect(s.detectedPrUrl).toBe(second);
     });
 
@@ -7231,14 +7249,14 @@ describe("AgentServer HTTP Mode", () => {
       s.maybeAttachCreatedPr(payload, terminalUpdate(viewed));
       await flush();
       expect(s.detectedPrUrl).toBe(PR_URL);
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      expect(s.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(1);
     });
 
     it("does not attribute a fresh PR authored by someone else from another branch (merely viewed)", async () => {
       const s = setup(justNow(), "someone-else", "someone-elses-branch");
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
       expect(s.detectedPrUrl).toBeNull();
     });
 
@@ -7250,9 +7268,9 @@ describe("AgentServer HTTP Mode", () => {
       s.fetchGhLogin = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledWith("t", "r", {
-        output: { pr_url: PR_URL, pr_urls: [PR_URL] },
-      });
+      expect(sentRunEvents(s.posthogAPI)).toEqual([
+        { type: "pr_detected", pr_url: PR_URL },
+      ]);
       expect(s.detectedPrUrl).toBe(PR_URL);
     });
 
@@ -7267,7 +7285,7 @@ describe("AgentServer HTTP Mode", () => {
       }));
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
       expect(s.detectedPrUrl).toBeNull();
     });
 
@@ -7277,7 +7295,7 @@ describe("AgentServer HTTP Mode", () => {
       s.getCurrentCheckout = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
     });
 
     it("does not attribute a fork PR whose head branch name matches the run's branch", async () => {
@@ -7286,7 +7304,7 @@ describe("AgentServer HTTP Mode", () => {
       s.fetchGhLogin = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
       expect(s.detectedPrUrl).toBeNull();
     });
 
@@ -7301,7 +7319,7 @@ describe("AgentServer HTTP Mode", () => {
       }));
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      expect(s.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(1);
       expect(s.detectedPrUrl).toBe(PR_URL);
     });
 
@@ -7311,7 +7329,7 @@ describe("AgentServer HTTP Mode", () => {
       const s = setup(justNow(), GH_LOGIN, "another-branch-of-theirs");
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
       expect(s.detectedPrUrl).toBeNull();
     });
 
@@ -7320,7 +7338,7 @@ describe("AgentServer HTTP Mode", () => {
       s.getCurrentCheckout = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      expect(s.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(1);
       expect(s.detectedPrUrl).toBe(PR_URL);
     });
 
@@ -7329,7 +7347,7 @@ describe("AgentServer HTTP Mode", () => {
       s.fetchGhLogin = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
-      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.posthogAPI.sendAgentCallback).not.toHaveBeenCalled();
     });
   });
 

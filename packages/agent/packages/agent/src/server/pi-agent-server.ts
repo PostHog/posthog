@@ -73,7 +73,7 @@ import {
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
-import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
+import { RunUsageAccumulator, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
 import type { AgentServerConfig } from "./types";
 
@@ -192,7 +192,7 @@ export class PiAgentServer {
   });
   private readonly posthogAPI: PostHogAPIClient;
   private readonly eventStreamSender: TaskRunEventStreamSender | null;
-  private readonly agentCallbacks: AgentCallbackReporter | null;
+  private readonly agentCallbacks: AgentCallbackReporter;
   private readonly nextEventId = createEventIdSource();
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
@@ -230,27 +230,24 @@ export class PiAgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/pi-cloud`,
     });
-    this.agentCallbacks = config.eventIngestToken
-      ? createAgentCallbackReporter({
-          eventIngestToken: config.eventIngestToken,
-          logger: this.logger.child("AgentCallback"),
-          send: (callback) =>
-            this.posthogAPI.sendAgentCallback(
-              config.taskId,
-              config.runId,
-              callback,
-            ),
-          awaitEventAck: () =>
-            this.eventStreamSender?.awaitAckOfLastEvent() ??
-            Promise.resolve(null),
-        })
-      : null;
+    this.agentCallbacks = createAgentCallbackReporter({
+      eventIngestToken: config.eventIngestToken,
+      logger: this.logger.child("AgentCallback"),
+      send: (callback) =>
+        this.posthogAPI.sendAgentCallback(
+          config.taskId,
+          config.runId,
+          callback,
+        ),
+      awaitEventAck: () =>
+        this.eventStreamSender?.awaitAckOfLastEvent() ?? Promise.resolve(null),
+    });
     this.eventStreamSender = config.eventIngestToken
       ? new TaskRunEventStreamSender({
           apiUrl: config.apiUrl,
           eventIngestBaseUrl: config.eventIngestBaseUrl,
           keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
-          agentSendsCallbacks: this.agentCallbacks !== null,
+          agentSendsCallbacks: this.agentCallbacks.sendsCallbacks,
           projectId: config.projectId,
           taskId: config.taskId,
           runId: config.runId,
@@ -368,9 +365,9 @@ export class PiAgentServer {
     );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
-    this.agentCallbacks?.stopWaitingForAcks();
+    this.agentCallbacks.stopWaitingForAcks();
     await withTimeout(
-      this.agentCallbacks?.settled() ?? Promise.resolve(),
+      this.agentCallbacks.settled(),
       AGENT_CALLBACK_SETTLE_BUDGET_MS,
     );
     this.server?.close();
@@ -401,24 +398,17 @@ export class PiAgentServer {
     await this.flushConversationLog({ final: true }).catch((syncError) =>
       this.logger.error("Failed to persist crashed Pi events", syncError),
     );
-    await this.posthogAPI
-      .updateTaskRun(this.config.taskId, this.config.runId, {
-        status: "failed",
-        error_message: `Pi agent server crashed: ${message}`,
-        error_type: "agent_server_crash",
-        state: { agent_version: this.agentVersion },
-      })
-      .catch((updateError) =>
-        this.logger.error(
-          "Failed to mark crashed Pi run as failed",
-          updateError,
-        ),
-      );
+    void this.agentCallbacks.reportRun({
+      type: "failed",
+      error_type: "agent_server_crash",
+      cause: message,
+      agent_version: this.agentVersion,
+    });
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
-    this.agentCallbacks?.stopWaitingForAcks();
+    this.agentCallbacks.stopWaitingForAcks();
     await withTimeout(
-      this.agentCallbacks?.settled() ?? Promise.resolve(),
+      this.agentCallbacks.settled(),
       AGENT_CALLBACK_SETTLE_BUDGET_MS,
     );
   }
@@ -862,9 +852,9 @@ export class PiAgentServer {
     };
     this.sessionReadyBootMs = Math.round(process.uptime() * 1000);
     this.sessionInitMs = Date.now() - startedAt;
-    await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-      status: "in_progress",
-      state: { agent_version: this.agentVersion },
+    void this.agentCallbacks.reportRun({
+      type: "started",
+      agent_version: this.agentVersion,
     });
     this.broadcast({
       type: "pi_run_started",
@@ -890,7 +880,7 @@ export class PiAgentServer {
   }
 
   private reportAgentEvent(event: AgentConversationEvent): void {
-    if (!this.agentCallbacks) {
+    if (!this.agentCallbacks.sendsCallbacks) {
       return;
     }
     if (event.type !== "turn_completed") {
@@ -957,13 +947,10 @@ export class PiAgentServer {
 
   private recordTurnUsage(usage: AgentTurnUsage): void {
     if (!this.runUsage.add(usage)) return;
-    reportRunUsage(
-      this.runUsage,
-      this.posthogAPI,
-      this.config.taskId,
-      this.config.runId,
-      this.logger,
-    );
+    void this.agentCallbacks.reportRun({
+      type: "usage",
+      token_usage: this.runUsage.snapshot(),
+    });
   }
 
   private handleEvent(event: AgentConversationEvent): void {

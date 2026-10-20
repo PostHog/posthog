@@ -1,7 +1,5 @@
 import type { Usage } from "@agentclientprotocol/sdk";
 import { z } from "zod/v4";
-import type { PostHogAPIClient } from "../posthog-api";
-import type { Logger } from "../utils/logger";
 
 /**
  * Cumulative token usage for a task run, shaped for `TaskRun.state.token_usage`
@@ -78,36 +76,4 @@ export function seedRunUsage(
   const parsed = storedRunTokenUsageSchema.safeParse(storedTokenUsage);
   if (!parsed.success) return false;
   return accumulator.seed(parsed.data);
-}
-
-const inflightReports = new WeakMap<RunUsageAccumulator, Promise<void>>();
-
-export function reportRunUsage(
-  accumulator: RunUsageAccumulator,
-  api: PostHogAPIClient,
-  taskId: string,
-  runId: string,
-  logger: Logger,
-  extraState?: Record<string, unknown> | false,
-): Promise<void> {
-  const send = (): Promise<void> =>
-    api
-      .updateTaskRun(taskId, runId, {
-        state: { token_usage: accumulator.snapshot(), ...(extraState || {}) },
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => {
-          logger.warn("Failed to report run token usage", error);
-        },
-      );
-  const previous = inflightReports.get(accumulator);
-  const next = previous ? previous.then(send) : send();
-  inflightReports.set(accumulator, next);
-  void next.then(() => {
-    if (inflightReports.get(accumulator) === next) {
-      inflightReports.delete(accumulator);
-    }
-  });
-  return next;
 }

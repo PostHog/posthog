@@ -1418,14 +1418,16 @@ describe("PiAgentServer", () => {
   });
 
   it("reports cumulative run token usage after each settled Pi turn", async () => {
-    const updateTaskRun = vi.fn(async () => ({}));
+    const sendAgentCallback = vi.fn(
+      async (_taskId: string, _runId: string, _callback: unknown) => true,
+    );
     const handled: AgentConversationEvent[] = [];
     const server = new PiAgentServer(config()) as unknown as {
-      posthogAPI: { updateTaskRun: typeof updateTaskRun };
+      posthogAPI: { sendAgentCallback: typeof sendAgentCallback };
       handleEvent(event: AgentConversationEvent): void;
       handleConversationEvent(event: AgentConversationEvent): void;
     };
-    server.posthogAPI = { updateTaskRun };
+    server.posthogAPI = { sendAgentCallback };
     server.handleEvent = (event) => {
       handled.push(event);
     };
@@ -1447,20 +1449,24 @@ describe("PiAgentServer", () => {
     server.handleConversationEvent(turn);
 
     expect(handled).toHaveLength(2);
-    await vi.waitFor(() => expect(updateTaskRun).toHaveBeenCalledTimes(2));
-    expect(updateTaskRun).toHaveBeenLastCalledWith("task-1", "run-1", {
-      state: {
-        token_usage: {
-          input_tokens: 200,
-          output_tokens: 100,
-          cache_read_tokens: 20,
-          cache_write_tokens: 10,
-          thought_tokens: 0,
-          total_tokens: 330,
-          turns: 2,
+    await vi.waitFor(() =>
+      expect(sendAgentCallback).toHaveBeenLastCalledWith("task-1", "run-1", {
+        kind: "run_event",
+        agent_active: false,
+        event: {
+          type: "usage",
+          token_usage: {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_tokens: 20,
+            cache_write_tokens: 10,
+            thought_tokens: 0,
+            total_tokens: 330,
+            turns: 2,
+          },
         },
-      },
-    });
+      }),
+    );
   });
 
   it.each([
