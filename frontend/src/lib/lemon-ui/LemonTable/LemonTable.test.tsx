@@ -37,6 +37,42 @@ describe('LemonTable', () => {
 
     const renderedOrder = (): string[] => screen.getAllByTestId('cell-name').map((el) => el.textContent ?? '')
 
+    it('does not rerender retained virtualized cells when scrolling', () => {
+        const height = jest
+            .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+            .mockImplementation(function (this: HTMLElement): number {
+                return this.tagName === 'TR' ? 36 : 180
+            })
+        const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+        const renderCell = jest.fn((value: string | number | undefined): string => String(value))
+        const data = Array.from({ length: 100 }, (_, id) => ({ id, name: `Row ${id}` }))
+
+        try {
+            const { container } = render(
+                <LemonTable
+                    rowKey="id"
+                    dataSource={data}
+                    columns={[{ title: 'Name', dataIndex: 'name', render: renderCell }]}
+                    allowContentScroll
+                    virtualized
+                />
+            )
+            const initialCells = new Set(renderCell.mock.calls.map(([value]) => value))
+            expect(initialCells.size).toBeGreaterThan(0)
+            expect(initialCells.size).toBeLessThan(data.length)
+            renderCell.mockClear()
+
+            fireEvent.scroll(container.querySelector('.ScrollableShadows__inner')!, { target: { scrollTop: 180 } })
+
+            expect(renderCell).toHaveBeenCalled()
+            expect(renderCell.mock.calls.every(([value]) => !initialCells.has(value))).toBe(true)
+        } finally {
+            cleanup()
+            height.mockRestore()
+            width.mockRestore()
+        }
+    })
+
     it.each([
         [true, ['alpha', 'gamma', 'beta']],
         [false, ['alpha', 'beta', 'gamma']],

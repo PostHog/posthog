@@ -316,6 +316,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         enabled: virtualizeRows,
         scrollMargin,
     })
+    const onVirtualizedRow = useCallback(
+        (record: T, index: number): HTMLProps<HTMLTableRowElement> & { 'data-index': number } => ({
+            ...onRow?.(record, index),
+            ref: rowVirtualizer.measureElement,
+            'data-index': index - paginationState.currentStartIndex,
+        }),
+        [onRow, rowVirtualizer.measureElement, paginationState.currentStartIndex]
+    )
     const virtualRows = rowVirtualizer.getVirtualItems()
     const rowIndexes = virtualizeRows
         ? virtualRows.map((row) => row.index)
@@ -851,15 +859,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 rowRibbonColorDetermined={rowRibbonColorDetermined}
                                                 rowStatusDetermined={rowStatusDetermined}
                                                 columnGroups={columnGroups}
-                                                onRow={
-                                                    virtualizeRows
-                                                        ? (record, index) => ({
-                                                              ...onRow?.(record, index),
-                                                              ref: rowVirtualizer.measureElement,
-                                                              'data-index': rowIndex,
-                                                          })
-                                                        : onRow
-                                                }
+                                                onRow={virtualizeRows ? onVirtualizedRow : onRow}
                                                 expandable={expandable}
                                                 rowCount={paginationState.dataSourcePage.length}
                                                 firstColumnSticky={firstColumnSticky}
