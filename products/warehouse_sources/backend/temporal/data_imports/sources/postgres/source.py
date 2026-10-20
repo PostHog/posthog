@@ -1523,6 +1523,18 @@ class PostgresSource(
                 "or foreign table that converts text to uuid, so fix the data or the column type, or "
                 "remove the table from the sync. Then re-enable the sync."
             ),
+            # Raised (DivisionByZero, SQLSTATE 22012) while Postgres evaluates a row during the main
+            # `SELECT ... FROM <relation>` read. We only ever select configured columns and apply the
+            # customer's own row filters; the division lives in the relation's own definition — a
+            # generated/computed column, or a view that divides by another column or expression that
+            # is zero for at least one row. Deterministic against the source data, so every retry
+            # re-evaluates the same relation into the same row.
+            "division by zero": (
+                "A table or view you're syncing has a computed column or definition that divides by "
+                'zero for at least one row (PostgreSQL reported "division by zero"). Guard the '
+                "division in that column or view definition (for example with a CASE or NULLIF), or "
+                "remove it from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

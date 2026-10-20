@@ -38,8 +38,6 @@ from products.signals.backend.briefing_reports import (
     IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
     BriefingReportDetails as BriefingReportDetails,
     BriefingReportRelation as BriefingReportRelation,
-    OpenReportCounts as OpenReportCounts,
-    open_report_counts as open_report_counts,
     report_details as report_details,
     report_ids_naming_user as report_ids_naming_user,
 )
