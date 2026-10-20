@@ -24,7 +24,7 @@ export function ReadyStep(): JSX.Element {
                     Hoggie={HedgehogRocket}
                     title={
                         <>
-                            You can send from <span className="font-mono break-all">{domain}</span>
+                            You can send from <span className="inline-block max-w-full break-words">{domain}</span>
                         </>
                     }
                     lead={
