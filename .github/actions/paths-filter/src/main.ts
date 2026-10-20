@@ -28,11 +28,7 @@ async function run(): Promise<void> {
     let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
     const policyPath = core.getInput('shared-image-policy', {required: false})
     if (policyPath) {
-      const policy = loadPolicy(getConfigFileContent(policyPath), {
-        [process.env.ECR_REPOSITORY ?? '']: {
-          sourceRepository: 'PostHog/posthog', registry: '', repository: process.env.ECR_REPOSITORY ?? '', destinations: []
-        }
-      })
+      const policy = loadPolicy(getConfigFileContent(policyPath))
       filtersYaml = projectLegacyFilters(policy, filtersYaml)
     }
     const listFiles = core.getInput('list-files', {required: false}).toLowerCase() || 'none'

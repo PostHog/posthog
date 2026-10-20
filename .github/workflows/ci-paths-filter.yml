@@ -5,6 +5,8 @@ on:
         paths:
             - '.github/actions/paths-filter/**'
             - '.github/workflows/ci-paths-filter.yml'
+            - '.github/shared-image-releases.yaml'
+            - '.github/workflows/container-images-cd.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

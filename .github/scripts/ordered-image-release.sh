@@ -46,7 +46,7 @@ install_regctl() {
         Darwin/arm64) asset=regctl-darwin-arm64; checksum=5b52b71861abc300ab513e87a4c3794cff6508035ac7f6b6bdfa1fa5688c0040 ;;
         *) echo 'Unsupported regctl platform' >&2; return 1 ;;
     esac
-    curl --fail --location --retry 3 --retry-all-errors --connect-timeout 10 --max-time 40 \
+    curl --fail --location --retry 2 --retry-all-errors --connect-timeout 10 --max-time 15 \
         "https://github.com/regclient/regclient/releases/download/v0.11.6/$asset" -o "$executable" || return 1
     printf '%s  %s\n' "$checksum" "$executable" | shasum -a 256 --check || return 1
     chmod 755 "$executable"
@@ -65,7 +65,7 @@ publish_alias() {
     local target_image="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
     local publication_status=0 readback_status=0 resolved_digest result
     if [ -n "${REGCTL:-}" ]; then
-        timeout --kill-after=5s 40s "$REGCTL" image copy --referrers \
+        timeout --kill-after=5s 40s "$REGCTL" image copy \
             "$source_image" "$target_image" || publication_status=$?
     else
         publication_status=127

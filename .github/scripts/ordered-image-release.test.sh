@@ -32,6 +32,7 @@ export GITHUB_OUTPUT="$scratch/output"
 
 check() {
     local expected="$1"
+    export COPY_STATUS="${2:-0}" READBACK_STATUS="${3:-0}" READBACK="${4:-$EXPECTED_DIGEST}"
     : > "$GITHUB_OUTPUT"
     bash "$helper" publish > "$scratch/annotations"
     test "$(cat "$GITHUB_OUTPUT")" = "outcome=$expected"
@@ -43,25 +44,52 @@ check() {
     esac
     echo "PASS $expected copy=$COPY_STATUS readback=$READBACK_STATUS"
 }
-export COPY_STATUS=0 READBACK_STATUS=0 READBACK="$EXPECTED_DIGEST"
 check present-at-expected-digest
-export COPY_STATUS=1
-check present-at-expected-digest
-export COPY_STATUS=124
-check present-at-expected-digest
-export READBACK=None
-check absent
-export READBACK=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-check integrity-mismatch
-export READBACK_STATUS=1
-check unknown
-export READBACK_STATUS=0 READBACK=invalid
-check unknown
-export SOURCE_REGISTRY=source.example.com SOURCE_REPO=build/image READBACK="$EXPECTED_DIGEST"
+check present-at-expected-digest 1
+check present-at-expected-digest 124
+check absent 0 0 None
+check integrity-mismatch 0 0 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+check unknown 0 1
+check unknown 0 0 invalid
+export SOURCE_REGISTRY=source.example.com SOURCE_REPO=build/image
 check present-at-expected-digest
 grep -Fxq "source.example.com/build/image@$EXPECTED_DIGEST" "$COPY_ARGUMENTS"
 grep -Fxq "registry.example.com/posthog-cloud:$ORDERED_ALIAS" "$COPY_ARGUMENTS"
 echo 'PASS separate source and destination coordinates'
+
+check_skip() {
+    local variable="$1" title="$2"
+    : > "$GITHUB_OUTPUT"
+    : > "$COPY_ARGUMENTS"
+    env "$variable=" bash "$helper" publish > "$scratch/annotations"
+    test ! -s "$GITHUB_OUTPUT"
+    test ! -s "$COPY_ARGUMENTS"
+    grep -q "::warning title=$title::" "$scratch/annotations"
+    echo "PASS empty $variable skips publication"
+}
+check_skip EXPECTED_DIGEST 'Ordered image alias source digest unavailable'
+check_skip ECR_REGISTRY 'Ordered image alias destination unavailable'
+check_skip ECR_REPO 'Ordered image alias destination unavailable'
+
+cat > "$scratch/shims/curl" <<'SHIM'
+#!/usr/bin/env bash
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = -o ]; then
+        printf 'incorrect client bytes\n' > "$2"
+        exit 0
+    fi
+    shift
+done
+exit 1
+SHIM
+chmod +x "$scratch/shims/curl"
+if bash "$helper" install "$scratch/invalid-regctl" > "$scratch/install" 2>&1; then
+    echo 'FAIL corrupt client passed checksum verification' >&2
+    exit 1
+fi
+test ! -x "$scratch/invalid-regctl"
+grep -q 'FAILED' "$scratch/install"
+echo 'PASS corrupt client fails checksum verification before execution'
 
 mkdir "$scratch/executing"
 git -C "$scratch/executing" init -q -b main
@@ -74,7 +102,8 @@ git clone -q "$scratch/executing" "$scratch/public"
 printf 'relevant\n' > "$scratch/executing/worker.py"
 git -C "$scratch/executing" add worker.py
 git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qm relevant
-export GITHUB_SHA="$(git -C "$scratch/executing" rev-parse HEAD)"
+GITHUB_SHA="$(git -C "$scratch/executing" rev-parse HEAD)"
+export GITHUB_SHA
 export GITHUB_REF=refs/heads/main GITHUB_REF_NAME=main GITHUB_REPOSITORY=PostHog/posthog-private
 : > "$GITHUB_OUTPUT"
 (cd "$scratch/executing" && bash "$helper" tag)

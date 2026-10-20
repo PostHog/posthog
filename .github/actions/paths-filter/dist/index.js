@@ -42698,7 +42698,6 @@ const shadow = __importStar(__nccwpck_require__(5763));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
 async function run() {
-    var _a, _b;
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
         if (workingDirectory) {
@@ -42711,11 +42710,7 @@ async function run() {
         let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
         const policyPath = core.getInput('shared-image-policy', { required: false });
         if (policyPath) {
-            const policy = (0, shared_image_releases_1.loadPolicy)(getConfigFileContent(policyPath), {
-                [(_a = process.env.ECR_REPOSITORY) !== null && _a !== void 0 ? _a : '']: {
-                    sourceRepository: 'PostHog/posthog', registry: '', repository: (_b = process.env.ECR_REPOSITORY) !== null && _b !== void 0 ? _b : '', destinations: []
-                }
-            });
+            const policy = (0, shared_image_releases_1.loadPolicy)(getConfigFileContent(policyPath));
             filtersYaml = (0, shared_image_releases_1.projectLegacyFilters)(policy, filtersYaml);
         }
         const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
@@ -43297,7 +43292,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CANONICAL_SOURCE_REPOSITORY = void 0;
 exports.loadPolicy = loadPolicy;
+exports.bindChannels = bindChannels;
 exports.projectLegacyFilters = projectLegacyFilters;
 exports.serializePolicy = serializePolicy;
 exports.policyDigest = policyDigest;
@@ -43306,6 +43303,7 @@ const crypto_1 = __nccwpck_require__(6982);
 const yaml = __importStar(__nccwpck_require__(4281));
 const filter_1 = __nccwpck_require__(9037);
 const file_1 = __nccwpck_require__(3765);
+exports.CANONICAL_SOURCE_REPOSITORY = 'PostHog/posthog';
 function object(value, location) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error(`${location}: expected a mapping`);
@@ -43313,11 +43311,13 @@ function object(value, location) {
     return value;
 }
 function shape(value, required, optional, location) {
-    if (required.some(key => !Object.prototype.hasOwnProperty.call(value, key))) {
-        throw new Error(`${location}: missing required field`);
+    const missing = required.find(key => !Object.prototype.hasOwnProperty.call(value, key));
+    if (missing !== undefined) {
+        throw new Error(`${location}: missing required field '${missing}'`);
     }
-    if (Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))) {
-        throw new Error(`${location}: unknown field`);
+    const unknown = Object.keys(value).find(key => !required.includes(key) && !optional.includes(key));
+    if (unknown !== undefined) {
+        throw new Error(`${location}: unknown field '${unknown}'`);
     }
 }
 function paths(value, location) {
@@ -43338,7 +43338,7 @@ function paths(value, location) {
     return resolved;
 }
 function validateChannelPaths(entries, location) {
-    const statuses = new Set(Object.values(file_1.ChangeStatus));
+    const statuses = new Set([file_1.ChangeStatus.Added, file_1.ChangeStatus.Modified, file_1.ChangeStatus.Deleted]);
     for (const entry of entries) {
         if (typeof entry === 'string') {
             if (!entry.trim())
@@ -43362,7 +43362,7 @@ function validateChannelPaths(entries, location) {
         throw new Error(`${location}: channel requires a positive pattern`);
     }
 }
-function loadPolicy(text, approved) {
+function loadPolicy(text) {
     const root = object(yaml.load(text), 'policy');
     shape(root, ['version', 'filters', 'images'], [], 'policy');
     if (root.version !== 1)
@@ -43370,10 +43370,7 @@ function loadPolicy(text, approved) {
     const filters = Object.fromEntries(Object.entries(object(root.filters, 'filters')).map(([name, value]) => [name, paths(value, `filters.${name}`)]));
     new filter_1.Filter(yaml.dump(filters));
     const images = {};
-    const destinations = new Set();
     for (const [image, value] of Object.entries(object(root.images, 'images'))) {
-        if (!Object.prototype.hasOwnProperty.call(approved, image))
-            throw new Error(`images.${image}: unknown build input`);
         const definition = object(value, `images.${image}`);
         shape(definition, ['channels'], [], `images.${image}`);
         const channels = {};
@@ -43387,8 +43384,29 @@ function loadPolicy(text, approved) {
                 channel.repository.length < 2 || channel.repository.length > 256 ||
                 !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(channel.repository))
                 throw new Error(`${location}.repository: invalid ECR repository path`);
-            const source = approved[image];
-            if (!source.registry || !source.repository || source.sourceRepository !== 'PostHog/posthog') {
+            if (typeof channel.filter !== 'string' || !Object.prototype.hasOwnProperty.call(filters, channel.filter)) {
+                throw new Error(`${location}.filter: unknown filter`);
+            }
+            if (channel.bootstrapPolicyDigest !== undefined &&
+                (typeof channel.bootstrapPolicyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(channel.bootstrapPolicyDigest))) {
+                throw new Error(`${location}.bootstrapPolicyDigest: expected lowercase SHA-256`);
+            }
+            validateChannelPaths(filters[channel.filter], `filters.${channel.filter}`);
+            channels[name] = channel;
+        }
+        images[image] = { channels };
+    }
+    return { version: 1, filters, images };
+}
+function bindChannels(policy, approved) {
+    const destinations = new Set();
+    for (const [image, definition] of Object.entries(policy.images)) {
+        if (!Object.prototype.hasOwnProperty.call(approved, image))
+            throw new Error(`images.${image}: unknown build input`);
+        const source = approved[image];
+        for (const [name, channel] of Object.entries(definition.channels)) {
+            const location = `images.${image}.channels.${name}`;
+            if (!source.registry || !source.repository || source.sourceRepository !== exports.CANONICAL_SOURCE_REPOSITORY) {
                 throw new Error(`${location}: source build has no approved canonical identity and coordinates`);
             }
             const bindings = source.destinations.filter(destination => destination.repository === channel.repository);
@@ -43406,19 +43424,8 @@ function loadPolicy(text, approved) {
                     throw new Error(`${location}: conflicting destination ${key}`);
                 destinations.add(key);
             }
-            if (typeof channel.filter !== 'string' || !Object.prototype.hasOwnProperty.call(filters, channel.filter)) {
-                throw new Error(`${location}.filter: unknown filter`);
-            }
-            if (channel.bootstrapPolicyDigest !== undefined &&
-                (typeof channel.bootstrapPolicyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(channel.bootstrapPolicyDigest))) {
-                throw new Error(`${location}.bootstrapPolicyDigest: expected lowercase SHA-256`);
-            }
-            validateChannelPaths(filters[channel.filter], `filters.${channel.filter}`);
-            channels[name] = channel;
         }
-        images[image] = { channels };
     }
-    return { version: 1, filters, images };
 }
 function projectLegacyFilters(policy, inlineYaml) {
     const inline = object(yaml.load(inlineYaml), 'legacy filters');
@@ -43450,12 +43457,14 @@ function policyDigest(entries) {
 function validateConsumerBinding(consumer, source, destination) {
     const expected = [destination.registry, ...destination.replicas].map(registry => `${registry}/${destination.repository}`).sort();
     const checks = [
-        ['sourceRepository', source.sourceRepository === 'PostHog/posthog' && consumer.sourceRepository === source.sourceRepository],
+        ['sourceRepository', source.sourceRepository === exports.CANONICAL_SOURCE_REPOSITORY && consumer.sourceRepository === source.sourceRepository],
         ['implementation', consumer.implementation === 'ordered-image-v2'],
         ['logicalImageGroups', consumer.logicalImageGroups === 1],
         ['owner', consumer.owner === destination.owner],
         ['sourceImage', consumer.sourceImage === `${source.registry}/${source.repository}`],
-        ['destination', source.destinations.includes(destination)],
+        ['destination', source.destinations.some(approved => approved.owner === destination.owner && approved.registry === destination.registry &&
+                approved.repository === destination.repository &&
+                JSON.stringify([...approved.replicas].sort()) === JSON.stringify([...destination.replicas].sort()))],
         ['repositories', JSON.stringify([...consumer.repositories].sort()) === JSON.stringify(expected)]
     ];
     for (const [field, valid] of checks) {

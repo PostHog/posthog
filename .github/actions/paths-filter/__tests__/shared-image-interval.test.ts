@@ -1,12 +1,10 @@
 import {execFileSync} from 'child_process'
-import {mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync} from 'fs'
+import {mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {Filter} from '../src/filter'
-import {ChangeStatus} from '../src/file'
 import {parseGitDiffOutput} from '../src/git'
-import {intervalFiles, matchInterval} from '../src/shared-image-interval'
+import {ChangeStatus, Filter, intervalFiles} from '../src/shared-image'
 
 let repo: string
 const git = (...args: string[]): string => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], {cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()
@@ -30,9 +28,10 @@ beforeEach(() => {
 afterEach(() => rmSync(repo, {recursive: true, force: true}))
 
 describe('executing checkout first-parent interval', () => {
-  test('batched entries equal each delta, including merges, renames, distinct statuses and unusual paths', () => {
+  test('batched entries equal each delta, including merges, renames, typechanges, distinct statuses and unusual paths', () => {
     put('worker/run.py', 'base')
     put('worker/rename.py')
+    put('worker/typechange.py')
     const base = commit('base')
     git('checkout', '-b', 'feature')
     put('worker/merged.py')
@@ -42,6 +41,8 @@ describe('executing checkout first-parent interval', () => {
     commit('main')
     git('merge', '--no-ff', 'feature', '-m', 'merge')
     renameSync(path.join(repo, 'worker/rename.py'), path.join(repo, 'other/renamed.py'))
+    unlinkSync(path.join(repo, 'worker/typechange.py'))
+    symlinkSync('run.py', path.join(repo, 'worker/typechange.py'))
     for (const file of ['space name.py', 'tab\tname.py', 'newline\nname.py', '.dot.py', 'tests/test.py']) put(`worker/${file}`)
     commit('rename and unusual paths')
     put('worker/temporary.py')
@@ -49,12 +50,15 @@ describe('executing checkout first-parent interval', () => {
     unlinkSync(path.join(repo, 'worker/temporary.py'))
     const head = commit('delete')
     const files = intervalFiles(base, head, options())
-    const individual = git('rev-list', '--first-parent', `${base}..${head}`).split('\n').flatMap(sha =>
-      parseGitDiffOutput(execFileSync('git', ['diff', '--no-renames', '--name-status', '-z', `${sha}^1`, sha], {cwd: repo, encoding: 'utf8'}))
-    )
+    const individual = git('rev-list', '--first-parent', `${base}..${head}`).split('\n').flatMap(sha => {
+      const output = execFileSync('git', ['diff', '--no-renames', '--name-status', '-z', `${sha}^1`, sha], {cwd: repo, encoding: 'utf8'})
+      return parseGitDiffOutput(output).map(file => file.status === undefined ? {...file, status: ChangeStatus.Modified} : file)
+    })
+    expect(parseGitDiffOutput('T\0worker/typechange.py\0')[0].status).toBeUndefined()
     expect(files).toEqual(individual)
     for (const entry of [
       {filename: 'worker/merged.py', status: ChangeStatus.Added},
+      {filename: 'worker/typechange.py', status: ChangeStatus.Modified},
       {filename: 'worker/rename.py', status: ChangeStatus.Deleted},
       {filename: 'other/renamed.py', status: ChangeStatus.Added},
       {filename: 'worker/temporary.py', status: ChangeStatus.Added},
@@ -64,8 +68,8 @@ describe('executing checkout first-parent interval', () => {
       {filename: 'worker/tab\tname.py', status: ChangeStatus.Added}
     ]) expect(files).toContainEqual(entry)
     const filter = new Filter(yaml.dump({worker: ['worker/**', '!worker/tests/**']}))
-    expect(matchInterval(filter, files).worker).toEqual(filter.match(individual).worker)
-    expect(matchInterval(filter, files).worker.some(file => file.filename.includes('\n'))).toBe(false)
+    expect(filter.match(files).worker).toEqual(filter.match(individual).worker)
+    expect(filter.match(files).worker.some(file => file.filename.includes('\n'))).toBe(false)
     expect(() => intervalFiles(secondParent, head, options())).toThrow(/first-parent/)
   })
 
@@ -77,8 +81,22 @@ describe('executing checkout first-parent interval', () => {
     put('other/unrelated.txt')
     const head = commit('successful build')
     const filter = new Filter('worker: ["worker/**"]')
-    expect(matchInterval(filter, intervalFiles(base, head, options())).worker.length).toBe(1)
-    expect(matchInterval(filter, intervalFiles(missed, head, options())).worker).toEqual([])
+    expect(filter.match(intervalFiles(base, head, options())).worker.length).toBe(1)
+    expect(filter.match(intervalFiles(missed, head, options())).worker).toEqual([])
+  })
+
+  test('history membership fits an interval budget smaller than the complete first-parent history', () => {
+    for (let index = 0; index < 4; index++) {
+      put('other.txt', `${index}`)
+      commit('earlier history')
+    }
+    const base = git('rev-parse', 'HEAD')
+    put('worker/run.py')
+    const head = commit('relevant interval')
+    expect(Buffer.byteLength(git('rev-list', '--first-parent', head))).toBeGreaterThan(100)
+    expect(intervalFiles(base, head, {...options(), maxBuffer: 100})).toEqual([
+      {filename: 'worker/run.py', status: ChangeStatus.Added}
+    ])
   })
 
   test('missing history, wrong checkout and exhausted budgets fail explicitly', () => {

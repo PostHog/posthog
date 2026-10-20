@@ -3,6 +3,8 @@ import * as yaml from 'js-yaml'
 import {Filter} from './filter'
 import {ChangeStatus} from './file'
 
+export const CANONICAL_SOURCE_REPOSITORY = 'PostHog/posthog'
+
 export type Paths = (string | {[status: string]: string | string[]})[]
 export interface Channel {
   repository: string
@@ -36,11 +38,13 @@ function object(value: unknown, location: string): Record<string, unknown> {
 }
 
 function shape(value: Record<string, unknown>, required: string[], optional: string[], location: string): void {
-  if (required.some(key => !Object.prototype.hasOwnProperty.call(value, key))) {
-    throw new Error(`${location}: missing required field`)
+  const missing = required.find(key => !Object.prototype.hasOwnProperty.call(value, key))
+  if (missing !== undefined) {
+    throw new Error(`${location}: missing required field '${missing}'`)
   }
-  if (Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))) {
-    throw new Error(`${location}: unknown field`)
+  const unknown = Object.keys(value).find(key => !required.includes(key) && !optional.includes(key))
+  if (unknown !== undefined) {
+    throw new Error(`${location}: unknown field '${unknown}'`)
   }
 }
 
@@ -62,7 +66,7 @@ function paths(value: unknown, location: string): Paths {
 }
 
 function validateChannelPaths(entries: Paths, location: string): void {
-  const statuses = new Set<string>(Object.values(ChangeStatus))
+  const statuses = new Set<string>([ChangeStatus.Added, ChangeStatus.Modified, ChangeStatus.Deleted])
   for (const entry of entries) {
     if (typeof entry === 'string') {
       if (!entry.trim()) throw new Error(`${location}: empty pattern`)
@@ -85,7 +89,7 @@ function validateChannelPaths(entries: Paths, location: string): void {
   }
 }
 
-export function loadPolicy(text: string, approved: ApprovedImages): Policy {
+export function loadPolicy(text: string): Policy {
   const root = object(yaml.load(text), 'policy')
   shape(root, ['version', 'filters', 'images'], [], 'policy')
   if (root.version !== 1) throw new Error('policy.version: expected 1')
@@ -94,9 +98,7 @@ export function loadPolicy(text: string, approved: ApprovedImages): Policy {
   )
   new Filter(yaml.dump(filters))
   const images: Policy['images'] = {}
-  const destinations = new Set<string>()
   for (const [image, value] of Object.entries(object(root.images, 'images'))) {
-    if (!Object.prototype.hasOwnProperty.call(approved, image)) throw new Error(`images.${image}: unknown build input`)
     const definition = object(value, `images.${image}`)
     shape(definition, ['channels'], [], `images.${image}`)
     const channels: {[name: string]: Channel} = {}
@@ -110,8 +112,29 @@ export function loadPolicy(text: string, approved: ApprovedImages): Policy {
         channel.repository.length < 2 || channel.repository.length > 256 ||
         !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(channel.repository)
       ) throw new Error(`${location}.repository: invalid ECR repository path`)
-      const source = approved[image]
-      if (!source.registry || !source.repository || source.sourceRepository !== 'PostHog/posthog') {
+      if (typeof channel.filter !== 'string' || !Object.prototype.hasOwnProperty.call(filters, channel.filter)) {
+        throw new Error(`${location}.filter: unknown filter`)
+      }
+      if (channel.bootstrapPolicyDigest !== undefined &&
+          (typeof channel.bootstrapPolicyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(channel.bootstrapPolicyDigest))) {
+        throw new Error(`${location}.bootstrapPolicyDigest: expected lowercase SHA-256`)
+      }
+      validateChannelPaths(filters[channel.filter], `filters.${channel.filter}`)
+      channels[name] = channel as unknown as Channel
+    }
+    images[image] = {channels}
+  }
+  return {version: 1, filters, images}
+}
+
+export function bindChannels(policy: Policy, approved: ApprovedImages): void {
+  const destinations = new Set<string>()
+  for (const [image, definition] of Object.entries(policy.images)) {
+    if (!Object.prototype.hasOwnProperty.call(approved, image)) throw new Error(`images.${image}: unknown build input`)
+    const source = approved[image]
+    for (const [name, channel] of Object.entries(definition.channels)) {
+      const location = `images.${image}.channels.${name}`
+      if (!source.registry || !source.repository || source.sourceRepository !== CANONICAL_SOURCE_REPOSITORY) {
         throw new Error(`${location}: source build has no approved canonical identity and coordinates`)
       }
       const bindings = source.destinations.filter(destination => destination.repository === channel.repository)
@@ -126,19 +149,8 @@ export function loadPolicy(text: string, approved: ApprovedImages): Policy {
         if (destinations.has(key)) throw new Error(`${location}: conflicting destination ${key}`)
         destinations.add(key)
       }
-      if (typeof channel.filter !== 'string' || !Object.prototype.hasOwnProperty.call(filters, channel.filter)) {
-        throw new Error(`${location}.filter: unknown filter`)
-      }
-      if (channel.bootstrapPolicyDigest !== undefined &&
-          (typeof channel.bootstrapPolicyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(channel.bootstrapPolicyDigest))) {
-        throw new Error(`${location}.bootstrapPolicyDigest: expected lowercase SHA-256`)
-      }
-      validateChannelPaths(filters[channel.filter], `filters.${channel.filter}`)
-      channels[name] = channel as unknown as Channel
     }
-    images[image] = {channels}
   }
-  return {version: 1, filters, images}
 }
 
 export function projectLegacyFilters(policy: Policy, inlineYaml: string): string {
@@ -183,12 +195,16 @@ export interface ConsumerBinding {
 export function validateConsumerBinding(consumer: ConsumerBinding, source: ImageBinding, destination: DestinationBinding): void {
   const expected = [destination.registry, ...destination.replicas].map(registry => `${registry}/${destination.repository}`).sort()
   const checks: [string, boolean][] = [
-    ['sourceRepository', source.sourceRepository === 'PostHog/posthog' && consumer.sourceRepository === source.sourceRepository],
+    ['sourceRepository', source.sourceRepository === CANONICAL_SOURCE_REPOSITORY && consumer.sourceRepository === source.sourceRepository],
     ['implementation', consumer.implementation === 'ordered-image-v2'],
     ['logicalImageGroups', consumer.logicalImageGroups === 1],
     ['owner', consumer.owner === destination.owner],
     ['sourceImage', consumer.sourceImage === `${source.registry}/${source.repository}`],
-    ['destination', source.destinations.includes(destination)],
+    ['destination', source.destinations.some(approved =>
+      approved.owner === destination.owner && approved.registry === destination.registry &&
+      approved.repository === destination.repository &&
+      JSON.stringify([...approved.replicas].sort()) === JSON.stringify([...destination.replicas].sort())
+    )],
     ['repositories', JSON.stringify([...consumer.repositories].sort()) === JSON.stringify(expected)]
   ]
   for (const [field, valid] of checks) {
