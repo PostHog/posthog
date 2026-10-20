@@ -1,7 +1,7 @@
 from typing import cast
 from uuid import UUID
 
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, RequestException
 
 from posthog.schema_enums import ProductKey
 
@@ -18,6 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -128,6 +131,8 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
             if status == 404:
                 return False, "Crisp could not find the workspace. Check the workspace UUID."
             raise
+        except (RequestException, RESTClientRetryableError):
+            return False, "Crisp is busy or rate limiting requests. Try again in a few minutes."
         return True, None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CrispResumeConfig]:
