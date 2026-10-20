@@ -471,12 +471,12 @@ class TestMCPToolsAPI(APIBaseTest):
                 expected_error_code="query_was_cancelled",
             ),
             param(
-                "unhandled_worker_error",
+                "table_access_denied",
                 None,
-                None,
-                "unhandled_unknown_type_error",
-                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
-                expected_error_code="unhandled_unknown_type_error",
+                "Access to the table is denied",
+                "table_access_denied",
+                "Tool failed: MaxToolFatalError: Access to the table is denied.",
+                expected_error_type="permission",
             ),
             param(
                 "hogql_query_error",

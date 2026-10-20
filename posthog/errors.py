@@ -1187,9 +1187,12 @@ _ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 
 
-def unhandled_error_code(error: BaseException) -> str:
-    """Return a code for an unclassified failure from its type alone, since its message can quote stored data."""
-    if isinstance(error, InternalCHQueryError):
+def error_code_from_type(error: BaseException) -> str:
+    """Return a code for an error from its type alone, since its message can quote stored data.
+
+    A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
+    """
+    if isinstance(error, ServerException):
         return look_up_clickhouse_error_code_meta(error).name.lower()
     class_name = _WORD_BOUNDARY.sub(r"\1_\2", _ACRONYM_BOUNDARY.sub(r"\1_\2", type(error).__name__))
     return f"unhandled_{class_name.lower()}"

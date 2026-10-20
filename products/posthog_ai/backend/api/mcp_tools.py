@@ -23,7 +23,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
-from posthog.errors import unhandled_error_code
+from posthog.errors import error_code_from_type
 from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
 from posthog.models.team.team import Team
@@ -205,7 +205,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         f"Error id: {error_id}"
                     ),
                     "error_type": "internal",
-                    "error_code": unhandled_error_code(e),
+                    "error_code": error_code_from_type(e),
                 }
             )
 

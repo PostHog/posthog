@@ -4,7 +4,7 @@ import time
 import asyncio
 from dataclasses import field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -58,9 +58,8 @@ from posthog.errors import (
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
+    error_code_from_type,
     internal_ch_error_user_message,
-    look_up_clickhouse_error_code_meta,
-    unhandled_error_code,
 )
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
@@ -140,7 +139,7 @@ RECORDABLE_STATUS_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,99}")
 def get_clickhouse_error_code(error: BaseException | None) -> str | None:
     if not isinstance(error, InternalCHQueryError):
         return None
-    code = look_up_clickhouse_error_code_meta(error).name.lower()
+    code = error_code_from_type(error)
     return code if internal_ch_error_user_message(code) else None
 
 
@@ -168,7 +167,7 @@ def hogql_error_code(error: BaseException | None) -> str | None:
 
 def internal_error_code(error: BaseException) -> str:
     """Return a code for an internal failure that holds no caller input."""
-    return hogql_error_code(error) or unhandled_error_code(error)
+    return hogql_error_code(error) or error_code_from_type(error)
 
 
 def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
@@ -186,7 +185,7 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
     return MaxToolRetryableError(str(error), error_type="internal", error_code=internal_error_code(cause))
 
 
-def _query_status_tool_error(query_status: dict) -> MaxToolError:
+def _query_status_tool_error(query_status: dict[str, Any]) -> MaxToolError:
     error_code: str | None = query_status.get("error_code")
     error_message: str | None = query_status.get("error_message")
     if error_code in TRANSIENT_QUERY_ERROR_CODES:
@@ -604,7 +603,6 @@ class AssistantQueryExecutor:
                 if isinstance(err, APIException) or classify_query_error(err) == QueryErrorCategory.USER_ERROR
                 else "internal"
             )
-            error_code = internal_error_code(err) if error_type == "internal" else get_clickhouse_error_code(err)
             if isinstance(err, ClickHouseQueryTimeOut):
                 error_type = "timeout"
             elif isinstance(err, ClickHouseQueryMemoryLimitExceeded):
@@ -614,10 +612,11 @@ class AssistantQueryExecutor:
                     raise MaxToolFatalError(err_message, error_type="api_5xx") from err
             elif isinstance(err, APIException) and err.status_code == 429:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
+            error_code = internal_error_code(err) if error_type == "internal" else get_clickhouse_error_code(err)
             raise MaxToolRetryableError(err_message, error_type=error_type, error_code=error_code) from err
         except Exception as err:
             if isinstance(err, InternalCHQueryError):
-                error_code = look_up_clickhouse_error_code_meta(err).name.lower()
+                error_code = error_code_from_type(err)
                 if rejection := describe_clickhouse_rejection(error_code):
                     raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code) from err
             elapsed = time.time() - start_time

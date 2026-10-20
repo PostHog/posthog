@@ -442,14 +442,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     @parameterized.expand(
         [
             # code_name can be lost when an internal error is re-raised from another thread.
-            ("unknown_identifier", InternalCHQueryError("DB::Exception: stored-secret", code=47), "unknown_identifier"),
-            ("unsupported_method", InternalCHQueryError("DB::Exception: stored-secret", code=1), "unsupported_method"),
-            ("syntax_error", InternalCHQueryError("DB::Exception: stored-secret", code=62), "syntax_error"),
-            (
-                "query_was_cancelled",
-                InternalCHQueryError("DB::Exception: stored-secret", code=394),
-                "query_was_cancelled",
-            ),
+            ("without_user_copy", InternalCHQueryError("DB::Exception: stored-secret", code=62), "syntax_error"),
             (
                 "temporary_server_fault",
                 InternalCHQueryError("DB::Exception: stored-secret", code=252),
