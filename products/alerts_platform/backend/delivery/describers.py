@@ -80,7 +80,7 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
     if image is not None and len(image.url) > MAX_IMAGE_URL_CHARS:
         logger.warning("alerts_platform.image_url_too_long", source=source.value, length=len(image.url))
         image = None
-    if image is not None:
+    elif image is not None:
         image = MessageImage(url=image.url, alt_text=clip_text(image.alt_text, MAX_IMAGE_ALT_TEXT_CHARS))
     return SourceDescription(
         details=description.details,

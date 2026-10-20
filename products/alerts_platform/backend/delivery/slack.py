@@ -17,6 +17,7 @@ from posthog.slack.channels import (
     clip_text,
     context_block,
     header_block,
+    image_block,
     post_message,
     section_block,
     update_message,
@@ -63,7 +64,7 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
         context = " | ".join(escape_slack_mrkdwn(line) for line in message.context)
         blocks.append(context_block(clip_text(context, MAX_CONTEXT_CHARS)))
     if message.image is not None:
-        blocks.append({"type": "image", "image_url": message.image.url, "alt_text": message.image.alt_text})
+        blocks.append(image_block(message.image.url, message.image.alt_text))
     blocks.append(actions_block([SlackButton(text=link.label, url=link.url) for link in message.links]))
     return blocks
 
