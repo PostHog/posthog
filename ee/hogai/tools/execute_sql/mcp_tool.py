@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.query_executor import hogql_error_code
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.compatibility_hints import build_compatibility_hint
@@ -90,7 +91,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
                 ) or build_compatibility_hint(e.validation_message)
                 if suggestion:
                     message = f"{message}\n\n{suggestion}"
-                raise MaxToolRetryableError(message)
+                raise MaxToolRetryableError(message, error_code=hogql_error_code(e.__cause__)) from e
 
             variables = await self._abuild_query_variables(validated.query)
             query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
