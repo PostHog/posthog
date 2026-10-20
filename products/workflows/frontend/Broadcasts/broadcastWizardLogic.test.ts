@@ -15,6 +15,7 @@ import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/gen
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
+import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -132,6 +133,18 @@ describe('broadcastWizardLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('remembers a delivered test until the email changes', async () => {
+        const testSend = broadcastTestSendLogic({ id: 'new' })
+        testSend.mount()
+        testSend.actions.setRecipientEmail('reviewer@example.com')
+        testSend.actions.sendTestEmailSuccess({ status: 'success', nextActionId: null } as any)
+        expect(testSend.values.lastTestSentTo).toBe('reviewer@example.com')
+
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Changed after the test' })
+        expect(testSend.values.lastTestSentTo).toBeNull()
+        testSend.unmount()
     })
 
     it('prefills the audience, name and source from a link without creating a draft', async () => {
@@ -383,6 +396,19 @@ describe('broadcastWizardLogic', () => {
         expect(patchedSubjects).toEqual([testCase.subject])
         expect(patchedTracking).toEqual([testCase.tracking])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('autosaves a subject edited in place on the review step', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        logic.actions.setStep('review')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Edited on the review step' })
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        expect(patchedSubjects.at(-1)).toBe('Edited on the review step')
     })
 
     it('retries a failed email autosave and moves to the draft URL once it saves', async () => {
