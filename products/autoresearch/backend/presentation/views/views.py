@@ -254,6 +254,19 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         if _is_training_agent_sandbox(request, self.team_id):
             raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Scores on persons and the cleanup's $unset are person writes, so any request that turns
+        # them on or off, or archives or deletes a pipeline that writes them, needs person:write
+        # like /score does.
+        if self.action in ("create", "update", "partial_update"):
+            writes_persons = "write_person_property" in request.data
+        elif self.action in ("archive", "destroy") and not getattr(self, "swagger_fake_view", False):
+            # Schema generation has no pipeline to read, so it documents the base scopes.
+            writes_persons = api.pipeline_writes_person_property(self.team_id, self.kwargs["pk"])
+        else:
+            writes_persons = False
+        return ["autoresearch:write", "person:write"] if writes_persons else None
+
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
         if self.action in ("resolve_template", "validate_definition", "run_inference", "run_validation"):
@@ -298,6 +311,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=201, headers=headers)
 
+    @extend_schema(request=AutoresearchPipelineCreateSerializer, responses={200: AutoresearchPipelineSerializer})
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
         context = {**self.get_serializer_context(), "pipeline_id": self.kwargs["pk"]}
@@ -310,6 +324,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 self.team_id,
                 self.kwargs["pk"],
                 fields=_pipeline_write_fields(_validated_with_sentinels(serializer)),
+                user_id=request.user.pk,
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
@@ -317,6 +332,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
+    # Both respond with the read serializer, so the generated client keeps `id` for `enrich_url`.
+    @extend_schema(request=AutoresearchPipelineCreateSerializer, responses={200: AutoresearchPipelineSerializer})
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
@@ -330,7 +347,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            api.delete_pipeline(self.team_id, self.kwargs["pk"])
+            api.delete_pipeline(self.team_id, self.kwargs["pk"], user_id=self.request.user.pk)
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         except AutoresearchConflict as exc:
@@ -639,6 +656,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         summary="Archive a pipeline",
         description=(
             "Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. "
+            "When write_person_property is on, a cleanup run removes output_person_property from the people it scored. "
             "Refused while a training run is in progress."
         ),
     )
@@ -686,7 +704,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
     def _set_status(self, status: str) -> Response:
         try:
-            pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
+            pipeline = api.set_pipeline_status(
+                self.team_id, self.kwargs["pk"], status=status, user_id=self.request.user.pk
+            )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         except AutoresearchConflict as exc:
@@ -981,6 +1001,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 distillation=data.get("distillation") or "",
                 report_notebook_short_id=data.get("report_notebook_short_id") or "",
                 reader_summary=data.get("reader_summary"),
+                headline=data.get("headline"),
                 next_steps=data.get("next_steps"),
             )
         except TrainingRunNotFound:

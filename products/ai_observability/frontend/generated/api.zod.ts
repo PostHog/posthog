@@ -129,6 +129,18 @@ export const AiObservabilityOfflineExperimentsCreateBody = /* @__PURE__ */ zod.o
         .describe('Version of the prompt under evaluation.'),
 })
 
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax = 255
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax = 100
+
+export const AiObservabilityOfflineExperimentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax))
+        .max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+})
+
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
@@ -416,12 +428,21 @@ export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
 /**
  * Create an empty dataset. Its first revision is created with its first item.
  */
+export const datasetsCreateBodyTagsItemMax = 255
+
+export const datasetsCreateBodyTagsMax = 100
+
 export const datasetsCreateBodyNameMax = 400
 
 export const datasetsCreateBodyDescriptionDefault = ``
 export const datasetsCreateBodyDescriptionMax = 10000
 
 export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsCreateBodyTagsItemMax))
+        .max(datasetsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
     description: zod
         .string()
@@ -437,11 +458,20 @@ export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Update descriptive dataset fields without changing its revision.
  */
+export const datasetsPartialUpdateBodyTagsItemMax = 255
+
+export const datasetsPartialUpdateBodyTagsMax = 100
+
 export const datasetsPartialUpdateBodyNameMax = 400
 
 export const datasetsPartialUpdateBodyDescriptionMax = 10000
 
 export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsPartialUpdateBodyTagsItemMax))
+        .max(datasetsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(datasetsPartialUpdateBodyNameMax)
@@ -528,14 +558,14 @@ export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsCreateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsCreateBodyTargetConfigOneWindowSecondsMax = 604800
+export const evaluationsCreateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigWindowSecondsMax = 604800
 
-export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
-export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+export const evaluationsCreateBodyTargetConfigQuietPeriodSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigQuietPeriodSecondsMax = 86400
 
-export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin = 60
-export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+export const evaluationsCreateBodyTargetConfigMaxAgeSecondsMin = 60
+export const evaluationsCreateBodyTargetConfigMaxAgeSecondsMax = 604800
 
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
@@ -564,6 +594,10 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
@@ -716,45 +750,41 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                 "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
             ),
         target_config: zod
-            .union([
-                zod.object({
-                    strategy: zod
-                        .enum(['fixed_window'])
-                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                    window_seconds: zod
-                        .number()
-                        .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
-                        .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-                zod.object({
-                    strategy: zod
-                        .enum(['inactivity'])
-                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                    quiet_period_seconds: zod
-                        .number()
-                        .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                        .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                    max_age_seconds: zod
-                        .number()
-                        .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
-                        .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
-                        .optional()
-                        .describe(
-                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-            ])
+            .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .optional()
+                    .describe(
+                        "'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                    ),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigWindowSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigWindowSecondsMax)
+                    .optional()
+                    .describe(
+                        "fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigQuietPeriodSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigQuietPeriodSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigMaxAgeSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigMaxAgeSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+            })
             .optional()
             .describe(
-                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+                "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
             ),
         model_configuration: zod
             .union([
@@ -770,12 +800,11 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
                                 'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -913,14 +942,14 @@ export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsUpdateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsUpdateBodyTargetConfigOneWindowSecondsMax = 604800
+export const evaluationsUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsUpdateBodyTargetConfigWindowSecondsMax = 604800
 
-export const evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
-export const evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+export const evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMin = 10
+export const evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMax = 86400
 
-export const evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
-export const evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+export const evaluationsUpdateBodyTargetConfigMaxAgeSecondsMin = 60
+export const evaluationsUpdateBodyTargetConfigMaxAgeSecondsMax = 604800
 
 export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -949,6 +978,10 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
@@ -1101,45 +1134,41 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                 "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
             ),
         target_config: zod
-            .union([
-                zod.object({
-                    strategy: zod
-                        .enum(['fixed_window'])
-                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                    window_seconds: zod
-                        .number()
-                        .min(evaluationsUpdateBodyTargetConfigOneWindowSecondsMin)
-                        .max(evaluationsUpdateBodyTargetConfigOneWindowSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-                zod.object({
-                    strategy: zod
-                        .enum(['inactivity'])
-                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                    quiet_period_seconds: zod
-                        .number()
-                        .min(evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                        .max(evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                    max_age_seconds: zod
-                        .number()
-                        .min(evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
-                        .max(evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
-                        .optional()
-                        .describe(
-                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-            ])
+            .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .optional()
+                    .describe(
+                        "'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                    ),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsUpdateBodyTargetConfigWindowSecondsMin)
+                    .max(evaluationsUpdateBodyTargetConfigWindowSecondsMax)
+                    .optional()
+                    .describe(
+                        "fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMin)
+                    .max(evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsUpdateBodyTargetConfigMaxAgeSecondsMin)
+                    .max(evaluationsUpdateBodyTargetConfigMaxAgeSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+            })
             .optional()
             .describe(
-                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+                "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
             ),
         model_configuration: zod
             .union([
@@ -1155,12 +1184,11 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
                                 'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1200,14 +1228,14 @@ export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax = 604800
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax = 604800
 
-export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
-export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+export const evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMax = 86400
 
-export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
-export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+export const evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMin = 60
+export const evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMax = 604800
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -1237,6 +1265,10 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
@@ -1390,45 +1422,41 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                 "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
             ),
         target_config: zod
-            .union([
-                zod.object({
-                    strategy: zod
-                        .enum(['fixed_window'])
-                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                    window_seconds: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
-                        .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-                zod.object({
-                    strategy: zod
-                        .enum(['inactivity'])
-                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                    quiet_period_seconds: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                        .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                    max_age_seconds: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
-                        .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
-                        .optional()
-                        .describe(
-                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-            ])
+            .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .optional()
+                    .describe(
+                        "'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                    ),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax)
+                    .optional()
+                    .describe(
+                        "fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+            })
             .optional()
             .describe(
-                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+                "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
             ),
         model_configuration: zod
             .union([
@@ -1444,12 +1472,11 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
                                 'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -2058,18 +2085,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         ),
 })
 
-export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
-    experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
-    date_from: zod
-        .string()
-        .nullish()
-        .describe('Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.'),
-    date_to: zod
-        .string()
-        .nullish()
-        .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
-})
-
 export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
 
 export const llmAnalyticsParserRecipesCreateBodySourceMax = 100000
@@ -2125,12 +2140,11 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
             'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -2145,7 +2159,12 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
@@ -2173,12 +2192,11 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
             'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
@@ -2193,7 +2211,12 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
@@ -2221,13 +2244,12 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
             'system_one',
             'openai_compatible',
         ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
@@ -2242,7 +2264,12 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
@@ -2270,12 +2297,11 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
             'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -2290,7 +2316,12 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
@@ -2329,6 +2360,10 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('Human-readable queue name.'),
 })
 
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
@@ -2339,6 +2374,11 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelM
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
@@ -2454,9 +2494,18 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .describe('Initial immutable scorer configuration.'),
 })
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -3082,14 +3131,13 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
-                        'zeabur',
                         'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -3222,14 +3270,13 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
-                        'zeabur',
                         'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -3364,14 +3411,13 @@ export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
-                        'zeabur',
                         'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()

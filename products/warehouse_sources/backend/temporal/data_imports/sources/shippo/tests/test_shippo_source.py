@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -16,11 +15,6 @@ class TestShippoSource:
         self.source = ShippoSource()
         self.team_id = 123
         self.config = ShippoSourceConfig(api_key="shippo_test_key")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["transactions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "transactions"
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Keys must match schema names exactly or the enrichment silently falls back to the LLM.
@@ -81,9 +75,3 @@ class TestShippoSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Shippo schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

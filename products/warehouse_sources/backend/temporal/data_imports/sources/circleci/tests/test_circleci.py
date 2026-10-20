@@ -1,5 +1,4 @@
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -14,13 +13,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.c
     CircleCIResumeConfig,
     CircleCIRetryableError,
     _rate_limit_sleep_seconds,
-    circleci_source,
     get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
     CIRCLECI_ENDPOINTS,
     ENDPOINTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.source import CircleCISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
+    CircleCISourceConfig,
 )
 
 PATCH_SESSION = (
@@ -35,41 +45,23 @@ def _make_manager(resume_state: CircleCIResumeConfig | None = None) -> mock.Magi
     return manager
 
 
-def _response(body: dict[str, Any], status_code: int = 200, headers: dict[str, str] | None = None) -> mock.MagicMock:
+def _response(
+    body: dict[str, Any] | ScriptedResponse, status_code: int = 200, headers: dict[str, str] | None = None
+) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
     response.ok = status_code < 400
     response.headers = headers or {}
-    response.json.return_value = body
+    response.json.return_value = body.json if isinstance(body, ScriptedResponse) else body
     return response
 
 
-def _page(items: list[dict[str, Any]], next_token: str | None) -> dict[str, Any]:
-    return {"items": items, "next_page_token": next_token}
+def _page(items: list[dict[str, Any]], next_token: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"items": items, "next_page_token": next_token})
 
 
-def _route_session(mock_session: mock.MagicMock, routes: dict[str, Any]) -> None:
-    """Route GET calls by path; values are either a body or a list of bodies consumed in order.
-
-    A body that is itself a JSON array therefore has to be wrapped in a one-element list.
-    """
-    state: dict[str, int] = {}
-
-    def get(url: str, **kwargs: Any) -> mock.MagicMock:
-        parsed = urlparse(url)
-        path = parsed.path
-        body = routes[path]
-        if isinstance(body, list):
-            index = min(state.get(path, 0), len(body) - 1)
-            state[path] = index + 1
-            return _response(body[index])
-        return _response(body)
-
-    mock_session.return_value.get.side_effect = get
-
-
-def _requested_urls(mock_session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in mock_session.return_value.get.call_args_list]
+def _driver() -> SourceDriver:
+    return SourceDriver(CircleCISource(), CircleCISourceConfig(api_token="token", org_slug="gh/posthog"))
 
 
 class TestRateLimitSleep:
@@ -100,35 +92,33 @@ class TestValidateCredentials:
             (200, 403, False),
         ]
     )
-    @mock.patch(PATCH_SESSION)
-    def test_status_mapping(self, me_status, pipeline_status, expected, mock_session):
-        responses = [_response({}, status_code=me_status)]
+    def test_status_mapping(self, me_status, pipeline_status, expected):
+        responses = [ScriptedResponse(status=me_status, json={})]
         if pipeline_status is not None:
-            responses.append(_response(_page([], None), status_code=pipeline_status))
-        mock_session.return_value.get.side_effect = responses
+            responses.append(ScriptedResponse(status=pipeline_status, json={"items": [], "next_page_token": None}))
 
-        is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V2)
+        with scripted_network(responses) as network:
+            is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V2)
 
         assert is_valid is expected
         assert (error is None) is expected
+        assert network.requests_log[0].path == "/api/v2/me"
+        if pipeline_status is not None:
+            assert network.requests_log[-1].param("org-slug") == "gh/posthog"
 
-    @mock.patch(PATCH_SESSION)
-    def test_swallows_connection_errors(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V2)
+    def test_swallows_connection_errors(self):
+        with scripted_network([ConnectionResetError("boom")]):
+            is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V2)
 
         assert is_valid is False
         assert error is not None
 
-    @mock.patch(PATCH_SESSION)
-    def test_sends_circle_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
+    def test_sends_circle_token_header(self):
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("token", None, CIRCLECI_V2)
 
-        validate_credentials("token", None, CIRCLECI_V2)
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Circle-Token"] == "token"
+        assert network.requests_log[0].headers["circle-token"] == "token"
+        assert network.session_options[0]["redact_values"] == ("token",)
 
     @parameterized.expand(
         [
@@ -137,45 +127,34 @@ class TestValidateCredentials:
             ("v3 rejects the token", [{"id": "org-uuid", "slug": "gh/posthog"}], 401, False),
         ]
     )
-    @mock.patch(PATCH_SESSION)
-    def test_v3_probes_org_projects_with_bearer_token(self, _name, collaborations, v3_status, expected, mock_session):
-        responses = [_response({}), _response(collaborations)]
+    def test_v3_probes_org_projects_with_bearer_token(self, _name, collaborations, v3_status, expected):
+        responses = [ScriptedResponse(json={}), ScriptedResponse(json=collaborations)]
         if v3_status is not None:
-            responses.append(_response({"data": [], "page": {"next": None}}, status_code=v3_status))
-        mock_session.return_value.get.side_effect = responses
+            responses.append(ScriptedResponse(status=v3_status, json={"data": [], "page": {"next": None}}))
 
-        is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V3)
+        with scripted_network(responses) as network:
+            is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V3)
 
         assert is_valid is expected
         assert (error is None) is expected
         if v3_status is not None:
-            v3_call = mock_session.return_value.get.call_args_list[-1]
-            assert urlparse(v3_call.args[0]).path == "/api/v3/projects"
-            assert parse_qs(urlparse(v3_call.args[0]).query)["filter[org_id]"] == ["org-uuid"]
-            assert v3_call.kwargs["headers"]["Authorization"] == "Bearer token"
+            v3_call = network.requests_log[-1]
+            assert v3_call.path == "/api/v3/projects"
+            assert v3_call.param("filter[org_id]") == "org-uuid"
+            assert v3_call.headers["authorization"] == "Bearer token"
 
 
 class TestPipelinesRows:
-    @mock.patch(PATCH_SESSION)
-    def test_state_saved_after_yield_not_before(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/pipeline": [
-                    _page([{"id": "p1"}], "token-2"),
-                    _page([], None),
-                ]
-            },
+    def test_state_saved_after_yield_not_before(self):
+        result = _driver().run(
+            "pipelines", [_page([{"id": "p1"}], "token-2"), _page([], None)], api_version=CIRCLECI_V2
         )
 
-        manager = _make_manager()
-        rows = get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2)
-
-        next(rows)
-        manager.save_state.assert_not_called()
-        with pytest.raises(StopIteration):
-            next(rows)
-        manager.save_state.assert_called_once()
+        assert result.raised is None
+        assert result.rows == [{"id": "p1"}]
+        assert result.params("page-token") == [None, "token-2"]
+        assert result.saved_states == [CircleCIResumeConfig(next_page_token="token-2")]
+        assert result.committed_states == []
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown CircleCI endpoint"):
@@ -199,79 +178,68 @@ class TestRetryBehavior:
         assert [item["id"] for batch in batches for item in batch] == ["p1"]
         mock_sleep.assert_called_once_with(7)
 
-    @mock.patch(PATCH_SESSION)
-    def test_5xx_retries_then_succeeds(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({}, status_code=503),
-            _response(_page([{"id": "p1"}], None)),
-        ]
+    def test_5xx_retries_then_succeeds(self):
+        result = _driver().run(
+            "pipelines", [ScriptedResponse(status=503, json={}), _page([{"id": "p1"}], None)], api_version=CIRCLECI_V2
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2))
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == ["p1"]
+        assert result.paths == ["/api/v2/pipeline", "/api/v2/pipeline"]
 
-        assert [item["id"] for batch in batches for item in batch] == ["p1"]
-        assert mock_session.return_value.get.call_count == 2
+    def test_persistent_5xx_raises_after_max_retries(self):
+        result = _driver().run("pipelines", always(ScriptedResponse(status=500)), api_version=CIRCLECI_V2)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.MAX_RETRIES", 2)
-    @mock.patch(PATCH_SESSION)
-    def test_persistent_5xx_raises_after_max_retries(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=500)
+        assert isinstance(result.raised, CircleCIRetryableError)
+        assert set(result.paths) == {"/api/v2/pipeline"}
 
-        with pytest.raises(CircleCIRetryableError):
-            list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+    def test_4xx_raises_immediately(self):
+        result = _driver().run("pipelines", [ScriptedResponse(status=401, json={})], api_version=CIRCLECI_V2)
 
-    @mock.patch(PATCH_SESSION)
-    def test_4xx_raises_immediately(self, mock_session):
-        response = _response({}, status_code=401)
-        response.raise_for_status.side_effect = Exception("401 Client Error")
-        mock_session.return_value.get.return_value = response
-
-        with pytest.raises(Exception, match="401 Client Error"):
-            list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
-
-        assert mock_session.return_value.get.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error" in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestWorkflowsFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_saves_pipeline_scan_state_after_fanout_page(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/pipeline": [
-                    _page([{"id": "p1"}], "pipeline-token-2"),
-                    _page([], None),
-                ],
-                "/api/v2/pipeline/p1/workflow": _page([{"id": "w1", "pipeline_id": "p1"}], None),
-            },
+    def test_saves_pipeline_scan_state_after_fanout_page(self):
+        result = _driver().run(
+            "workflows",
+            route(
+                {
+                    "/api/v2/pipeline": [
+                        _page([{"id": "p1"}], "pipeline-token-2"),
+                        _page([], None),
+                    ],
+                    "/api/v2/pipeline/p1/workflow": [_page([{"id": "w1", "pipeline_id": "p1"}], None)],
+                }
+            ),
+            api_version=CIRCLECI_V2,
         )
 
-        manager = _make_manager()
-        list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), manager, CIRCLECI_V2))
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].next_page_token == "pipeline-token-2"
+        assert result.raised is None
+        assert result.rows == [{"id": "w1", "pipeline_id": "p1"}]
+        assert result.saved_states == [CircleCIResumeConfig(next_page_token="pipeline-token-2")]
 
 
 class TestJobsFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_jobs_traverse_every_workflow_of_every_pipeline(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/pipeline": _page([{"id": "p1"}, {"id": "p2"}], None),
-                "/api/v2/pipeline/p1/workflow": _page([{"id": "w1"}, {"id": "w2"}], None),
-                "/api/v2/pipeline/p2/workflow": _page([{"id": "w3"}], None),
-                "/api/v2/workflow/w1/job": _page([{"id": "j1"}], None),
-                "/api/v2/workflow/w2/job": _page([{"id": "j2"}], None),
-                "/api/v2/workflow/w3/job": _page([{"id": "j3"}], None),
-            },
+    def test_jobs_traverse_every_workflow_of_every_pipeline(self):
+        result = _driver().run(
+            "jobs",
+            route(
+                {
+                    "/api/v2/pipeline": [_page([{"id": "p1"}, {"id": "p2"}], None)],
+                    "/api/v2/pipeline/p1/workflow": [_page([{"id": "w1"}, {"id": "w2"}], None)],
+                    "/api/v2/pipeline/p2/workflow": [_page([{"id": "w3"}], None)],
+                    "/api/v2/workflow/w1/job": [_page([{"id": "j1"}], None)],
+                    "/api/v2/workflow/w2/job": [_page([{"id": "j2"}], None)],
+                    "/api/v2/workflow/w3/job": [_page([{"id": "j3"}], None)],
+                }
+            ),
+            api_version=CIRCLECI_V2,
         )
-
-        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
-        rows = [row for batch in batches for row in batch]
-
-        assert [(row["id"], row["pipeline_id"], row["workflow_id"]) for row in rows] == [
+        assert result.raised is None
+        assert [(row["id"], row["pipeline_id"], row["workflow_id"]) for row in result.rows] == [
             ("j1", "p1", "w1"),
             ("j2", "p1", "w2"),
             ("j3", "p2", "w3"),
@@ -281,122 +249,194 @@ class TestJobsFanOut:
         "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.MAX_JOB_PAGES_PER_WORKFLOW",
         2,
     )
-    @mock.patch(PATCH_SESSION)
-    def test_job_page_cap_logs_workflow_identifier(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/pipeline": _page([{"id": "p1"}], None),
-                "/api/v2/pipeline/p1/workflow": _page([{"id": "w1"}], None),
-                "/api/v2/workflow/w1/job": [
-                    _page([{"id": "ja"}], "t2"),
-                    _page([{"id": "jb"}], "t3"),
-                    _page([{"id": "jc"}], "t4"),
-                ],
-            },
-        )
+    def test_job_page_cap_logs_workflow_identifier(self):
         logger = mock.MagicMock()
+        result = _driver().run(
+            "jobs",
+            route(
+                {
+                    "/api/v2/pipeline": [_page([{"id": "p1"}], None)],
+                    "/api/v2/pipeline/p1/workflow": [_page([{"id": "w1"}], None)],
+                    "/api/v2/workflow/w1/job": [
+                        _page([{"id": "ja"}], "t2"),
+                        _page([{"id": "jb"}], "t3"),
+                        _page([{"id": "jc"}], "t4"),
+                    ],
+                }
+            ),
+            logger=logger,
+            api_version=CIRCLECI_V2,
+        )
 
-        batches = list(get_rows("token", "gh/posthog", "jobs", logger, _make_manager(), CIRCLECI_V2))
-
-        assert len([row for batch in batches for row in batch]) == 2
+        assert result.raised is None
+        assert len(result.rows) == 2
         logger.warning.assert_called_once()
         assert "page cap" in logger.warning.call_args.args[0]
         assert "w1" in logger.warning.call_args.args[0]
 
 
 class TestProjectsRows:
-    @mock.patch(PATCH_SESSION)
-    def test_distinct_project_slugs_resolved_once(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/pipeline": _page(
-                    [
-                        {"id": "p1", "project_slug": "gh/posthog/posthog"},
-                        {"id": "p2", "project_slug": "gh/posthog/posthog"},
-                        {"id": "p3", "project_slug": "gh/posthog/posthog.com"},
-                        {"id": "p4"},
+    def test_distinct_project_slugs_resolved_once(self):
+        result = _driver().run(
+            "projects",
+            route(
+                {
+                    "/api/v2/pipeline": [
+                        _page(
+                            [
+                                {"id": "p1", "project_slug": "gh/posthog/posthog"},
+                                {"id": "p2", "project_slug": "gh/posthog/posthog"},
+                                {"id": "p3", "project_slug": "gh/posthog/posthog.com"},
+                                {"id": "p4"},
+                            ],
+                            None,
+                        )
                     ],
-                    None,
-                ),
-                "/api/v2/project/gh/posthog/posthog": {"id": "proj-1", "slug": "gh/posthog/posthog"},
-                "/api/v2/project/gh/posthog/posthog.com": {"id": "proj-2", "slug": "gh/posthog/posthog.com"},
-            },
+                    "/api/v2/project/gh/posthog/posthog": [
+                        ScriptedResponse(json={"id": "proj-1", "slug": "gh/posthog/posthog"})
+                    ],
+                    "/api/v2/project/gh/posthog/posthog.com": [
+                        ScriptedResponse(json={"id": "proj-2", "slug": "gh/posthog/posthog.com"})
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V2,
         )
-
-        batches = list(get_rows("token", "gh/posthog", "projects", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
-        rows = [row for batch in batches for row in batch]
-
-        assert [row["id"] for row in rows] == ["proj-1", "proj-2"]
-        project_urls = [url for url in _requested_urls(mock_session) if "/project/" in url]
-        assert len(project_urls) == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["proj-1", "proj-2"]
+        assert len([path for path in result.paths if "/project/" in path]) == 2
 
 
 COLLABORATIONS_PATH = "/api/v2/me/collaborations"
-COLLABORATIONS = [[{"id": "org-uuid", "slug": "gh/posthog", "name": "PostHog"}]]
+COLLABORATIONS = [{"id": "org-uuid", "slug": "gh/posthog", "name": "PostHog"}]
 
 
 class TestComponentsRows:
-    @mock.patch(PATCH_SESSION)
-    def test_resumes_from_saved_component_page_token(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                COLLABORATIONS_PATH: COLLABORATIONS,
-                "/api/v2/deploy/components": [_page([{"id": "c9"}], None)],
-            },
+    def test_resumes_from_saved_component_page_token(self):
+        result = _driver().run(
+            "components",
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    "/api/v2/deploy/components": [_page([{"id": "c9"}], None)],
+                }
+            ),
+            resume_state=CircleCIResumeConfig(next_page_token="resume-token"),
+            api_version=CIRCLECI_V2,
         )
 
-        manager = _make_manager(CircleCIResumeConfig(next_page_token="resume-token"))
-        list(get_rows("token", "gh/posthog", "components", mock.MagicMock(), manager, CIRCLECI_V2))
-
-        component_url = next(url for url in _requested_urls(mock_session) if "/deploy/components" in url)
-        assert parse_qs(urlparse(component_url).query)["page-token"] == ["resume-token"]
+        assert result.raised is None
+        assert result.rows == [{"id": "c9"}]
+        component_request = next(request for request in result.requests if "/deploy/components" in request.path)
+        assert component_request.param("page-token") == "resume-token"
 
     @parameterized.expand(
         [
-            ("slug not visible to the token", [[{"id": "other-uuid", "slug": "gh/other"}]]),
-            ("collaboration without an id", [[{"id": None, "slug": "gh/posthog"}]]),
+            (endpoint, name, collaborations)
+            for endpoint in ("components", "environments", "groups")
+            for name, collaborations in (
+                ("slug not visible to the token", [{"id": "other-uuid", "slug": "gh/other"}]),
+                ("collaboration without an id", [{"id": None, "slug": "gh/posthog"}]),
+            )
         ]
     )
-    @mock.patch(PATCH_SESSION)
-    def test_unresolvable_org_raises_with_slug(self, _name, collaborations, mock_session):
-        _route_session(mock_session, {COLLABORATIONS_PATH: collaborations})
+    def test_unresolvable_org_raises_with_slug(self, endpoint, _name, collaborations):
+        result = _driver().run(endpoint, [ScriptedResponse(json=collaborations)], api_version=CIRCLECI_V2)
 
-        with pytest.raises(ValueError, match="gh/posthog"):
-            list(get_rows("token", "gh/posthog", "components", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+        assert isinstance(result.raised, ValueError)
+        assert "gh/posthog" in str(result.raised)
+        assert result.paths == [COLLABORATIONS_PATH]
+
+
+class TestOrgListRows:
+    @parameterized.expand(
+        [
+            ("components", "/api/v2/deploy/components", {"org-id": "org-uuid", "page-size": "20"}),
+            ("environments", "/api/v2/deploy/environments", {"org-id": "org-uuid", "page-size": "20"}),
+            ("groups", "/api/v2/organizations/org-uuid/groups", {}),
+        ]
+    )
+    def test_walks_every_page_of_the_resolved_org(self, endpoint, path, expected_params):
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    path: [
+                        _page([{"id": "a", "created_at": "2026-01-01T00:00:00Z"}], "token-2"),
+                        _page([], "token-3"),
+                        _page([{"id": "b", "created_at": "2026-01-02T00:00:00Z"}], None),
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V3,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
+        assert result.paths == [COLLABORATIONS_PATH, path, path, path]
+        list_requests = [request for request in result.requests if request.path == path]
+        assert all({key: request.param(key) for key in expected_params} == expected_params for request in list_requests)
+        assert [request.param("page-token") for request in list_requests] == [None, "token-2", "token-3"]
+        assert result.saved_states == [
+            CircleCIResumeConfig(next_page_token="token-2"),
+            CircleCIResumeConfig(next_page_token="token-3"),
+        ]
+
+
+class TestCollaborationsRows:
+    def test_yields_every_org_the_token_sees_in_one_request(self):
+        collaborations = [
+            {"id": "org-uuid", "slug": "gh/posthog", "name": "PostHog", "vcs-type": "github"},
+            {"id": "other-uuid", "slug": "bb/other", "name": "Other", "vcs-type": "bitbucket"},
+            {"id": None, "slug": "circleci/standalone", "name": "Standalone", "vcs-type": "circleci"},
+        ]
+        result = _driver().run("collaborations", [ScriptedResponse(json=collaborations)], api_version=CIRCLECI_V3)
+
+        assert result.raised is None
+        assert result.rows == collaborations
+        assert result.paths == [COLLABORATIONS_PATH]
+        assert result.saved_states == []
+
+    def test_empty_collaborations_yield_no_rows(self):
+        result = _driver().run("collaborations", [ScriptedResponse(json=[])], api_version=CIRCLECI_V2)
+
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestComponentVersionsFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_versions_carry_component_id_and_never_null_merge_keys(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                COLLABORATIONS_PATH: COLLABORATIONS,
-                "/api/v2/deploy/components": _page([{"id": "c1"}, {"id": "c2"}], None),
-                "/api/v2/deploy/components/c1/versions": _page(
-                    [
-                        {
-                            "name": "1.0.0",
-                            "environment_id": "env-1",
-                            "namespace": "default",
-                            "is_live": True,
-                            "last_deployed_at": "2026-01-01T00:00:00Z",
-                        },
-                        {"name": "1.0.1", "environment_id": None},
+    def test_versions_carry_component_id_and_never_null_merge_keys(self):
+        result = _driver().run(
+            "component_versions",
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    "/api/v2/deploy/components": [_page([{"id": "c1"}, {"id": "c2"}], None)],
+                    "/api/v2/deploy/components/c1/versions": [
+                        _page(
+                            [
+                                {
+                                    "name": "1.0.0",
+                                    "environment_id": "env-1",
+                                    "namespace": "default",
+                                    "is_live": True,
+                                    "last_deployed_at": "2026-01-01T00:00:00Z",
+                                },
+                                {"name": "1.0.1", "environment_id": None},
+                            ],
+                            None,
+                        )
                     ],
-                    None,
-                ),
-                "/api/v2/deploy/components/c2/versions": _page([{"name": "2.0.0", "environment_id": "env-2"}], None),
-            },
+                    "/api/v2/deploy/components/c2/versions": [
+                        _page([{"name": "2.0.0", "environment_id": "env-2"}], None)
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V2,
         )
-
-        batches = list(
-            get_rows("token", "gh/posthog", "component_versions", mock.MagicMock(), _make_manager(), CIRCLECI_V2)
-        )
-        rows = [row for batch in batches for row in batch]
+        assert result.raised is None
+        rows = result.rows
 
         assert [(row["component_id"], row["name"]) for row in rows] == [
             ("c1", "1.0.0"),
@@ -410,156 +450,166 @@ class TestComponentVersionsFanOut:
         assert rows[1]["environment_id"] == ""
         assert rows[1]["namespace"] == ""
 
-    @mock.patch(PATCH_SESSION)
-    def test_repeated_page_token_fails_the_run(self, mock_session):
+    def test_repeated_page_token_fails_the_run(self):
         # The versions endpoint documents no page-token param; if it ignores ours it hands
         # back the same token forever. Truncating there would publish a partial table.
-        _route_session(
-            mock_session,
-            {
-                COLLABORATIONS_PATH: COLLABORATIONS,
-                "/api/v2/deploy/components": _page([{"id": "c1"}], None),
-                "/api/v2/deploy/components/c1/versions": _page([{"name": "1.0.0"}], "same-token"),
-            },
+        result = _driver().run(
+            "component_versions",
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    "/api/v2/deploy/components": [_page([{"id": "c1"}], None)],
+                    "/api/v2/deploy/components/c1/versions": [
+                        _page([{"name": "1.0.0"}], "same-token"),
+                        _page([{"name": "1.0.0"}], "same-token"),
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V2,
         )
 
-        with pytest.raises(ValueError, match="same page token twice"):
-            list(get_rows("token", "gh/posthog", "component_versions", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+        assert isinstance(result.raised, ValueError)
+        assert "same page token twice" in str(result.raised)
 
 
 class TestUsersRows:
-    @mock.patch(PATCH_SESSION)
-    def test_deleted_actor_is_skipped(self, mock_session):
-        missing = _response({}, status_code=404)
-        missing.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=missing)
-        bodies = {
-            "/api/v2/pipeline": _page([{"id": "p1"}], None),
-            "/api/v2/pipeline/p1/workflow": _page([{"id": "w1", "started_by": "gone", "canceled_by": "u2"}], None),
-            "/api/v2/user/u2": {"id": "u2", "login": "two"},
-        }
+    def test_deleted_actor_is_skipped(self):
+        result = _driver().run(
+            "users",
+            route(
+                {
+                    "/api/v2/pipeline": [_page([{"id": "p1"}], None)],
+                    "/api/v2/pipeline/p1/workflow": [
+                        _page([{"id": "w1", "started_by": "gone", "canceled_by": "u2"}], None)
+                    ],
+                    "/api/v2/user/gone": [ScriptedResponse(status=404, json={})],
+                    "/api/v2/user/u2": [ScriptedResponse(json={"id": "u2", "login": "two"})],
+                }
+            ),
+            api_version=CIRCLECI_V2,
+        )
 
-        def get(url: str, **kwargs: Any) -> mock.MagicMock:
-            path = urlparse(url).path
-            return missing if path == "/api/v2/user/gone" else _response(bodies[path])
-
-        mock_session.return_value.get.side_effect = get
-
-        batches = list(get_rows("token", "gh/posthog", "users", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
-
-        assert [row["id"] for batch in batches for row in batch] == ["u2"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["u2"]
+        assert "/api/v2/user/gone" in result.paths
 
 
-def _v3_page(items: list[dict[str, Any]], next_cursor: str | None = None) -> dict[str, Any]:
-    return {"data": items, "page": {"next": next_cursor, "prev": None}}
+def _v3_page(items: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "page": {"next": next_cursor, "prev": None}})
 
 
 class TestV3Rows:
-    @mock.patch(PATCH_SESSION)
-    def test_pipelines_walk_org_projects_into_runs(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                COLLABORATIONS_PATH: COLLABORATIONS,
-                "/api/v3/projects": [
-                    _v3_page([{"id": "proj-1", "attributes": {"name": "posthog"}}], "projects-cursor-2"),
-                    _v3_page([{"id": "proj-2", "attributes": {"name": "other"}}]),
-                ],
-                "/api/v3/runs": [
-                    _v3_page(
-                        [
-                            {
-                                "id": "run-1",
-                                "attributes": {"number": 7, "created_at": "2026-01-01T00:00:00Z", "phase": "ended"},
-                                "references": {"project": {"id": "proj-1"}},
-                            }
-                        ],
-                        "runs-cursor-2",
-                    ),
-                    _v3_page([{"id": "run-2", "attributes": {"number": 8, "created_at": "2026-01-02T00:00:00Z"}}]),
-                    _v3_page([{"id": "run-3", "attributes": {"number": 1, "created_at": "2026-01-03T00:00:00Z"}}]),
-                ],
-            },
+    def test_pipelines_walk_org_projects_into_runs(self):
+        result = _driver().run(
+            "pipelines",
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    "/api/v3/projects": [
+                        _v3_page([{"id": "proj-1", "attributes": {"name": "posthog"}}], "projects-cursor-2"),
+                        _v3_page([{"id": "proj-2", "attributes": {"name": "other"}}]),
+                    ],
+                    "/api/v3/runs": [
+                        _v3_page(
+                            [
+                                {
+                                    "id": "run-1",
+                                    "attributes": {"number": 7, "created_at": "2026-01-01T00:00:00Z", "phase": "ended"},
+                                    "references": {"project": {"id": "proj-1"}},
+                                }
+                            ],
+                            "runs-cursor-2",
+                        ),
+                        _v3_page([{"id": "run-2", "attributes": {"number": 8, "created_at": "2026-01-02T00:00:00Z"}}]),
+                        _v3_page([{"id": "run-3", "attributes": {"number": 1, "created_at": "2026-01-03T00:00:00Z"}}]),
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V3,
         )
-
-        manager = _make_manager()
-        batches = []
-        saves_seen_at_yield = []
-        for batch in get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V3):
-            batches.append(batch)
-            saves_seen_at_yield.append(manager.save_state.call_count)
-        rows = [row for batch in batches for row in batch]
 
         # The next projects cursor is staged before the first page's last batch, so the pipeline
         # commits it together with that batch.
-        assert saves_seen_at_yield == [0, 1, 1]
+        assert result.raised is None
+        assert result.saved_states == [CircleCIResumeConfig(page_cursor="projects-cursor-2")]
+        assert result.committed_states == [CircleCIResumeConfig(page_cursor="projects-cursor-2")]
 
-        assert [row["id"] for row in rows] == ["run-1", "run-2", "run-3"]
+        assert [row["id"] for row in result.rows] == ["run-1", "run-2", "run-3"]
         # Attributes are lifted to top-level columns so the created_at partition key resolves.
-        assert rows[0]["created_at"] == "2026-01-01T00:00:00Z"
-        assert rows[0]["number"] == 7
-        assert rows[0]["references"] == {"project": {"id": "proj-1"}}
+        assert result.rows[0]["created_at"] == "2026-01-01T00:00:00Z"
+        assert result.rows[0]["number"] == 7
+        assert result.rows[0]["references"] == {"project": {"id": "proj-1"}}
 
-        calls = mock_session.return_value.get.call_args_list
-        v3_calls = [call for call in calls if "/api/v3/" in call.args[0]]
-        assert all(call.kwargs["headers"]["Authorization"] == "Bearer token" for call in v3_calls)
-        queries = [(urlparse(call.args[0]).path, parse_qs(urlparse(call.args[0]).query)) for call in v3_calls]
+        v3_calls = [request for request in result.requests if "/api/v3/" in request.path]
+        assert all(request.headers["authorization"] == "Bearer token" for request in v3_calls)
+        queries = [(request.path, dict(request.query)) for request in v3_calls]
         assert queries == [
-            ("/api/v3/projects", {"filter[org_id]": ["org-uuid"], "page[limit]": [str(V3_PROJECTS_PAGE_LIMIT)]}),
-            ("/api/v3/runs", {"filter[project_id]": ["proj-1"]}),
-            ("/api/v3/runs", {"filter[project_id]": ["proj-1"], "page[cursor]": ["runs-cursor-2"]}),
+            ("/api/v3/projects", {"filter[org_id]": ("org-uuid",), "page[limit]": (str(V3_PROJECTS_PAGE_LIMIT),)}),
+            ("/api/v3/runs", {"filter[project_id]": ("proj-1",)}),
+            ("/api/v3/runs", {"filter[project_id]": ("proj-1",), "page[cursor]": ("runs-cursor-2",)}),
             (
                 "/api/v3/projects",
                 {
-                    "filter[org_id]": ["org-uuid"],
-                    "page[limit]": [str(V3_PROJECTS_PAGE_LIMIT)],
-                    "page[cursor]": ["projects-cursor-2"],
+                    "filter[org_id]": ("org-uuid",),
+                    "page[limit]": (str(V3_PROJECTS_PAGE_LIMIT),),
+                    "page[cursor]": ("projects-cursor-2",),
                 },
             ),
-            ("/api/v3/runs", {"filter[project_id]": ["proj-2"]}),
+            ("/api/v3/runs", {"filter[project_id]": ("proj-2",)}),
         ]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].page_cursor == "projects-cursor-2"
 
-    @mock.patch(PATCH_SESSION)
-    def test_resumes_projects_scan_from_saved_cursor(self, mock_session):
-        _route_session(
-            mock_session,
-            {COLLABORATIONS_PATH: COLLABORATIONS, "/api/v3/projects": _v3_page([{"id": "proj-9", "attributes": {}}])},
+    def test_resumes_projects_scan_from_saved_cursor(self):
+        result = _driver().run(
+            "projects",
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    "/api/v3/projects": [_v3_page([{"id": "proj-9", "attributes": {}}])],
+                }
+            ),
+            resume_state=CircleCIResumeConfig(page_cursor="resume-cursor"),
+            api_version=CIRCLECI_V3,
         )
 
-        manager = _make_manager(CircleCIResumeConfig(page_cursor="resume-cursor"))
-        batches = list(get_rows("token", "gh/posthog", "projects", mock.MagicMock(), manager, CIRCLECI_V3))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["proj-9"]
+        project_request = next(request for request in result.requests if request.path == "/api/v3/projects")
+        assert project_request.param("page[cursor]") == "resume-cursor"
 
-        assert [row["id"] for batch in batches for row in batch] == ["proj-9"]
-        projects_url = next(url for url in _requested_urls(mock_session) if "/api/v3/projects" in url)
-        assert parse_qs(urlparse(projects_url).query)["page[cursor]"] == ["resume-cursor"]
-
-    @mock.patch(PATCH_SESSION)
-    def test_job_rows_carry_parent_identifiers(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                COLLABORATIONS_PATH: COLLABORATIONS,
-                "/api/v3/projects": _v3_page([{"id": "proj-1", "attributes": {}}]),
-                "/api/v3/runs": _v3_page([{"id": "run-1", "attributes": {}}]),
-                "/api/v3/workflows": _v3_page(
-                    [{"id": "wf-1", "attributes": {"name": "build", "created_at": "2026-01-01T00:00:00Z"}}]
-                ),
-                # The v3 jobs collection is not paginated, so it carries no page member.
-                "/api/v3/jobs": {
-                    "data": [
-                        {
-                            "id": "job-1",
-                            "attributes": {"name": "test", "number": 42, "phase": "ended", "type": "build"},
-                            "references": {"workflow": {"id": "wf-1"}, "project": {"id": "proj-1"}},
-                        }
-                    ]
-                },
-            },
+    def test_job_rows_carry_parent_identifiers(self):
+        result = _driver().run(
+            "jobs",
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    "/api/v3/projects": [_v3_page([{"id": "proj-1", "attributes": {}}])],
+                    "/api/v3/runs": [_v3_page([{"id": "run-1", "attributes": {}}])],
+                    "/api/v3/workflows": [
+                        _v3_page(
+                            [{"id": "wf-1", "attributes": {"name": "build", "created_at": "2026-01-01T00:00:00Z"}}]
+                        )
+                    ],
+                    # The v3 jobs collection is not paginated, so it carries no page member.
+                    "/api/v3/jobs": [
+                        ScriptedResponse(
+                            json={
+                                "data": [
+                                    {
+                                        "id": "job-1",
+                                        "attributes": {"name": "test", "number": 42, "phase": "ended", "type": "build"},
+                                        "references": {"workflow": {"id": "wf-1"}, "project": {"id": "proj-1"}},
+                                    }
+                                ]
+                            }
+                        )
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V3,
         )
 
-        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager(), CIRCLECI_V3))
-        rows = [row for batch in batches for row in batch]
+        assert result.raised is None
+        rows = result.rows
 
         assert len(rows) == 1
         assert rows[0]["id"] == "job-1"
@@ -567,14 +617,23 @@ class TestV3Rows:
         assert rows[0]["run_id"] == "run-1"
         assert rows[0]["workflow_id"] == "wf-1"
         assert rows[0]["workflow_created_at"] == "2026-01-01T00:00:00Z"
-        assert parse_qs(urlparse(_requested_urls(mock_session)[-1]).query) == {"filter[workflow_id]": ["wf-1"]}
+        assert result.requests[-1].param("filter[workflow_id]") == "wf-1"
 
 
 class TestCircleCISourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint):
         config = CIRCLECI_ENDPOINTS[endpoint]
-        response = circleci_source("token", "gh/posthog", endpoint, mock.MagicMock(), _make_manager(), CIRCLECI_V2)
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == COLLABORATIONS_PATH:
+                return ScriptedResponse(json=COLLABORATIONS)
+            return ScriptedResponse(json={"items": [], "next_page_token": None})
+
+        result = _driver().run(endpoint, answer, api_version=CIRCLECI_V2)
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == list(config.primary_keys)

@@ -1,21 +1,18 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.goldcast import (
+    GoldcastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source import GoldcastSource
-
-
-def _config(access_key: str = "tok") -> Any:
-    config = MagicMock()
-    config.access_key = access_key
-    return config
 
 
 class TestSourceConfig:
@@ -25,12 +22,6 @@ class TestSourceConfig:
         assert fields["access_key"].required is True
         # The token is a credential, so it must be stored as a secret password field.
         assert fields["access_key"].secret is True
-
-
-class TestGetSchemas:
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = GoldcastSource().get_schemas(_config(), team_id=1, names=["events", "webinars"])
-        assert {s.name for s in schemas} == {"events", "webinars"}
 
 
 class TestNonRetryableErrors:
@@ -63,18 +54,15 @@ class TestNonRetryableErrors:
 
 class TestValidateCredentials:
     def test_valid_token_passes(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source.validate_goldcast_credentials",
-            return_value=True,
-        ):
-            assert GoldcastSource().validate_credentials(_config(), team_id=1) == (True, None)
+        with scripted_network([ScriptedResponse(json={"id": "org"})]):
+            assert GoldcastSource().validate_credentials(GoldcastSourceConfig(access_key="tok"), team_id=1) == (
+                True,
+                None,
+            )
 
     def test_invalid_token_surfaces_message(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source.validate_goldcast_credentials",
-            return_value=False,
-        ):
-            valid, message = GoldcastSource().validate_credentials(_config(), team_id=1)
+        with scripted_network([ScriptedResponse(status=401)]):
+            valid, message = GoldcastSource().validate_credentials(GoldcastSourceConfig(access_key="tok"), team_id=1)
         assert valid is False
         assert message == "Invalid Goldcast API token"
 

@@ -14,8 +14,7 @@ Nine assets on one daily partition, each writing Parquet under the configured S3
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
-is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
-by report_id when it measures one rendering against the other. inbox_report_reviewers is a
+is a report-grain leaf: nothing joins it, and no model family trains on it. inbox_report_reviewers is a
 (report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
 leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
@@ -61,6 +60,7 @@ import json
 import datetime
 from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import Count, Min
 
@@ -70,6 +70,7 @@ import pyarrow.compute as pc
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 from posthog.dataclasses import frozen
@@ -145,6 +146,8 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     USER_LABEL_STREAMS,
     USER_SERVER_ACTIONS_COLUMNS,
     USER_SERVER_ACTIONS_STREAM,
+    USER_STATUS_STREAM,
+    canonical_report_uuid,
     etl_workload,
     hogql_rows,
     labels_team,
@@ -152,7 +155,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 9
+FEATURE_SCHEMA_VERSION = 10
 # Apart from FEATURE_SCHEMA_VERSION on purpose: the labels refresh sensor rewrites every labels
 # partition whose stamp is older than that one, and a user-grain change must not set it off.
 USER_INTERACTIONS_SCHEMA_VERSION = 1
@@ -685,20 +688,68 @@ def _report_teams(report_ids: list[str], snapshot_end: datetime.datetime) -> dic
     return teams
 
 
+@frozen
+class ScopedRows:
+    rows: list[tuple[Any, ...]]
+    dropped: int
+
+
+def scoped_user_status_rows(rows: list[tuple[Any, ...]], report_teams: Mapping[str, int]) -> ScopedRows:
+    """Strip the trailing `status_event_team_id` from each `USER_STATUS_SQL` row, and drop the rows
+    whose tenant is missing or is not the report's team, as `label_provenance_ok` does for the report
+    grain. The pair keeps its other streams. A report outside this region's Postgres is not counted
+    here, because the assembler drops all of its pairs."""
+    kept: list[tuple[Any, ...]] = []
+    dropped = 0
+    for row in rows:
+        *values, status_event_team_id = row
+        report_id = canonical_report_uuid(str(row[0]))
+        team_id = report_teams.get(report_id) if report_id is not None else None
+        if team_id is not None and status_event_team_id != team_id:
+            dropped += 1
+            continue
+        kept.append(tuple(values))
+    return ScopedRows(rows=kept, dropped=dropped)
+
+
+def org_member_distinct_ids(team_ids: Collection[int], distinct_ids: list[str]) -> dict[int, set[str]]:
+    """The given distinct ids that name a member of each team's organization, keyed by team id. One
+    query per chunk of distinct ids covers every organization."""
+    team_orgs = dict(Team.objects.filter(id__in=sorted(team_ids)).values_list("id", "organization_id"))
+    by_org: dict[UUID, set[str]] = {}
+    for chunk in _chunked(distinct_ids):
+        for org_id, distinct_id in OrganizationMembership.objects.filter(
+            organization_id__in=set(team_orgs.values()), user__distinct_id__in=chunk
+        ).values_list("organization_id", "user__distinct_id"):
+            by_org.setdefault(org_id, set()).add(str(distinct_id))
+    return {team_id: by_org.get(org_id, set()) for team_id, org_id in team_orgs.items()}
+
+
+@frozen
+class UserInteractionRows:
+    rows: list[dict[str, Any]]
+    non_member_pairs: int
+
+
 def assemble_user_interaction_rows(
     merged_rows: list[dict[str, Any]],
     report_teams: Mapping[str, int],
     consent_team_ids: Collection[int],
+    team_members: Mapping[int, Collection[str]],
     user_uuids: Mapping[str, str],
-) -> list[dict[str, Any]]:
+) -> UserInteractionRows:
     """Keep the rows whose report exists in this region and belongs to a team opted in to AI
-    training, and add the report's team and the person's uuid. Stricter than the labels asset, which
-    keeps label-only rows, because these rows describe a person. Sorted, so a re-run writes the same
-    object."""
+    training, and whose person is a member of that team's organization. Add the report's team and the
+    person's uuid. Stricter than the labels asset, which keeps label-only rows, because these rows
+    describe a person. Sorted, so a re-run writes the same object."""
     rows: list[dict[str, Any]] = []
+    non_member_pairs = 0
     for merged in merged_rows:
         team_id = report_teams.get(merged["report_id"])
         if team_id is None or team_id not in consent_team_ids:
+            continue
+        if merged["user_distinct_id"] not in team_members.get(team_id, ()):
+            non_member_pairs += 1
             continue
         rows.append(
             {
@@ -707,7 +758,10 @@ def assemble_user_interaction_rows(
                 "user_uuid": user_uuids.get(merged["user_distinct_id"]),
             }
         )
-    return sorted(rows, key=lambda row: (row["report_id"], row["user_distinct_id"]))
+    return UserInteractionRows(
+        rows=sorted(rows, key=lambda row: (row["report_id"], row["user_distinct_id"])),
+        non_member_pairs=non_member_pairs,
+    )
 
 
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
@@ -995,6 +1049,7 @@ def _snapshot_report_embeddings(
                 },
                 settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )
@@ -1138,6 +1193,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
                 },
                 settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )
@@ -1280,7 +1336,8 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     """Cumulative interactions at (report, person) grain, for user-report affinity models.
 
     A leaf: nothing joins it, so a failure here never fails inbox_report_model_data. The person key
-    is `User.distinct_id`; `user_uuid` is null when that distinct id is not a user in this region.
+    is `User.distinct_id`, and a person who is not a member of the report team's organization gets
+    no row.
     """
     if skip_unconfigured(context):
         return
@@ -1309,6 +1366,8 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     consent_team_ids = training_consent_team_ids()
     consented_ids = sorted(report_id for report_id, team_id in report_teams.items() if team_id in consent_team_ids)
     stream_rows[USER_SERVER_ACTIONS_STREAM] = user_server_action_rows(consented_ids, snapshot_end)
+    scoped_status = scoped_user_status_rows(stream_rows[USER_STATUS_STREAM], report_teams)
+    stream_rows[USER_STATUS_STREAM] = scoped_status.rows
 
     merged = merge_label_streams(
         stream_rows,
@@ -1318,10 +1377,12 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
         defaults=USER_LABEL_DEFAULTS,
     )
     distinct_ids = sorted({row["user_distinct_id"] for row in merged})
+    team_members = org_member_distinct_ids(set(report_teams.values()) & set(consent_team_ids), distinct_ids)
     user_uuids = {
         distinct_id: identity.uuid for distinct_id, identity in user_identities("distinct_id", distinct_ids).items()
     }
-    rows = assemble_user_interaction_rows(merged, report_teams, consent_team_ids, user_uuids)
+    assembled = assemble_user_interaction_rows(merged, report_teams, consent_team_ids, team_members, user_uuids)
+    rows = assembled.rows
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, USER_INTERACTIONS_TABLE, partition_key)
@@ -1338,6 +1399,8 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
             "reports": dagster.MetadataValue.int(len({row["report_id"] for row in rows})),
             "users": dagster.MetadataValue.int(len({row["user_distinct_id"] for row in rows})),
             "excluded_pairs": dagster.MetadataValue.int(len(merged) - len(rows)),
+            "non_member_pairs": dagster.MetadataValue.int(assembled.non_member_pairs),
+            "status_tenant_mismatch_pairs": dagster.MetadataValue.int(scoped_status.dropped),
             **{
                 f"{stream_name}_pairs": dagster.MetadataValue.int(len(stream))
                 for stream_name, stream in stream_rows.items()

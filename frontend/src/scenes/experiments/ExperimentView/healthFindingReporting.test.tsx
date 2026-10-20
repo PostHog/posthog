@@ -5,7 +5,9 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -100,21 +102,21 @@ describe('health finding reporting', () => {
             status: ExperimentStatus.Running,
             start_date: dayjs().subtract(3, 'day').toISOString(),
             feature_flag: { id: 1, key: 'checkout-flag', active: false, filters: { groups: [] } },
-            health: {
-                findings: [
-                    {
-                        code: 'flag_off_while_running',
-                        subcode: 'running_but_flag_disabled',
-                        severity: 'warning',
-                        title: 'The experiment is paused',
-                        detail: 'The linked feature flag is disabled while the experiment has not been ended.',
-                        evidence: {},
-                        actions: ['open_feature_flag'],
-                        diagnostic_ref: 'A5',
-                    },
-                ],
-            },
         } as unknown as Experiment)
+        logic.actions.loadExperimentHealthSuccess({
+            findings: [
+                {
+                    code: 'flag_off_while_running',
+                    subcode: 'running_but_flag_disabled',
+                    severity: 'warning',
+                    title: 'The experiment is paused',
+                    detail: 'The linked feature flag is disabled while the experiment has not been ended.',
+                    evidence: {},
+                    actions: ['open_feature_flag'],
+                    diagnostic_ref: 'A5',
+                },
+            ],
+        })
         logic.actions.loadExposuresSuccess(exposures)
         render(
             <Provider>
@@ -135,6 +137,10 @@ describe('health finding reporting', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS], {
+            [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true,
+        })
         logic = experimentLogic({ experimentId: EXPERIMENT_ID })
         logic.mount()
         captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
@@ -188,11 +194,11 @@ describe('health finding reporting', () => {
 
         const shown = captureSpy.mock.calls
             .filter(([event]) => event === 'experiment health finding shown')
-            .map(([, properties]) => [properties.finding_code, properties.finding_variant])
+            .map(([, properties]) => [properties.finding_code, properties.finding_variant, properties.finding_severity])
         expect(shown).toEqual([
-            ['flag_off_while_running', 'running_but_flag_disabled'],
-            ['srm', null],
-            ['bias_risk_multiple_excluded', null],
+            ['flag_off_while_running', 'running_but_flag_disabled', 'warning'],
+            ['srm', null, 'warning'],
+            ['bias_risk_multiple_excluded', null, 'warning'],
         ])
     })
 

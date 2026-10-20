@@ -5,7 +5,7 @@ from unittest import mock
 
 from django.db import OperationalError
 
-from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretMissingError
+from posthog.credentials_service.errors import CredentialsServiceUnreachableError, SecretMissingError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 
@@ -217,13 +217,13 @@ def test_undecrypted_integration_secret_error_is_skipped():
 @pytest.mark.parametrize(
     "error,expect_capture",
     [
-        (IntegrationServiceUnreachableError("connect timeout"), False),
+        (CredentialsServiceUnreachableError("connect timeout"), False),
         (SecretMissingError("some_key"), True),
     ],
     ids=["non_reportable_service_unreachable", "reportable_secret_missing"],
 )
-def test_integration_secrets_failure_is_retried_and_reported_by_reportable(error, expect_capture):
-    # An integration-service failure is never the customer's fault, so discovery must not disable
+def test_credentials_service_failure_is_retried_and_reported_by_reportable(error, expect_capture):
+    # A credentials-service failure is never the customer's fault, so discovery must not disable
     # the source (would need `handle_non_retryable_error`) — it must re-raise as NonReportableError
     # so the workflow's retry policy picks it back up. `reportable` alone decides whether a person
     # hears about it: capturing an unreachable service opens an issue per credential read for what

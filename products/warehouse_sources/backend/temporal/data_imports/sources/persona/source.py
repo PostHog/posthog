@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -7,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -19,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PersonaSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
+    PERSONA_API_VERSION_2026_09_29,
     PersonaResumeConfig,
     persona_source,
     validate_credentials as validate_persona_credentials,
@@ -33,8 +39,28 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersonaSource(ResumableSource[PersonaSourceConfig, PersonaResumeConfig]):
+    codebase_detection = detect(
+        env=("^PERSONA_",),
+        script_hosts=("cdn.withpersona.com",),
+        npm=("persona", "persona-react", "react-native-persona"),
+        cocoapods=(
+            "PersonaInquirySDK2",
+            "Persona-OpenSSL-Universal",
+            "PersonaInquiryAnywhereSDK",
+            "PersonaInquirySDK",
+            "PersonaNfc",
+            "PersonaSentinel",
+            "PersonaSna",
+            "PersonaWebRtc",
+        ),
+        maven=("com.withpersona.sdk2:inquiry",),
+        swiftpm=("github.com/persona-id/inquiry-ios-2",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.withpersona.com/reference"
+    supported_versions = (UNVERSIONED_API_VERSION, PERSONA_API_VERSION_2026_09_29)
+    default_version = PERSONA_API_VERSION_2026_09_29
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -95,6 +121,8 @@ Sandbox and production environments use separate API keys — use the one for th
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # The endpoint catalog is static and identical across Persona API versions, so discovery
+        # ignores the pin; it is consumed at the request layer.
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = PERSONA_ENDPOINTS[endpoint]
             has_incremental = endpoint_config.supports_incremental and bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -120,7 +148,7 @@ Sandbox and production environments use separate API keys — use the one for th
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        status = validate_persona_credentials(config.api_key)
+        status = validate_persona_credentials(config.api_key, self.resolve_api_version(api_version))
         if status == 200:
             return True, None
         if status == 401:
@@ -148,6 +176,7 @@ Sandbox and production environments use separate API keys — use the one for th
         return persona_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,

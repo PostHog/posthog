@@ -20,12 +20,14 @@ from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_T
 
 from products.ai_observability.backend.llm.errors import (
     ContentFilteredError,
+    ContextWindowExceededError,
     OutputTokenLimitError,
     ProviderRequestRejectedError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
 
 from .run_tagger import (
     SKIPPED_RESULT_ERROR_TYPES,
@@ -235,6 +237,41 @@ class TestRunTaggerWorkflow:
                 assert result["input_tokens"] == 100
                 assert result["output_tokens"] == 20
                 assert called_on_event_loop == [False]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_tagger_truncates_oversized_prompt(self, setup_data: SetupData) -> None:
+        team = setup_data["team"]
+        tagger = {
+            "id": str(setup_data["tagger"].id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+        long_input = "\n".join(f"line {i} " + "x" * 100 for i in range(5_000))
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": long_input}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Short reply."}],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config,
+        ):
+            mock_complete = mock_client_class.return_value.complete
+            mock_complete.return_value = MagicMock(
+                parsed=TagResult(tags=["billing"], reasoning="ok"),
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
+            )
+            mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+
+            execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        user_prompt = mock_complete.call_args.args[0].messages[0]["content"]
+        assert len(user_prompt) <= EVENT_TEXT_MAX_CHARS
+        assert user_prompt.endswith("Output: assistant: Short reply.")
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_tagger_strips_unknown_tags(self, setup_data):
@@ -636,7 +673,7 @@ class TestRunTaggerWorkflow:
 
 def make_hog_tagger_dict(team_id: int, source: str, tags: list[dict] | None = None) -> dict:
     """Build the tagger payload that the workflow passes to the Hog activity."""
-    from posthog.cdp.validation import compile_hog
+    from products.cdp.backend.validation import compile_hog
 
     bytecode = compile_hog(source, "tagger")
     return {
@@ -661,7 +698,7 @@ class TestRunHogTagger:
         return create_mock_event_data(team_id=1)
 
     def test_returns_list_of_strings(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['billing']", "tagger")
 
@@ -671,7 +708,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_filters_unknown_tags_against_whitelist(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['billing', 'unknown', 'analytics']", "tagger")
 
@@ -685,7 +722,7 @@ class TestRunHogTagger:
         """When tagger_config['tags'] is empty (Hog-only freeform), the source's
         return value is taken at face value — this is the documented behavior
         for Hog taggers without a tag whitelist."""
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['anything', 'goes']", "tagger")
 
@@ -695,7 +732,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_string_return_is_promoted_to_single_tag_list(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 'billing'", "tagger")
 
@@ -705,7 +742,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_non_list_return_type_surfaces_error(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 42", "tagger")
 
@@ -716,7 +753,7 @@ class TestRunHogTagger:
         assert "Must return a list of tag names" in result["error"]
 
     def test_null_return_yields_empty_tags_no_error(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "tagger")
 
@@ -726,7 +763,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_print_output_captured_as_reasoning(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("print('inspecting input'); return ['billing']", "tagger")
 
@@ -940,6 +977,10 @@ class TestSkippedResultsStayOutOfErrorTracking:
             (StructuredOutputParseError("The reply did not match the schema."), "parse_error"),
             (ContentFilteredError("The request was rejected by the content filter."), "parse_error"),
             (ProviderRequestRejectedError("The response exceeds the limit."), "request_rejected"),
+            (
+                ContextWindowExceededError("The prompt is too long for the context window."),
+                "context_window_exceeded",
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)

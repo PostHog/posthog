@@ -10,6 +10,7 @@ from typing import Literal, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.db.models import BooleanField, Case, Value, When
 from django.utils import timezone
 
@@ -26,6 +27,8 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.dev_stack_image_models import DevStackImageAttempt
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
 
@@ -268,6 +271,56 @@ class InfrastructureStatus:
         return {"images": images, "truncated": len(rows) > MAX_IMAGES, "limit": MAX_IMAGES}
 
     def dev_stack(self) -> JsonValue:
+        target = DevStackImageState.target()
+        if target is not None:
+            attempt = (
+                DevStackImageAttempt.objects.using("default").filter(pk=target.attempt_id).first()
+                if target.attempt_id
+                else None
+            )
+            status = (
+                "disabled"
+                if not target.enabled
+                else "retry_scheduled"
+                if target.next_retry_at
+                else "blocked"
+                if target.blocked_reason
+                else "current"
+                if target.active_generation == target.generation and target.active_image_id
+                else attempt.status
+                if attempt
+                else "queued"
+            )
+            url = workflow_url(f"activate-dev-stack-image-{attempt.id}") if attempt else ""
+            if attempt and attempt.workflow_run_id:
+                url += f"/{quote(attempt.workflow_run_id, safe='')}/history"
+            return {
+                "name": target.name,
+                "protected": True,
+                "base_image_reference": target.active_base_reference or None,
+                "auto_refresh": target.auto_refresh,
+                "observation_error": target.observation_error,
+                "workflow_url": url,
+                "attempt_id": str(attempt.id) if attempt else None,
+                "workflow_run_id": attempt.workflow_run_id if attempt else None,
+                "status": status,
+                "generation": target.generation,
+                "active_generation": target.active_generation,
+                "active_image_id": target.active_image_id or None,
+                "active_agent_version": target.active_agent_version or None,
+                "desired_base_reference": target.base_reference or None,
+                "repository_sha": target.repository_sha or None,
+                "activated_at": target.activated_at.isoformat() if target.activated_at else None,
+                "requested_at": target.requested_at.isoformat() if target.requested_at else None,
+                "target_observed_at": target.observed_at.isoformat() if target.observed_at else None,
+                "next_retry_at": target.next_retry_at.isoformat() if target.next_retry_at else None,
+                "reason": target.blocked_reason or (attempt.error if attempt else ""),
+                "attempt_started_at": attempt.started_at.isoformat() if attempt and attempt.started_at else None,
+                "lease_expires_at": attempt.lease_expires_at.isoformat()
+                if attempt and attempt.lease_expires_at
+                else None,
+                "deadline_at": attempt.deadline_at.isoformat() if attempt and attempt.deadline_at else None,
+            }
         reference = get_tasks_cache().get(f"tasks:dev-stack-image:baked-base-reference:{DEV_STACK_IMAGE_NAME}")
         return {
             "name": DEV_STACK_IMAGE_NAME,
@@ -275,16 +328,47 @@ class InfrastructureStatus:
             "workflow_url": workflow_url(f"bake-dev-stack-image-{DEV_STACK_IMAGE_NAME}"),
         }
 
+    def read_dev_stack_workflow(self) -> SourceSnapshot:
+        try:
+            target = DevStackImageState.target()
+            attempt = (
+                DevStackImageAttempt.objects.using("default").filter(pk=target.attempt_id).first()
+                if target and target.attempt_id
+                else None
+            )
+        except DatabaseError as error:
+            logger.exception("tasks_infrastructure_workflow_selection_failed")
+            return SourceSnapshot(status="error", error=self.error_message(error))
+        if target is None:
+            workflow_id = f"bake-dev-stack-image-{DEV_STACK_IMAGE_NAME}"
+            return self.read(f"workflow:{workflow_id}", lambda: self.workflow(workflow_id))
+        if attempt is None:
+            return SourceSnapshot(
+                status="ok", observed_at=timezone.now(), data={"status": "not_found", "activities": [], "url": ""}
+            )
+        workflow_id = f"activate-dev-stack-image-{attempt.id}"
+        run_id = attempt.workflow_run_id or None
+        return self.read(f"workflow:{workflow_id}:{run_id or ''}", lambda: self.workflow(workflow_id, run_id=run_id))
+
     @async_to_sync
-    async def workflow(self, workflow_id: str) -> JsonValue:
+    async def workflow(self, workflow_id: str, *, run_id: str | None = None) -> JsonValue:
         client = await asyncio.wait_for(async_connect(), timeout=5)
         try:
-            description = await client.get_workflow_handle(workflow_id).describe(rpc_timeout=timedelta(seconds=5))
+            description = await client.get_workflow_handle(workflow_id, run_id=run_id).describe(
+                rpc_timeout=timedelta(seconds=5)
+            )
         except RPCError as error:
             if error.status == RPCStatusCode.NOT_FOUND:
-                return {"status": "not_found", "activities": [], "url": workflow_url(workflow_id)}
+                return {
+                    "status": "not_found",
+                    "workflow_id": workflow_id,
+                    "run_id": run_id,
+                    "activities": [],
+                    "url": workflow_url(workflow_id),
+                }
             raise
         return {
+            "workflow_id": workflow_id,
             "status": description.status.name.lower() if description.status else "unknown",
             "run_id": description.run_id,
             "started_at": description.start_time.isoformat() if description.start_time else None,

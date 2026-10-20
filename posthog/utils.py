@@ -27,7 +27,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError, models
-from django.db.models.functions import Coalesce, Lower
+from django.db.models.functions import Coalesce
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -53,6 +53,7 @@ from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
@@ -485,6 +486,81 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+APP_EVALUATION_CONTEXT = "posthog-web-app"
+
+
+def flags_for_app_evaluation_context(
+    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """
+    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts.
+    """
+    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
+    if flags is None:
+        return None
+    excluded = {
+        definition["key"]
+        for definition in definitions or []
+        if definition.get("evaluation_contexts") and APP_EVALUATION_CONTEXT not in definition["evaluation_contexts"]
+    }
+    return {key: value for key, value in flags.items() if key not in excluded}
+
+
+@frozen
+class _FlagIdentity:
+    person_properties: dict[str, Any]
+    groups: dict[str, str]
+    group_properties: dict[str, dict[str, Any]]
+
+
+def _flag_identity(current_user: dict[str, Any], joined_at: str) -> _FlagIdentity:
+    """
+    Mirrors `userIdentity()` in `frontend/src/lib/utils/posthogIdentity.ts`, which sends these inputs to /flags.
+    Local evaluation drops any flag it cannot decide from them, and decides a flag differently when they differ.
+    """
+    groups: dict[str, str] = {}
+    group_properties: dict[str, dict[str, Any]] = {}
+    organization = current_user.get("organization")
+    team = current_user.get("team")
+    metadata = (organization.get("metadata") or {}) if organization else {}
+    if team:
+        groups["project"] = team["uuid"]
+        group_properties["project"] = {
+            "id": team["id"],
+            "uuid": team["uuid"],
+            "name": team["name"],
+            "ingested_event": team["ingested_event"],
+            "is_demo": team["is_demo"],
+            "timezone": team["timezone"],
+            "instance_tag": metadata.get("instance_tag"),
+        }
+    if organization:
+        groups["organization"] = organization["id"]
+        group_properties["organization"] = {
+            "id": organization["id"],
+            "name": organization["name"],
+            "slug": organization["slug"],
+            "created_at": organization["created_at"],
+            "available_product_features": organization["available_product_features"],
+            "member_count": organization["member_count"],
+            "project_count": len(organization["teams"]),
+            **metadata,
+        }
+        if organization.get("customer_id"):
+            groups["customer"] = organization["customer_id"]
+    groups["instance"] = settings.SITE_URL
+    group_properties["instance"] = {"site_url": settings.SITE_URL}
+    return _FlagIdentity(
+        person_properties={
+            "email": None if current_user["anonymize_data"] else current_user["email"],
+            "joined_at": joined_at,
+        },
+        groups=groups,
+        group_properties=group_properties,
+    )
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -495,6 +571,17 @@ def get_context_for_template(
     authenticated = "true" if request.user.is_authenticated else "false"
     with TEMPLATE_CONTEXT_DURATION_HISTOGRAM.labels(template_name=template_name, authenticated=authenticated).time():
         return _build_template_context(template_name, request, context, team_for_public_context)
+
+
+def get_persisted_feature_flags_for_app_context() -> list[str]:
+    static_keys = list(settings.PERSISTED_FEATURE_FLAGS)
+    non_cloud = not is_cloud()
+    if non_cloud and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        static_keys = [*static_keys, *settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    flags = get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    if non_cloud and not settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        return [flag for flag in flags if flag not in settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    return flags
 
 
 def _build_template_context(
@@ -572,9 +659,7 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
         "run_mode": run_mode().value,
     }
@@ -585,12 +670,10 @@ def _build_template_context(
     # Set the frontend app context
     # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team import TeamSerializer
+        from posthog.api.team.team_serializer import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -609,7 +692,6 @@ def _build_template_context(
             "current_team": None,
             "preflight": preflight_payload,
             "default_event_name": "$pageview",
-            "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "project_access_denied": getattr(request, "project_access_denied", None),
@@ -689,15 +771,6 @@ def _build_template_context(
                 posthog_app_context["has_screen"] = event_info["has_screen"]
                 posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
-                with tracer.start_as_current_span("template.user_product_list"):
-                    user_product_list = UserProductListSerializer(
-                        UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
-                            Lower("product_path")
-                        ),
-                        many=True,
-                    )
-                    posthog_app_context["custom_products"] = user_product_list.data
-
                 with tracer.start_as_current_span("template.user_home_settings"):
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
@@ -717,30 +790,21 @@ def _build_template_context(
     context["posthog_app_context"] = posthog_app_context
 
     if posthog_distinct_id:
-        groups = {}
-        group_properties = {}
-        person_properties = {}
-        if request.user and request.user.is_authenticated:
-            user = cast("User", request.user)
-            person_properties["email"] = user.email
-            person_properties["joined_at"] = user.date_joined.isoformat()
-            if user.organization:
-                groups["organization"] = str(user.organization.id)
-                group_properties["organization"] = {
-                    "name": user.organization.name,
-                    "created_at": user.organization.created_at.isoformat(),
-                }
+        user = cast("User", request.user)
+        identity = _flag_identity(posthog_app_context["current_user"], user.date_joined.isoformat())
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):
             feature_flags = posthoganalytics.get_all_flags(
                 posthog_distinct_id,
                 only_evaluate_locally=True,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
+                person_properties=identity.person_properties,
+                groups=identity.groups,
+                group_properties=identity.group_properties,
             )
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
-        posthog_bootstrap["featureFlags"] = feature_flags
+        posthog_bootstrap["featureFlags"] = flags_for_app_evaluation_context(
+            feature_flags, posthoganalytics.feature_flag_definitions()
+        )
 
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
@@ -758,7 +822,9 @@ def _build_template_context(
         stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
         if stable_chunks:
             context["stable_chunks"] = True
-            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(
+                context["js_url"], logged_out=not is_authenticated
+            )
             context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
             if stable_chunks.eager_css_urls:
                 # The stable page links its split stylesheets and loads the full one only as a fallback.
@@ -1820,7 +1886,10 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[(at_location + 1) :], False)
+        return self.is_generic_domain(email[(at_location + 1) :])
+
+    def is_generic_domain(self, domain: str) -> bool:
+        return self.emails.get(domain, False)
 
 
 # maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the
@@ -1865,6 +1934,28 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
+def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict) -> dict:
+    """A metric variable that the client sends as its name and selection gets its saved definition."""
+    requested = request_filters.get("metricVariables")
+    if not isinstance(requested, list):
+        return request_filters
+    saved = {
+        variable["name"]: variable
+        for variable in dashboard_filters.get("metricVariables") or []
+        if isinstance(variable, dict) and isinstance(variable.get("name"), str)
+    }
+    metric_variables = []
+    for variable in requested:
+        if not isinstance(variable, dict) or variable.get("source"):
+            metric_variables.append(variable)
+            continue
+        if not isinstance(variable.get("name"), str):
+            raise serializers.ValidationError({"filters_override": "A metric variable name must be a string."})
+        if variable["name"] in saved:
+            metric_variables.append({**saved[variable["name"]], "current": variable.get("current")})
+    return {**request_filters, "metricVariables": metric_variables}
+
+
 def filters_override_requested_by_client(
     request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
 ) -> dict:
@@ -1891,6 +1982,8 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
+    if isinstance(request_filters, dict):
+        request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
     return {**dashboard_filters, **request_filters}
 
 

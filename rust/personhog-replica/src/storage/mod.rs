@@ -3,7 +3,7 @@ pub mod postgres;
 pub mod traits;
 pub mod types;
 
-pub use error::{StorageError, StorageResult};
+pub use error::{StorageError, StorageResult, TimeoutKind};
 
 pub use types::{
     CohortMembership, DeletePersonsOutcome, DistinctIdMapping, DistinctIdWithVersion, Group,

@@ -21,7 +21,7 @@ from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.person import Person
-from posthog.models.person.divergence import (
+from posthog.models.person.divergence.datatypes import (
     DivergentPerson,
     MappingDivergenceKind,
     PersonDivergenceKind,
@@ -34,16 +34,15 @@ from posthog.models.person.divergence import (
     SampleSummary,
     ScanSummary,
     TeamCheck,
-    _team_check_modulus,
-    _WritePacer,
-    check_team,
-    repair_distinct_id,
-    repair_persons,
+)
+from posthog.models.person.divergence.fleet_scans import (
     scan_hidden_persons,
     scan_sample,
     scan_stale_persons,
     scan_swept_persons,
 )
+from posthog.models.person.divergence.repairs import _WritePacer, repair_distinct_id, repair_persons
+from posthog.models.person.divergence.team_check import _team_check_modulus, check_team
 from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
@@ -515,7 +514,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self._ch_person_row(person.uuid, 103, deleted=True)
         self._ch_mapping_row("throttled-did", person.uuid, 100, deleted=True)
 
-        with patch("posthog.models.person.divergence.time") as clock:
+        with patch("posthog.models.person.divergence.repairs.time") as clock:
             clock.monotonic.return_value = 0.0
             repair_persons(
                 [PersonRef(team_id=self.team.pk, person_uuid=str(person.uuid))],
@@ -592,7 +591,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         with (
             patch.object(fake, "set_person_version_floor", side_effect=primary_only_raise),
             patch.object(fake, "get_persons_by_uuids", side_effect=lagging_replica),
-            patch("posthog.models.person.divergence._sleep") as sleep,
+            patch("posthog.models.person.divergence.repairs._sleep") as sleep,
         ):
             _, actions = self._repair(person.uuid)
 
@@ -616,7 +615,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         person = self._divergent_person("hidden")
         failure = _rpc_error(error) if isinstance(error, grpc.StatusCode) else error
 
-        with self._failing_once(step, failure), patch("posthog.models.person.divergence._sleep") as sleep:
+        with self._failing_once(step, failure), patch("posthog.models.person.divergence.repairs._sleep") as sleep:
             summary, actions = self._repair(person.uuid)
 
         assert [a.outcome for a in actions] == ["repaired"]
@@ -638,7 +637,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
         with (
             patch.object(fake, "set_person_version_floor", side_effect=failure) as raise_floor,
-            patch("posthog.models.person.divergence._sleep") as sleep,
+            patch("posthog.models.person.divergence.repairs._sleep") as sleep,
         ):
             with self.assertRaises(type(failure)):
                 self._repair(person.uuid)
@@ -658,7 +657,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
                     raise failure
                 return query(*args, **kwargs)
 
-            return patch("posthog.models.person.divergence.sync_execute", side_effect=ch_fails_once)
+            return patch("posthog.models.person.divergence.lookups.sync_execute", side_effect=ch_fails_once)
         raise_floor = fake.set_person_version_floor
         calls: list[bool] = []
 
@@ -882,7 +881,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         for distinct_id in distinct_ids:
             self._ch_mapping_row(distinct_id, person.uuid, 100, deleted=True)
 
-        with patch("posthog.models.person.divergence._MAX_REPAIR_DISTINCT_IDS_PER_PERSON", cap):
+        with patch("posthog.models.person.divergence.repair_plan._MAX_REPAIR_DISTINCT_IDS_PER_PERSON", cap):
             summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
         assert summary is not None
@@ -921,7 +920,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
         assert stored is not None
 
-        with patch("posthog.models.person.divergence.capture_internal") as capture:
+        with patch("posthog.models.person.divergence.stale_merge.capture_internal") as capture:
             first = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
         assert first is not None
@@ -943,7 +942,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert self._ch_person(person.uuid) == (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
 
         stored.properties = json.dumps({**CH_ONLY_PROPERTIES, **PG_PROPERTIES}).encode()
-        with patch("posthog.models.person.divergence.capture_internal") as capture:
+        with patch("posthog.models.person.divergence.stale_merge.capture_internal") as capture:
             second = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
         assert second is not None
@@ -956,7 +955,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
     def test_reset_republishes_a_stale_person_whose_clickhouse_properties_postgres_already_holds(self) -> None:
         person = self._stale_person_with_target(CH_PROPERTIES)
 
-        with patch("posthog.models.person.divergence.capture_internal") as capture:
+        with patch("posthog.models.person.divergence.stale_merge.capture_internal") as capture:
             summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
         assert summary is not None
@@ -981,8 +980,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         failing.raise_for_status.side_effect = RuntimeError("capture rejected the event")
 
         with (
-            patch("posthog.models.person.divergence._STALE_MERGE_MAX_BYTES", max_bytes),
-            patch("posthog.models.person.divergence.capture_internal", return_value=failing) as capture,
+            patch("posthog.models.person.divergence.stale_merge._STALE_MERGE_MAX_BYTES", max_bytes),
+            patch("posthog.models.person.divergence.stale_merge.capture_internal", return_value=failing) as capture,
         ):
             summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
@@ -999,7 +998,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self._ch_person_row(person.uuid, 103, deleted=True)
         self._ch_mapping_row("a", person.uuid, 100, deleted=True)
 
-        with patch("posthog.models.person.divergence._MAX_REPAIR_DISTINCT_IDS_PER_PERSON", 2):
+        with patch("posthog.models.person.divergence.repair_plan._MAX_REPAIR_DISTINCT_IDS_PER_PERSON", 2):
             summary, actions = self._repair(person.uuid)
 
         assert actions == [
@@ -1079,7 +1078,7 @@ class TestWritePacer(SimpleTestCase):
             sleeps.append(seconds)
             clock[0] += seconds
 
-        with patch("posthog.models.person.divergence.time") as time_module:
+        with patch("posthog.models.person.divergence.repairs.time") as time_module:
             time_module.monotonic.side_effect = lambda: clock[0]
             time_module.sleep.side_effect = sleep
             pacer = _WritePacer(max_per_second=2)
@@ -1113,7 +1112,7 @@ class TestScanTeamRanges(SimpleTestCase):
             scanned.extend(teams)
             return []
 
-        with patch("posthog.models.person.divergence.sync_execute", side_effect=query):
+        with patch("posthog.models.person.divergence.lookups.sync_execute", side_effect=query):
             if scan == "stale":
                 summary: ScanSummary | SampleSummary = scan_stale_persons(
                     window_days=60,

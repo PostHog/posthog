@@ -18,6 +18,7 @@ from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import is_cloud
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -52,6 +53,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_resource_dependency_graph,
     create_auth,
     get_paginator_class,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PARAM_LOCATIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     EndpointResource,
@@ -224,9 +228,8 @@ class _ManifestResource(BaseModel):
     name: str = Field(min_length=1)
     endpoint: _ManifestEndpoint
     # How the upstream API orders this resource's rows. Incremental syncs commit
-    # the high-watermark per batch for "asc"; for a source whose order is
-    # unknown or descending, declaring "desc" here avoids skipping rows on a
-    # resumed sync. Defaults to "asc" when omitted.
+    # the high-watermark per batch for "asc", so declare "asc" only when the API
+    # guarantees that order. When omitted, the rows have no declared order.
     sort_mode: Literal["asc", "desc"] | None = None
 
 
@@ -375,6 +378,7 @@ _SUPPORTED_INCREMENTAL_KEYS = frozenset(
         "transform",
         "cursor_type",
         "datetime_format",
+        "param_location",
     }
 )
 
@@ -425,6 +429,23 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
                 f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
                 "non-empty string naming the query parameter used to send the cursor value to the API"
             )
+        param_location = incremental.get("param_location")
+        if param_location is not None and param_location not in PARAM_LOCATIONS:
+            raise ManifestValidationError(
+                f'Resource {resource.get("name")!r}: endpoint.incremental.param_location must be "query" or "json"'
+            )
+        if param_location == "json" and isinstance(endpoint, dict) and _has_resolve_param(endpoint):
+            raise ManifestValidationError(
+                f"Resource {resource.get('name')!r}: a child resource sends no request body, so "
+                'endpoint.incremental.param_location can\'t be "json"'
+            )
+
+
+def _has_resolve_param(endpoint: dict[str, Any]) -> bool:
+    params = endpoint.get("params")
+    return isinstance(params, dict) and any(
+        isinstance(value, dict) and value.get("type") == "resolve" for value in params.values()
+    )
 
 
 def _has_incremental_config(endpoint: dict[str, Any]) -> bool:
@@ -796,6 +817,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     config is rejoined in :meth:`_assemble_manifest` before it reaches the
     REST engine.
     """
+
+    codebase_detection = NOT_DETECTABLE
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -1349,9 +1372,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         else:
             primary_keys = None
 
-        # The manifest declares the upstream's row ordering; default "asc" to
-        # match PostHog's other REST sources. An incorrect "asc" assumption on a
-        # non-ascending API can skip rows on a resumed incremental sync.
+        # The manifest declares the upstream's row ordering. A manifest with no
+        # value gets no order: an incorrect "asc" on a non-ascending API can skip
+        # rows on a resumed incremental sync.
         #
         # "desc" only defers committing the high-watermark until the run finishes
         # (so a partial run can't advance the cursor past rows it never reached on
@@ -1368,7 +1391,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # rows arrive grouped per parent, never globally cursor-ascending, so an
         # "asc" per-batch commit after an interruption would set the watermark past
         # later parents' older rows and permanently skip them.
-        sort_mode: SortMode = "desc" if (chain.is_fanout_child or chosen.get("sort_mode") == "desc") else "asc"
+        declared_sort_mode = chosen.get("sort_mode")
+        sort_mode: SortMode | None
+        if chain.is_fanout_child or declared_sort_mode == "desc":
+            sort_mode = "desc"
+        elif declared_sort_mode == "asc":
+            sort_mode = "asc"
+        else:
+            sort_mode = None
 
         return SourceResponse(
             name=inputs.schema_name,

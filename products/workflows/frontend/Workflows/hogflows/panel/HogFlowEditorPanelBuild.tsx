@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconDrag, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconDrag, IconEllipsis, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonInput, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
@@ -91,6 +91,25 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
         inputs: { non_failure_status_codes: { value: [409] } },
     },
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
+}
+
+const CLASSIFY_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Classify with AI',
+    description: 'Ask an AI model to pick one category for the context. Branch on the result with a condition step.',
+    config: { template_id: 'template-posthog-classify', inputs: {} },
+    output_variable: [
+        { key: 'category', result_path: 'category', label: 'Category' },
+        { key: 'confidence', result_path: 'confidence', label: 'Confidence' },
+    ],
+}
+
+const REPLAY_VISION_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Replay Vision',
+    description: "Ask about, categorize, score or summarize the triggering event's session recording.",
+    config: { template_id: 'template-posthog-replay-vision', inputs: {} },
+    output_variable: { key: 'replay_vision', result_path: null, label: 'Replay Vision' },
 }
 
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
@@ -248,7 +267,13 @@ function HogFlowEditorToolbarNode({
     )
 }
 
-function HogFlowEditorToolbarSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+function HogFlowEditorToolbarSection({
+    title,
+    children,
+}: {
+    title: React.ReactNode
+    children: React.ReactNode
+}): JSX.Element {
     return (
         <section className="flex flex-col border-t first:border-t-0">
             <div className="border-b px-3 py-2 text-xxs font-semibold uppercase tracking-wide text-secondary">
@@ -354,6 +379,10 @@ export function HogFlowEditorPanelBuild({
     const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>
         isRowScopedTrigger ? nodes.filter((node) => !PERSON_DEPENDENT_ACTION_TYPES.has(node.type)) : nodes
 
+    // Scouts and Replay Vision belong to the project's main environment, and the server refuses their steps
+    // elsewhere. currentTeam is required: while it loads, both sides of the comparison are undefined.
+    const isMainEnvironment = !!currentTeam && currentTeam.id === currentTeam.project_id
+
     const delayNodes = hideIfRowScoped(DELAY_NODES_TO_SHOW)
     const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
@@ -377,27 +406,54 @@ export function HogFlowEditorPanelBuild({
                         onActionSelect={onActionSelect}
                     />
                 )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                    <HogFlowEditorToolbarNode
-                        key="ai-task"
-                        action={AI_TASK_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    />
-                )}
-                {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
-                Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
-                undefined, which would otherwise pass. */}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
-                    !!currentTeam &&
-                    currentTeam.id === currentTeam.project_id && (
+                <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
+            </HogFlowEditorToolbarSection>
+
+            {(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ||
+                featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ||
+                isMainEnvironment) && (
+                <HogFlowEditorToolbarSection
+                    title={
+                        <span className="inline-flex items-center gap-1">
+                            AI <IconSparkles />
+                        </span>
+                    }
+                >
+                    {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
+                        <HogFlowEditorToolbarNode
+                            key="ai-task"
+                            action={AI_TASK_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        >
+                            <span className="inline-flex items-center gap-1.5">
+                                {AI_TASK_ACTION_NODE.name}
+                                <LemonTag type="completion">Beta</LemonTag>
+                            </span>
+                        </HogFlowEditorToolbarNode>
+                    )}
+                    {isMainEnvironment && (
                         <HogFlowEditorToolbarNode
                             key="run-scout"
                             action={RUN_SCOUT_ACTION_NODE}
                             onActionSelect={onActionSelect}
                         />
                     )}
-                <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
-            </HogFlowEditorToolbarSection>
+                    {featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] && (
+                        <HogFlowEditorToolbarNode
+                            key="classify"
+                            action={CLASSIFY_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        />
+                    )}
+                    {isMainEnvironment && (
+                        <HogFlowEditorToolbarNode
+                            key="replay-vision"
+                            action={REPLAY_VISION_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        />
+                    )}
+                </HogFlowEditorToolbarSection>
+            )}
 
             <HogFlowEditorToolbarSection title="Delays">
                 {delayNodes.map((action, index) => (

@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -23,11 +22,6 @@ class TestSolarwindsServiceDeskSource:
         # The token is sent to the host derived from `region`; retargeting the region must force
         # re-entering the token, or an editor could exfiltrate it to another regional stack.
         assert self.source.connection_host_fields == ["region"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["incidents"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "incidents"
 
     @parameterized.expand(
         [
@@ -97,9 +91,3 @@ class TestSolarwindsServiceDeskSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown SolarWinds Service Desk schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

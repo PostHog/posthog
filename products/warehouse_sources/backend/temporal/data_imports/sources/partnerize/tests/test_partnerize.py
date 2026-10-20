@@ -1,16 +1,20 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerize import (
+    PartnerizeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.partnerize import (
     DEFAULT_START_DATE,
@@ -18,92 +22,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize
     PartnerizeResumeConfig,
     _format_start_date,
     _make_unwrap,
-    partnerize_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.settings import (
     ENDPOINTS,
     PARTNERIZE_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the partnerize module.
-PARTNERIZE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.partnerize.make_tracked_session"
-)
-# Backoff sleeps happen inside tenacity; patch its clock so retry tests don't actually wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source import PartnerizeSource
 
 
-def _response(body: Any, *, status: int = 200, reason: str = "OK") -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.reason = reason
-    resp.url = PARTNERIZE_BASE_URL
-    resp.headers["Content-Type"] = "application/json"
-    resp._content = b"" if body is None else json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: PartnerizeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _saved(manager: mock.MagicMock) -> list[PartnerizeResumeConfig]:
-    return [call.args[0] for call in manager.save_state.call_args_list]
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Wire a mock session, snapshotting each request's URL and params AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so a copy is taken per page.
-    """
-    session.headers = {}
-    url_snapshots: list[str] = []
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        url_snapshots.append(request.url)
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return url_snapshots, param_snapshots
-
-
-def _run(
-    endpoint: str,
-    manager: mock.MagicMock,
-    **kwargs: Any,
-) -> Any:
-    return partnerize_source(
-        application_key="app-key",
-        user_api_key="api-key",
-        publisher_id="111111l92",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        PartnerizeSource(),
+        PartnerizeSourceConfig(application_key="app-key", user_api_key="api-key", publisher_id="111111l92"),
     )
 
 
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _conversion_page(ids: list[str], limit: int) -> Response:
-    return _response(
-        {
+def _conversion_page(ids: list[str], limit: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
             "conversions": [{"conversion_data": {"conversion_id": i}} for i in ids],
             "limit": limit,
             "count": len(ids),
-        }
+        },
     )
 
 
@@ -132,156 +73,115 @@ class TestUnwrap:
 
 
 class TestReportRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_by_offset_and_saves_state_after_yield(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_conversion_page(["a", "b"], limit=2), _conversion_page(["c"], limit=2)])
-        manager = _make_manager()
+    def test_paginates_by_offset_and_saves_state_after_yield(self) -> None:
+        result = _driver().run("conversions", [_conversion_page(["a", "b"], limit=2), _conversion_page(["c"], limit=2)])
 
-        rows = _rows(_run("conversions", manager))
-
-        assert [r["conversion_id"] for r in rows] == ["a", "b", "c"]
-        assert [p["offset"] for p in params] == [0, 2]
+        assert result.raised is None
+        assert [row["conversion_id"] for row in result.rows] == ["a", "b", "c"]
+        assert result.params("offset") == ["0", "2"]
         # State is saved after the full first page is yielded, then the short page terminates.
-        assert [s.offset for s in _saved(manager)] == [2]
+        assert result.saved_states == [PartnerizeResumeConfig(offset=2)]
+        assert result.committed_states == [PartnerizeResumeConfig(offset=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_conversion_page([], limit=300)])
-        manager = _make_manager(PartnerizeResumeConfig(offset=600))
-
-        _rows(_run("conversions", manager))
-
-        assert params[0]["offset"] == 600
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_windows_from_watermark(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_conversion_page([], limit=300)])
-
-        _rows(
-            _run(
-                "conversions",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-05-01 12:00:00",
-                incremental_field="conversion_time",
-            )
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "conversions", [_conversion_page([], limit=300)], resume_state=PartnerizeResumeConfig(offset=600)
         )
 
-        assert params[0]["start_date"] == "2024-05-01T12:00:00Z"
-        # The default window filters on the conversion time, no date_type override needed.
-        assert "date_type" not in params[0]
+        assert result.raised is None
+        assert result.params("offset") == ["600"]
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_is_retried_then_reraises(
-        self, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
+    def test_incremental_windows_from_watermark(self) -> None:
+        result = _driver().run(
+            "conversions",
+            [_conversion_page([], limit=300)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-05-01 12:00:00",
+            incremental_field="conversion_time",
+        )
+
+        assert result.raised is None
+        assert result.params("start_date") == ["2024-05-01T12:00:00Z"]
+        # The default window filters on the conversion time, no date_type override needed.
+        assert result.params("date_type") == [None]
+
+    def test_missing_data_key_is_retried_then_reraises(self) -> None:
         # A 200 body without the data key is an unexpected shape; the request is reissued and, if it
         # never recovers, surfaces as a retryable error after the attempt cap.
-        session = MockSession.return_value
-        _wire(session, [_response({"count": 0})] * 5)
+        result = _driver().run("conversions", always(ScriptedResponse(json={"count": 0})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_run("conversions", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_data_is_retried_then_reraises(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"conversions": {"unexpected": "object"}})] * 5)
+    def test_non_list_data_is_retried_then_reraises(self) -> None:
+        result = _driver().run("conversions", always(ScriptedResponse(json={"conversions": {"unexpected": "object"}})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_run("conversions", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_dict_body_is_retried_then_reraises(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(["unexpected"])] * 5)
+    def test_non_dict_body_is_retried_then_reraises(self) -> None:
+        result = _driver().run("conversions", always(ScriptedResponse(json=["unexpected"])))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_run("conversions", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
     @parameterized.expand([("rate_limited", 429, "Too Many Requests"), ("server_error", 503, "Service Unavailable")])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_retries_then_raises(
-        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=status, reason=reason)] * 5)
+    def test_retryable_status_retries_then_raises(self, _name: str, status: int, reason: str) -> None:
+        result = _driver().run("conversions", always(ScriptedResponse(status=status, json={})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_run("conversions", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
     @parameterized.expand(
         [("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden"), ("not_found", 404, "Not Found")]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_http_error_without_retry(
-        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock
-    ) -> None:
+    def test_client_error_raises_http_error_without_retry(self, _name: str, status: int, reason: str) -> None:
         # 401/403/404 are credential/permission failures — never retried, surfaced as an HTTPError
         # whose message carries the stable status text that get_non_retryable_errors matches on.
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "denied"}, status=status, reason=reason)])
+        result = _driver().run("conversions", [ScriptedResponse(status=status, json={"error": "denied"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_run("conversions", _make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert reason in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestListRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_hypermedia_next_page_and_saves_state(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_follows_hypermedia_next_page_and_saves_state(self) -> None:
         next_url = f"{PARTNERIZE_BASE_URL}/reference/country?page=2"
-        urls, _ = _wire(
-            session,
+        result = _driver().run(
+            "countries",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "countries": [{"country": {"ref_country_id": 1}}],
                         "hypermedia": {"pagination": {"next_page": next_url}},
                     }
                 ),
-                _response({"countries": [{"country": {"ref_country_id": 2}}]}),
+                ScriptedResponse(json={"countries": [{"country": {"ref_country_id": 2}}]}),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_run("countries", manager))
+        assert result.raised is None
+        assert [row["ref_country_id"] for row in result.rows] == [1, 2]
+        assert result.urls[1] == next_url
+        assert result.saved_states == [PartnerizeResumeConfig(next_url=next_url)]
 
-        assert [r["ref_country_id"] for r in rows] == [1, 2]
-        assert urls[1] == next_url
-        assert [s.next_url for s in _saved(manager)] == [next_url]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_relative_next_page_is_resolved_against_base(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        urls, _ = _wire(
-            session,
+    def test_relative_next_page_is_resolved_against_base(self) -> None:
+        result = _driver().run(
+            "campaigns",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "campaigns": [{"campaign": {"campaign_id": "10l1"}}],
                         "hypermedia": {"pagination": {"next_page": "/user/publisher/111111l92/campaign/a?page=2"}},
                     }
                 ),
-                _response({"campaigns": []}),
+                ScriptedResponse(json={"campaigns": []}),
             ],
         )
 
-        _rows(_run("campaigns", _make_manager()))
-
-        assert urls[1] == f"{PARTNERIZE_BASE_URL}/user/publisher/111111l92/campaign/a?page=2"
+        assert result.raised is None
+        assert result.urls[1] == f"{PARTNERIZE_BASE_URL}/user/publisher/111111l92/campaign/a?page=2"
 
     @parameterized.expand(
         [
@@ -289,50 +189,47 @@ class TestListRows:
             ("lookalike_prefix", "https://api.partnerize.com.evil.example.com/steal"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_next_page_terminates_without_following(
-        self, _name: str, next_page: str, MockSession: mock.MagicMock
-    ) -> None:
+    def test_off_host_next_page_terminates_without_following(self, _name: str, next_page: str) -> None:
         # The session carries the Basic auth header, so a tampered next_page pointing off-host (a
         # different host, or a lookalike that only prefixes the base) must not be followed (SSRF
         # guard). The first page's rows still surface; the cursor is not followed and not saved.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "countries",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "countries": [{"country": {"ref_country_id": 1}}],
                         "hypermedia": {"pagination": {"next_page": next_page}},
                     }
                 )
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_run("countries", manager))
+        assert result.raised is None
+        assert [row["ref_country_id"] for row in result.rows] == [1]
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
-        assert [r["ref_country_id"] for r in rows] == [1]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_next_url(self) -> None:
         resume_url = f"{PARTNERIZE_BASE_URL}/reference/country?page=5"
-        urls, _ = _wire(session, [_response({"countries": []})])
-        manager = _make_manager(PartnerizeResumeConfig(next_url=resume_url))
+        result = _driver().run(
+            "countries",
+            [ScriptedResponse(json={"countries": []})],
+            resume_state=PartnerizeResumeConfig(next_url=resume_url),
+        )
 
-        _rows(_run("countries", manager))
-
-        assert urls[0] == resume_url
+        assert result.raised is None
+        assert result.urls == [resume_url]
 
 
 class TestPartnerizeSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _run(endpoint, _make_manager())
         config = PARTNERIZE_ENDPOINTS[endpoint]
+        result = _driver().run(endpoint, [ScriptedResponse(json={config.data_key: []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.kind == "report":
@@ -360,21 +257,20 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Partnerize returned HTTP 500"),
         ]
     )
-    @mock.patch(PARTNERIZE_SESSION_PATCH)
     def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: mock.MagicMock,
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("app-key", "api-key", "111111l92") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert validate_credentials("app-key", "api-key", "111111l92") == (expected_valid, expected_message)
+        assert {request.path for request in network.requests_log} == {"/user/publisher/111111l92"}
 
-    @mock.patch(PARTNERIZE_SESSION_PATCH)
-    def test_connection_error_is_swallowed(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        valid, message = validate_credentials("app-key", "api-key", "111111l92")
+    def test_connection_error_is_swallowed(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("app-key", "api-key", "111111l92")
         assert valid is False
         assert message == "Could not validate Partnerize credentials"
+        assert {request.path for request in network.requests_log} == {"/user/publisher/111111l92"}

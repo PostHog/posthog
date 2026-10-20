@@ -1,28 +1,24 @@
-import json
-import time
 import uuid
 import datetime as dt
-import posixpath
-from typing import Any
+from typing import Any, cast
 
-from django.conf import settings
-from django.db import connection, models, transaction
+from django.db import models
 from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404
 
-import boto3
-import structlog
-from botocore.client import Config
-from botocore.exceptions import ClientError
-from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
-from rest_framework import mixins, response, serializers, status, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_view,
+)
+from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.throttling import BaseThrottle
 
-from posthog.schema import HogQLQueryModifiers
-
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -30,46 +26,25 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
-from posthog.temporal.common.client import sync_connect
 
-from products.batch_exports.backend.hogql_source import (
-    UnsupportedHogQLQueryError,
-    apply_hogql_batch_export_modifier_defaults,
-    find_interval_placeholders,
-    load_hogql_modifiers,
-    parse_hogql_select_for_batch_export,
-    validate_hogql_query_for_batch_export,
+from products.batch_exports.backend.facade import (
+    api as batch_exports_api,
+    contracts,
 )
-from products.batch_exports.backend.models.batch_export import (
-    BatchExportDestination,
-    BatchExportFileDownload,
-    BatchExportOnDemand,
-    BatchExportRun,
-    BatchExportSource,
-)
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
 )
-from products.batch_exports.backend.service import (
-    BatchExportModel,
-    cancel_running_batch_export_run,
-    start_file_download_batch_export,
-)
-from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
-from products.batch_exports.backend.temporal.sql.common import get_user_hogql_batch_export_query_settings
 
-SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
 DEFAULT_MAX_SIZE_MB = 1024
-LOGGER = structlog.get_logger(__name__)
-_FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
-    # 4 ASCII bytes to fill 32-bit PostgreSQL lock key
-    b"FDBE",
-    byteorder="big",
+# The viewset declares no queryset, so drf-spectacular cannot read the type of the id from a model.
+RUN_ID_PARAMETER = OpenApiParameter(
+    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export run."
 )
 
 
@@ -169,8 +144,8 @@ def validate_file_download_interval(
 ) -> None:
     if hogql_query is not None:
         try:
-            placeholders = find_interval_placeholders(parse_hogql_select_for_batch_export(hogql_query))
-        except UnsupportedHogQLQueryError as e:
+            placeholders = batch_exports_api.find_hogql_interval_placeholders(hogql_query)
+        except contracts.UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e
         bounds = {"data_interval_start": data_interval_start, "data_interval_end": data_interval_end}
         missing = {
@@ -253,41 +228,6 @@ COUNT_ROWS_TIMEOUT_MESSAGE = (
 )
 
 
-def count_rows_for_hogql_batch_export(
-    team: Team,
-    hogql_query: str,
-    timeout: int = 30,
-    *,
-    user: User,
-    data_interval_start: dt.datetime | None = None,
-    data_interval_end: dt.datetime | None = None,
-    modifiers: HogQLQueryModifiers | None = None,
-) -> int:
-    """Count the rows a HogQL query would produce.
-
-    Raises:
-        UnsupportedHogQLQueryError: If the query cannot power a batch export.
-    """
-    validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=modifiers)
-
-    record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query, user_id=user.pk)
-    query_settings = get_user_hogql_batch_export_query_settings()
-    query_settings.max_execution_time = timeout
-
-    # `execute_hogql_query` resolves modifiers differently than the batch
-    # export, which could potentially affect counts.
-    # TODO: How big is the difference? Is it worth aligning these two?
-    query_response = execute_hogql_query(
-        query=record_batch_model.get_count_hogql_query(data_interval_start, data_interval_end),
-        team=team,
-        user=user,
-        query_type="HogQLBatchExportCountRowsQuery",
-        settings=query_settings,
-        modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers),
-    )
-    return query_response.results[0][0] if query_response.results else 0
-
-
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
     """Request shape for a FileDownload batch export on demand."""
 
@@ -339,72 +279,16 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         )
 
         try:
-            validate_hogql_query_for_batch_export(
-                hogql_query,
-                team,
-                user=self.context["request"].user,
-                modifiers=load_hogql_modifiers(data.get("hogql_modifiers")),
+            batch_exports_api.validate_hogql_query(
+                team.pk,
+                user_id=self.context["request"].user.pk,
+                hogql_query=hogql_query,
+                hogql_modifiers=data.get("hogql_modifiers"),
             )
-        except UnsupportedHogQLQueryError as e:
+        except contracts.UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e
 
         return data
-
-    def create(self, validated_data: dict) -> BatchExportRun:
-        """Create a `BatchExportRun` based on a `BatchExportOnDemand`.
-
-        This also creates the necessary `BatchExportDestination`.
-        """
-        team_id = self.context["team_id"]
-        config = validated_data.pop("file")
-        model = validated_data["model"]
-
-        source = None
-        if model == "hogql":
-            source = BatchExportSource(
-                team_id=team_id,
-                hogql_query=validated_data.pop("hogql_query"),
-                hogql_modifiers=validated_data.pop("hogql_modifiers", None),
-            )
-            data_interval_start = validated_data.pop("data_interval_start", None)
-            data_interval_end = validated_data.pop("data_interval_end", None)
-        else:
-            data_interval_start = validated_data.pop("data_interval_start")
-            data_interval_end = validated_data.pop("data_interval_end")
-
-        if (include := validated_data.pop("include", None)) is not None and model == "events":
-            config["include_events"] = include
-
-        if (exclude := validated_data.pop("exclude", None)) is not None and model == "events":
-            config["exclude_events"] = exclude
-
-        destination = BatchExportDestination(type=BatchExportDestination.Destination.FILE_DOWNLOAD, config=config)
-        user = self.context["request"].user
-        if not isinstance(user, User):
-            raise NotAuthenticated()
-
-        batch_export = BatchExportOnDemand(
-            team_id=team_id,
-            destination=destination,
-            source=source,
-            last_modified_by=user,
-            **validated_data,
-        )
-        batch_export_run = BatchExportRun(
-            status=BatchExportRun.Status.STARTING,
-            batch_export_on_demand=batch_export,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-        )
-
-        with transaction.atomic():
-            destination.save()
-            if source is not None:
-                source.save()
-            batch_export.save()
-            batch_export_run.save()
-
-        return batch_export_run
 
 
 class CreateOutputSerializer(serializers.Serializer):
@@ -418,7 +302,7 @@ class ListOutputSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="ID of the file download batch export run.")
     status = serializers.ChoiceField(
-        choices=BatchExportRun.Status.choices,
+        choices=BatchExportRunStatus.choices,
         help_text="Current status of the file download batch export run.",
     )
 
@@ -454,7 +338,7 @@ class RetrieveOutputSerializer(serializers.Serializer):
     @extend_schema. This serializer exists as a runtime/fallback type.
     """
 
-    status = serializers.ChoiceField(choices=BatchExportRun.Status.choices)
+    status = serializers.ChoiceField(choices=BatchExportRunStatus.choices)
     error = serializers.CharField(required=False)
     files = serializers.ListField(
         child=serializers.UUIDField(),
@@ -475,27 +359,30 @@ class TooManyConcurrentFileDownloads(APIException):
     default_detail = "Too many concurrent file download batch exports for this team."
 
 
-@extend_schema(tags=["batch_exports"])
-class FileDownloadBatchExportOnDemandViewSet(
-    TeamAndOrgViewSetMixin,
-    LogEntryMixin,
-    mixins.CreateModelMixin,
-    mixins.RetrieveModelMixin,
-    mixins.ListModelMixin,
-    viewsets.GenericViewSet,
-):
-    scope_object = "batch_export"
-    queryset = (
-        BatchExportRun.objects.select_related("batch_export_on_demand__destination", "batch_export_on_demand__team")
-        .exclude(batch_export_on_demand__deleted=True)
-        .filter(batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD)
-        .order_by("-created_at")
-        .all()
+def _to_file_download_request(validated_data: dict[str, Any]) -> contracts.FileDownloadRequest:
+    file_config = validated_data["file"]
+    include = validated_data.get("include")
+    exclude = validated_data.get("exclude")
+    return contracts.FileDownloadRequest(
+        model=validated_data["model"],
+        format=file_config["format"],
+        compression=file_config["compression"],
+        max_size_mb=file_config["max_size_mb"],
+        data_interval_start=validated_data.get("data_interval_start"),
+        data_interval_end=validated_data.get("data_interval_end"),
+        include_events=tuple(include) if include is not None else None,
+        exclude_events=tuple(exclude) if exclude is not None else None,
+        hogql_query=validated_data.get("hogql_query"),
+        hogql_modifiers=validated_data.get("hogql_modifiers"),
     )
+
+
+@extend_schema(tags=["batch_exports"])
+@extend_schema_view(logs=extend_schema(parameters=[RUN_ID_PARAMETER]))
+class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
+    scope_object = "batch_export"
     serializer_class = FileDownloadBatchExportOnDemandSerializer
     log_source = "batch_exports"
-    # Not linked directly with a team, we need to go through batch export
-    filter_rewrite_rules = {"team_id": "batch_export_on_demand__team_id"}
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "list":
@@ -509,6 +396,34 @@ class FileDownloadBatchExportOnDemandViewSet(
         if self.action == "count_rows":
             return [BatchExportsCountRowsBurstRateThrottle(), BatchExportsCountRowsSustainedRateThrottle()]
         return super().get_throttles()
+
+    def dangerously_get_object(self) -> contracts.FileDownloadRun:
+        # This replaces the queryset read only. The facade scopes the read to the team, and the
+        # object permissions run on the contract as they ran on the model. `logs` reads the run here.
+        try:
+            run_id = uuid.UUID(str(self.kwargs["pk"]))
+        except ValueError:
+            raise NotFound()
+        try:
+            run = batch_exports_api.get_file_download_run(self.team_id, run_id)
+        except contracts.FileDownloadNotFoundError as e:
+            raise NotFound(*e.args) from e
+        self.check_object_permissions(self.request, run)
+        return run
+
+    def list(self, request, *args, **kwargs) -> response.Response:
+        # The facade slices the page, so the paginator gets its state set directly instead of a queryset.
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+        # PAGE_SIZE gives every request a limit.
+        assert limit is not None
+        runs, count = batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit)
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        return paginator.get_paginated_response(ListOutputSerializer(runs, many=True).data)
 
     @extend_schema(
         request=PolymorphicProxySerializer(
@@ -528,61 +443,18 @@ class FileDownloadBatchExportOnDemandViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        with transaction.atomic():
-            # Concurrent requests after the first one to obtain a lock will wait here
-            # until transaction is done. This prevents creating batch exports over the
-            # limit. Note we use our own 32-bit lock key additional to team_id to avoid
-            # conflicts with other parts of the application which may have also
-            # obtained a lock based on team_id.
-            # NOTE: If team_id ever becomes a 64-bit int update this.
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(%s::integer, %s::integer)",
-                    (_FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY, self.team_id),
-                )
+        if not isinstance(request.user, User):
+            raise NotAuthenticated()
 
-            current_count = BatchExportRun.objects.filter(
-                status__in=(BatchExportRun.Status.STARTING, BatchExportRun.Status.RUNNING),
-                batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
-                batch_export_on_demand__team_id=self.team_id,
-                batch_export_on_demand__deleted=False,
-            ).count()
-
-            if current_count >= settings.BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM:
-                raise TooManyConcurrentFileDownloads()
-
-            instance = serializer.save()
-
-        source = instance.batch_export_on_demand.source
         try:
-            start_file_download_batch_export(
-                instance.batch_export_on_demand,
-                instance.workflow_id,
-                batch_export_run_id=instance.id,
-                data_interval_start=instance.data_interval_start,
-                data_interval_end=instance.data_interval_end,
-                batch_export_model=BatchExportModel(
-                    name=instance.batch_export_on_demand.model,
-                    schema=None,
-                    hogql_query=source.hogql_query if source is not None else None,
-                    user_id=instance.batch_export_on_demand.last_modified_by_id
-                    if instance.batch_export_on_demand.model == "hogql"
-                    else None,
-                    hogql_modifiers=source.hogql_modifiers if source is not None else None,
-                ),
-                compression=instance.batch_export_on_demand.destination.config.get("compression", None),
-                format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
-                max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
-                include_events=instance.batch_export_on_demand.destination.config.get("include_events", None),
-                exclude_events=instance.batch_export_on_demand.destination.config.get("exclude_events", None),
+            run_id = batch_exports_api.start_file_download(
+                self.team_id,
+                user_id=request.user.pk,
+                request=_to_file_download_request(serializer.validated_data),
             )
-        except Exception:
-            LOGGER.exception("batch_export_on_demand.fail_to_start")
-
-            instance.latest_error = "Failed to start"
-            instance.status = BatchExportRun.Status.FAILED
-            instance.save()
-
+        except contracts.TooManyConcurrentFileDownloadsError as e:
+            raise TooManyConcurrentFileDownloads() from e
+        except contracts.FileDownloadStartError:
             return response.Response(
                 {
                     "detail": "The batch export failed to start. Check our status page for any ongoing incidents and try again later."
@@ -590,9 +462,10 @@ class FileDownloadBatchExportOnDemandViewSet(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return response.Response({"id": instance.id}, status=status.HTTP_202_ACCEPTED)
+        return response.Response({"id": run_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
+        parameters=[RUN_ID_PARAMETER],
         responses={
             200: PolymorphicProxySerializer(
                 component_name="RetrieveFileDownloadResponse",
@@ -618,40 +491,18 @@ class FileDownloadBatchExportOnDemandViewSet(
         generated file downloads so that users may download them by making a request
         to /download.
         """
-        batch_export_run: BatchExportRun = self.get_object()
+        run = self.get_object()
 
-        error = {}
-        if batch_export_run.latest_error is not None:
-            error["error"] = batch_export_run.latest_error
+        body: dict[str, Any] = {"status": run.status}
+        if run.files is not None:
+            body["files"] = [str(file_id) for file_id in run.files]
+            body["records_completed"] = run.records_completed
+        if run.error is not None:
+            body["error"] = run.error
 
-        run_status = batch_export_run.status
+        return response.Response(body)
 
-        completed: dict[str, list[str] | int | None] = {}
-        if run_status == BatchExportRun.Status.COMPLETED:
-            if batch_export_run.batch_export_on_demand is None:
-                raise RuntimeError("Batch export on demand must be defined on this run")
-
-            ids = [
-                str(id)
-                for id in BatchExportFileDownload.objects.filter(
-                    batch_export_run=batch_export_run, team=batch_export_run.batch_export_on_demand.team
-                )
-                .order_by("key")
-                .values_list("id", flat=True)
-            ]
-
-            has_data = batch_export_run.records_completed is not None and batch_export_run.records_completed > 0
-            if not ids and has_data:
-                # There is currently a small delay between the run being set to completed
-                # and the file downloads being generated, so we account for that and keep
-                # showing running status.
-                run_status = BatchExportRun.Status.RUNNING
-            else:
-                completed["files"] = ids
-                completed["records_completed"] = batch_export_run.records_completed
-
-        return response.Response({"status": run_status, **completed, **error})
-
+    @extend_schema(parameters=[RUN_ID_PARAMETER])
     @action(
         methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]
     )
@@ -666,62 +517,34 @@ class FileDownloadBatchExportOnDemandViewSet(
         * If no part component is present: If there is only one file downloaded, that
             is downloaded. Otherwise the first one as sorted by key is downloaded.
         """
-        batch_export_run: BatchExportRun = self.get_object()
+        run = self.get_object()
 
-        if batch_export_run.status in (BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING):
-            raise ValidationError("Batch export run is still in progress")
-
-        if batch_export_run.status in (
-            BatchExportRun.Status.TERMINATED,
-            BatchExportRun.Status.TIMEDOUT,
-            BatchExportRun.Status.FAILED,
-            BatchExportRun.Status.FAILED_RETRYABLE,
-            BatchExportRun.Status.FAILED_BILLING,
-        ):
-            raise ValidationError("Batch export run has failed")
-
-        if batch_export_run.status == BatchExportRun.Status.CANCELLED:
-            raise ValidationError("Batch export run was cancelled")
-
-        file_download = _get_file_download_for_run(batch_export_run, part)
-
-        default_expiration = dt.timedelta(seconds=settings.BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS)
-        expiration = _calculate_expiration_for_file_download(file_download, default_expiration=default_expiration)
-
-        pre_signed_url = _generate_s3_pre_signed_url(
-            settings.BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET,
-            file_download.key,
-            role_arn=settings.BATCH_EXPORTS_FILE_DOWNLOAD_ROLE_ARN,
-            session_name=f"batch-exports-file-download-{file_download.id}",
-            expiration=int(expiration.total_seconds()),
-            max_attempts=10 if settings.TEST else 1,
-        )
+        try:
+            pre_signed_url = batch_exports_api.get_file_download_url(self.team_id, run.id, part)
+        except contracts.InvalidFileDownloadRequestError as e:
+            raise ValidationError(str(e)) from e
+        except contracts.FileDownloadNotFoundError as e:
+            raise NotFound(*e.args) from e
 
         response = HttpResponseRedirect(redirect_to=pre_signed_url)
         response["Cache-Control"] = "no-store"
 
         return response
 
-    @extend_schema(request=None)
+    @extend_schema(request=None, parameters=[RUN_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, request, *args, **kwargs) -> response.Response:
         """Cancel an ongoing file-download batch export."""
-        batch_export_run: BatchExportRun = self.get_object()
+        run = self.get_object()
 
-        if batch_export_run.status not in (BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING):
-            raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
-
-        temporal = sync_connect()
         try:
-            cancel_running_batch_export_run(temporal, batch_export_run)
-        except Exception as e:
-            # It could be the case that the run is already cancelled but our database hasn't been updated yet. In
-            # this case, we can just ignore the error but log it for visibility (in case there is an actual issue).
-            LOGGER.warning("file_download_batch_export.cancel.failed", exc_info=e)
+            run_status = batch_exports_api.cancel_file_download(self.team_id, run.id)
+        except contracts.InvalidFileDownloadRequestError as e:
+            raise ValidationError(str(e)) from e
+        except contracts.FileDownloadNotFoundError as e:
+            raise NotFound(*e.args) from e
 
-        batch_export_run.refresh_from_db()
-
-        return response.Response({"status": batch_export_run.status})
+        return response.Response({"status": run_status})
 
     @action(
         methods=["POST"],
@@ -751,15 +574,15 @@ class FileDownloadBatchExportOnDemandViewSet(
         check_hogql_batch_exports_enabled(self.team)
 
         try:
-            count = count_rows_for_hogql_batch_export(
-                self.team,
-                request.validated_data["hogql_query"],
-                user=request.user,
+            count = batch_exports_api.count_hogql_rows(
+                self.team_id,
+                user_id=request.user.pk,
+                hogql_query=request.validated_data["hogql_query"],
+                hogql_modifiers=request.validated_data.get("hogql_modifiers"),
                 data_interval_start=request.validated_data.get("data_interval_start"),
                 data_interval_end=request.validated_data.get("data_interval_end"),
-                modifiers=load_hogql_modifiers(request.validated_data.get("hogql_modifiers")),
             )
-        except UnsupportedHogQLQueryError as e:
+        except contracts.UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None)) from e
@@ -769,147 +592,3 @@ class FileDownloadBatchExportOnDemandViewSet(
             raise ValidationError(COUNT_ROWS_TIMEOUT_MESSAGE, "timeout_exceeded") from e
 
         return response.Response({"count": count})
-
-
-def _generate_s3_pre_signed_url(
-    bucket: str,
-    key: str,
-    role_arn: str,
-    session_name: str,
-    expiration: int = 3600,
-    max_attempts: int = 1,
-    delay: int = 1,
-):
-    """Generate a pre-signed URL for given bucket and key.
-
-    The URL will be signed with temporary credentials after assuming the given role.
-    The credentials will be scoped to only support a s3:GetObject action on the given
-    bucket, key.
-
-    Temporary credentials and the download URL have individual expiration times,
-    meaning that the lower of the two is the one that counts as users need both valid
-    credentials and a valid URL to use the download URL. So, we set the same
-    `expiration` to both. Keep in mind that temporary credentials may only be assumed
-    for up to a limit configured in the role itself.
-    """
-    if max_attempts <= 0:
-        raise ValueError("`max_attempts` must be positive")
-
-    filename = posixpath.basename(key)
-
-    if not filename:
-        # Should never happen, our keys always end with a filename
-        raise ValueError(f"Cannot derive filename from S3 key: {key!r}")
-
-    sts = SESSION.client("sts")
-
-    for attempt in range(1, max_attempts + 1):
-        # It may take a few moments for access to be granted, so we retry in a loop
-        # This is only relevant for test environments in which roles are created in the
-        # moment. Long-lived roles in production should succeed on the first attempt.
-        try:
-            response = sts.assume_role(
-                RoleArn=role_arn,
-                RoleSessionName=session_name,
-                DurationSeconds=expiration,
-                Policy=json.dumps(
-                    {
-                        "Version": "2012-10-17",
-                        "Statement": [
-                            {
-                                "Effect": "Allow",
-                                "Action": ["s3:GetObject"],
-                                "Resource": f"arn:aws:s3:::{bucket}/{key}",
-                            },
-                        ],
-                    }
-                ),
-            )
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code != "AccessDenied" or attempt == max_attempts:
-                raise
-            time.sleep(delay * (2 ** (attempt - 1)))  # With default delay: 1s, 2s, 4s, 8s, ...
-        else:
-            break
-
-    assumed_session = boto3.Session(
-        aws_access_key_id=response["Credentials"]["AccessKeyId"],
-        aws_secret_access_key=response["Credentials"]["SecretAccessKey"],
-        aws_session_token=response["Credentials"]["SessionToken"],
-    )
-    s3 = assumed_session.client("s3", config=Config(signature_version="s3v4"))
-
-    return s3.generate_presigned_url(
-        "get_object",
-        Params={
-            "Bucket": bucket,
-            "Key": key,
-            "ResponseContentDisposition": f'attachment; filename="{filename}"',
-        },
-        ExpiresIn=expiration,
-    )
-
-
-def _get_file_download_for_run(
-    batch_export_run: BatchExportRun, file_id_or_index: str | int | None = None
-) -> BatchExportFileDownload:
-    """Attempt to fetch a file download for a given batch export run.
-
-    Optionally, for multi-file batch exports, filter by file id or index.
-    """
-    if batch_export_run.batch_export_on_demand is None:
-        raise RuntimeError("Batch export on demand must be defined on this run")
-
-    try:
-        file_download_id = uuid.UUID(file_id_or_index)  # type: ignore[arg-type]
-
-    except (ValueError, TypeError, AttributeError):
-        file_downloads_query = BatchExportFileDownload.objects.filter(
-            batch_export_run=batch_export_run, team=batch_export_run.batch_export_on_demand.team
-        ).order_by("key")
-        file_downloads: list[BatchExportFileDownload] = list(file_downloads_query)
-
-        try:
-            index = int(file_id_or_index) if file_id_or_index is not None else 0
-        except (ValueError, TypeError):
-            raise ValidationError(f"Invalid file id or index: '{file_id_or_index}'")
-
-        if index < 0 or index >= len(file_downloads):
-            raise NotFound(f"No files with index {index}")
-
-        file_download = file_downloads[index]
-
-    else:
-        file_download = get_object_or_404(
-            BatchExportFileDownload.objects.filter(
-                batch_export_run=batch_export_run,
-                id=file_download_id,
-                team=batch_export_run.batch_export_on_demand.team,
-            )
-        )
-
-    return file_download
-
-
-def _calculate_expiration_for_file_download(
-    file_download: BatchExportFileDownload, default_expiration: dt.timedelta
-) -> dt.timedelta:
-    """Calculate the expiration for a file download.
-
-    The provided `default_expiration` will be used as fallback if the file download
-    contains no `expires_at`.
-    """
-
-    if file_download.expires_at is not None:
-        now = dt.datetime.now(dt.UTC)
-        remaining = file_download.expires_at - now
-
-        if remaining < dt.timedelta(seconds=0):
-            raise ValidationError("This file download has expired")
-
-        expiration = min(remaining, default_expiration)
-    else:
-        expiration = default_expiration
-
-    return expiration

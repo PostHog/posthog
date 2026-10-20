@@ -40,6 +40,10 @@ class AccountPropertySyncRunOutcome:
 _ACCOUNT_SEGMENTS = {segment.value for segment in SyncSegment}
 
 
+class AccountPropertySyncSegmentIncompleteError(Exception):
+    pass
+
+
 def start_account_property_sync_runs(
     context: AccountPropertySyncRunContext,
     *,
@@ -127,6 +131,7 @@ def update_account_property_sync_runs_phase(
     workflow_run_id: str | None,
     attempt: int,
     segment: SyncSegment | None = None,
+    source_id: UUID | None = None,
 ) -> None:
     runs = CustomPropertySyncRun.objects.for_team(context.team_id).filter(
         job_id=context.job_id,
@@ -135,6 +140,8 @@ def update_account_property_sync_runs_phase(
     )
     if segment is not None:
         runs = runs.filter(segment=segment.value)
+    if source_id is not None:
+        runs = runs.filter(source_id=source_id)
     if phase == SyncPhase.DISPATCHING:
         runs = runs.filter(phase__in=[SyncPhase.STAGING.value, SyncPhase.DISPATCHING.value])
     runs.update(
@@ -199,6 +206,7 @@ def finalize_account_property_sync_runs(
     phase: SyncPhase,
     error: str | None = None,
     segment: SyncSegment | None = None,
+    source_id: UUID | None = None,
 ) -> None:
     with transaction.atomic():
         runs = (
@@ -212,6 +220,8 @@ def finalize_account_property_sync_runs(
         )
         if segment is not None:
             runs = runs.filter(segment=segment.value)
+        if source_id is not None:
+            runs = runs.filter(source_id=source_id)
         transitioned_source_ids = set(runs.values_list("source_id", flat=True))
         runs.update(
             status=status.value,
@@ -220,6 +230,44 @@ def finalize_account_property_sync_runs(
             error=error,
         )
         _update_source_status_for_terminal_runs(context.team_id, context.job_id, transitioned_source_ids)
+
+
+def complete_account_property_sync_segment_runs(context: AccountPropertySyncRunContext, segment: SyncSegment) -> None:
+    with transaction.atomic():
+        runs = list(
+            CustomPropertySyncRun.objects.for_team(context.team_id)
+            .select_for_update()
+            .filter(
+                job_id=context.job_id,
+                saved_query_id=context.saved_query_id,
+                segment=segment.value,
+            )
+        )
+        eligible_source_ids = set(
+            CustomPropertySource.objects.for_team(context.team_id)
+            .filter(
+                saved_query_id=context.saved_query_id,
+                is_enabled=True,
+                definition__target_type=TargetType.ACCOUNT.value,
+                source_column__isnull=False,
+            )
+            .values_list("id", flat=True)
+        )
+        # Staged rows must remain available until every eligible source completes.
+        if eligible_source_ids - {run.source_id for run in runs} or any(
+            run.status == SyncStatus.FAILED.value
+            or (run.source_id in eligible_source_ids and run.status != SyncStatus.COMPLETED.value)
+            for run in runs
+        ):
+            raise AccountPropertySyncSegmentIncompleteError(
+                f"Account-property segment {segment.value} has unfinished or failed source runs"
+            )
+        finalize_account_property_sync_runs(
+            context,
+            status=SyncStatus.COMPLETED,
+            phase=SyncPhase.COMPLETED,
+            segment=segment,
+        )
 
 
 def finish_account_property_sync_runs(

@@ -2,12 +2,11 @@ import { DndContext, DragEndEvent, DragOverlay, DragStartEvent } from '@dnd-kit/
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
@@ -29,10 +28,12 @@ import {
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
-import { splitChoicesOnPaste } from '../../utils'
+import { splitChoicesOnPaste, withIntroScreenEnabled } from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
+import { IntroScreenEditor } from './IntroScreenEditor'
+import { ScreenEditorCard } from './ScreenEditorCard'
 import { TranslationsSection } from './TranslationsSection'
 
 const MAX_CHOICES = 10
@@ -326,56 +327,36 @@ interface ConfirmationScreenEditorProps {
 }
 
 function ConfirmationScreenEditor({ appearance, onUpdate }: ConfirmationScreenEditorProps): JSX.Element {
-    const isEnabled = appearance.displayThankYouMessage ?? true
-
     return (
-        <div className="border border-border rounded-lg bg-bg-light overflow-hidden">
-            {/* Always visible header with toggle */}
-            <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                <span className="text-sm font-medium">Confirmation screen</span>
-                <LemonSwitch
-                    checked={isEnabled}
-                    onChange={(checked) => onUpdate({ displayThankYouMessage: checked })}
-                />
-            </div>
-
-            {/* Animated expandable content */}
-            <AnimatePresence initial={false}>
-                {isEnabled && (
-                    <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
-                    >
-                        <div className="px-3 pb-3 space-y-2 border-t border-border pt-2.5">
-                            <EditableField
-                                name="confirmation-header"
-                                value={appearance.thankYouMessageHeader || ''}
-                                onSave={(text) => onUpdate({ thankYouMessageHeader: text })}
-                                placeholder="Thank you for your feedback!"
-                                className="font-medium text-sm"
-                                saveOnBlur
-                                clickToEdit
-                                compactIcon
-                                showEditIconOnHover
-                            />
-                            <EditableField
-                                name="confirmation-description"
-                                value={appearance.thankYouMessageDescription || ''}
-                                onSave={(text) => onUpdate({ thankYouMessageDescription: text })}
-                                placeholder="Add a description (optional)"
-                                className="text-secondary text-xs"
-                                saveOnBlur
-                                clickToEdit
-                                compactIcon
-                                showEditIconOnHover
-                            />
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </div>
+        <ScreenEditorCard
+            title="Confirmation screen"
+            enabled={appearance.displayThankYouMessage ?? true}
+            onToggle={(checked) => onUpdate({ displayThankYouMessage: checked })}
+        >
+            <EditableField
+                name="confirmation-header"
+                value={appearance.thankYouMessageHeader || ''}
+                onSave={(text) => onUpdate({ thankYouMessageHeader: text })}
+                placeholder="Thank you for your feedback!"
+                className="font-medium text-sm"
+                saveOnBlur
+                clickToEdit
+                compactIcon
+                showEditIconOnHover
+            />
+            <EditableField
+                name="confirmation-description"
+                multiline
+                value={appearance.thankYouMessageDescription || ''}
+                onSave={(text) => onUpdate({ thankYouMessageDescription: text })}
+                placeholder="Add a description (optional)"
+                className="text-secondary text-xs"
+                saveOnBlur
+                clickToEdit
+                compactIcon
+                showEditIconOnHover
+            />
+        </ScreenEditorCard>
     )
 }
 
@@ -513,9 +494,14 @@ function SortableQuestionCard({
 interface QuestionsStepProps {
     editingLanguage: string | null
     setEditingLanguage: (language: string | null) => void
+    onIntroScreenEnabled: () => void
 }
 
-export function QuestionsStep({ editingLanguage, setEditingLanguage }: QuestionsStepProps): JSX.Element {
+export function QuestionsStep({
+    editingLanguage,
+    setEditingLanguage,
+    onIntroScreenEnabled,
+}: QuestionsStepProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue, moveQuestion, removeQuestion } = useActions(surveyLogic)
     const { selectedTemplate } = useValues(surveyWizardLogic)
@@ -602,6 +588,19 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
                     ) : null
                 }
             />
+            <IntroScreenEditor
+                appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
+                onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
+                onToggle={(enabled) => {
+                    if (enabled) {
+                        setSurveyValue('appearance', withIntroScreenEnabled(survey.appearance))
+                        onIntroScreenEnabled()
+                    } else {
+                        setSurveyValue('appearance', { ...survey.appearance, displayIntroScreen: false })
+                    }
+                }}
+            />
+
             <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 <SortableContext items={sortedItemIds} strategy={verticalListSortingStrategy} disabled={!canReorder}>
                     <div className="space-y-3">

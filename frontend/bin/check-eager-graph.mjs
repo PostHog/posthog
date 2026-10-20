@@ -95,6 +95,8 @@ const ROOTS = [
             // purchase UI. A hit means a module on the App path imports billingLogic. Read billing values
             // from a logic or component that only logged-in pages load.
             'src/scenes/billing/billingLogic.tsx',
+            // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
+            'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
         ],
     },
     {
@@ -102,7 +104,7 @@ const ROOTS = [
         label: 'authenticated shell (every logged-in page)',
         // 2026-10-11: 7.09 MiB eager output = 6.29 MiB JS (2463 files) + 0.80 MiB stable CSS.
         // ~8% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 8_015_000,
+        budgetBytes: 7_860_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -113,6 +115,8 @@ const ROOTS = [
                 verifyPrefix: 'products/dashboards/frontend/widgets/',
             },
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
+            // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
+            'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -137,13 +141,16 @@ const ROOTS = [
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
         // 2026-10-11: 9.33 MiB (3529 files), stable CSS included. ~10% headroom.
-        budgetBytes: 10_800_000,
+        budgetBytes: 10_500_000,
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+            // The generated schema validators serve web analytics URL filters. A hit means the web
+            // analytics editor filters became a static import of the insight editor.
+            'src/queries/validators.js',
         ],
     },
     {
@@ -153,7 +160,7 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        budgetBytes: 8_270_000,
+        budgetBytes: 8_115_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
@@ -164,21 +171,42 @@ const ROOTS = [
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
         // 2026-10-11: 8.92 MiB (3373 files), stable CSS included. ~10% headroom.
-        budgetBytes: 10_355_000,
+        budgetBytes: 10_055_000,
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+            // The generated schema validators serve web analytics URL filters. A hit means the web
+            // analytics editor filters became a static import of the insight editor.
+            'src/queries/validators.js',
+        ],
+    },
+    {
+        root: 'src/scenes/web-analytics/WebAnalyticsScene.tsx',
+        label: 'web analytics scene',
+        // 2026-10-17: 9.85 MiB (3651 files), stable CSS included. ~10% headroom.
+        budgetBytes: 11_360_000,
+        forbidden: [
+            // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
+            'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
+            'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
         ],
     },
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
-        // 2026-10-11: 11.70 MiB (4204 files), stable CSS included. ~30% headroom.
-        budgetBytes: 15_785_000,
-        forbidden: [],
+        // 2026-10-17: 8.61 MiB (3264 files), stable CSS included. ~10% headroom.
+        budgetBytes: 9_930_000,
+        forbidden: [
+            // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
+            // which holds every settings page.
+            'src/scenes/settings/SettingsMap.tsx',
+            // A browser cannot read files. The polyfill plugin in common/esbuilder/utils.mjs stubs out
+            // fs and fs/promises, and a hit means a library's file reader pulled in the jspm fs polyfill.
+            '@jspm/core/nodelibs/browser/fs',
+        ],
     },
 ]
 

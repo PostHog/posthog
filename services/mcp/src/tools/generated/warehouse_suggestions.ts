@@ -167,16 +167,7 @@ const warehouseSuggestionsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'kind',
-                    'subject_kind',
-                    'subject_id',
-                    'payload',
-                    'status',
-                    'score',
-                    'can_act',
-                ])
+                pickResponseFields(item, ['id', 'kind', 'subject_kind', 'subject_id', 'payload', 'status', 'can_act'])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/models')

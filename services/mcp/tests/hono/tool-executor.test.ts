@@ -46,6 +46,14 @@ describe('ToolExecutor', () => {
     })
 
     describe('handleToolCall', () => {
+        it('refuses cached exec calls through Store connections', async () => {
+            const result = await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools' } },
+                makeToolExecutorState([], { useSingleExec: false, viaMcpStore: true })
+            )
+            expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'Tool exec not found' }] })
+        })
+
         it('returns error when tool name is missing', async () => {
             const result = (await executor.handleToolCall({}, makeToolExecutorState([]))) as any
             expect(result.isError).toBe(true)
@@ -60,6 +68,17 @@ describe('ToolExecutor', () => {
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('nonexistent-tool')
             expect(result.content[0].text).toContain('not found')
+        })
+
+        it('returns replacement guidance for a direct call to a removed tool', async () => {
+            const result = (await executor.handleToolCall(
+                { name: 'loops-list', arguments: {} },
+                makeToolExecutorState([])
+            )) as any
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('loops-list')
+            expect(result.content[0].text).toContain('workflows-list')
+            expect(result.content[0].text).toContain('building-loops')
         })
 
         it('rejects tools not in the per-request filtered set', async () => {

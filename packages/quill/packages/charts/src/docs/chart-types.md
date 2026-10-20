@@ -22,6 +22,7 @@ Takes `series: ScatterSeries[]`, each `{ key, label, points: { x, y, label?, rad
 - On a log axis, points with a non-positive coordinate are dropped. A pinned `domain` narrows the chart rather than the viewport: points outside it are dropped too, so nothing piles onto the plot edge at a value it does not have.
 - `shape` (`circle | square | triangle | cross`) separates series without relying on color. Markers fill at `config.fillOpacity` (0.7) over an opaque outline so a dense cloud reads as density.
 - Hit-testing is 2D and edge-based: the tooltip resolves the marker nearest the cursor in both axes (a large marker the cursor sits inside beats a small one whose center is nearer), and empty plot area resolves to nothing rather than to the nearest column.
+- `config.isPointHighlighted` draws selection halos without replacing series or rebuilding geometry. Keep the callback stable until the selection changes.
 - `onPointClick` and the `tooltip` render prop receive the resolved `ScatterPointDatum` (with its series and `meta`), not a data index. `config.tooltip` takes `enabled`, `placement`, `labelFormatter`, `xFormatter`, `yFormatter`. The default tooltip labels its two rows from the axis titles, falling back to the hovered point's series label for y and to `X` for x; a header that would repeat the y row is dropped.
 - Chrome toggles are the usual `showGrid`, `showAxisLines`, `showTickMarks`, `showCrosshair`, all on by default. X ticks are resolved once per layout, so grid lines, tick marks, and labels are one set.
 - `showBestFit` draws a dashed least-squares line per series, in that series' color, spanning only its own points. It is canvas, not `TrendLineOverlay`, whose regression fits y against the array index and means nothing where x is a measure. The fit runs over pixel positions, so it minimizes the right residuals on both linear and log axes, and it sees only drawn points: a series with fewer than two, or all at one x, gets no line.
@@ -103,6 +104,9 @@ The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col]` counts mapped to color intensity on one accent.
 Log ramp by default; `colorScale: 'linear'` to opt out.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
+`config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
+It runs for every cell, empty ones included; return null to leave one blank.
+Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
 
 ## SankeyChart
 

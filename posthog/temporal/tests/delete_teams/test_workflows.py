@@ -38,6 +38,7 @@ CORE_ACTIVITY_ORDER = [
     "delete_cohort_members_activity",
     "delete_groups_activity",
     "delete_team_persons_activity",
+    "delete_event_properties_activity",
     "delete_batch_exports_activity",
     "delete_data_modeling_schedules_activity",
     "delete_team_records_activity",

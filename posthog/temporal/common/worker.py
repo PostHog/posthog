@@ -1,5 +1,6 @@
 import socket
 import typing
+import asyncio
 import datetime as dt
 import itertools
 import collections.abc
@@ -12,8 +13,15 @@ from prometheus_client import REGISTRY
 from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import (
+    PollerBehaviorAutoscaling,
+    ResourceBasedSlotConfig,
+    UnsandboxedWorkflowRunner,
+    Worker,
+    WorkerTuner,
+)
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.eval_reports.metrics import (
     EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
     EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
@@ -194,29 +202,66 @@ ALL_INTERCEPTOR_CLASSES = [
 ]
 
 
+@frozen
+class ActivityWorkerConfig:
+    task_queue: str
+    activities: collections.abc.Sequence[typing.Callable]
+    max_concurrent_activities: int
+
+
 @dataclass(frozen=False)
 class ManagedWorker:
     """A Temporal worker bundled with its associated resources for unified lifecycle management."""
 
     worker: Worker
     metrics_server: CombinedMetricsServer | None = None
+    activity_workers: tuple[Worker, ...] = ()
 
     async def run(self) -> None:
         if self.metrics_server:
             await self.metrics_server.start()
-        await self.worker.run()
+        if not self.activity_workers:
+            await self.worker.run()
+            return
+        # A failed poller must stop its siblings so the pod restarts with all queues served.
+        async with asyncio.TaskGroup() as group:
+            for worker in (self.worker, *self.activity_workers):
+                group.create_task(worker.run())
 
     def is_shutdown(self) -> bool:
-        return self.worker.is_shutdown
+        return all(worker.is_shutdown for worker in (self.worker, *self.activity_workers))
 
     async def shutdown(self) -> None:
-        await self.worker.shutdown()
+        await asyncio.gather(*(worker.shutdown() for worker in (self.worker, *self.activity_workers)))
         if self.metrics_server:
             await self.metrics_server.stop()
         shutdown_asyncify_executor()
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
+
+
+def build_poller_autoscaling(
+    task_type: str, minimum: int | None, maximum: int | None
+) -> PollerBehaviorAutoscaling | None:
+    """Return an autoscaling poller behavior, or None to keep the SDK default when maximum is unset."""
+    if maximum is None:
+        if minimum is not None:
+            logger.warning(
+                "poller_autoscaling_minimum_ignored",
+                task_type=task_type,
+                minimum=minimum,
+                reason="maximum is not set, so the SDK default poller behavior is used",
+            )
+        return None
+    effective_minimum = PollerBehaviorAutoscaling.minimum if minimum is None else minimum
+    if effective_minimum < 1:
+        raise ValueError(f"{task_type} poller autoscaling minimum must be at least 1, got {effective_minimum}")
+    if maximum < effective_minimum:
+        raise ValueError(
+            f"{task_type} poller autoscaling maximum ({maximum}) must be at least the minimum ({effective_minimum})"
+        )
+    return PollerBehaviorAutoscaling(minimum=effective_minimum, maximum=maximum, initial=effective_minimum)
 
 
 async def create_worker(
@@ -240,6 +285,7 @@ async def create_worker(
     activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
+    activity_worker_configs: collections.abc.Sequence[ActivityWorkerConfig] = (),
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -273,6 +319,8 @@ async def create_worker(
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
+        activity_worker_configs: Additional activity queues with independent fixed concurrency limits,
+            sharing this process, client, metrics server, and shutdown lifecycle.
     """
 
     metrics_server: CombinedMetricsServer | None = None
@@ -458,6 +506,22 @@ async def create_worker(
         min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
     )
 
+    poller_kwargs: dict[str, typing.Any] = {}
+    activity_poller_behavior = build_poller_autoscaling(
+        "activity",
+        settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN,
+        settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX,
+    )
+    if activity_poller_behavior is not None:
+        poller_kwargs["activity_task_poller_behavior"] = activity_poller_behavior
+    workflow_poller_behavior = build_poller_autoscaling(
+        "workflow",
+        settings.TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN,
+        settings.TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX,
+    )
+    if workflow_poller_behavior is not None:
+        poller_kwargs["workflow_task_poller_behavior"] = workflow_poller_behavior
+
     if target_memory_usage is not None:
         worker = Worker(
             client,
@@ -482,6 +546,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            **poller_kwargs,
         )
     else:
         worker = Worker(
@@ -498,9 +563,28 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            **poller_kwargs,
         )
 
-    return ManagedWorker(worker=worker, metrics_server=metrics_server)
+    activity_workers = tuple(
+        Worker(
+            client,
+            task_queue=config.task_queue,
+            activities=config.activities,
+            max_concurrent_activities=config.max_concurrent_activities,
+            activity_executor=ThreadPoolExecutor(max_workers=config.max_concurrent_activities),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            interceptors=[
+                interceptor()
+                for interceptor in ALL_INTERCEPTOR_CLASSES
+                if is_task_queue_supported(config.task_queue, interceptor)
+            ],
+            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            **poller_kwargs,
+        )
+        for config in activity_worker_configs
+    )
+    return ManagedWorker(worker=worker, metrics_server=metrics_server, activity_workers=activity_workers)
 
 
 def get_free_port() -> int:

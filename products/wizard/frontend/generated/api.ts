@@ -14,6 +14,7 @@ import type {
     PaginatedWizardRunListApi,
     PaginatedWizardSessionDTOListApi,
     PatchedWizardRunStatusUpdateRequestApi,
+    RecordWizardScanRequestApi,
     UpdateWizardRunTaskListApi,
     UpsertWizardSessionRequestApi,
     WizardRegistryListParams,
@@ -22,10 +23,12 @@ import type {
     WizardRunTaskListApi,
     WizardRunsArtifactsListParams,
     WizardRunsListParams,
+    WizardScanResultApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
+    WizardToolCatalogApi,
 } from './api.schemas'
 
 export const getWizardRegistryListUrl = (projectId: string, params?: WizardRegistryListParams) => {
@@ -262,6 +265,26 @@ export const wizardRunsTasksUpdate = async (
     })
 }
 
+export const getWizardScansCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/scans/`
+}
+
+/**
+ * @summary Record the tools a wizard scan found in a codebase
+ */
+export const wizardScansCreate = async (
+    projectId: string,
+    recordWizardScanRequestApi: RecordWizardScanRequestApi,
+    options?: RequestInit
+): Promise<WizardScanResultApi> => {
+    return apiMutator<WizardScanResultApi>(getWizardScansCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordWizardScanRequestApi),
+    })
+}
+
 export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -387,6 +410,21 @@ export const wizardSessionsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<string> => {
     return apiMutator<string>(getWizardSessionsStreamRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardToolCatalogListUrl = () => {
+    return `/api/wizard/tool_catalog/`
+}
+
+/**
+ * Every tool the wizard can detect in a codebase, with the signals that identify it.
+ * @summary Get the wizard tool catalog
+ */
+export const wizardToolCatalogList = async (options?: RequestInit): Promise<WizardToolCatalogApi> => {
+    return apiMutator<WizardToolCatalogApi>(getWizardToolCatalogListUrl(), {
         ...options,
         method: 'GET',
     })

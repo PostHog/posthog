@@ -460,6 +460,7 @@ export interface sourceWizardLogicValues {
     cdcSelfManagedVerifyResultLoading: boolean
     configuredSchemaName: string | null
     connectError: string | null
+    connectorSelectionCount: number
     connectors: SourceConfigResponseApi[]
     currentStep: number
     currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
@@ -501,6 +502,7 @@ export interface sourceWizardLogicValues {
     prefixRequired: boolean
     requiredTables: any
     returnConfig: {
+        entryPoint?: string
         returnLabel: string
         returnUrl: string
     } | null
@@ -722,8 +724,10 @@ export interface sourceWizardLogicActions {
     }
     setReturnConfig: (
         returnUrl: string,
-        returnLabel: string
+        returnLabel: string,
+        entryPoint?: string
     ) => {
+        entryPoint: string | undefined
         returnLabel: string
         returnUrl: string
     }
@@ -962,6 +966,7 @@ export interface sourceWizardLogicMeta {
             showDestinationStep: boolean,
             arg: any,
             returnConfig: {
+                entryPoint?: string
                 returnLabel: string
                 returnUrl: string
             } | null,
@@ -1055,7 +1060,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             source,
             searchParams,
         }),
-        setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        setReturnConfig: (returnUrl: string, returnLabel: string, entryPoint?: string) => ({
+            returnUrl,
+            returnLabel,
+            entryPoint,
+        }),
         clearReturnConfig: true,
         onClear: true,
         onBack: true,
@@ -1346,6 +1355,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
+                selectConnector: () => false,
+            },
+        ],
+        // Counts selections rather than comparing connector objects, so picking the same source
+        // again (A, then B, then A) still marks an earlier in-flight probe as stale.
+        connectorSelectionCount: [
+            0,
+            {
+                selectConnector: (count) => count + 1,
             },
         ],
         // The toast that also carries this message is gone in a few seconds, so people retry the
@@ -1369,9 +1387,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         returnConfig: [
-            null as { returnUrl: string; returnLabel: string } | null,
+            null as { returnUrl: string; returnLabel: string; entryPoint?: string } | null,
             {
-                setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                setReturnConfig: (_, { returnUrl, returnLabel, entryPoint }) => ({
+                    returnUrl,
+                    returnLabel,
+                    entryPoint,
+                }),
                 clearReturnConfig: () => null,
             },
         ],
@@ -2311,6 +2333,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 posthog.capture('warehouse source connect completed', {
                     sourceType: values.selectedConnector.name,
                     returnLabel: values.returnConfig?.returnLabel,
+                    entry_point: values.returnConfig?.entryPoint,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
@@ -2415,6 +2438,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(true)
 
             const sourceType = values.selectedConnector.name
+            // The logic is not keyed per connector, so a slow probe can finish after the user picks
+            // another source. Its result then belongs to no visible form and must not reach the UI.
+            const selection = values.connectorSelectionCount
+            const connectorChanged = (): boolean => values.connectorSelectionCount !== selection
             const startedAt = performance.now()
             const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
                 posthog.capture('source wizard schemas loaded', {
@@ -2433,6 +2460,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         throw e
                     })
                 captureSchemasLoaded(true, schemas.length)
+                if (connectorChanged()) {
+                    return
+                }
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
@@ -2568,6 +2598,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
+                if (connectorChanged()) {
+                    return
+                }
                 const apiMessage = e.data?.message ?? e.detail
                 const errorMessage = resolveConnectErrorMessage(e)
                 actions.setConnectError(errorMessage)
@@ -2633,7 +2666,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const returnLabel = searchParams.returnLabel
 
             if (returnUrl && returnLabel) {
-                actions.setReturnConfig(returnUrl, returnLabel)
+                actions.setReturnConfig(returnUrl, returnLabel, searchParams.entry_point)
             } else {
                 actions.clearReturnConfig()
             }

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +49,68 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^LANGFUSE_",
+            "^NEXT_PUBLIC_LANGFUSE_PUBLIC_KEY$",
+            "^NEXT_PUBLIC_LANGFUSE_BASE_URL$",
+            "^CC_LANGFUSE_PUBLIC_KEY$",
+            "^CC_LANGFUSE_SECRET_KEY$",
+            "^CC_LANGFUSE_BASE_URL$",
+            "^HERMES_LANGFUSE_PUBLIC_KEY$",
+            "^HERMES_LANGFUSE_SECRET_KEY$",
+            "^HERMES_LANGFUSE_BASE_URL$",
+            "^TRACE_TO_LANGFUSE$",
+        ),
+        npm=(
+            "langfuse",
+            "@langfuse/tracing",
+            "@langfuse/otel",
+            "@langfuse/client",
+            "@langfuse/langchain",
+            "langfuse-langchain",
+            "langfuse-node",
+            "@langfuse/core",
+            "@langfuse/browser",
+            "@langfuse/openai",
+            "@langfuse/vercel-ai-sdk",
+            "@langfuse/cli",
+            "@langfuse/n8n-nodes-langfuse",
+            "@langfuse/opencode-observability-plugin",
+            "@langfuse/pi-observability-plugin",
+            "@langfuse/codex-observability-plugin",
+            "langfuse-core",
+            "langfuse-vercel",
+            "openclaw-x-langfuse-plugin",
+            "@mastra/langfuse",
+            "@voltagent/langfuse-exporter",
+        ),
+        pypi=("langfuse", "langfuse-langchain", "langfuse-haystack", "llama-index-callbacks-langfuse"),
+        cargo=("langfuse", "opentelemetry-langfuse", "langfuse-ergonomic", "langfuse-client-base", "swiftide-langfuse"),
+        composer=(
+            "axyr/laravel-langfuse",
+            "janzaba/langfuse",
+            "dropsolid/langfuse-php-sdk",
+            "lingoda/langfuse-bundle",
+            "dij-digital/langfuse-php",
+            "dij-digital/langfuse-laravel",
+        ),
+        go=(
+            "github.com/henomis/langfuse-go",
+            "github.com/git-hulk/langfuse-go",
+            "github.com/wepala/langfuse-go",
+            "github.com/oiime/langfuse-go",
+        ),
+        hex=("langfuse",),
+        maven=(
+            "com.langfuse:langfuse-java",
+            "io.quarkiverse.langfuse:quarkus-langfuse",
+            "com.quantpulsar:opentelemetry-exporter-langfuse",
+        ),
+        rubygems=("langfuse-rb", "langfuse-ruby", "langfuse"),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://langfuse.com/docs/api-and-data-platform/features/public-api"
 

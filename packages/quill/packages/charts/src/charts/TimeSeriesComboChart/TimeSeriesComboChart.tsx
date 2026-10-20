@@ -15,7 +15,7 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import type { GoalLineConfig } from '../../utils/goal-lines'
+import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
@@ -28,6 +28,8 @@ export interface TimeSeriesComboChartConfig {
     xAxis?: XAxisConfig
     /** Single object for a standard left axis; array for dual left+right axes. */
     yAxis?: YAxisConfig | YAxisConfig[]
+    /** Pin the primary value scale, overriding its automatic data and goal-line extent. */
+    valueDomain?: ComboChartConfig['valueDomain']
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
@@ -40,6 +42,8 @@ export interface TimeSeriesComboChartConfig {
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
+    /** Inner gap between bar bands as a fraction of their slot. */
+    bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
@@ -97,6 +101,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         divergingStack,
         barCornerRadius,
+        bandPadding,
         showCrosshair,
         showGrid,
         showAxisLines,
@@ -142,8 +147,9 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         divergingStack,
         barCornerRadius,
+        bandPadding,
         tooltip: timeSeriesTooltipConfig,
-        valueDomain,
+        valueDomain: mergeValueDomains(config?.valueDomain, valueDomain),
         yAxes,
     }
 
@@ -162,7 +168,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
                 {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && <ValueLabels {...valueLabelsConfig} valueFormatter={valueLabelFormatter} />}
                 {children}
             </ComboChart>
         </ChartLegend>

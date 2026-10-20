@@ -12,6 +12,7 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -176,7 +177,7 @@ def connect_github(team: Team, integration_id: int) -> dict[str, Any]:
     if config.github_integration_id != integration.id:
         config.github_repos = []
     config.github_integration_id = integration.id
-    config.save(update_fields=["github_integration_id", "github_repos"])
+    _save_allowlist(team, config, ["github_integration_id", "github_repos"])
     return connection_status(team)
 
 
@@ -185,7 +186,7 @@ def disconnect_github(team: Team) -> dict[str, Any]:
     if config is not None:
         config.github_integration_id = None
         config.github_repos = []
-        config.save(update_fields=["github_integration_id", "github_repos"])
+    _save_allowlist(team, config, ["github_integration_id", "github_repos"])
     return connection_status(team)
 
 
@@ -195,7 +196,7 @@ def select_github_repos(team: Team, repos: list[str]) -> dict[str, Any]:
         raise GithubReposError("Connect GitHub before choosing repositories.")
     validated = _validate_against_installation(team.id, config.github_integration_id, repos)
     config.github_repos = validated
-    config.save(update_fields=["github_repos"])
+    _save_allowlist(team, config, ["github_repos"])
     integration_id = config.github_integration_id
 
     def enqueue() -> None:
@@ -206,8 +207,21 @@ def select_github_repos(team: Team, repos: list[str]) -> dict[str, Any]:
     return connection_status(team)
 
 
-def search_repositories(team: Team, user: User, query: str, repo: str | None) -> RepositorySearchOutcome:
+def search_repositories(
+    team: Team,
+    user: User,
+    query: str,
+    repo: str | None,
+    library_id: UUID | None = None,
+) -> RepositorySearchOutcome:
     integration, allowed = _require_allowlist(team)
+    allowed = _restrict_to_library(team, allowed, library_id, repo)
+    if not allowed:
+        outcome = RepositorySearchOutcome(hits=[], repositories=[])
+        _capture_tool(
+            team, user, "search", 0, [], result_chars=_serialized_chars(outcome), library_scoped=library_id is not None
+        )
+        return outcome
     targets = _targets(allowed, repo)
     terms = search_terms(query)
     if not terms:
@@ -216,13 +230,24 @@ def search_repositories(team: Team, user: User, query: str, repo: str | None) ->
     hits = _search_paths(team.id, integration.id, targets, terms)
     hits.extend(_search_readmes(team.id, integration.id, targets, terms))
     outcome = RepositorySearchOutcome(hits=hits, repositories=states)
-    _capture_tool(team, user, "search", len(hits), states, result_chars=_serialized_chars(outcome))
+    _capture_tool(
+        team,
+        user,
+        "search",
+        len(hits),
+        states,
+        result_chars=_serialized_chars(outcome),
+        library_scoped=library_id is not None,
+    )
     return outcome
 
 
-def read_repository_file(team: Team, user: User, repo: str, path: str) -> RepositoryFile:
+def read_repository_file(
+    team: Team, user: User, repo: str, path: str, library_id: UUID | None = None
+) -> RepositoryFile:
     integration, allowed = _require_allowlist(team)
     full_name = repo.lower()
+    allowed = _restrict_to_library(team, allowed, library_id, full_name)
     if full_name not in allowed:
         raise GithubReposError("That repository is not selected for business knowledge.")
     safe_path = _safe_blob_path(path)
@@ -235,17 +260,19 @@ def read_repository_file(team: Team, user: User, repo: str, path: str) -> Reposi
             raise GithubReposError("That path is not a file in the cached tree.")
         loaded = _fetch_file(team, integration, full_name, safe_path, sha)
     except GithubReposError:
-        _capture_tool(team, user, "file", 0, states, result_chars=0)
+        _capture_tool(team, user, "file", 0, states, result_chars=0, library_scoped=library_id is not None)
         raise
-    _capture_tool(team, user, "file", 1, states, result_chars=_serialized_chars(loaded))
+    _capture_tool(
+        team, user, "file", 1, states, result_chars=_serialized_chars(loaded), library_scoped=library_id is not None
+    )
     return loaded
 
 
 def _fetch_file(team: Team, integration: Integration, full_name: str, path: str, sha: str) -> RepositoryFile:
     try:
-        payload = GitHubIntegration(integration, source="business_knowledge").get_file_contents(
-            full_name, _quote_github_path(path), ref=sha
-        )
+        payload = GitHubIntegration(
+            integration, source="business_knowledge", priority=Priority.NORMAL
+        ).get_file_contents(full_name, _quote_github_path(path), ref=sha)
     except UnicodeDecodeError:
         raise GithubReposError("That file is not text.")
     except (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted):
@@ -346,14 +373,47 @@ def _require_allowlist(team: Team) -> tuple[Integration, list[str]]:
 def _installation_repo_names(integration: Integration) -> set[str]:
     # A pure read of the stored repository list, so a repository removed from the installation
     # stops being searchable as soon as that list refreshes, even while its cache row remains.
-    listed = GitHubIntegration(integration, source="business_knowledge").list_all_cached_repositories(
-        allow_refresh=False
-    )
+    listed = GitHubIntegration(
+        integration, source="business_knowledge", priority=Priority.NORMAL
+    ).list_all_cached_repositories(allow_refresh=False)
     return {
         item["full_name"].lower()
         for item in listed
         if isinstance(item, dict) and isinstance(item.get("full_name"), str)
     }
+
+
+def _restrict_to_library(team: Team, allowed: list[str], library_id: UUID | None, repo: str | None) -> list[str]:
+    """Intersect the allowlist with a library. An empty result means search should return no hits."""
+    if library_id is None:
+        return allowed
+    from .libraries import LibraryNotFound, library_repo_names  # noqa: PLC0415 — libraries imports this module's models
+
+    try:
+        members = library_repo_names(team.id, library_id)
+    except LibraryNotFound:
+        raise GithubReposError("That library was not found.") from None
+    if repo:
+        full_name = repo.lower()
+        if full_name not in members:
+            raise GithubReposError("That repository is not selected for business knowledge.")
+    return [full_name for full_name in allowed if full_name in members]
+
+
+def _save_allowlist(team: Team, config: TeamBusinessKnowledgeConfig | None, update_fields: list[str]) -> None:
+    from .libraries import (  # noqa: PLC0415 — libraries is not on the import path
+        lock_libraries,
+        project_allowed_repos,
+        prune_repository_links,
+    )
+
+    # Environments of a project share library links. Without one lock, a prune can read another environment's
+    # allowlist before that environment saves it and delete links the new allowlist keeps.
+    with transaction.atomic():
+        lock_libraries(team.id)
+        if config is not None:
+            config.save(update_fields=update_fields)
+        prune_repository_links(team.id, project_allowed_repos(team))
 
 
 def _targets(allowed: list[str], repo: str | None) -> list[str]:
@@ -371,7 +431,7 @@ def _validate_against_installation(team_id: int, integration_id: int, repos: lis
     integration = _integration_for(team_id, integration_id)
     if integration is None:
         raise GithubReposError("GitHub installation not found on this project.")
-    github = GitHubIntegration(integration, source="business_knowledge")
+    github = GitHubIntegration(integration, source="business_knowledge", priority=Priority.NORMAL)
     try:
         listed = github.list_all_cached_repositories()
     # Without a cached snapshot the refresh re-raises whatever the sync hit, not only GitHub errors.
@@ -577,6 +637,7 @@ def _capture_tool(
     states: list[RepositoryCacheState],
     *,
     result_chars: int,
+    library_scoped: bool = False,
 ) -> None:
     cache_status = (
         RepositoryCacheStatus.WARMING
@@ -591,6 +652,7 @@ def _capture_tool(
                 "tool": tool,
                 "result_count": result_count,
                 "cache_status": str(cache_status),
+                "library_scoped": library_scoped,
                 # The tools call no model. Their cost is the text they add to the calling agent's context.
                 "result_chars": result_chars,
             },

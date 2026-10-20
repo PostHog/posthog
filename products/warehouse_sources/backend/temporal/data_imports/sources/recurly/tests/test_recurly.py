@@ -1,24 +1,30 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
+    RecurlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly import (
     RecurlyPaginator,
     RecurlyResumeConfig,
     _extract_cursor,
     _format_datetime,
+    _usage_add_ons,
     get_resource,
-    recurly_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import RECURLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
 NO_LIST_PARAMS_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_list_params]
@@ -56,6 +62,36 @@ class TestRecurlyHelpers:
 
     def test_format_datetime_string_passthrough(self):
         assert _format_datetime("2024-01-02T00:00:00Z") == "2024-01-02T00:00:00Z"
+
+
+class TestUsageAddOns:
+    @pytest.mark.parametrize(
+        "add_ons, expected_add_on_ids",
+        [
+            ([], []),
+            (None, []),
+            ([{"add_on": {"id": "u1", "add_on_type": "usage"}}], ["u1"]),
+            ([{"add_on": {"id": "f1", "add_on_type": "fixed"}}], []),
+            ([{"add_on": {"id": "u1"}}], []),
+            ([{"add_on": {"add_on_type": "usage"}}], []),
+            ([{"add_on": None}, {}], []),
+            (
+                [
+                    {"add_on": {"id": "u1", "add_on_type": "usage"}},
+                    {"add_on": {"id": "f1", "add_on_type": "fixed"}},
+                    {"add_on": {"id": "u1", "add_on_type": "usage"}},
+                    {"add_on": {"id": "u2", "add_on_type": "usage"}},
+                ],
+                ["u1", "u2"],
+            ),
+        ],
+    )
+    def test_explodes_subscription_into_usage_add_ons(
+        self, add_ons: list[dict[str, Any]] | None, expected_add_on_ids: list[str]
+    ) -> None:
+        rows = _usage_add_ons({"id": "sub-1", "add_ons": add_ons})
+
+        assert rows == [{"subscription_id": "sub-1", "add_on_id": add_on_id} for add_on_id in expected_add_on_ids]
 
 
 class TestRecurlyPaginator:
@@ -115,24 +151,13 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
         [(200, True), (401, False), (403, False), (500, False)],
     )
     def test_status_code_mapping(self, status_code, expected_valid):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly.make_tracked_session"
-        ) as mock_session:
-            mock_session.return_value.get.return_value = _make_http_response({}, status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
             is_valid, message = validate_credentials("key", "us")
 
         assert is_valid is expected_valid
@@ -140,10 +165,7 @@ class TestValidateCredentials:
             assert message
 
     def test_connection_error_is_invalid(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly.make_tracked_session"
-        ) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
+        with scripted_network(always(ConnectionError("boom"))):
             is_valid, message = validate_credentials("key", "us")
 
         assert is_valid is False
@@ -151,69 +173,153 @@ class TestValidateCredentials:
 
 
 class TestRecurlySourceResumeBehavior:
-    def _drive(self, endpoint: str, manager: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = recurly_source(
-                api_key="test-key",
-                region="us",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=False,
-            )
-            list(cast(Iterable[Any], resource))
-            return sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(RecurlySource(), RecurlySourceConfig(api_key="test-key", region="us"))
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "accounts",
+            [
+                ScriptedResponse(json=_list_body([{"id": "a1"}], has_more=True, next_path="/accounts?cursor=cur-1")),
+                ScriptedResponse(json=_list_body([{"id": "a2"}], has_more=True, next_path="/accounts?cursor=cur-2")),
+                ScriptedResponse(json=_list_body([{"id": "a3"}], has_more=False)),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_list_body([{"id": "a1"}], has_more=True, next_path="/accounts?cursor=cur-1")),
-            _make_http_response(_list_body([{"id": "a2"}], has_more=True, next_path="/accounts?cursor=cur-2")),
-            _make_http_response(_list_body([{"id": "a3"}], has_more=False)),
-        ]
-        sent_params = self._drive("accounts", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == [None, "cur-1", "cur-2"]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.params("cursor") == [None, "cur-1", "cur-2"]
+        assert result.saved_states == [
             RecurlyResumeConfig(next_cursor="cur-1"),
             RecurlyResumeConfig(next_cursor="cur-2"),
         ]
 
     def test_resume_seeds_paginator_with_saved_cursor(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = RecurlyResumeConfig(next_cursor="cur-resumed")
+        result = self._driver().run(
+            "accounts",
+            [ScriptedResponse(json=_list_body([{"id": "a4"}], has_more=False))],
+            resume_state=RecurlyResumeConfig(next_cursor="cur-resumed"),
+        )
 
-        responses = [_make_http_response(_list_body([{"id": "a4"}], has_more=False))]
-        sent_params = self._drive("accounts", manager, responses)
+        assert result.params("cursor") == ["cur-resumed"]
 
-        assert [p.get("cursor") for p in sent_params] == ["cur-resumed"]
-        manager.load_state.assert_called_once()
+    def test_does_not_resume_when_there_is_no_saved_state(self):
+        result = self._driver().run("accounts", [ScriptedResponse(json=_list_body([{"id": "a"}], has_more=False))])
 
-    def test_does_not_load_state_when_cannot_resume(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        assert result.params("cursor") == [None]
 
-        responses = [_make_http_response(_list_body([{"id": "a"}], has_more=False))]
-        self._drive("accounts", manager, responses)
 
-        manager.load_state.assert_not_called()
+class TestRecurlyFanOut:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(RecurlySource(), RecurlySourceConfig(api_key="test-key", region="us"))
+
+    def test_coupon_redemptions_walk_every_account_and_tag_rows(self) -> None:
+        result = self._driver().run(
+            "coupon_redemptions",
+            route(
+                {
+                    "/accounts": [
+                        ScriptedResponse(
+                            json=_list_body(
+                                [{"id": "a1"}, {"id": "a2"}], has_more=True, next_path="/accounts?cursor=p2"
+                            )
+                        ),
+                        ScriptedResponse(json=_list_body([{"id": "a3"}])),
+                    ],
+                    "/accounts/a1/coupon_redemptions": [
+                        ScriptedResponse(
+                            json=_list_body(
+                                [{"id": "r1"}], has_more=True, next_path="/accounts/a1/coupon_redemptions?cursor=c2"
+                            )
+                        ),
+                        ScriptedResponse(json=_list_body([{"id": "r2"}])),
+                    ],
+                    # An account closed between the listing and its child fetch.
+                    "/accounts/a2/coupon_redemptions": [ScriptedResponse(status=404, json={"error": {}})],
+                    "/accounts/a3/coupon_redemptions": [ScriptedResponse(json=_list_body([{"id": "r3"}]))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["account_id"], row["id"]) for row in result.rows] == [("a1", "r1"), ("a1", "r2"), ("a3", "r3")]
+        assert all("_accounts_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["account_id", "id"]
+        child_queries = [request.query for request in result.requests if request.path.endswith("/coupon_redemptions")]
+        # The spec declares no `limit` or `order` here, so only the pagination cursor may be sent.
+        assert child_queries == [{}, {"cursor": ("c2",)}, {}, {}]
+
+    def test_usage_requests_only_usage_add_ons_and_tags_rows(self) -> None:
+        subscriptions: list[dict[str, Any]] = [
+            {
+                "id": "s1",
+                "add_ons": [
+                    {"add_on": {"id": "u1", "add_on_type": "usage"}},
+                    {"add_on": {"id": "f1", "add_on_type": "fixed"}},
+                ],
+            },
+            {"id": "s2", "add_ons": []},
+            {"id": "s3", "add_ons": [{"add_on": {"id": "u2", "add_on_type": "usage"}}]},
+        ]
+        result = self._driver().run(
+            "usage",
+            route(
+                {
+                    "/subscriptions": [ScriptedResponse(json=_list_body(subscriptions))],
+                    "/subscriptions/s1/add_ons/u1/usage": [
+                        ScriptedResponse(
+                            json=_list_body(
+                                [{"id": "x1"}], has_more=True, next_path="/subscriptions/s1/add_ons/u1/usage?cursor=c2"
+                            )
+                        ),
+                        ScriptedResponse(json=_list_body([{"id": "x2"}])),
+                    ],
+                    "/subscriptions/s3/add_ons/u2/usage": [ScriptedResponse(json=_list_body([{"id": "x3"}]))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["subscription_id"], row["add_on_id"], row["id"]) for row in result.rows] == [
+            ("s1", "u1", "x1"),
+            ("s1", "u1", "x2"),
+            ("s3", "u2", "x3"),
+        ]
+        usage_requests = [request for request in result.requests if request.path.endswith("/usage")]
+        assert [request.path for request in usage_requests] == [
+            "/subscriptions/s1/add_ons/u1/usage",
+            "/subscriptions/s1/add_ons/u1/usage",
+            "/subscriptions/s3/add_ons/u2/usage",
+        ]
+        assert {(r.param("sort"), r.param("order"), r.param("limit")) for r in usage_requests} == {
+            ("recorded_timestamp", "asc", "200")
+        }
+
+    def test_resume_skips_completed_parents_and_continues_the_current_one(self) -> None:
+        result = self._driver().run(
+            "coupon_redemptions",
+            route(
+                {
+                    "/accounts": [ScriptedResponse(json=_list_body([{"id": "a1"}, {"id": "a2"}, {"id": "a3"}]))],
+                    "/accounts/a2/coupon_redemptions": [ScriptedResponse(json=_list_body([{"id": "r2"}]))],
+                    "/accounts/a3/coupon_redemptions": [ScriptedResponse(json=_list_body([{"id": "r3"}]))],
+                }
+            ),
+            resume_state=RecurlyResumeConfig(
+                fanout_state={
+                    "completed": ["/accounts/a1/coupon_redemptions"],
+                    "current": "/accounts/a2/coupon_redemptions",
+                    "child_state": {"next_cursor": "c-resumed"},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r2", "r3"]
+        child_requests = [r for r in result.requests if r.path.endswith("/coupon_redemptions")]
+        assert [(r.path, r.param("cursor")) for r in child_requests] == [
+            ("/accounts/a2/coupon_redemptions", "c-resumed"),
+            ("/accounts/a3/coupon_redemptions", None),
+        ]
+        assert all(state.next_cursor == "" and state.fanout_state for state in result.saved_states)

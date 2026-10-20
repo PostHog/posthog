@@ -115,6 +115,10 @@ def _export_base(region: str) -> str:
     return _hosts(region).export_base
 
 
+def _ingestion_base(region: str) -> str:
+    return _hosts(region).ingestion_base
+
+
 def _export_url(region: str, api_version: str) -> str:
     # A pin is honored verbatim, so an unknown/future label can reach here; fall back to
     # Mixpanel's only raw-export path (`2.0`) rather than raising on the lookup.
@@ -451,6 +455,28 @@ def _fetch_annotations(
         yield rows
 
 
+def _fetch_lexicon_schemas(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_query_base(region)}/api/app/projects/{project_id}/schemas"
+    response = _request("GET", url, username=username, secret=secret, logger=logger)
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
+def _fetch_lookup_tables(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_ingestion_base(region)}/lookup-tables"
+    response = _request("GET", url, username=username, secret=secret, logger=logger, params={"project_id": project_id})
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
 def _fetch_funnel_list(
     region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
 ) -> list[dict[str, Any]]:
@@ -528,7 +554,20 @@ def _iter_funnel_steps(
             "to_date": end_date.isoformat(),
             "unit": "day",
         }
-        response = _request("GET", url, username=username, secret=secret, logger=logger, params=params)
+        try:
+            response = _request("GET", url, username=username, secret=secret, logger=logger, params=params)
+        except requests.HTTPError as e:
+            # Mixpanel rejects some saved funnels outright (e.g. deleted since the funnel list
+            # was fetched) with a 400 tied to that funnel_id alone, not the request shape. Without
+            # this, one such funnel would raise every attempt and the resume cursor would never
+            # advance past it, permanently blocking every funnel after it in the sort order.
+            if e.response is None or e.response.status_code != 400:
+                raise
+            logger.warning(f"Mixpanel funnel_steps: Mixpanel rejected funnel {funnel_id}; skipping it")
+            manager.save_state(MixpanelResumeConfig(funnel_id=funnel_id))
+            manager.safe_point()
+            continue
+
         rows = _flatten_funnel_steps(funnel, response.json())
 
         manager.save_state(MixpanelResumeConfig(funnel_id=funnel_id))
@@ -618,6 +657,10 @@ def get_rows(
         yield from _fetch_cohorts(region, username, secret, project_id, logger)
     elif endpoint == "annotations":
         yield from _fetch_annotations(region, username, secret, project_id, logger)
+    elif endpoint == "lexicon_schemas":
+        yield from _fetch_lexicon_schemas(region, username, secret, project_id, logger)
+    elif endpoint == "lookup_tables":
+        yield from _fetch_lookup_tables(region, username, secret, project_id, logger)
     elif endpoint == "funnels":
         yield from _fetch_funnels(region, username, secret, project_id, logger)
     elif endpoint in ("funnel_steps", "retention"):

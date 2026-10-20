@@ -1,3 +1,5 @@
+import os
+import signal
 import asyncio
 import threading
 from datetime import timedelta
@@ -6,8 +8,8 @@ from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
-from django.db import transaction
-from django.test import SimpleTestCase, TestCase
+from django.db import OperationalError, transaction
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from asgiref.sync import async_to_sync
@@ -46,6 +48,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 )
 from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
     Command,
+    _capture_run_feature_flags_in_worker_thread,
     _scheduled_run_usage_error,
     _user_can_dispatch,
     dispatch_attempt_already_started,
@@ -191,9 +194,20 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual([row.id for row in claimed], [dispatch.id])
         client = Mock(start_workflow=AsyncMock())
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+        ):
             async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
 
+        dispatch_event = next(
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.args
+            and call.args[0] == "task_startup_step_completed"
+            and call.kwargs["properties"]["step"] == "dispatch"
+        )
+        self.assertEqual(dispatch_event["status"], "FAILED" if scheduled and (limited or deactivated) else "COMPLETED")
         dispatch.refresh_from_db()
         self.task_run.refresh_from_db()
         if scheduled and (limited or deactivated):
@@ -960,6 +974,23 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
             self.assertEqual(_scheduled_run_usage_error(user, 1), error)
         self.assertEqual(close_connections.call_count, 2)
 
+    @parameterized.expand([("captured", False), ("error", True)])
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    def test_flag_capture_worker_releases_connections(
+        self, _name: str, capture_fails: bool, capture_flags: Mock, close_connections: Mock
+    ) -> None:
+        if capture_fails:
+            capture_flags.side_effect = RuntimeError("database unavailable")
+            with self.assertRaises(RuntimeError):
+                _capture_run_feature_flags_in_worker_thread("run-id")
+        else:
+            capture_flags.return_value = {"agent_otel_telemetry_enabled": True}
+            self.assertEqual(
+                _capture_run_feature_flags_in_worker_thread("run-id"), {"agent_otel_telemetry_enabled": True}
+            )
+        self.assertEqual(close_connections.call_count, 2)
+
     def test_scheduled_usage_checks_do_not_block_each_other(self) -> None:
         barrier = threading.Barrier(2, timeout=5)
         run = Mock(status=TaskRun.Status.QUEUED, scheduled_at=django_timezone.now())
@@ -1048,3 +1079,41 @@ class TestDispatcherCompletionCallback(SimpleTestCase):
         self.assertEqual(failed_total() - before, expected_delta)
         self.assertNotIn(task, in_flight)
         self.assertNotIn(dispatch.id, in_flight_ids)
+
+
+class TestDispatcherPollLoop(SimpleTestCase):
+    @override_settings(TASKS_DISPATCHER_POLL_INTERVAL_SECONDS=0)
+    def test_poll_recovers_after_connection_loss_in_poll_thread(self) -> None:
+        broken_threads: set[int] = set()
+        materialize_calls = 0
+
+        def materialize(batch_size: int) -> int:
+            nonlocal materialize_calls
+            materialize_calls += 1
+            if materialize_calls == 1:
+                broken_threads.add(threading.get_ident())
+            if threading.get_ident() in broken_threads:
+                raise OperationalError("the connection is lost")
+            return 0
+
+        def close_connections() -> None:
+            broken_threads.discard(threading.get_ident())
+
+        def claim(*args: object) -> list[TaskWorkflowDispatch]:
+            os.kill(os.getpid(), signal.SIGTERM)
+            return []
+
+        module = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+        with (
+            patch(f"{module}.async_connect", new_callable=AsyncMock),
+            patch(f"{module}.Path"),
+            patch(f"{module}.close_old_connections", side_effect=close_connections),
+            patch(f"{module}.materialize_due_scheduled_task_runs", side_effect=materialize),
+            patch(f"{module}.sample_dispatch_metrics"),
+            patch(f"{module}.claim_dispatches", side_effect=claim) as claim_dispatches,
+            patch(f"{module}.release_claims"),
+        ):
+            asyncio.run(asyncio.wait_for(Command()._run(), timeout=10))
+
+        self.assertEqual(materialize_calls, 2)
+        claim_dispatches.assert_called_once()

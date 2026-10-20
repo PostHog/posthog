@@ -11,13 +11,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.recalculation import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -79,11 +80,36 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # POST /metrics_recalculation/
     # ------------------------------------------------------------------
 
+    @parameterized.expand(
+        [
+            # name, activity queue flag outcome, expected activity_task_queue
+            ("activity_queue_flag_off", False, None),
+            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+        ]
+    )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_creates_and_starts_workflow(self, mock_run, mock_connect):
+    def test_post_creates_and_starts_workflow(
+        self,
+        _name: str,
+        flag_outcome: bool | Exception,
+        expected_activity_task_queue: str | None,
+        mock_run,
+        mock_connect,
+    ):
+        def evaluate_flag(key: str, *args, **kwargs) -> bool:
+            if key != RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG:
+                return False
+            if isinstance(flag_outcome, Exception):
+                raise flag_outcome
+            return flag_outcome
+
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        with mock.patch(
+            "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+        ):
+            resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         body = resp.json()
         assert body["status"] == "pending"
@@ -92,7 +118,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         mock_connect.return_value.start_workflow.assert_called_once_with(
             "experiment-metrics-recalculation-workflow",
             ExperimentMetricsRecalculationWorkflowInputs(
-                recalculation_id=body["id"], fairness_key=str(self.organization.id)
+                recalculation_id=body["id"],
+                fairness_key=str(self.organization.id),
+                activity_task_queue=expected_activity_task_queue,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -259,7 +287,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",

@@ -1,23 +1,31 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
-
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Request, Response
+from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.codemagic import (
     CodemagicBuildsPaginator,
     CodemagicResumeConfig,
-    codemagic_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
     CODEMAGIC_V1,
     CODEMAGIC_V3,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.source import CodemagicSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codemagic import (
+    CodemagicSourceConfig,
+)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(CodemagicSource(), CodemagicSourceConfig(api_token="test-token"))
 
 
 class TestCodemagicBuildsPaginator:
@@ -36,226 +44,154 @@ class TestCodemagicBuildsPaginator:
         assert request.params["skip"] == 1
 
 
-def _make_http_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestCodemagicSourceResumeBehavior:
-    """End-to-end resume behaviour of the v1 ``codemagic_source`` via ``rest_api_resource``."""
-
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = codemagic_source(
-                api_token="test-token",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                api_version=CODEMAGIC_V1,
-            )
-            list(cast(Iterable[Any], response.items()))
-            return mock_session, sent_params
+    """End-to-end resume behaviour of the v1 source."""
 
     def test_sync_client_does_not_follow_redirects(self) -> None:
         # The token rides in a custom header requests preserves across cross-origin redirects, so
-        # the sync client must pin allow_redirects off. RESTClient forwards the client config's
-        # value into every send().
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        # the sync client must pin allow_redirects off.
+        result = _driver().run(
+            "Applications",
+            [ScriptedResponse(status=302, headers={"Location": "https://example.com/redirect"})],
+            api_version=CODEMAGIC_V1,
+        )
 
-        send_kwargs: list[dict[str, Any]] = []
-        response_iter = iter([_make_http_response({"applications": []})])
-
-        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
-            send_kwargs.append(kwargs)
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = codemagic_source(
-                api_token="test-token",
-                endpoint="Applications",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                api_version=CODEMAGIC_V1,
-            )
-            list(cast(Iterable[Any], response.items()))
-
-        assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)
+        assert result.paths == ["/apps"]
+        assert result.raised is not None
 
     def test_builds_fresh_run_saves_skip_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = _driver().run(
+            "Builds",
+            [
+                ScriptedResponse(json={"builds": [{"_id": "b1"}, {"_id": "b2"}]}),
+                ScriptedResponse(json={"builds": [{"_id": "b3"}]}),
+                ScriptedResponse(json={"builds": []}),
+            ],
+            api_version=CODEMAGIC_V1,
+        )
 
-        responses = [
-            _make_http_response({"builds": [{"_id": "b1"}, {"_id": "b2"}]}),
-            _make_http_response({"builds": [{"_id": "b3"}]}),
-            _make_http_response({"builds": []}),
-        ]
-        _, sent_params = self._drive("Builds", manager, responses)
-
-        skips_sent = [p.get("skip") for p in sent_params]
-        assert skips_sent == [0, 2, 3]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
-            CodemagicResumeConfig(skip=2),
-            CodemagicResumeConfig(skip=3),
-        ]
+        assert result.params("skip") == ["0", "2", "3"]
+        assert result.saved_states == [CodemagicResumeConfig(skip=2), CodemagicResumeConfig(skip=3)]
+        assert [row["_id"] for row in result.rows] == ["b1", "b2", "b3"]
+        assert result.raised is None
 
     def test_builds_resume_seeds_paginator_with_saved_skip(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CodemagicResumeConfig(skip=60)
+        result = _driver().run(
+            "Builds",
+            [ScriptedResponse(json={"builds": []})],
+            resume_state=CodemagicResumeConfig(skip=60),
+            api_version=CODEMAGIC_V1,
+        )
 
-        responses = [_make_http_response({"builds": []})]
-        _, sent_params = self._drive("Builds", manager, responses)
-
-        assert sent_params[0]["skip"] == 60
-        manager.load_state.assert_called_once()
+        assert result.params("skip") == ["60"]
+        assert result.raised is None
 
 
 class TestCodemagicV3Source:
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: dict[str, list[Response]]
-    ) -> tuple[Any, list[dict[str, Any]], list[tuple[str, dict[str, Any]]]]:
-        sent: list[tuple[str, dict[str, Any]]] = []
-        queues = {path: iter(rs) for path, rs in responses.items()}
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent.append((request.url, dict(request.params or {})))
-            return next(queues[request.url])
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = codemagic_source(
-                api_token="test-token",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                api_version=CODEMAGIC_V3,
-            )
-            rows = [row for page in cast(Iterable[Any], response.items()) for row in page]
-            return response, rows, sent
-
     def test_applications_page_through_user_apps(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        url = "https://codemagic.io/api/v3/user/apps"
-        responses = {
-            url: [
-                _make_http_response({"data": [{"id": "a1"}], "page_size": 100, "current_page": 1, "total_pages": 2}),
-                _make_http_response({"data": [{"id": "a2"}], "page_size": 100, "current_page": 2, "total_pages": 2}),
-            ]
-        }
+        result = _driver().run(
+            "Applications",
+            [
+                ScriptedResponse(json={"data": [{"id": "a1"}], "page_size": 100, "current_page": 1, "total_pages": 2}),
+                ScriptedResponse(json={"data": [{"id": "a2"}], "page_size": 100, "current_page": 2, "total_pages": 2}),
+            ],
+            api_version=CODEMAGIC_V3,
+        )
 
-        response, rows, sent = self._drive("Applications", manager, responses)
-
-        assert [r["id"] for r in rows] == ["a1", "a2"]
-        assert sent == [(url, {"page_size": 100, "page": 1}), (url, {"page_size": 100, "page": 2})]
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys is None
+        assert [row["id"] for row in result.rows] == ["a1", "a2"]
+        assert result.paths == ["/api/v3/user/apps", "/api/v3/user/apps"]
+        assert result.params("page_size") == ["100", "100"]
+        assert result.params("page") == ["1", "2"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id"]
+        assert result.response.partition_keys is None
+        assert result.raised is None
 
     def test_builds_fan_out_over_teams_and_follow_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        teams_url = "https://codemagic.io/api/v3/user/teams"
-        t1_url = "https://codemagic.io/api/v3/teams/t1/builds"
-        t2_url = "https://codemagic.io/api/v3/teams/t2/builds"
-        responses = {
-            teams_url: [
-                _make_http_response(
-                    {"data": [{"id": "t1"}, {"id": "t2"}], "page_size": 100, "current_page": 1, "total_pages": 1}
-                )
-            ],
-            t1_url: [
-                _make_http_response({"data": [{"id": "b1"}], "page_size": 100, "cursor": "b1"}),
-                _make_http_response({"data": [{"id": "b2"}], "page_size": 100, "cursor": None}),
-            ],
-            t2_url: [_make_http_response({"data": [{"id": "b3"}], "page_size": 100, "cursor": None})],
-        }
+        result = _driver().run(
+            "Builds",
+            route(
+                {
+                    "/api/v3/user/teams": [
+                        ScriptedResponse(
+                            json={
+                                "data": [{"id": "t1"}, {"id": "t2"}],
+                                "page_size": 100,
+                                "current_page": 1,
+                                "total_pages": 1,
+                            }
+                        )
+                    ],
+                    "/api/v3/teams/t1/builds": [
+                        ScriptedResponse(json={"data": [{"id": "b1"}], "page_size": 100, "cursor": "b1"}),
+                        ScriptedResponse(json={"data": [{"id": "b2"}], "page_size": 100, "cursor": None}),
+                    ],
+                    "/api/v3/teams/t2/builds": [
+                        ScriptedResponse(json={"data": [{"id": "b3"}], "page_size": 100, "cursor": None})
+                    ],
+                }
+            ),
+            api_version=CODEMAGIC_V3,
+        )
 
-        response, rows, sent = self._drive("Builds", manager, responses)
-
-        assert [r["id"] for r in rows] == ["b1", "b2", "b3"]
-        assert sent == [
-            (teams_url, {"page_size": 100, "page": 1}),
-            (t1_url, {"page_size": 100}),
-            (t1_url, {"page_size": 100, "cursor": "b1"}),
-            (t2_url, {"page_size": 100}),
+        assert [row["id"] for row in result.rows] == ["b1", "b2", "b3"]
+        assert result.paths == [
+            "/api/v3/user/teams",
+            "/api/v3/teams/t1/builds",
+            "/api/v3/teams/t1/builds",
+            "/api/v3/teams/t2/builds",
         ]
-        assert manager.save_state.call_args_list[0].args[0] == CodemagicResumeConfig(
+        assert result.params("page_size") == ["100", "100", "100", "100"]
+        assert result.params("page") == ["1", None, None, None]
+        assert result.params("cursor") == [None, None, "b1", None]
+        assert result.saved_states[0] == CodemagicResumeConfig(
             completed=[], current="/api/v3/teams/t1/builds", child_state={"cursor": "b1"}
         )
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id"]
+        assert result.response.partition_keys == ["created_at"]
+        assert result.raised is None
 
     def test_builds_resume_skips_completed_teams_and_seeds_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CodemagicResumeConfig(
-            completed=["/api/v3/teams/t1/builds"], current="/api/v3/teams/t2/builds", child_state={"cursor": "b9"}
+        result = _driver().run(
+            "Builds",
+            route(
+                {
+                    "/api/v3/user/teams": [
+                        ScriptedResponse(
+                            json={
+                                "data": [{"id": "t1"}, {"id": "t2"}],
+                                "page_size": 100,
+                                "current_page": 1,
+                                "total_pages": 1,
+                            }
+                        )
+                    ],
+                    "/api/v3/teams/t2/builds": [
+                        ScriptedResponse(json={"data": [{"id": "b10"}], "page_size": 100, "cursor": None})
+                    ],
+                }
+            ),
+            resume_state=CodemagicResumeConfig(
+                completed=["/api/v3/teams/t1/builds"],
+                current="/api/v3/teams/t2/builds",
+                child_state={"cursor": "b9"},
+            ),
+            api_version=CODEMAGIC_V3,
         )
-        teams_url = "https://codemagic.io/api/v3/user/teams"
-        t2_url = "https://codemagic.io/api/v3/teams/t2/builds"
-        responses = {
-            teams_url: [
-                _make_http_response(
-                    {"data": [{"id": "t1"}, {"id": "t2"}], "page_size": 100, "current_page": 1, "total_pages": 1}
-                )
-            ],
-            t2_url: [_make_http_response({"data": [{"id": "b10"}], "page_size": 100, "cursor": None})],
-        }
 
-        _, rows, sent = self._drive("Builds", manager, responses)
-
-        assert [r["id"] for r in rows] == ["b10"]
-        assert sent[1:] == [(t2_url, {"page_size": 100, "cursor": "b9"})]
+        assert [row["id"] for row in result.rows] == ["b10"]
+        assert result.paths == ["/api/v3/user/teams", "/api/v3/teams/t2/builds"]
+        assert result.requests[1].param("page_size") == "100"
+        assert result.requests[1].param("cursor") == "b9"
+        assert result.raised is None
 
     def test_unknown_version_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="Unsupported Codemagic API version"):
-            codemagic_source(
-                api_token="test-token",
-                endpoint="Builds",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-                api_version="v2",
-            )
+        result = _driver().run("Builds", [], api_version="v2")
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unsupported Codemagic API version" in str(result.raised)
+        assert result.requests == []
 
 
 class TestValidateCredentials:
@@ -268,18 +204,13 @@ class TestValidateCredentials:
         ],
     )
     def test_validate_credentials_maps_status_code(self, status_code: int, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.codemagic.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = MagicMock()
-            mock_session.get.return_value = MagicMock(status_code=status_code)
-            mock_make_session.return_value = mock_session
-
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             is_valid, error = validate_credentials("test-token", CODEMAGIC_V3)
 
         assert is_valid is expected_valid
         if not expected_valid:
             assert error == "Invalid Codemagic API token"
+        assert network.requests_log[0].path == "/api/v3/user/apps"
 
     @pytest.mark.parametrize(
         ("api_version", "expected_url"),
@@ -291,15 +222,11 @@ class TestValidateCredentials:
     def test_validate_credentials_sends_auth_header_and_redacts_token(
         self, api_version: str, expected_url: str
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.codemagic.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = MagicMock()
-            mock_session.get.return_value = MagicMock(status_code=200)
-            mock_make_session.return_value = mock_session
-
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("secret-token", api_version)
 
         # allow_redirects=False keeps the custom-header token from following a 3xx off-host.
-        mock_make_session.assert_called_once_with(redact_values=("secret-token",), allow_redirects=False)
-        mock_session.get.assert_called_once_with(expected_url, headers={"x-auth-token": "secret-token"})
+        assert network.session_options == [{"redact_values": ("secret-token",), "allow_redirects": False}]
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == expected_url
+        assert network.requests_log[0].headers["x-auth-token"] == "secret-token"

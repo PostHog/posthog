@@ -30,14 +30,14 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
-# How many of a lane's newest runs the self-heal checks for a worker death after the TaskRun left
-# `QUEUED`/`IN_PROGRESS`. The Tasks inactivity timeout closes such a TaskRun on its own, so the
-# run is no longer stuck, only unreported. Every dispatch of the lane runs the self-heal first, so
+# How many of a lane's newest runs the self-heal checks for orphans. An orphan is a run stuck in
+# `QUEUED`/`IN_PROGRESS`, or a run that the Tasks inactivity timeout closed after a worker death,
+# which is no longer stuck, only unreported. Every dispatch of the lane runs the self-heal first, so
 # the orphan is one of the newest runs at the next dispatch. The bound is a run count and not an
 # age, because an age window expires before a 30-day interval, a monthly cron, or a paused lane
 # dispatches again. The count also keeps the per-dispatch scan to a short read of the
 # `(team, skill_name, -created_at)` index.
-FINISHED_ORPHAN_RECENT_RUNS = 10
+ORPHAN_RECENT_RUNS = 10
 
 # Bridge-row `metadata` key the self-heal stamps when it reports a run that the Tasks inactivity
 # timeout closed. It makes the reap a one-time claim, so a later dispatch does not report it again.
@@ -129,6 +129,16 @@ DUE_GRACE_SECONDS = 60
 
 DISPATCH_SMEAR_SECONDS = 600
 DISPATCH_BATCH_INTERVAL_SECONDS = 60
+# The smear stays this far under one tick, so the runs of one tick never start in the next tick.
+# This is also below the shortest scout interval.
+MAX_DISPATCH_SMEAR_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60 - 180
+# A cron scout starts at most this long after its cron time, whatever the smear is.
+CRON_START_DELAY_CAP_SECONDS = 20 * 60
+# With child start delays, the coordinator starts every child of the tick before it closes. Temporal
+# limits the pending child executions of one workflow (2,000 by default), so the tick cap stays under it.
+CHILD_START_DELAY_MAX_RUNS_PER_TICK = 1500
+# The coordinator starts children in groups of this size, so each workflow task stays small.
+CHILD_START_CHUNK_SIZE = 200
 
 
 def dispatch_ticks_per_interval(run_interval_minutes: int) -> int:

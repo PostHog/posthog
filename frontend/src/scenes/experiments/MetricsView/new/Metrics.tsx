@@ -32,7 +32,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 }
 
 function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
-    const { getInsightType, hasMinimumExposureForResults } = useValues(experimentLogic)
+    const { hasMinimumExposureForResults } = useValues(experimentLogic)
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
@@ -96,7 +96,6 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                             results={results}
                             errors={errors}
                             isSecondary={!!isSecondary}
-                            getInsightType={getInsightType}
                             showDetailsModal={false}
                             embedded
                         />
@@ -108,13 +107,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                         />
                     </div>
                 ) : (
-                    <MetricsTable
-                        metrics={metrics}
-                        results={results}
-                        errors={errors}
-                        isSecondary={!!isSecondary}
-                        getInsightType={getInsightType}
-                    />
+                    <MetricsTable metrics={metrics} results={results} errors={errors} isSecondary={!!isSecondary} />
                 )
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">

@@ -7,10 +7,11 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.role import Role
 
-from ee.api.scim.auth import generate_scim_token
+from ee.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
 from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
@@ -184,6 +185,7 @@ class TestSCIMAPI(APILicensedTest):
         assert data["status"] == 403
         assert "detail" in data
 
+    @covers_authentication(SCIMBearerTokenAuthentication)
     def test_scim_users_endpoint(self):
         """Test that SCIM Users endpoint works with valid license"""
         self.client.credentials(**self.scim_headers)

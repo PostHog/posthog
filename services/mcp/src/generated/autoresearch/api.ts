@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 24 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -55,6 +55,8 @@ export const autoresearchCreateBodyTrainingLookbackDaysMax = 730
 export const autoresearchCreateBodyCadenceDaysMax = 365
 
 export const autoresearchCreateBodyIterationBudgetMax = 500
+
+export const autoresearchCreateBodyIterationsPerRunMax = 50
 
 export const autoresearchCreateBodySuccessAucMin = 0
 export const autoresearchCreateBodySuccessAucMax = 1
@@ -126,7 +128,26 @@ export const AutoresearchCreateBody = () => zod.object({
         .min(1)
         .max(autoresearchCreateBodyIterationBudgetMax)
         .optional()
-        .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
+        .describe('Deprecated: scheduled training no longer reads it. Use iterations_per_run.'),
+    iterations_per_run: zod
+        .number()
+        .min(1)
+        .max(autoresearchCreateBodyIterationsPerRunMax)
+        .optional()
+        .describe(
+            'Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.'
+        ),
+    research_interval_days: zod
+        .union([
+            zod
+                .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(60), zod.literal(90)])
+                .describe('\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
+        ),
     success_auc: zod
         .number()
         .min(autoresearchCreateBodySuccessAucMin)
@@ -145,6 +166,12 @@ export const AutoresearchCreateBody = () => zod.object({
         .optional()
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 
@@ -330,7 +357,7 @@ export const AutoresearchTrainingRunsCreateBody = () => zod
             .min(1)
             .max(autoresearchTrainingRunsCreateBodyIterationBudgetMax)
             .optional()
-            .describe("Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted."),
+            .describe("Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted."),
     })
     .describe('Input for opening an agent-driven training run.')
 
@@ -516,6 +543,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .max(autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax)
             .nullish()
             .describe('One or two plain sentences for people on what this run learned. Max 600 characters.'),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         next_steps: zod
             .array(zod.string().max(autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax))
             .max(autoresearchTrainingRunsCompleteCreateBodyNextStepsMax)
@@ -626,6 +659,12 @@ export const AutoresearchTrainingRunsIterationsCreateBody = () => zod
             .describe(
                 'One plain sentence for people on what this experiment tried and what happened. Max 300 characters.'
             ),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
@@ -707,6 +746,154 @@ export const AutoresearchRetrieveParams = () => zod.object({
 })
 
 /**
+ * Manage autoresearch prediction pipelines.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
+ */
+export const AutoresearchPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const autoresearchPartialUpdateBodyNameMax = 255
+
+export const autoresearchPartialUpdateBodyTargetEventMax = 255
+
+export const autoresearchPartialUpdateBodyHorizonDaysMax = 365
+
+export const autoresearchPartialUpdateBodyTrainingLookbackDaysMin = 7
+export const autoresearchPartialUpdateBodyTrainingLookbackDaysMax = 730
+
+export const autoresearchPartialUpdateBodyCadenceDaysMax = 365
+
+export const autoresearchPartialUpdateBodyIterationBudgetMax = 500
+
+export const autoresearchPartialUpdateBodyIterationsPerRunMax = 50
+
+export const autoresearchPartialUpdateBodySuccessAucMin = 0
+export const autoresearchPartialUpdateBodySuccessAucMax = 1
+
+export const autoresearchPartialUpdateBodyPlateauIterationsMax = 2147483647
+
+export const autoresearchPartialUpdateBodyOutputPersonPropertyMax = 255
+
+export const AutoresearchPartialUpdateBody = () => zod.object({
+    name: zod.string().max(autoresearchPartialUpdateBodyNameMax).optional().describe('Display name for the pipeline.'),
+    description: zod.string().optional().describe('Optional free-text description.'),
+    target_event: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyTargetEventMax)
+        .optional()
+        .describe(
+            "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
+        ),
+    target_definition: zod
+        .union([
+            zod
+                .object({
+                    type: zod.enum(['event']),
+                })
+                .describe('Predict target_event. The default when target_definition is omitted.'),
+            zod
+                .object({
+                    type: zod.enum(['action']),
+                    action_id: zod.number().min(1).describe('ID of the action to predict.'),
+                })
+                .describe('Predict a PostHog action in this project.'),
+        ])
+        .optional()
+        .describe(
+            'Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.'
+        ),
+    horizon_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyHorizonDaysMax)
+        .optional()
+        .describe(
+            'Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.'
+        ),
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchPartialUpdateBodyTrainingLookbackDaysMin)
+        .max(autoresearchPartialUpdateBodyTrainingLookbackDaysMax)
+        .optional()
+        .describe(
+            'How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.'
+        ),
+    training_population: zod
+        .looseObject({})
+        .optional()
+        .describe('Training population filter. Use {} for all identified users.'),
+    inference_population: zod
+        .looseObject({})
+        .optional()
+        .describe('Inference population filter. Defaults to training_population if not set.'),
+    cadence_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyCadenceDaysMax)
+        .optional()
+        .describe('Re-score the inference population every N days (1-365). Default: 1.'),
+    iteration_budget: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyIterationBudgetMax)
+        .optional()
+        .describe('Deprecated: scheduled training no longer reads it. Use iterations_per_run.'),
+    iterations_per_run: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyIterationsPerRunMax)
+        .optional()
+        .describe(
+            'Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.'
+        ),
+    research_interval_days: zod
+        .union([
+            zod
+                .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(60), zod.literal(90)])
+                .describe('\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
+        ),
+    success_auc: zod
+        .number()
+        .min(autoresearchPartialUpdateBodySuccessAucMin)
+        .max(autoresearchPartialUpdateBodySuccessAucMax)
+        .nullish()
+        .describe('Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.'),
+    plateau_iterations: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyPlateauIterationsMax)
+        .optional()
+        .describe('Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.'),
+    output_person_property: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyOutputPersonPropertyMax)
+        .optional()
+        .describe(
+            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
+        ),
+})
+
+/**
  * Return the realized metrics online validation recorded for each model on each validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean predicted probability against the base rate, lift, and the model's role when it emitted and now. The rows come from the validation runs, so a former champion that a promotion archived keeps its history. Read-only; it runs no queries.
  * @summary Read realized performance history
  */
@@ -767,7 +954,7 @@ export const AutoresearchTrainCreateBody = () => zod.object({
         .min(1)
         .max(autoresearchTrainCreateBodyIterationBudgetMax)
         .optional()
-        .describe('Override the pipeline iteration budget for this training run.'),
+        .describe("Iterations for this training run. Defaults to the pipeline's iterations_per_run."),
 })
 
 /**

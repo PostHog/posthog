@@ -17,43 +17,6 @@ export const getStorybookAppContext = (): AppContext => ({
     commit_sha: undefined,
     preflight: null as any, // `null` triggers a fetch and lets us mock the data
     switched_team: null,
-    custom_products: [
-        {
-            id: 'product-1',
-            product_path: 'Product analytics',
-            enabled: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        },
-        {
-            id: 'product-2',
-            product_path: 'Session replay',
-            enabled: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        },
-        {
-            id: 'product-3',
-            product_path: 'Feature flags',
-            enabled: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        },
-        {
-            id: 'product-4',
-            product_path: 'Dashboards',
-            enabled: true,
-            created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-            updated_at: new Date().toISOString(),
-        },
-        {
-            id: 'product-5',
-            product_path: 'Experiments',
-            enabled: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        },
-    ],
     oauth_application: {
         client_id: 'storybook-client-id',
         name: 'Storybook OAuth App',

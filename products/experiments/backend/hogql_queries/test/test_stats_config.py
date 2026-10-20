@@ -2,6 +2,8 @@ from typing import cast
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -412,7 +414,7 @@ class TestStatsConfig(APIBaseTest):
         self.assertEqual(runner.baseline_variant_key, expected_baseline)
 
 
-class TestSequentialStatsConfig(APIBaseTest):
+class TestSequentialStatsConfig(SimpleTestCase):
     """Verify sequential_testing flags propagate from stats_config (and team defaults) into the engine."""
 
     def _metric(self) -> ExperimentMeanMetric:

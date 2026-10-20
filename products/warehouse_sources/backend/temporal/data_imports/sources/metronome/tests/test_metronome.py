@@ -11,6 +11,12 @@ from parameterized import parameterized
 
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
     EPOCH_RFC_3339,
     MetronomeCursorPaginator,
@@ -26,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    INVOICE_BREAKDOWNS_LOOKBACK_SECONDS,
     METRONOME_ENDPOINTS,
     USAGE_DAILY_LOOKBACK_SECONDS,
     USAGE_HOURLY_LOOKBACK_SECONDS,
@@ -37,6 +44,11 @@ TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.me
 
 # The instant every resolved window in these tests is measured against.
 NOW = datetime(2026, 9, 3, 12, 34, 56, tzinfo=UTC)
+
+
+def _driver(**config_values: Any) -> SourceDriver:
+    source = MetronomeSource()
+    return SourceDriver(source, source.parse_config({"api_key": "tok", **config_values}))
 
 
 def _response(body: dict[str, Any]) -> Mock:
@@ -494,17 +506,15 @@ class TestMetronomeSourceResponse:
         body = mock_parallel.call_args.args[2]
         assert body["starting_on"] == expected_start
 
-    @patch(f"{TRANSPORT}.rest_api_resource")
-    def test_resume_state_seeds_the_paginator_cursor(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MetronomeResumeConfig(next_page="cursor-9")
-
-        metronome_source(
-            api_key="tok", endpoint="customers", team_id=1, job_id="job-1", resumable_source_manager=manager
+    def test_resume_state_seeds_the_paginator_cursor(self) -> None:
+        result = _driver().run(
+            "customers",
+            [ScriptedResponse(json={"data": [{"id": "cust_1"}]})],
+            resume_state=MetronomeResumeConfig(next_page="cursor-9"),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "cursor-9"}
+        assert result.raised is None
+        assert result.params("next_page") == ["cursor-9"]
 
     @parameterized.expand(
         [
@@ -523,7 +533,6 @@ class TestMetronomeSourceResponse:
             ("pre_window_checkpoint", MetronomeResumeConfig(parent_cursor="cursor-9"), None, None, True),
         ]
     )
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_resumed_usage_run_pins_the_window(
         self,
         _name,
@@ -531,47 +540,61 @@ class TestMetronomeSourceResponse:
         expected_window,
         expected_parent_cursor,
         expect_state_cleared,
-        mock_parallel,
     ) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = resume_state
+        result = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                ScriptedResponse(json={"data": [{"value": 1}]}),
+            ],
+            resume_state=resume_state,
+        )
 
-        metronome_source(
-            api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        body = mock_parallel.call_args.args[2]
+        assert result.raised is None
+        body = result.requests[1].json()
         if expected_window is not None:
             assert body["ending_before"] == expected_window
         else:
             assert body["ending_before"] > EPOCH_RFC_3339
-        assert mock_parallel.call_args.args[3].parent_cursor == expected_parent_cursor
-        assert manager.clear_state.called == expect_state_cleared
+        assert result.requests[0].param("next_page") == expected_parent_cursor
+        if expect_state_cleared:
+            empty_result = _driver().run(
+                "usage",
+                [ScriptedResponse(json={"data": []})],
+                resume_state=resume_state,
+            )
+            assert empty_result.raised is None
+            assert empty_result.final_state is None
+        else:
+            assert result.final_state is not None
 
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
-    def test_usage_checkpoint_saves_the_window_it_synced_with(self, mock_parallel) -> None:
+    def test_usage_checkpoint_saves_the_window_it_synced_with(self) -> None:
         # The cutoff written into the request body and the cutoff saved for a resume must be the
         # same instant, or a retry can't replay the identical window.
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        result = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                ScriptedResponse(json={"data": [{"value": 1}]}),
+            ],
+            resume_state=MetronomeResumeConfig(
+                parent_cursor="cursor-3",
+                ending_before="2026-09-04T00:00:00Z",
+                starting_on=EPOCH_RFC_3339,
+            ),
+        )
 
-        metronome_source(
-            api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        synced_body = mock_parallel.call_args.args[2]
-        stage_checkpoint = mock_parallel.call_args.args[4]
-        stage_checkpoint("cursor-3", ("c1",))
-
-        manager.save_state.assert_called_once_with(
+        assert result.raised is None
+        assert result.requests[0].param("next_page") == "cursor-3"
+        synced_body = result.requests[1].json()
+        assert result.saved_states == [
             MetronomeResumeConfig(
                 ending_before=synced_body["ending_before"],
                 starting_on=synced_body["starting_on"],
                 parent_cursor="cursor-3",
                 completed_customers=("c1",),
             )
-        )
+        ]
 
     @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_a_finished_customer_list_checkpoints_nothing(self, mock_parallel) -> None:
@@ -644,6 +667,157 @@ class TestMetronomeBodyFanout:
         assert client.paginate.call_count == 1
 
 
+class TestMetronomeNewFanoutTables:
+    def test_contract_rate_schedules_walk_each_live_contract_with_both_ids_in_the_body(self) -> None:
+        result = _driver().run(
+            "contract_rate_schedules",
+            [
+                ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"id": "contract_1", "customer_id": "cust_1"},
+                            # An archived contract bills nothing, so it is never asked for rates.
+                            {"id": "contract_2", "customer_id": "cust_1", "archived_at": "2026-01-01T00:00:00Z"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"rate_card_id": "rc_1", "product_id": "p1", "starting_at": "2026-01-01T00:00:00Z"},
+                        ],
+                        "next_page": "cursor-2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {
+                                "rate_card_id": "rc_1",
+                                "product_id": "p1",
+                                "starting_at": "2026-01-01T00:00:00Z",
+                                "pricing_group_values": {"region": "eu", "cloud": "aws"},
+                            },
+                        ],
+                        "next_page": None,
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/customers",
+            "/v2/contracts/list",
+            "/v1/contracts/getContractRateSchedule",
+            "/v1/contracts/getContractRateSchedule",
+        ]
+        assert [request.json() for request in result.requests[2:]] == [
+            {"customer_id": "cust_1", "contract_id": "contract_1"},
+            {"customer_id": "cust_1", "contract_id": "contract_1"},
+        ]
+        assert result.params("next_page")[2:] == [None, "cursor-2"]
+        # The rows never echo the contract they were asked for, and the pricing group is an object,
+        # so both have to be added for the primary key to identify a row.
+        assert [(row["contract_id"], row["customer_id"], row["pricing_group_key"]) for row in result.rows] == [
+            ("contract_1", "cust_1", "{}"),
+            ("contract_1", "cust_1", '{"cloud":"aws","region":"eu"}'),
+        ]
+
+    def test_rate_card_rate_schedules_ask_for_the_whole_schedule_of_each_rate_card(self) -> None:
+        result = _driver().run(
+            "rate_card_rate_schedules",
+            [
+                ScriptedResponse(json={"data": [{"id": "rc_1"}, {"id": "rc_2"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"product_id": "p1", "starting_at": "2026-01-01T00:00:00Z"}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/contract-pricing/rate-cards/list",
+            "/v1/contract-pricing/rate-cards/getRateSchedule",
+            "/v1/contract-pricing/rate-cards/getRateSchedule",
+        ]
+        # The rate card list is a POST that still expects a JSON document.
+        assert result.requests[0].json() == {}
+        assert [request.json() for request in result.requests[1:]] == [
+            {"starting_at": "1970-01-01T00:00:00Z", "rate_card_id": "rc_1"},
+            {"starting_at": "1970-01-01T00:00:00Z", "rate_card_id": "rc_2"},
+        ]
+        assert result.params("limit")[1:] == ["100", "100"]
+        assert [(row["rate_card_id"], row["product_id"]) for row in result.rows] == [("rc_1", "p1")]
+
+    def test_balances_page_through_the_body_and_keep_the_customer(self) -> None:
+        # The endpoint reads `limit` and `next_page` from the body only. A cursor sent in the query
+        # string would be ignored, and the walk would ask for the first page again forever.
+        result = _driver().run(
+            "balances",
+            [
+                ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"id": "commit_1", "type": "PREPAID"}], "next_page": "cursor-2"}),
+                ScriptedResponse(json={"data": [{"id": "credit_1", "type": "CREDIT"}], "next_page": None}),
+            ],
+        )
+
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests[1:]]
+        assert [body.get("next_page") for body in bodies] == [None, "cursor-2"]
+        assert {body["limit"] for body in bodies} == {25}
+        assert {body["customer_id"] for body in bodies} == {"cust_1"}
+        assert all(body["include_ledgers"] and body["include_balance"] for body in bodies)
+        assert result.params("limit")[1:] == [None, None]
+        assert result.params("next_page")[1:] == [None, None]
+        assert [(row["customer_id"], row["id"]) for row in result.rows] == [
+            ("cust_1", "commit_1"),
+            ("cust_1", "credit_1"),
+        ]
+
+    @parameterized.expand(
+        [
+            # A first sync reaches back a year, from the UTC midnight before it.
+            ("first_sync", {}, "2025-09-03T00:00:00Z"),
+            # The watermark arrives already moved back by the lookback, and lands mid-day. Asking
+            # from mid-day would return a partial day as a second row under a different key.
+            (
+                "incremental",
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "breakdown_start_timestamp",
+                    "db_incremental_field_last_value": "2026-08-27T15:00:00Z",
+                },
+                "2026-08-27T00:00:00Z",
+            ),
+        ]
+    )
+    def test_invoice_breakdowns_ask_for_whole_days_from_the_watermark(self, _name, inputs, starting_on) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(
+                "invoice_breakdowns",
+                [
+                    ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                    ScriptedResponse(
+                        json={
+                            "data": [{"id": "inv_1", "breakdown_start_timestamp": "2026-09-02T00:00:00Z"}],
+                            "next_page": None,
+                        }
+                    ),
+                ],
+                **inputs,
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/customers", "/v1/customers/cust_1/invoices/breakdowns"]
+        breakdown_query = result.queries[1]
+        assert breakdown_query["starting_on"] == (starting_on,)
+        # The day in progress is included, so the newest day is never a full period behind.
+        assert breakdown_query["ending_before"] == ("2026-09-04T00:00:00Z",)
+        assert breakdown_query["window_size"] == ("DAY",)
+        assert [row["id"] for row in result.rows] == ["inv_1"]
+
+
 class TestMetronomeCredentials:
     @parameterized.expand(
         [
@@ -661,20 +835,22 @@ class TestMetronomeCredentials:
             (500, False, "Metronome API returned an unexpected status code: 500"),
         ]
     )
-    @patch(f"{TRANSPORT}.make_tracked_session")
-    def test_status_maps_to_message(self, status_code, expected_valid, expected_message, mock_session) -> None:
+    def test_status_maps_to_message(self, status_code, expected_valid, expected_message) -> None:
         # Metronome's own auth docs say a rejected token comes back as "a 401 or 403", so both
         # codes have to land on the same message.
-        mock_session.return_value.get.return_value = Mock(status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            result = validate_credentials("tok")
 
-        assert validate_credentials("tok") == (expected_valid, expected_message)
+        assert result == (expected_valid, expected_message)
+        assert {request.path for request in network.requests_log} == {"/v1/customers"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer tok"}
 
-    @patch(f"{TRANSPORT}.make_tracked_session")
-    def test_unreachable_host_is_not_reported_as_a_bad_token(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+    def test_unreachable_host_is_not_reported_as_a_bad_token(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("tok")
 
-        valid, message = validate_credentials("tok")
-
+        assert {request.path for request in network.requests_log} == {"/v1/customers"}
         assert valid is False
         assert message == "Couldn't reach Metronome to validate the API token. Check your connection and try again."
 
@@ -687,17 +863,18 @@ class TestMetronomeSchemas:
 
     @parameterized.expand(
         [
-            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS),
-            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS),
+            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS, "start_timestamp"),
+            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS, "start_timestamp"),
+            ("invoice_breakdowns", INVOICE_BREAKDOWNS_LOOKBACK_SECONDS, "breakdown_start_timestamp"),
         ]
     )
-    def test_bucketed_usage_merges_incrementally_and_starts_off(self, name, lookback_seconds) -> None:
+    def test_windowed_tables_merge_incrementally_and_start_off(self, name, lookback_seconds, cursor_field) -> None:
         schema = self._schema(name)
 
         assert schema.supports_incremental is True
         # Appending would duplicate every period the lookback re-reads.
         assert schema.supports_append is False
-        assert [field["field"] for field in schema.incremental_fields] == ["start_timestamp"]
+        assert [field["field"] for field in schema.incremental_fields] == [cursor_field]
         assert schema.should_sync_default is False
         assert schema.default_incremental_lookback_seconds == lookback_seconds
 
@@ -720,22 +897,17 @@ class TestMetronomeSchemas:
 
         assert window == (timedelta(days=expected_days) if expected_days is not None else None)
 
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
-    def test_a_depth_the_user_edits_reaches_the_request(self, mock_parallel) -> None:
+    def test_a_depth_the_user_edits_reaches_the_request(self) -> None:
         # The depth is a source setting the user can change after the first sync. Reading it per run
         # is what makes an edit take effect; recording it once left the edit saved and inert.
-        source = MetronomeSource()
-        config = source.parse_config({"api_key": "tok", "usage_daily_history_months": 3})
-        inputs = MagicMock(
-            schema_name="usage_daily",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-
         with time_machine.travel(NOW, tick=False):
-            source.source_for_pipeline(config, MagicMock(can_resume=lambda: False), inputs).items()
+            result = _driver(usage_daily_history_months=3).run(
+                "usage_daily",
+                [
+                    ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                    ScriptedResponse(json={"data": [{"value": 1}]}),
+                ],
+            )
 
-        assert mock_parallel.call_args.args[2]["starting_on"] == "2026-06-04T00:00:00Z"
+        assert result.raised is None
+        assert result.requests[1].json()["starting_on"] == "2026-06-04T00:00:00Z"

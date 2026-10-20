@@ -2,17 +2,21 @@ import re
 import json
 import base64
 import datetime as dt
+from typing import Any
 
 from django.db import models
+from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -24,7 +28,10 @@ from posthog.hogql.errors import QueryError
 from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -84,6 +91,7 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 MAX_ATTRIBUTE_KEYS = 100
 
@@ -1350,6 +1358,7 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+    _logs_api_slot: ConcurrencySlot | None = None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
@@ -1358,6 +1367,34 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if self.action == "patterns_diff":
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+        try:
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
+        except ConcurrencyLimitExceeded as error:
+            logger.warning("logs_api_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
+            # wait sets a Retry-After header, so a polling client backs off instead of retrying the burst at once.
+            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        except RedisError:
+            # The cap protects ClickHouse capacity. A Redis outage must not also make the logs API fail.
+            logger.exception("logs_api_concurrency_limiter_unavailable", team_id=self.team_id)
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # DRF skips finalize_response when the exception handler re-raises an error, so only a finally block
+        # releases the slot on every path.
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            if self._logs_api_slot is not None:
+                try:
+                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+                except RedisError:
+                    # The slot expires after the limiter's ttl, so keep the response the query already produced.
+                    logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
+                self._logs_api_slot = None
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
@@ -1450,7 +1487,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        requested_limit = min(query_data.get("limit", 1000), 2000)
+        limit = query_data.get("limit")
+        requested_limit = min(1000 if limit is None else limit, 2000)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),

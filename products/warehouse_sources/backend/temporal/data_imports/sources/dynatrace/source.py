@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "problems": "Only syncs the last 365 days on initial sync",
     "events": "Only syncs the last 30 days on initial sync; limited by your Dynatrace event retention",
     "audit_logs": "Only syncs the last 30 days on initial sync; requires audit logging to be enabled in the environment",
+    "security_problem_remediation_items": "Process groups and Kubernetes nodes to fix for each third-party and Kubernetes vulnerability, with their tracking state",
+    "attacks": "Only syncs the last 30 days on initial sync; requires Application Protection",
     "releases": "Releases seen in the last 30 days, with the process group instances running them",
     "entity_types": "Every monitored entity type, with the properties and relationships an entity of that type can have",
     "hosts": "Hosts active in the last 30 days",
@@ -58,6 +61,16 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConfig]):
+    codebase_detection = detect(
+        env=("^DYNATRACE_", "^DT_API_TOKEN$", "^DT_API_URL$"),
+        script_hosts=("js-cdn.dynatrace.com",),
+        npm=("@dynatrace/oneagent-sdk", "@dynatrace/oneagent", "@dynatrace/react-native-plugin"),
+        pypi=("oneagent-sdk",),
+        cocoapods=("Dynatrace",),
+        maven=("com.dynatrace.oneagent.sdk.java:oneagent-sdk", "com.dynatrace.tools.android:gradle-plugin"),
+        pub=("dynatrace_flutter_plugin", "dynatrace_flutter_plugin_dio"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -78,7 +91,7 @@ class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConf
             label="Dynatrace",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["apm", "observability", "monitoring"],
-            caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, tags, releases, audit logs, vulnerabilities, metrics, SLOs, and synthetic monitoring into the PostHog Data warehouse.
+            caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, tags, releases, audit logs, vulnerabilities, attacks, metrics, SLOs, and synthetic monitoring into the PostHog Data warehouse.
 
 The environment URL is where you open Dynatrace — for SaaS it looks like `https://abc12345.live.dynatrace.com`; for Managed it's `https://your-domain/e/your-environment-id`.
 
@@ -88,6 +101,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
 - `entities.read`
 - `auditLogs.read`
 - `securityProblems.read`
+- `attacks.read`
 - `releases.read`
 - `metrics.read`
 - `slo.read`

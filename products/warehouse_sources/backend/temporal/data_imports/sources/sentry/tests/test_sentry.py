@@ -5,13 +5,20 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError, JSONDecodeError, RequestException
+from requests.exceptions import HTTPError, JSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     _MAX_RETRY_AFTER_SECONDS,
@@ -57,6 +64,17 @@ def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
 
     response.raise_for_status = _raise_for_status
     return response
+
+
+def _json(payload: Any, status: int = 200, link_header: str = "") -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=payload, headers={"Link": link_header} if link_header else {})
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        SentrySource(),
+        SentrySourceConfig(auth_token="token", organization_slug="acme", api_base_url="https://sentry.io"),
+    )
 
 
 def _make_fake_manager(
@@ -275,31 +293,27 @@ class TestSentryTransport:
             "API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io.",
         )
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_rejects_non_latin1_auth_token(self, mock_session) -> None:
+    def test_validate_credentials_rejects_non_latin1_auth_token(self) -> None:
         # A token with a character outside latin-1 can't be encoded into the Authorization header;
         # the guard must reject it before any request is dispatched.
-        valid, error = validate_credentials(auth_token="secret-’token", organization_slug="acme")
+        with scripted_network([]) as network:
+            valid, error = validate_credentials(auth_token="secret-’token", organization_slug="acme")
 
         assert not valid
         assert error is not None
         assert error.startswith("Invalid Sentry auth token")
-        mock_session.assert_not_called()
+        assert network.requests_log == []
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_401_tells_user_to_reconnect(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=401)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_401_tells_user_to_reconnect(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=401))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error == "Invalid Sentry auth token. Please update your token and reconnect."
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_403_names_required_scopes(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=403)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_403_names_required_scopes(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error is not None
@@ -307,31 +321,25 @@ class TestSentryTransport:
         for scope in REQUIRED_SENTRY_SCOPES:
             assert scope in error
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_404_does_not_echo_org_slug(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=404)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="secret-org-slug")
+    def test_validate_credentials_404_does_not_echo_org_slug(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=404))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="secret-org-slug")
 
         assert not valid
         assert error == "Sentry organization not found. Verify your organization slug, then reconnect."
         assert "secret-org-slug" not in (error or "")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_unexpected_status_hides_vendor_detail(self, mock_session) -> None:
-        # `_response` sets `response.text = "error"` — the raw body must never reach the customer.
-        mock_session.return_value.get.return_value = _response({"detail": "internal sentry detail"}, status_code=500)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_unexpected_status_hides_vendor_detail(self) -> None:
+        # The raw body must never reach the customer.
+        with scripted_network(always(ScriptedResponse(status=500, json={"detail": "internal sentry detail"}))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error == "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_request_error_hides_exception_text(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = RequestException("connection refused to https://sentry.io")
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_request_error_hides_exception_text(self) -> None:
+        with scripted_network(always(ConnectionError("connection refused to https://sentry.io"))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error == "Could not reach Sentry to validate your credentials. Check your connection, then try again."
@@ -586,45 +594,39 @@ class TestSentrySourceValidation:
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self, mock_get) -> None:
+    def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self) -> None:
         cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response(
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/browser/values/") and (
+                request.param("cursor") is None
+            ):
+                return _json(
                     [
                         {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z"},
                         {"value": "Firefox", "lastSeen": "2026-03-01T09:00:00Z"},
                     ],
                     link_header='<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:0>; rel="next"; results="true"',
                 )
-            if "tags/browser/values/?cursor=0:100:0" in url:
-                raise AssertionError("should not request the next page after reaching cutoff")
-            return _response([])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
+        result = _driver().run(
+            "issue_tag_values",
+            script,
             should_use_incremental_field=True,
             db_incremental_field_last_value=cutoff,
             incremental_field="lastSeen",
         )
 
-        rows = list(cast(Any, resp.items()))
-        assert rows == [
+        assert result.rows == [
             {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z", "issue_id": "100", "tag_key": "browser"}
         ]
+        # Reaching the cutoff must stop the walk before the next values page is requested.
+        assert [request.param("cursor") for request in result.requests] == [None, None, None]
 
     # Patch _request_with_retry directly so the test exercises the iterator's
     # skip logic without incurring the real (post-exhaustion) retry sleeps.
@@ -779,49 +781,33 @@ class TestSentrySourceValidation:
 class TestSentrySourceResumable:
     """Resume behaviour for flat endpoints (rest_api_resource path)."""
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
-    def test_fresh_run_passes_resume_hook_and_no_initial_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_fake_manager(can_resume=False)
+    def test_fresh_run_passes_resume_hook_and_no_initial_state(self) -> None:
+        next_url = "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0"
 
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="projects",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
+        result = _driver().run(
+            "projects",
+            [
+                _json([{"id": "1"}], link_header=f'<{next_url}>; rel="next"; results="true"'),
+                _json([{"id": "2"}]),
+            ],
         )
 
-        _, kwargs = mock_rest_api_resource.call_args
-        assert kwargs["initial_paginator_state"] is None
-        assert callable(kwargs["resume_hook"])
+        assert result.requests[0].param("cursor") is None
+        assert result.requests[1].param("cursor") == "0:100:0"
+        assert result.saved_states == [SentryResumeConfig(next_url=next_url)]
 
-        # save_checkpoint should forward the next page into manager.save_state
-        kwargs["resume_hook"]({"next_url": "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0"})
-        cast(Mock, manager.save_state).assert_called_once_with(
-            SentryResumeConfig(next_url="https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0")
+    def test_resume_run_seeds_initial_paginator_state_from_loaded_config(self) -> None:
+        result = _driver().run(
+            "projects",
+            [_json([{"id": "3"}])],
+            resume_state=SentryResumeConfig(
+                next_url="https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:2"
+            ),
         )
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
-    def test_resume_run_seeds_initial_paginator_state_from_loaded_config(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        resume_url = "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:2"
-        manager = _make_fake_manager(can_resume=True, state=SentryResumeConfig(next_url=resume_url))
-
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="projects",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        _, kwargs = mock_rest_api_resource.call_args
-        assert kwargs["initial_paginator_state"] == {"next_url": resume_url}
+        assert len(result.requests) == 1
+        assert result.requests[0].path == "/api/0/organizations/acme/projects/"
+        assert result.requests[0].param("cursor") == "0:100:2"
 
 
 class TestIssueTagValuesResumable:
@@ -837,49 +823,38 @@ class TestIssueTagValuesResumable:
 
     """Resume behaviour for the two-level issue_tag_values fan-out loop."""
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_fresh_run_saves_state_pointing_to_next_values_page(self, mock_get) -> None:
+    def test_fresh_run_saves_state_pointing_to_next_values_page(self) -> None:
         next_values_link = (
             "<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2>; "
             'rel="next"; results="true"'
         )
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome"}], link_header=next_values_link)
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/browser/values/") and (
+                request.param("cursor") is None
+            ):
+                return _json([{"value": "Chrome"}], link_header=next_values_link)
             # Second values page returns empty + no link header to end the loop
-            return _response([])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(can_resume=False)
+        result = _driver().run("issue_tag_values", script)
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
+        rows = result.rows
         assert len(rows) == 1
         assert rows[0]["issue_id"] == "100"
         assert rows[0]["tag_key"] == "browser"
 
-        saved_calls = cast(Mock, manager.save_state).call_args_list
-        assert len(saved_calls) == 1
-        saved_state = saved_calls[0].args[0]
-        assert saved_state == SentryResumeConfig(
-            issue_id="100",
-            tag_key="browser",
-            values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
-        )
+        assert result.saved_states == [
+            SentryResumeConfig(
+                issue_id="100",
+                tag_key="browser",
+                values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
+            )
+        ]
 
     @parameterized.expand(
         [
@@ -977,121 +952,79 @@ class TestIssueTagValuesResumable:
 
         cast(Mock, manager.clear_state).assert_called_once()
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_resume_fetches_saved_values_url_and_skips_earlier_pairs(self, mock_get) -> None:
-        seen_urls: list[str] = []
+    def test_resume_fetches_saved_values_url_and_skips_earlier_pairs(self) -> None:
         resume_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2"
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            seen_urls.append(url)
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "99"}, {"id": "100"}, {"id": "101"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "os"}, {"key": "browser"}])
-            if url == resume_url:
-                return _response([{"value": "Firefox"}])
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "99"}, {"id": "100"}, {"id": "101"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "os"}, {"key": "browser"}])
+            if request.url == resume_url or request.param("cursor") == "0:100:2":
+                return _json([{"value": "Firefox"}])
             # Any other URL shouldn't be hit on resume; fall back to empty
-            return _response([])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(
-            can_resume=True,
-            state=SentryResumeConfig(issue_id="100", tag_key="browser", values_next_url=resume_url),
+        result = _driver().run(
+            "issue_tag_values",
+            script,
+            resume_state=SentryResumeConfig(issue_id="100", tag_key="browser", values_next_url=resume_url),
         )
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Firefox", "issue_id": "100", "tag_key": "browser"}]
+        assert result.rows == [{"value": "Firefox", "issue_id": "100", "tag_key": "browser"}]
 
         # We should have fetched the resume values URL directly, and NOT
         # issued the initial page for that (issue, tag) pair.
-        assert resume_url in seen_urls
-        initial_values_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/"
-        assert initial_values_url not in seen_urls
+        values_path = "/api/0/organizations/acme/issues/100/tags/browser/values/"
+        values_requests = [request for request in result.requests if request.path == values_path]
+        assert [request.param("cursor") for request in values_requests] == ["0:100:2"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 2)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_stale_checkpoint_falls_through_after_skip_limit(self, mock_get) -> None:
+    def test_stale_checkpoint_falls_through_after_skip_limit(self) -> None:
         """If the checkpoint issue was deleted between runs, bounded skipping
         falls through so subsequent issues still get processed."""
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
                 # None of these match the checkpoint issue_id=999.
-                return _response([{"id": "100"}, {"id": "101"}, {"id": "102"}])
-            if url.endswith("/organizations/acme/issues/102/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/102/tags/browser/values/"):
-                return _response([{"value": "Chrome"}])
-            return _response([])
+                return _json([{"id": "100"}, {"id": "101"}, {"id": "102"}])
+            if request.path.endswith("/organizations/acme/issues/102/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/102/tags/browser/values/"):
+                return _json([{"value": "Chrome"}])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(
-            can_resume=True,
-            state=SentryResumeConfig(
+        result = _driver().run(
+            "issue_tag_values",
+            script,
+            resume_state=SentryResumeConfig(
                 issue_id="999",
                 tag_key="browser",
                 values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
             ),
         )
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
         # With skip limit 2, issues 100 and 101 are skipped; on 102 we exceed
         # the limit, clear the markers, and process it fresh.
-        assert rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
+        assert result.rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_partial_resume_state_falls_through_to_fresh_run(self, mock_get) -> None:
+    def test_partial_resume_state_falls_through_to_fresh_run(self) -> None:
         """Only activate resume when the full (issue_id, tag_key, values_next_url)
         triple is present; partial state must fall through to a fresh run."""
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome"}])
-            return _response([])
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _json([{"value": "Chrome"}])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
         # issue_id set, but tag_key + values_next_url are missing → partial state.
-        manager = _make_fake_manager(
-            can_resume=True,
-            state=SentryResumeConfig(issue_id="100"),
-        )
+        result = _driver().run("issue_tag_values", script, resume_state=SentryResumeConfig(issue_id="100"))
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+        assert result.rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
 
 class TestHelpers:
@@ -1183,6 +1116,20 @@ class TestHelpers:
         state.outcome.result.return_value = response
 
         assert _raise_on_failed_retry(state) is response
+
+    def test_exhausted_5xx_raise_for_status_is_classified_retryable(self) -> None:
+        # Endpoints with no per-request skip handler (e.g. the projects listing _iter_projects
+        # feeds project_ownership/project_stats from) let the response above reach
+        # raise_for_status() uncaught. That HTTPError must still be classified retryable, the
+        # same as the exhausted-429 case above, rather than reported to error tracking as a bug.
+        response = Mock(status_code=502, headers={})
+        error = HTTPError(
+            "502 Server Error: Bad Gateway for url: https://de.sentry.io/api/0/organizations/acme/projects/",
+            response=response,
+        )
+
+        assert error_message_matches(str(error), SentrySource().get_retryable_errors())
+        assert not error_message_matches(str(error), SentrySource().get_non_retryable_errors())
 
 
 class TestSentryRetentionWindow:

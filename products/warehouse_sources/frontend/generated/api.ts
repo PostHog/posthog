@@ -18,6 +18,7 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
@@ -252,6 +253,27 @@ export const externalDataDestinationsAddSourcesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addSourcesRequestApi),
     })
+}
+
+export const getExternalDataDestinationsTestConnectionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/test_connection/`
+}
+
+/**
+ * Test the credentials and target of an existing destination, and return the result of each step.
+ */
+export const externalDataDestinationsTestConnectionCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DestinationConnectionTestResponseApi> => {
+    return apiMutator<DestinationConnectionTestResponseApi>(
+        getExternalDataDestinationsTestConnectionCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {

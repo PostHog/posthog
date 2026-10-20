@@ -18,7 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintrust import (
     BraintrustSourceConfig,
 )
@@ -29,14 +35,7 @@ HOST_CHECK = "products.warehouse_sources.backend.temporal.data_imports.sources.c
 
 @pytest.fixture
 def http() -> Iterator[responses.RequestsMock]:
-    with (
-        responses.RequestsMock() as mock,
-        patch(HOST_CHECK, return_value=(True, None)),
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient._send_request.retry.stop",
-            return_value=True,
-        ),
-    ):
+    with responses.RequestsMock() as mock, patch(HOST_CHECK, return_value=(True, None)):
         yield mock
 
 
@@ -51,6 +50,10 @@ def make_manager(cursor: str | None = None) -> MagicMock:
     return manager
 
 
+def make_driver(config: BraintrustSourceConfig | None = None) -> SourceDriver:
+    return SourceDriver(BraintrustSource(), config or make_config())
+
+
 @pytest.mark.parametrize(
     ("table", "path"),
     [
@@ -59,6 +62,7 @@ def make_manager(cursor: str | None = None) -> MagicMock:
         ("datasets", "dataset"),
         ("prompts", "prompt"),
         ("functions", "function"),
+        ("users", "user"),
     ],
 )
 def test_pagination_auth_and_checkpoints(http: responses.RequestsMock, table: str, path: str) -> None:
@@ -83,71 +87,158 @@ def test_pagination_auth_and_checkpoints(http: responses.RequestsMock, table: st
     manager.clear_state.assert_called_once_with()
 
 
+EVENT_TABLES = [
+    ("project_logs", "project", "project_logs/{}/fetch", "project_id"),
+    ("experiment_events", "experiment", "experiment/{}/fetch", "experiment_id"),
+    ("dataset_events", "dataset", "dataset/{}/fetch", "dataset_id"),
+]
+
+
+def event_script(parent_path: str, child_path: str, parent_key: str) -> Any:
+    return route(
+        {
+            f"/v1/{parent_path}": [
+                ScriptedResponse(json={"objects": [{"id": "p1"}, {"id": "p2"}]}),
+                ScriptedResponse(json={"objects": []}),
+            ],
+            f"/v1/{child_path.format('p1')}": [
+                ScriptedResponse(
+                    json={
+                        "events": [{"id": "a", parent_key: "p1", "_xact_id": "3"}, {"id": "b", parent_key: "p1"}],
+                        "cursor": "c1",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "events": [{"id": "a", parent_key: "p1", "_xact_id": "1"}, {"id": "c", parent_key: "p1"}],
+                        "cursor": "c2",
+                    }
+                ),
+                ScriptedResponse(json={"events": []}),
+            ],
+            f"/v1/{child_path.format('p2')}": [ScriptedResponse(json={"events": [{"id": "a", parent_key: "p2"}]})],
+        }
+    )
+
+
+@pytest.mark.parametrize(("table", "parent_path", "child_path", "parent_key"), EVENT_TABLES)
+def test_event_fanout_pages_by_body_cursor_and_drops_outdated_versions(
+    table: str, parent_path: str, child_path: str, parent_key: str
+) -> None:
+    result = make_driver().run(table, event_script(parent_path, child_path, parent_key))
+    assert result.raised is None
+    assert [(row[parent_key], row["id"], row.get("_xact_id")) for row in result.rows] == [
+        ("p1", "a", "3"),
+        ("p1", "b", None),
+        ("p1", "c", None),
+        ("p2", "a", None),
+    ]
+    p1_requests = [request for request in result.requests if request.path == f"/v1/{child_path.format('p1')}"]
+    assert [request.method for request in p1_requests] == ["POST"] * 3
+    assert [request.json() for request in p1_requests] == [
+        {"limit": 100},
+        {"limit": 100, "cursor": "c1"},
+        {"limit": 100, "cursor": "c2"},
+    ]
+    assert result.response is not None
+    assert result.response.primary_keys == [parent_key, "id"]
+
+
+def test_event_fanout_resumes_from_saved_parent_cursor() -> None:
+    first = make_driver().run("project_logs", event_script("project", "project_logs/{}/fetch", "project_id"))
+    assert first.raised is None
+    mid_parent = next(
+        state for state in first.saved_states if state.fanout and (state.fanout.get("child_state") or {}).get("cursor")
+    )
+    resumed = make_driver().run(
+        "project_logs",
+        route(
+            {
+                "/v1/project": [
+                    ScriptedResponse(json={"objects": [{"id": "p1"}, {"id": "p2"}]}),
+                    ScriptedResponse(json={"objects": []}),
+                ],
+                "/v1/project_logs/p1/fetch": [
+                    ScriptedResponse(json={"events": [{"id": "c", "project_id": "p1"}]}),
+                ],
+                "/v1/project_logs/p2/fetch": [ScriptedResponse(json={"events": []})],
+            }
+        ),
+        resume_state=mid_parent,
+    )
+    assert resumed.raised is None
+    p1_bodies = [request.json() for request in resumed.requests if request.path == "/v1/project_logs/p1/fetch"]
+    assert p1_bodies == [{"limit": 100, "cursor": "c1"}]
+    assert [row["id"] for row in resumed.rows] == ["c"]
+
+
 @pytest.mark.parametrize("cursor", [None, "saved"])
-def test_empty_page_and_resume(http: responses.RequestsMock, cursor: str | None) -> None:
-    http.get(f"{API_URL}/v1/project", json={"objects": []})
-    manager = make_manager(cursor)
-    result = braintrust_source(make_config(), "projects", 123, "job", manager)
-    assert list(cast(Iterable[Any], result.items())) == []
-    expected = {"limit": ["100"]}
+def test_empty_page_and_resume(cursor: str | None) -> None:
+    result = make_driver().run(
+        "projects",
+        [ScriptedResponse(json={"objects": []})],
+        resume_state=BraintrustResumeConfig(cursor=cursor) if cursor else None,
+    )
+    assert result.raised is None
+    assert result.rows == []
+    expected = {"limit": ("100",)}
     if cursor:
-        expected["starting_after"] = [cursor]
-    assert parse_qs(urlsplit(http.calls[0].request.url).query) == expected
-    manager.save_state.assert_not_called()
-    assert len(http.calls) == 1
+        expected["starting_after"] = (cursor,)
+    assert result.queries == [expected]
+    assert result.saved_states == []
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("resumed", [False, True])
-def test_repeated_cursor_fails(http: responses.RequestsMock, resumed: bool) -> None:
-    http.get(f"{API_URL}/v1/project", json={"objects": [{"id": "same"}]})
-    result = braintrust_source(make_config(), "projects", 123, "job", make_manager("same" if resumed else None))
-    with pytest.raises(ValueError, match="not advancing"):
-        list(cast(Iterable[Any], result.items()))
-    assert len(http.calls) == (1 if resumed else 2)
+def test_repeated_cursor_fails(resumed: bool) -> None:
+    result = make_driver().run(
+        "projects",
+        always(ScriptedResponse(json={"objects": [{"id": "same"}]})),
+        resume_state=BraintrustResumeConfig(cursor="same") if resumed else None,
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "not advancing" in str(result.raised)
+    assert len(result.requests) == (1 if resumed else 2)
 
 
 @pytest.mark.parametrize("body", [{}, {"objects": None}, {"error": "unexpected"}])
-def test_malformed_page_does_not_succeed(http: responses.RequestsMock, body: dict[str, Any]) -> None:
-    http.get(f"{API_URL}/v1/project", json=body)
-    result = braintrust_source(make_config(), "projects", 123, "job", make_manager())
-    with pytest.raises(RESTClientRetryableError):
-        list(cast(Iterable[Any], result.items()))
+def test_malformed_page_does_not_succeed(body: dict[str, Any]) -> None:
+    result = make_driver().run("projects", always(ScriptedResponse(json=body)))
+    assert isinstance(result.raised, RESTClientRetryableError)
 
 
 @pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
-def test_credentials_and_error_classification(http: responses.RequestsMock, status: int) -> None:
-    http.get(f"{API_URL}/v1/project", json={"objects": []}, status=status)
-    if status in (429, 500):
-        with pytest.raises(RESTClientRetryableError):
-            validate_credentials(make_config(), 123)
-    elif status == 404:
-        with pytest.raises(HTTPError):
-            validate_credentials(make_config(), 123)
-    else:
-        valid, message = validate_credentials(make_config(), 123)
-        assert valid is (status == 200)
-        if status == 401:
-            assert message and "rejected the API key" in message
-        elif status == 403:
-            assert message and "permissions" in message
+def test_credentials_and_error_classification(status: int) -> None:
+    with scripted_network(always(ScriptedResponse(json={"objects": []}, status=status))) as network:
+        if status in (429, 500):
+            with pytest.raises(RESTClientRetryableError):
+                validate_credentials(make_config(), 123)
+        elif status == 404:
+            with pytest.raises(HTTPError):
+                validate_credentials(make_config(), 123)
         else:
-            assert message is None
-    assert parse_qs(urlsplit(http.calls[0].request.url).query) == {"limit": ["1"]}
+            valid, message = validate_credentials(make_config(), 123)
+            assert valid is (status == 200)
+            if status == 401:
+                assert message and "rejected the API key" in message
+            elif status == 403:
+                assert message and "permissions" in message
+            else:
+                assert message is None
+    assert network.requests_log[0].param("limit") == "1"
     if status < 429:
-        assert len(http.calls) == 1
-    assert http.calls[0].request.headers["Authorization"] == "Bearer fake-braintrust-key"
+        assert len(network.requests_log) == 1
+    assert network.requests_log[0].headers["authorization"] == "Bearer fake-braintrust-key"
 
 
 @pytest.mark.parametrize("status", [401, 403])
-def test_sync_auth_errors_match_non_retryable_messages(http: responses.RequestsMock, status: int) -> None:
-    http.get(f"{API_URL}/v1/project", status=status)
-    result = braintrust_source(make_config(), "projects", 123, "job", make_manager())
-    with pytest.raises(HTTPError) as error:
-        list(cast(Iterable[Any], result.items()))
+def test_sync_auth_errors_match_non_retryable_messages(status: int) -> None:
+    result = make_driver().run("projects", [ScriptedResponse(status=status)])
+    assert isinstance(result.raised, HTTPError)
     messages = [
         message
         for pattern, message in BraintrustSource().get_non_retryable_errors().items()
-        if pattern in str(error.value)
+        if pattern in str(result.raised)
     ]
     assert len(messages) == 1
     assert messages[0] and "API key" in messages[0]
@@ -167,38 +258,36 @@ def test_sync_auth_errors_match_non_retryable_messages(http: responses.RequestsM
         "https://[",
     ],
 )
-def test_invalid_urls_fail_before_http(http: responses.RequestsMock, url: str) -> None:
-    valid, message = validate_credentials(make_config(api_url=url), 123)
+def test_invalid_urls_fail_before_http(url: str) -> None:
+    with scripted_network([]) as network:
+        valid, message = validate_credentials(make_config(api_url=url), 123)
     assert not valid
     assert message and "HTTPS API URL" in message
-    assert len(http.calls) == 0
+    assert network.requests_log == []
 
 
-def test_private_host_rejected_for_probe_and_sync(http: responses.RequestsMock) -> None:
-    with patch(HOST_CHECK, return_value=(False, "private host")):
+def test_private_host_rejected_for_probe_and_sync() -> None:
+    with scripted_network([]) as network, patch(HOST_CHECK, return_value=(False, "private host")):
         valid, message = validate_credentials(make_config(), 123)
         assert not valid
         assert message and "public IP address" in message
-        with pytest.raises(ValueError, match="public IP address"):
-            braintrust_source(make_config(), "projects", 123, "job", make_manager())
-    assert len(http.calls) == 0
+        result = make_driver().run("projects", [])
+    assert isinstance(result.raised, ValueError)
+    assert "public IP address" in str(result.raised)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
-def test_redirect_does_not_forward_credentials(http: responses.RequestsMock) -> None:
-    http.get(f"{API_URL}/v1/project", status=302, headers={"Location": "https://other.example.com"})
-    with pytest.raises(ValueError, match="refusing to follow"):
-        validate_credentials(make_config(), 123)
-    assert len(http.calls) == 1
+def test_redirect_does_not_forward_credentials() -> None:
+    with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://other.example.com"})]) as network:
+        with pytest.raises(ValueError, match="refusing to follow"):
+            validate_credentials(make_config(), 123)
+    assert len(network.requests_log) == 1
 
 
-def test_blank_key_does_not_accept_anonymous_access(http: responses.RequestsMock) -> None:
-    valid, message = validate_credentials(make_config(api_key=" "), 123)
+def test_blank_key_does_not_accept_anonymous_access() -> None:
+    with scripted_network([]) as network:
+        valid, message = validate_credentials(make_config(api_key=" "), 123)
     assert not valid
     assert message and "API key" in message
-    assert len(http.calls) == 0
-
-
-def test_unknown_table_fails_before_http(http: responses.RequestsMock) -> None:
-    with pytest.raises(UnknownResourceError):
-        braintrust_source(make_config(), "unknown", 123, "job", make_manager())
-    assert len(http.calls) == 0
+    assert network.requests_log == []

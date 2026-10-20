@@ -1,97 +1,41 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
-from unittest import mock
+import time_machine
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gocardless import (
+    GoCardlessSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.gocardless import (
     GoCardlessResumeConfig,
     _base_url,
     _format_created_at,
-    gocardless_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import (
     ENDPOINTS,
     GOCARDLESS_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the gocardless module.
-GOCARDLESS_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.gocardless.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.source import GoCardlessSource
 
 
-def _response(data_key: str, items: list[dict[str, Any]], after: str | None = None) -> Response:
-    body = {data_key: items, "meta": {"cursors": {"before": None, "after": after}, "limit": 500}}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _page(data_key: str, items: list[dict[str, Any]], after: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={data_key: items, "meta": {"cursors": {"before": None, "after": after}, "limit": 500}})
 
 
-def _make_manager(resume_state: GoCardlessResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Wire a mock session, capturing each request's params and URL at prepare time.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy per page.
-    The returned prepared object exposes a real ``.url`` so the client's host-pinning check passes.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    url_snapshots: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        url_snapshots.append(request.url)
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        prepared.is_redirect = False
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, url_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(
-    session: mock.MagicMock,
-    environment: str,
-    endpoint: str,
-    manager: mock.MagicMock,
-    db_incremental_field_last_value: Any = None,
-) -> list[dict[str, Any]]:
-    return _rows(
-        gocardless_source(
-            environment=environment,
-            access_token="token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        )
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(GoCardlessSource(), GoCardlessSourceConfig(environment="live", access_token="token"))
 
 
 class TestBaseUrl:
-    def test_invalid_environment_raises(self):
+    def test_invalid_environment_raises(self) -> None:
         with pytest.raises(ValueError):
             _base_url("evil.example.com")
 
@@ -106,7 +50,7 @@ class TestFormatCreatedAt:
             ("2024-01-02T03:04:05.000Z", "2024-01-02T03:04:05.000Z"),
         ],
     )
-    def test_format_values(self, value, expected):
+    def test_format_values(self, value: Any, expected: str) -> None:
         assert _format_created_at(value) == expected
 
 
@@ -120,64 +64,59 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(GOCARDLESS_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("live", "token") is expected
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("live", "token") is expected
 
-    @mock.patch(GOCARDLESS_SESSION_PATCH)
-    def test_validate_credentials_rejects_bad_environment_without_request(self, mock_session):
-        assert validate_credentials("evil", "token") is False
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log[0].path == "/customers"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
+        assert network.requests_log[0].headers["gocardless-version"] == "2015-07-06"
+
+    def test_validate_credentials_rejects_bad_environment_without_request(self) -> None:
+        with scripted_network([]) as network:
+            assert validate_credentials("evil", "token") is False
+
+        assert network.requests_log == []
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_meta_cursors(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(
-            session,
+    def test_paginates_via_meta_cursors(self) -> None:
+        result = _driver().run(
+            "payments",
             [
-                _response("payments", [{"id": "PM1"}], after="PM1"),
-                _response("payments", [{"id": "PM2"}], after=None),
+                _page("payments", [{"id": "PM1"}], after="PM1"),
+                _page("payments", [{"id": "PM2"}]),
             ],
         )
 
-        manager = _make_manager()
-        rows = _run(session, "live", "payments", manager)
-
-        assert [r["id"] for r in rows] == ["PM1", "PM2"]
-        assert params[0]["limit"] == 500
-        assert "after" not in params[0]
-        assert params[1]["after"] == "PM1"
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["PM1", "PM2"]
+        assert result.params("limit") == ["500", "500"]
+        assert result.params("after") == [None, "PM1"]
         # Checkpoint saved after the first page (points at the next cursor); the null cursor ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == GoCardlessResumeConfig(after="PM1")
+        assert result.saved_states == [GoCardlessResumeConfig(after="PM1")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_includes_filter(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response("events", [{"id": "EV1"}])])
-
-        _run(
-            session,
-            "live",
+    def test_incremental_request_includes_filter(self) -> None:
+        result = _driver().run(
             "events",
-            _make_manager(),
+            [_page("events", [{"id": "EV1"}])],
+            incremental_field="created_at",
             db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        assert params[0]["created_at[gte]"] == "2024-01-02T00:00:00.000Z"
+        assert result.raised is None
+        assert result.requests[0].param("created_at[gte]") == "2024-01-02T00:00:00.000Z"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response("payments", [{"id": "PM9"}])])
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "payments",
+            [_page("payments", [{"id": "PM9"}])],
+            resume_state=GoCardlessResumeConfig(after="PM_RESUME"),
+        )
 
-        manager = _make_manager(GoCardlessResumeConfig(after="PM_RESUME"))
-        _run(session, "live", "payments", manager)
-
-        assert params[0]["after"] == "PM_RESUME"
+        assert result.raised is None
+        assert result.requests[0].param("after") == "PM_RESUME"
 
 
 class TestFanout:
@@ -188,57 +127,70 @@ class TestFanout:
             ("balances", "creditors", "CR1", "creditor", "creditor_id"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_child_is_fetched_per_parent_with_parent_id_injected(
-        self, MockSession, endpoint, parent_key, parent_id, resolve_param, injected_key
-    ):
-        session = MockSession.return_value
-        params, urls = _wire(
-            session,
+        self, endpoint: str, parent_key: str, parent_id: str, resolve_param: str, injected_key: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _response(parent_key, [{"id": parent_id}]),
-                _response(endpoint, [{"type": "a", "amount": "1"}], after="X1"),
-                _response(endpoint, [{"type": "b", "amount": "2"}]),
+                _page(parent_key, [{"id": parent_id}]),
+                _page(endpoint, [{"type": "a", "amount": "1"}], after="X1"),
+                _page(endpoint, [{"type": "b", "amount": "2"}]),
             ],
         )
 
-        rows = _run(session, "live", endpoint, _make_manager())
+        assert result.raised is None
+        assert result.paths[1] == f"/{endpoint}"
+        assert result.requests[1].param(resolve_param) == parent_id
+        assert result.requests[1].param("value_date_from") is None
+        assert result.requests[2].param("after") == "X1"
+        assert [row["type"] for row in result.rows] == ["a", "b"]
+        assert all(row[injected_key] == parent_id for row in result.rows)
 
-        assert urlparse(urls[1]).path == f"/{endpoint}"
-        assert parse_qs(urlparse(urls[1]).query) == {resolve_param: [parent_id]}
-        assert params[2]["after"] == "X1"
-        assert [r["type"] for r in rows] == ["a", "b"]
-        assert all(r[injected_key] == parent_id for r in rows)
+    @time_machine.travel(datetime(2026, 3, 31, 23, 30, tzinfo=UTC), tick=False)
+    def test_payment_account_transactions_are_fetched_per_account_with_value_date_range(self) -> None:
+        result = _driver().run(
+            "payment_account_transactions",
+            [
+                _page("payment_accounts", [{"id": "BA1"}]),
+                _page("payment_account_transactions", [{"id": "PATR1"}], after="PATR1"),
+                _page("payment_account_transactions", [{"id": "PATR2"}]),
+            ],
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_balances_lists_every_creditor(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response("creditors", [{"id": "CR1"}]), _response("balances", [])])
+        assert result.raised is None
+        assert result.paths == [
+            "/payment_accounts",
+            "/payment_accounts/BA1/transactions",
+            "/payment_accounts/BA1/transactions",
+        ]
+        assert result.params("value_date_from") == [None, "2015-01-01", "2015-01-01"]
+        assert result.params("value_date_to") == [None, "2026-04-01", "2026-04-01"]
+        assert result.requests[2].param("after") == "PATR1"
+        assert [(row["id"], row["payment_account_id"]) for row in result.rows] == [("PATR1", "BA1"), ("PATR2", "BA1")]
 
-        _run(session, "live", "balances", _make_manager())
+    def test_balances_lists_every_creditor(self) -> None:
+        result = _driver().run("balances", [_page("creditors", [{"id": "CR1"}]), _page("balances", [])])
 
-        assert "created_at[gte]" not in params[0]
+        assert result.raised is None
+        assert result.requests[0].param("created_at[gte]") is None
 
 
 class TestGoCardlessSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = GOCARDLESS_ENDPOINTS[endpoint]
-        response = gocardless_source(
-            environment="live",
-            access_token="token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
+        parent_key = config.fanout.parent_name if config.fanout is not None else endpoint
+        result = _driver().run(endpoint, [_page(parent_key, [])])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
-        if config.primary_key is None:
-            assert response.primary_keys is None
+        assert response.primary_keys == ([config.primary_key] if config.primary_key else None)
+        if config.partition_key is None:
             assert response.partition_keys is None
             return
-        assert response.primary_keys == [config.primary_key]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         # Lists are reverse-chronological; only the incremental events stream

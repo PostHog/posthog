@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HookdeckSource(ResumableSource[HookdeckSourceConfig, HookdeckResumeConfig]):
+    codebase_detection = detect(
+        env=("^HOOKDECK_",),
+        npm=("@hookdeck/sdk", "hookdeck-cli"),
+        go=("github.com/hookdeck/hookdeck-go-sdk", "github.com/hookdeck/hookdeck-cli"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Hookdeck dates its API versions and carries the version in the URL path. An unversioned
     # request tracks the latest version, so the pin is always sent. 2026-09-01 only reshapes the

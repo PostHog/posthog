@@ -8,8 +8,9 @@ import { CohortType } from '~/types'
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
-    messageAudienceUrl,
+    messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 /** Confirms a static cohort saved from a list of people, with links to the cohort and to a broadcast for it. */
 export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source: string, toastId?: string): void {
@@ -20,15 +21,22 @@ export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source
             label: 'View cohort',
             action: () => router.actions.push(urls.cohort(savedCohort.id)),
         },
-        secondaryButton: {
-            label: 'Email this cohort',
-            dataAttr: `message-audience-${source}-broadcast`,
-            action: () => {
-                captureMessageAudienceClicked(source, 'broadcast')
-                router.actions.push(
-                    messageAudienceUrl({ properties: cohortAudienceProperties(savedCohort), source }, 'broadcast')
-                )
-            },
-        },
+        secondaryButton: messageAudienceAccessDisabledReason()
+            ? undefined
+            : {
+                  label: 'Email this cohort',
+                  dataAttr: `message-audience-${source}-broadcast`,
+                  action: () => {
+                      captureMessageAudienceClicked(source, 'broadcast')
+                      void openMessageAudience(
+                          {
+                              properties: cohortAudienceProperties(savedCohort),
+                              source,
+                              draftSource: { source: 'cohort', source_id: String(savedCohort.id) },
+                          },
+                          'broadcast'
+                      )
+                  },
+              },
     })
 }

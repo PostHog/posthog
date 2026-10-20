@@ -1,25 +1,24 @@
-import json
 from datetime import UTC, datetime
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb import (
     ReverbResumeConfig,
     _format_datetime,
+    _inject_payment_id,
     _inject_payout_id,
-    reverb_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import PER_PAGE
-
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-REVERB_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source import ReverbSource
 
 
 class TestFormatDatetime:
@@ -34,21 +33,35 @@ class TestFormatDatetime:
         assert _format_datetime(value) == expected
 
 
-class TestInjectPayoutId:
+class TestInjectIdFromLink:
     @parameterized.expand(
         [
             (
-                "well_formed_href",
+                "payout_well_formed_href",
+                _inject_payout_id,
                 {"_links": {"line_items": {"href": "https://api.reverb.com/api/my/payouts/54/line_items"}}},
                 54,
             ),
-            ("missing_links", {}, None),
-            ("missing_line_items", {"_links": {}}, None),
-            ("malformed_href", {"_links": {"line_items": {"href": "not-a-url"}}}, None),
+            ("payout_missing_links", _inject_payout_id, {}, None),
+            ("payout_missing_line_items", _inject_payout_id, {"_links": {}}, None),
+            ("payout_malformed_href", _inject_payout_id, {"_links": {"line_items": {"href": "not-a-url"}}}, None),
+            (
+                "payment_well_formed_href",
+                _inject_payment_id,
+                {"_links": {"self": {"href": "https://reverb.com/api/my/payments/selling/812"}}},
+                812,
+            ),
+            (
+                "payment_ignores_order_link",
+                _inject_payment_id,
+                {"_links": {"order": {"href": "https://reverb.com/api/my/orders/selling/3"}}},
+                None,
+            ),
+            ("payment_null_links", _inject_payment_id, {"_links": None}, None),
         ]
     )
-    def test_id_extraction(self, _name: str, row: dict[str, Any], expected_id: int | None) -> None:
-        result = _inject_payout_id(dict(row))
+    def test_id_extraction(self, _name: str, inject: Any, row: dict[str, Any], expected_id: int | None) -> None:
+        result = inject(dict(row))
         assert result.get("id") == expected_id
 
 
@@ -59,7 +72,7 @@ def _response(
     current_page: int | None = None,
     total_pages: int | None = None,
     drop_key: bool = False,
-) -> Response:
+) -> ScriptedResponse:
     body: dict[str, Any] = {}
     if not drop_key:
         body[response_key] = items or []
@@ -67,100 +80,172 @@ def _response(
         body["current_page"] = current_page
     if total_pages is not None:
         body["total_pages"] = total_pages
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: ReverbResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    kwargs.setdefault("should_use_incremental_field", False)
-    kwargs.setdefault("db_incremental_field_last_value", None)
-    kwargs.setdefault("api_version", "3.0")
-    return reverb_source(
-        api_token="token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(ReverbSource(), ReverbSourceConfig(api_token="token"))
 
 
 class TestReverbSourceOrders:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response("orders", [{"order_number": "2"}], current_page=2, total_pages=2)])
-
-        rows = _rows(_source("Orders", _make_manager(ReverbResumeConfig(next_page=2))))
-
-        assert [r["order_number"] for r in rows] == ["2"]
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_metadata_full_page_continues(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"order_number": str(i)} for i in range(PER_PAGE)]
-        _wire(session, [_response("orders", full_page), _response("orders", [{"order_number": "last"}])])
-
-        rows = _rows(_source("Orders", _make_manager()))
-
-        assert len(rows) == PER_PAGE + 1
-        assert session.send.call_count == 2
-
-
-class TestReverbSourcePayouts:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_window_uses_created_date_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response("payouts", [], total_pages=1)])
-
-        _rows(
-            _source(
-                "Payouts",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "Orders",
+            [_response("orders", [{"order_number": "2"}], current_page=2, total_pages=2)],
+            resume_state=ReverbResumeConfig(next_page=2),
         )
 
-        assert snapshots[0]["params"]["created_start_date"] == "2026-03-04T00:00:00Z"
-        assert "created_end_date" in snapshots[0]["params"]
+        assert [r["order_number"] for r in result.rows] == ["2"]
+        assert len(result.requests) == 1
+        assert result.requests[0].param("page") == "2"
+
+    def test_missing_metadata_full_page_continues(self) -> None:
+        full_page = [{"order_number": str(i)} for i in range(PER_PAGE)]
+        result = _driver().run(
+            "Orders", [_response("orders", full_page), _response("orders", [{"order_number": "last"}])]
+        )
+
+        assert len(result.rows) == PER_PAGE + 1
+        assert len(result.requests) == 2
+
+
+_REFUND_STATES = ("pending_seller_response", "conditionally_approved", "approved", "denied")
+
+
+class TestReverbSourceRequestShaping:
+    @parameterized.expand(
+        [
+            ("payouts_incremental", "Payouts", "payouts", True, "created_start_date", "created_end_date", ()),
+            (
+                "refunds_incremental",
+                "RefundRequests",
+                "refund_requests",
+                True,
+                "updated_start_date",
+                "updated_end_date",
+                _REFUND_STATES,
+            ),
+            (
+                "refunds_full_refresh",
+                "RefundRequests",
+                "refund_requests",
+                False,
+                "updated_start_date",
+                "updated_end_date",
+                _REFUND_STATES,
+            ),
+        ]
+    )
+    def test_window_and_state_params(
+        self,
+        _name: str,
+        endpoint: str,
+        response_key: str,
+        incremental: bool,
+        start_param: str,
+        end_param: str,
+        expected_states: tuple[str, ...],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [_response(response_key, [], total_pages=1)],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC) if incremental else None,
+        )
+
+        request = result.requests[0]
+        assert request.param(start_param) == ("2026-03-04T00:00:00Z" if incremental else None)
+        assert (request.param(end_param) is not None) is incremental
+        assert request.query.get("state[]", ()) == expected_states
+
+
+def _payout(payout_id: int) -> dict[str, Any]:
+    return {
+        "created_at": "2026-02-01T10:00:00-06:00",
+        "_links": {"line_items": {"href": f"https://api.reverb.com/api/my/payouts/{payout_id}/line_items"}},
+    }
+
+
+class TestReverbSourceRows:
+    @parameterized.expand(
+        [
+            (
+                "payout_line_items_walk_every_child_page_per_payout",
+                "PayoutLineItems",
+                {
+                    "/my/payouts": [
+                        _response("payouts", [_payout(31)], current_page=1, total_pages=2),
+                        _response("payouts", [_payout(32)], current_page=2, total_pages=2),
+                    ],
+                    "/my/payouts/31/line_items": [
+                        _response("payout_line_items", [{"order_id": 901}], current_page=1, total_pages=2),
+                        _response("payout_line_items", [{"order_id": 902}], current_page=2, total_pages=2),
+                    ],
+                    "/my/payouts/32/line_items": [
+                        _response("payout_line_items", [{"order_id": 903}], current_page=1, total_pages=1),
+                    ],
+                },
+                [
+                    {"order_id": 901, "payout_id": 31},
+                    {"order_id": 902, "payout_id": 31},
+                    {"order_id": 903, "payout_id": 32},
+                ],
+            ),
+            (
+                "bump_statistics_one_row_per_listing_and_skip_missing_listing",
+                "BumpStatistics",
+                {
+                    "/my/listings": [_response("listings", [{"id": 71}, {"id": 72}, {"id": 73}], total_pages=1)],
+                    "/listings/71/bump": [ScriptedResponse(json={"bump_v2_stats": {"impressions": 15}, "bids": []})],
+                    "/listings/72/bump": [ScriptedResponse(status=404, json={"message": "Not found"})],
+                    "/listings/73/bump": [ScriptedResponse(json={"budgets": [], "bids": []})],
+                },
+                [
+                    {"bump_v2_stats": {"impressions": 15}, "bids": [], "listing_id": 71},
+                    {"budgets": [], "bids": [], "listing_id": 73},
+                ],
+            ),
+            (
+                "payments_get_id_from_self_link",
+                "Payments",
+                {
+                    "/my/payments/selling": [
+                        _response(
+                            "payments",
+                            [
+                                {
+                                    "status": "completed",
+                                    "_links": {"self": {"href": "https://reverb.com/api/my/payments/selling/44"}},
+                                }
+                            ],
+                            total_pages=1,
+                        )
+                    ],
+                },
+                [
+                    {
+                        "status": "completed",
+                        "_links": {"self": {"href": "https://reverb.com/api/my/payments/selling/44"}},
+                        "id": 44,
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_rows(
+        self,
+        _name: str,
+        endpoint: str,
+        table: dict[str, list[ScriptedResponse]],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver().run(endpoint, route(table))
+
+        assert result.raised is None
+        assert result.rows == expected_rows
 
 
 class TestValidateCredentials:
-    @mock.patch(REVERB_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("token", "3.0") == (True, 200)
+    def test_ok(self) -> None:
+        with scripted_network([ScriptedResponse(json={})]):
+            assert validate_credentials("token", "3.0") == (True, 200)

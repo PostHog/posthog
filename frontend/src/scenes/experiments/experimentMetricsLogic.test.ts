@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -7,7 +8,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
@@ -25,6 +26,12 @@ jest.mock('@posthog/lemon-ui', () => ({
 const POLL_INTERVAL_MS = 2000
 // Mirrors the private MAX_POLL_RETRIES in experimentMetricsLogic.
 const MAX_POLL_RETRIES = 5
+// Mirror the private request deadlines in experimentMetricsLogic.
+const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
+const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
+
+const SLOW_LOAD_MESSAGE = 'Loading results is taking longer than expected. Refresh the results to try again.'
+const neverSettles = (): Promise<never> => new Promise(() => {})
 
 const EXPERIMENT = experimentJson as unknown as Experiment
 const PRIMARY_METRIC_UUID = '434cb6ba-7fa6-4ca1-b7a0-8970b2d9a47d'
@@ -264,7 +271,7 @@ describe('experimentMetricsLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
 
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'no events' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'no events', retriable: false })
         })
 
         it('counts failures toward progress and surfaces errors while a run is still in progress', async () => {
@@ -312,7 +319,7 @@ describe('experimentMetricsLogic', () => {
             }
 
             // Errors must surface in-row even mid-flight.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom-primary' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom-primary', retriable: false })
             // Progress must count failures, not just completes; otherwise a fully-failing run shows 0/3 forever.
             expect(logic.values.recalculationProgress).toEqual({ completed: 2, total: 3 })
             jest.useRealTimers()
@@ -337,7 +344,7 @@ describe('experimentMetricsLogic', () => {
             // The successful secondary metric loads its result.
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom', retriable: false })
         })
 
         it('shows no error toast on 404 (a fresh recalc is triggered instead)', async () => {
@@ -380,6 +387,34 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.recalculationLoading).toBe(false)
         })
 
+        it('stops loading and offers a retry when the latest request never settles', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': neverSettles,
+                },
+            })
+            jest.useFakeTimers()
+            try {
+                mountLogic()
+                await jest.advanceTimersByTimeAsync(LATEST_REQUEST_TIMEOUT_MS)
+
+                expect(logic.values.recalculationLoading).toBe(false)
+                expect(logic.values.isRecalculating).toBe(false)
+                const retryable = { detail: SLOW_LOAD_MESSAGE, retriable: true }
+                expect(logic.values.primaryMetricsResultsErrors).toEqual([retryable, retryable])
+                expect(logic.values.secondaryMetricsResultsErrors).toEqual([retryable, retryable])
+                expect(lemonToast.error).toHaveBeenCalledWith(SLOW_LOAD_MESSAGE)
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'experiment metric recalculation',
+                    expect.objectContaining({ status: 'abandoned', reason: 'latest_timeout' })
+                )
+            } finally {
+                captureSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+
         it('triggers a cold_run recalculation when latest returns 404', async () => {
             let capturedBody: any
             useMocks({
@@ -415,19 +450,13 @@ describe('experimentMetricsLogic', () => {
                 experiment: experimentWithExtraMetric,
             },
             {
-                // A transient error that ran out of attempts: the backend marks it retriable, so a new run
-                // can fix it. The window is reused, so only this metric recomputes.
-                name: 'a failed run whose failure is retriable',
+                name: 'a failed run that has no entry for a metric',
                 latest: {
                     ...partialFailureRecalculation,
-                    metric_errors: {
-                        [PRIMARY_METRIC_UUID]: {
-                            step: 'calculation',
-                            message: 'boom',
-                            error_type: 'timeout',
-                            retriable: true,
-                        },
-                    },
+                    metric_errors: {},
+                    results: partialFailureRecalculation.results.filter(
+                        ({ metric_uuid }) => metric_uuid !== PRIMARY_METRIC_UUID
+                    ),
                 },
                 experiment: EXPERIMENT,
             },
@@ -452,34 +481,51 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'heal_latest_run' })
         })
 
-        it.each([
-            {
-                // The metric config, the data, or a resource limit must change first: only a user retry re-runs it.
-                name: 'a non-retriable failure',
-                metricError: { step: 'calculation', message: 'boom', error_type: 'validation_error', retriable: false },
+        const metricErrors = {
+            retriable: { step: 'calculation', message: 'boom', error_type: 'timeout', retriable: true },
+            'non-retriable': {
+                step: 'calculation',
+                message: 'boom',
+                error_type: 'validation_error',
+                retriable: false,
             },
-            {
-                // A run recorded before the flag existed: never heal it, or every page load would start a run.
-                name: 'a failure recorded without the retriable flag',
-                metricError: { step: 'calculation', message: 'boom' },
-            },
-        ])('does not heal $name', async ({ metricError }) => {
+            'unflagged legacy': { step: 'calculation', message: 'boom' },
+        }
+        const experimentsByState = {
+            running: EXPERIMENT,
+            stopped: { ...EXPERIMENT, end_date: '2025-01-30T21:55:00Z' } as Experiment,
+        }
+
+        it.each(
+            (Object.keys(metricErrors) as (keyof typeof metricErrors)[]).flatMap((errorKind) =>
+                (Object.keys(experimentsByState) as (keyof typeof experimentsByState)[]).map((state) => ({
+                    errorKind,
+                    state,
+                }))
+            )
+        )('does not heal a $errorKind failure on a $state experiment', async ({ errorKind, state }) => {
             const createMock = jest.fn(() => [201, completedRecalculation2])
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
                         200,
-                        { ...partialFailureRecalculation, metric_errors: { [PRIMARY_METRIC_UUID]: metricError } },
+                        {
+                            ...partialFailureRecalculation,
+                            metric_errors: { [PRIMARY_METRIC_UUID]: metricErrors[errorKind] },
+                        },
                     ],
                 },
                 post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
             })
-            logic = experimentMetricsLogic({ experiment: EXPERIMENT })
+            logic = experimentMetricsLogic({ experiment: experimentsByState[state] })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadLatestRecalculation']).toFinishAllListeners()
             expect(createMock).not.toHaveBeenCalled()
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({
+                detail: 'boom',
+                retriable: errorKind === 'retriable',
+            })
         })
 
         it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
@@ -545,6 +591,9 @@ describe('experimentMetricsLogic', () => {
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 5)
             expect(retrieveMock).not.toHaveBeenCalled()
             expect(logic.values.recalculatingMetricUuids).toEqual([])
+            // The run's status is still in_progress, but the page must not keep showing it as loading.
+            expect(logic.values.isRecalculating).toBe(false)
+            expect(logic.values.recalculationDisplayState).toBe('resting')
             jest.useRealTimers()
         })
 
@@ -1214,46 +1263,72 @@ describe('experimentMetricsLogic', () => {
             // The successful secondary metric still loads its result.
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             // The failed primary metric gets an error with the failure message for its in-row box.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom', retriable: false })
         })
 
-        it('gives up after MAX_POLL_RETRIES consecutive retrieve failures', async () => {
-            let retrieveCalls = 0
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => {
-                        retrieveCalls += 1
-                        return [500, {}]
+        it.each([
+            {
+                name: 'failures',
+                respond: () => [500, {}],
+                tickMs: POLL_INTERVAL_MS,
+                reason: 'poll_failed',
+                message: "Couldn't load the recalculation results. Refresh the results to try again.",
+            },
+            {
+                name: 'requests that never settle',
+                respond: neverSettles,
+                tickMs: POLL_INTERVAL_MS + POLL_REQUEST_TIMEOUT_MS,
+                reason: 'poll_timeout',
+                message: SLOW_LOAD_MESSAGE,
+            },
+        ])(
+            'gives up after MAX_POLL_RETRIES consecutive retrieve $name',
+            async ({ respond, tickMs, reason, message }) => {
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                let retrieveCalls = 0
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => {
+                            retrieveCalls += 1
+                            return respond()
+                        },
                     },
-                },
-                post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
-                        201,
-                        inProgressRecalculation,
-                    ],
-                },
-            })
-            jest.useFakeTimers()
-            mountLogic()
+                    post: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                            201,
+                            inProgressRecalculation,
+                        ],
+                    },
+                })
+                jest.useFakeTimers()
+                mountLogic()
 
-            // Flush afterMount → 404 → trigger → poll(create), then drive enough ticks to exhaust retries.
-            await jest.advanceTimersByTimeAsync(0)
-            // A config change queued a rerun while the run was in flight.
-            logic.actions.setQueuedRerun('metric_config_change')
-            for (let i = 0; i < MAX_POLL_RETRIES + 2; i++) {
-                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+                // Flush afterMount → 404 → trigger → poll(create), then drive enough ticks to exhaust retries.
+                await jest.advanceTimersByTimeAsync(0)
+                // A config change queued a rerun while the run was in flight.
+                logic.actions.setQueuedRerun('metric_config_change')
+                for (let i = 0; i < MAX_POLL_RETRIES + 2; i++) {
+                    await jest.advanceTimersByTimeAsync(tickMs)
+                }
+
+                // Stops retrieving once the cap is hit and surfaces an error; never loops forever.
+                expect(retrieveCalls).toBe(MAX_POLL_RETRIES)
+                expect(lemonToast.error).toHaveBeenCalledWith(message)
+                // The bail clears the queued rerun so it can't strand: the terminal branch (its only consumer)
+                // never runs on a give-up path.
+                expect(logic.values.queuedRerun).toBeNull()
+                // The run is still in_progress server-side, but the page stops loading and each metric offers a retry.
+                expect(logic.values.isRecalculating).toBe(false)
+                const retryable = { detail: message, retriable: true }
+                expect(logic.values.primaryMetricsResultsErrors).toEqual([retryable, retryable])
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'experiment metric recalculation',
+                    expect.objectContaining({ status: 'abandoned', reason, recalculation_id: 'recalc-2' })
+                )
+                captureSpy.mockRestore()
             }
-
-            // Stops retrieving once the cap is hit and surfaces an error; never loops forever.
-            expect(retrieveCalls).toBe(MAX_POLL_RETRIES)
-            expect(lemonToast.error).toHaveBeenCalledWith(
-                'Failed to load recalculation results. Please reload to try again.'
-            )
-            // The bail clears the queued rerun so it can't strand: the terminal branch (its only consumer)
-            // never runs on a give-up path.
-            expect(logic.values.queuedRerun).toBeNull()
-        })
+        )
 
         it('on a cold_run, applies partial results mid-flight before the run is terminal', async () => {
             useMocks({

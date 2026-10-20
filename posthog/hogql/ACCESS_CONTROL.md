@@ -223,6 +223,7 @@ Several catalog tables expose such columns because reading them scans far less d
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
 `flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The same rule applies when a filter or an aggregate reads the column.

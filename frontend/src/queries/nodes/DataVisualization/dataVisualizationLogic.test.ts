@@ -116,6 +116,69 @@ describe('dataVisualizationLogic', () => {
         }
     })
 
+    it.each([true, false])(
+        'applies aliases only to BI=%s display cells while retaining raw sort, drill and export values',
+        (bi) => {
+            logic.unmount()
+            const field = {
+                id: 'event',
+                name: 'Event',
+                expression: 'event',
+                type: 'string' as const,
+                source: { table: 'events' },
+            }
+            const config = {
+                ...DEFAULT_BI_CONFIG,
+                source: field.source,
+                rows: [field],
+                memberAliases: [
+                    {
+                        field,
+                        aliases: [
+                            { value: '$pageview', label: 'Same' },
+                            { value: 'Pageview', label: 'Same' },
+                            { value: '', label: 'Blank' },
+                            { value: null, label: 'Missing' },
+                        ],
+                    },
+                ],
+            }
+            const generated = buildBIQuery(config)!.node
+            const query: VisualizationNode = bi
+                ? { ...generated, kind: NodeKind.BIVisualizationNode, config }
+                : generated
+            const results = [
+                ['$pageview', 4],
+                ['Pageview', 5],
+                ['', 1],
+                [null, 2],
+            ]
+            logic = dataVisualizationLogic({
+                key: testKey,
+                query,
+                dataNodeCollectionId,
+                cachedResults: {
+                    columns: ['event', 'count'],
+                    types: [
+                        ['event', 'String'],
+                        ['count', 'Int64'],
+                    ],
+                    results,
+                },
+            })
+            logic.mount()
+            expect(logic.values.sourceTabularData.map((row) => row[0].value)).toEqual(results.map((row) => row[0]))
+            expect(logic.values.sourceTabularData.slice(0, 2).map((row) => row[0].formattedValue)).toEqual(
+                bi ? ['Same', 'Same'] : ['$pageview', 'Pageview']
+            )
+            expect(logic.values.xData?.data.slice(0, 2)).toEqual(
+                bi ? ['$pageview', 'Pageview'] : ['Pageview', 'Pageview']
+            )
+            expect(queryExportContext(query)).toMatchObject({ source: { query: generated.source.query } })
+            expect(results[0][0]).toBe('$pageview')
+        }
+    )
+
     test.each([
         [true, 0, false],
         [true, 99, false],

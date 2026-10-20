@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import yaml
 import gates
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
@@ -16,7 +17,7 @@ from gates import (
     is_size_exempt,
     substantive_size,
 )
-from policy import OwnershipSource
+from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_policy, repo_root
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -333,6 +334,82 @@ def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
     assert detect_title_scrutiny_flags(subject) == expected_flags
 
 
+@pytest.fixture
+def deny_exceptions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    raw = merge_policy(
+        yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text()),
+        yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text()),
+    )
+    raw["deny"]["billing"]["match"]["any"][0] = "Billing"
+    raw["deny_exceptions"] = {
+        "billing": [
+            {
+                "keyword": "BILLING",
+                "path_prefixes": ["APPS/", "argocd/", "shared/", "state/", "charts/"],
+                "extensions": [".YAML", ".yml"],
+            },
+            {"keyword": "billing", "path_prefixes": ["apps/billing.v2/"], "extensions": [".tar.gz"]},
+        ],
+        "infra_cicd": [{"path_prefixes": [".github/"]}],
+        "auth": [{"keyword": "permission", "path_prefixes": ["apps/billing.v2/"], "extensions": [".yaml"]}],
+    }
+    policy_path = tmp_path / "policy.yml"
+    policy_path.write_text(yaml.safe_dump(raw))
+    policy = load_policy(
+        policy_path, lockfile_names=gates._ALL_LOCKFILE_NAMES, ownership_formats=gates.OWNERSHIP_FORMAT_LOCATORS
+    )
+    monkeypatch.setattr(gates, "DENY_PATTERNS", gates._compile_patterns(policy.deny_pattern_defs()))
+    monkeypatch.setattr(
+        gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(policy.deny_pattern_defs(), policy.deny_exceptions)
+    )
+
+
+@pytest.mark.parametrize(
+    "files, expected",
+    [
+        pytest.param(["apps/billing/values.yaml"], [], id="billing-yaml"),
+        pytest.param(["ARGocd/BILLING/VALUES.YML"], [], id="case-insensitive"),
+        pytest.param(["shared/billing.yaml", "state/billing.yml", "charts/billing/values.yaml"], [], id="all-prefixes"),
+        pytest.param(["apps/payment-billing/values.yaml"], ["billing"], id="payment-in-same-path"),
+        pytest.param(["apps/stripe-billing/values.yaml"], ["billing"], id="stripe-in-same-path"),
+        pytest.param(["apps/invoice-billing/values.yaml"], ["billing"], id="invoice-in-same-path"),
+        pytest.param(["apps/pricing-billing/values.yaml"], ["billing"], id="pricing-in-same-path"),
+        pytest.param(["apps/billing/values.json"], ["billing"], id="wrong-extension"),
+        pytest.param(["apps/billing/values.yaml.py"], ["billing"], id="lookalike-extension"),
+        pytest.param(["apps-other/billing/values.yaml"], ["billing"], id="lookalike-prefix"),
+        pytest.param(["src/apps/billing/values.yaml"], ["billing"], id="nested-prefix"),
+        pytest.param(["apps/billing.v2/values.tar.gz"], [], id="compound-suffix-and-literal-dot-prefix"),
+        pytest.param(["apps/billing-v2/values.tar.gz"], ["billing"], id="dot-prefix-is-literal"),
+        pytest.param(["apps/billing.v2/values.tar.gz.py"], ["billing"], id="compound-suffix-is-terminal"),
+        pytest.param(["apps/billing.v2/permission.yaml"], [], id="path-only-keyword-exception"),
+        pytest.param(["apps/billing.v2/permission-auth.yaml"], ["auth"], id="path-only-keeps-other-auth-pattern"),
+        pytest.param(["apps/billing/permission.yaml"], ["auth"], id="path-only-keeps-other-scopes"),
+        pytest.param(["apps/billing/values.yaml", "src/billing.py"], ["billing"], id="non-exempt-file"),
+        pytest.param(["apps/billing/auth.yaml"], ["auth"], id="auth-stays-protected"),
+        pytest.param(["apps/billing/secret.yaml"], ["crypto_secrets"], id="secrets-stay-protected"),
+        pytest.param(["apps/billing/openapi.yaml"], ["public_api"], id="api-stays-protected"),
+        pytest.param(["apps/billing/migrations/change.yaml"], ["migrations"], id="migrations-stay-protected"),
+        pytest.param(["apps/billing/owners.yaml"], ["stamphog_policy"], id="policy-stays-protected"),
+        pytest.param([".github/helm/check.py"], [], id="category-exception-without-extension"),
+        pytest.param([".github/pr-deploy"], [], id="category-path-pattern"),
+        pytest.param([".github-other/helm/check.py"], ["infra_cicd"], id="category-prefix-lookalike"),
+        pytest.param([".github/helm/check.py", "terraform/main.tf"], ["infra_cicd"], id="category-mixed-files"),
+        pytest.param([".github/workflows/codeql.yml"], ["ci_workflows"], id="other-category-same-file"),
+    ],
+)
+def test_deny_exceptions_are_per_pattern_and_per_file(deny_exceptions, files: list[str], expected: list[str]) -> None:
+    assert detect_deny_categories(files) == expected
+
+
+def test_disabling_deny_exceptions_keeps_ignored_files(deny_exceptions) -> None:
+    files = ["apps/billing/values.yaml", "posthog/migrations/0999_add_column.py"]
+    ignored = {"posthog/migrations/0999_add_column.py"}
+
+    assert detect_deny_categories(files, ignored_files=ignored) == []
+    assert detect_deny_categories(files, ignored_files=ignored, apply_exceptions=False) == ["billing"]
+    assert detect_title_scrutiny_flags("fix: billing helm auth") == ["auth", "billing", "infra_cicd"]
+
+
 # ── Deny-list bypass via ignored_files ───────────────────────────
 
 
@@ -432,6 +509,18 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("services/mcp/src/api/generated_helpers.ts", False, id="generated-underscore-counted"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
         pytest.param("frontend/src/types.gen.ts", True, id="dot-gen-suffix"),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/0009_snapshot.json",
+            True,
+            id="drizzle-snapshot",
+        ),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/_journal.json",
+            False,
+            id="drizzle-journal-counted",
+        ),
+        pytest.param("frontend/src/meta/0001_snapshot.ts", False, id="snapshot-named-code-counted"),
+        pytest.param("config/meta/0001_snapshot.json", False, id="snapshot-outside-migrations-counted"),
         pytest.param("pnpm-lock.yaml", False, id="lockfile-yaml-counted"),
         pytest.param("uv.lock", True, id="lockfile-lock-ext"),
         pytest.param("posthog/api/insight.py", False, id="python-code"),

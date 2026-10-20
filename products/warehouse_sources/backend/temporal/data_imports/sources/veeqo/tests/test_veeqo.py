@@ -2,27 +2,27 @@ import json
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veeqo import VeeqoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.settings import VEEQO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.source import VeeqoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo import (
     VeeqoPaginator,
     VeeqoResumeConfig,
     _build_initial_params,
     _format_incremental_value,
     validate_credentials,
-    veeqo_source,
-)
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the veeqo module.
-VEEQO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo.make_tracked_session"
 )
 
 
@@ -34,33 +34,13 @@ def _response(body: Any, status_code: int = 200, headers: dict[str, str] | None 
     return resp
 
 
-def _make_manager(resume_state: VeeqoResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _page(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body, headers=headers or {})
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _run(script: Script, endpoint: str = "orders", api_key: str = "key", **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(VeeqoSource(), VeeqoSourceConfig(api_key=api_key))
+    return driver.run(endpoint, script, **kwargs)
 
 
 def _full_page(page_size: int = 100) -> list[dict[str, Any]]:
@@ -130,137 +110,114 @@ class TestValidateCredentials:
             ("server_error", 500, False),
         ]
     )
-    @mock.patch(VEEQO_SESSION_PATCH)
-    def test_status_mapping(
-        self, _name: str, status_code: int, expected_ok: bool, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        ok, error = validate_credentials("key")
+    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
+            ok, error = validate_credentials("key")
+
         assert ok is expected_ok
         if not expected_ok:
             assert error is not None
 
-    @mock.patch(VEEQO_SESSION_PATCH)
-    def test_network_error_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        ok, error = validate_credentials("key")
+    def test_network_error_returns_false(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            ok, error = validate_credentials("key")
+
         assert ok is False
         assert error is not None
 
-    @mock.patch(VEEQO_SESSION_PATCH)
-    def test_key_is_redacted_from_captured_samples(self, mock_session: mock.MagicMock) -> None:
+    def test_key_is_redacted_from_captured_samples(self) -> None:
         # `x-api-key` isn't in the shared auth-header denylist, so the key must be
         # passed as a `redact_values` literal to keep it out of captured HTTP samples.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret-key")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        with scripted_network([ScriptedResponse(json=[])]) as network:
+            validate_credentials("secret-key")
+
+        assert network.session_options[0]["redact_values"] == ("secret-key",)
+        assert network.requests_log[0].headers["x-api-key"] == "secret-key"
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_saves_state_after_each_non_terminal_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginates_and_saves_state_after_each_non_terminal_page(self) -> None:
+        result = _run(
             [
-                _response(_full_page(), headers={"X-Total-Pages-Count": "2"}),
-                _response([{"id": 900}], headers={"X-Total-Pages-Count": "2"}),
-            ],
+                _page(_full_page(), headers={"X-Total-Pages-Count": "2"}),
+                _page([{"id": 900}], headers={"X-Total-Pages-Count": "2"}),
+            ]
         )
 
-        manager = _make_manager()
-        rows = _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=manager))
+        assert len(result.rows) == 101
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size")[0] == "100"
+        # State saved once, only while a next page remains to resume from.
+        assert result.saved_states == [VeeqoResumeConfig(endpoint="orders", page=2)]
 
-        assert len(rows) == 101
-        assert [p["page"] for p in params] == [1, 2]
-        assert params[0]["page_size"] == 100
-        # State saved once — only while a next page remains to resume from.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == VeeqoResumeConfig(endpoint="orders", page=2)
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _run([_page([{"id": 1}])])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page_when_endpoint_matches(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
+        assert result.params("page") == ["1"]
 
-        manager = _make_manager(VeeqoResumeConfig(endpoint="orders", page=7))
-        _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_resumes_from_saved_page_when_endpoint_matches(self) -> None:
+        result = _run([_page([{"id": 1}])], resume_state=VeeqoResumeConfig(endpoint="orders", page=7))
 
-        assert params[0]["page"] == 7
+        assert result.params("page") == ["7"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_first_page_sends_min_filter_on_every_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_ignores_saved_page_of_another_endpoint(self) -> None:
+        result = _run([_page([{"id": 1}])], resume_state=VeeqoResumeConfig(endpoint="products", page=7))
+
+        assert result.params("page") == ["1"]
+
+    def test_incremental_first_page_sends_min_filter_on_every_page(self) -> None:
+        result = _run(
             [
-                _response(_full_page(), headers={"X-Total-Pages-Count": "2"}),
-                _response([{"id": 900}]),
+                _page(_full_page(), headers={"X-Total-Pages-Count": "2"}),
+                _page([{"id": 900}]),
             ],
-        )
-
-        _rows(
-            veeqo_source(
-                "key",
-                "orders",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
         # The filter must stay on every page — the paginator only advances `page`.
-        assert all(p["updated_at_min"] == "2026-01-01 00:00:00" for p in params)
+        assert result.params("updated_at_min") == ["2026-01-01 00:00:00"] * 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redirects_are_refused(self, MockSession) -> None:
+    def test_redirects_are_refused(self) -> None:
         # requests preserves the custom x-api-key header across redirects, so a
         # redirect response could replay the full-account key to another host —
         # every sync request must be sent with redirects disabled.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
+        result = _run(
+            [
+                _page([], status=302, headers={"Location": "https://evil.example.com/steal"}),
+                _page([{"id": 1}]),
+            ]
+        )
 
-        _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert len(result.requests) == 1
+        assert {request.origin for request in result.requests} == {"https://api.veeqo.com"}
 
-        assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_fails_loud(self, MockSession) -> None:
+    def test_non_list_body_fails_loud(self) -> None:
         # Veeqo list responses are documented as bare arrays; a wrapper object on a
         # 200 means the response shape changed and must not sync as a single row.
-        session = MockSession.return_value
-        _wire(session, [_response({"orders": [{"id": 1}]})])
+        result = _run([_page({"orders": [{"id": 1}]})])
 
-        with pytest.raises(ValueError, match="list"):
-            _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "list" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_is_redacted_from_captured_samples(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
+    def test_api_key_is_redacted_from_captured_samples(self) -> None:
+        result = _run([_page([{"id": 1}])], api_key="secret-key")
 
-        _rows(veeqo_source("secret-key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
         # The framework api_key auth exposes the key via secret_values(), which the
         # tracked session receives as redact_values.
-        assert "secret-key" in MockSession.call_args.kwargs["redact_values"]
+        assert any("secret-key" in options.get("redact_values", ()) for options in result.session_options)
+        assert result.requests[0].headers["x-api-key"] == "secret-key"
 
 
 class TestVeeqoSourceResponse:
     @parameterized.expand([(name,) for name in VEEQO_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = veeqo_source(
-            "key",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        response = _run([_page([])], endpoint=endpoint).response
+
         config = VEEQO_ENDPOINTS[endpoint]
+        assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == config.primary_keys
         # Veeqo documents no list ordering, so the watermark must only commit after
         # a successful sync (desc semantics) — asc would checkpoint ≈now mid-sync.
         assert response.sort_mode == "desc"
@@ -270,3 +227,244 @@ class TestVeeqoSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
+
+
+class TestNestedTables:
+    @parameterized.expand(
+        [
+            (
+                "returns_carry_their_order_id",
+                "returns",
+                [
+                    {"id": 1, "returns": [{"id": 10, "status": "returning"}, {"id": 11, "status": "received"}]},
+                    {"id": 2, "returns": []},
+                    {"id": 3, "returns": None},
+                    {"id": 4},
+                ],
+                [
+                    {"id": 10, "status": "returning", "order_id": 1},
+                    {"id": 11, "status": "received", "order_id": 1},
+                ],
+            ),
+            (
+                "stock_entries_flatten_every_sellable",
+                "stock_entries",
+                [
+                    {
+                        "id": 5,
+                        "sellables": [
+                            {
+                                "id": 50,
+                                "stock_entries": [
+                                    {"sellable_id": 50, "warehouse_id": 1, "physical_stock_level": 3},
+                                    {"sellable_id": 50, "warehouse_id": 2, "physical_stock_level": 0},
+                                ],
+                            },
+                            {"id": 51, "stock_entries": [{"sellable_id": 51, "warehouse_id": 1}]},
+                            {"id": 52, "stock_entries": None},
+                        ],
+                    },
+                    {"id": 6, "sellables": []},
+                    {"id": 7},
+                ],
+                [
+                    {"sellable_id": 50, "warehouse_id": 1, "physical_stock_level": 3, "product_id": 5},
+                    {"sellable_id": 50, "warehouse_id": 2, "physical_stock_level": 0, "product_id": 5},
+                    {"sellable_id": 51, "warehouse_id": 1, "product_id": 5},
+                ],
+            ),
+        ]
+    )
+    def test_rows_are_exploded_from_the_parent_list(
+        self, _name: str, endpoint: str, parent_page: list[dict[str, Any]], expected_rows: list[dict[str, Any]]
+    ) -> None:
+        result = _run([_page(parent_page)], endpoint=endpoint)
+
+        assert result.raised is None
+        assert result.paths == [VEEQO_ENDPOINTS[endpoint].path]
+        assert result.rows == expected_rows
+
+    def test_parent_page_with_no_nested_rows_still_advances(self) -> None:
+        result = _run(
+            [
+                _page([{"id": i, "returns": []} for i in range(100)], headers={"X-Total-Pages-Count": "2"}),
+                _page([{"id": 900, "returns": [{"id": 1}]}]),
+            ],
+            endpoint="returns",
+        )
+
+        assert result.params("page") == ["1", "2"]
+        assert result.rows == [{"id": 1, "order_id": 900}]
+
+
+class TestFanoutTables:
+    @parameterized.expand(
+        [
+            (
+                "tracking_events_per_shipment",
+                "shipment_tracking_events",
+                {
+                    "/orders": [
+                        _page(
+                            [
+                                {
+                                    "id": 1,
+                                    "allocations": [
+                                        {"id": 100, "shipment": {"id": 7001}},
+                                        {"id": 101, "shipment": None},
+                                        {"id": 103, "shipment": {"id": 7001}},
+                                    ],
+                                },
+                                {"id": 2, "allocations": [{"id": 102, "shipment": {"id": 7002}}]},
+                                {"id": 3, "allocations": []},
+                                {"id": 4},
+                            ]
+                        )
+                    ],
+                    "/shipping/tracking_events/7001": [
+                        _page(
+                            [
+                                {
+                                    "timestamp": "2026-01-01T10:00:00+00:00",
+                                    "status": "in_transit",
+                                    "description": "In transit",
+                                },
+                                {
+                                    "timestamp": "2026-01-02T10:00:00+00:00",
+                                    "status": "delivered",
+                                    "description": "Delivered",
+                                },
+                            ]
+                        )
+                    ],
+                    # A shipment deleted after the orders listing must not fail the sync.
+                    "/shipping/tracking_events/7002": [_page({"error": "not found"}, status=404)],
+                },
+                ["/orders", "/shipping/tracking_events/7001", "/shipping/tracking_events/7002"],
+                [
+                    {
+                        "timestamp": "2026-01-01T10:00:00+00:00",
+                        "status": "in_transit",
+                        "description": "In transit",
+                        "shipment_id": 7001,
+                        "order_id": 1,
+                    },
+                    {
+                        "timestamp": "2026-01-02T10:00:00+00:00",
+                        "status": "delivered",
+                        "description": "Delivered",
+                        "shipment_id": 7001,
+                        "order_id": 1,
+                    },
+                ],
+            ),
+            (
+                "bundle_contents_only_for_kits",
+                "bundle_contents",
+                {
+                    "/products": [
+                        _page(
+                            [
+                                {
+                                    "id": 5,
+                                    "sellables": [
+                                        {"id": 50, "type": "Kit"},
+                                        {"id": 51, "type": "ProductVariant"},
+                                    ],
+                                },
+                                {"id": 6, "sellables": [{"id": 60, "type": "ProductVariant"}]},
+                                {"id": 8, "sellables": [{"id": 80, "type": "Kit"}]},
+                            ]
+                        )
+                    ],
+                    "/kits/50": [
+                        _page(
+                            {
+                                "id": 50,
+                                "type": "Kit",
+                                "contents": [
+                                    {"id": 1, "kit_id": 50, "product_variant_id": 51, "quantity": 2},
+                                    {"id": 2, "kit_id": 50, "product_variant_id": 60, "quantity": 1},
+                                ],
+                            }
+                        )
+                    ],
+                    "/kits/80": [_page({"id": 80, "type": "Kit", "contents": []})],
+                },
+                ["/products", "/kits/50", "/kits/80"],
+                [
+                    {"id": 1, "kit_id": 50, "product_variant_id": 51, "quantity": 2, "product_id": 5},
+                    {"id": 2, "kit_id": 50, "product_variant_id": 60, "quantity": 1, "product_id": 5},
+                ],
+            ),
+        ]
+    )
+    def test_fans_out_to_one_request_per_parent_id(
+        self,
+        _name: str,
+        endpoint: str,
+        responses: dict[str, list[ScriptedResponse]],
+        expected_paths: list[str],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _run(route(responses), endpoint=endpoint)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        # The parent list is paged; the single-object child endpoints take no page params.
+        assert result.queries[0]["page_size"] == ("100",)
+        assert all("page_size" not in query and "page" not in query for query in result.queries[1:])
+        assert result.rows == expected_rows
+
+    def test_parent_list_paginates_before_fanning_out(self) -> None:
+        full_orders_page = [{"id": i, "allocations": []} for i in range(99)] + [
+            {"id": 99, "allocations": [{"id": 1, "shipment": {"id": 7001}}]}
+        ]
+        result = _run(
+            route(
+                {
+                    "/orders": [
+                        _page(full_orders_page, headers={"X-Total-Pages-Count": "2"}),
+                        _page([{"id": 200, "allocations": [{"id": 2, "shipment": {"id": 7002}}]}]),
+                    ],
+                    "/shipping/tracking_events/7001": [_page([{"timestamp": "t1", "status": "delivered"}])],
+                    "/shipping/tracking_events/7002": [_page([{"timestamp": "t2", "status": "delivered"}])],
+                }
+            ),
+            endpoint="shipment_tracking_events",
+        )
+
+        assert result.raised is None
+        assert [row["shipment_id"] for row in result.rows] == [7001, 7002]
+        assert [query.get("page") for query in result.queries if "page_size" in query] == [("1",), ("2",)]
+
+    def test_resume_skips_shipments_already_synced(self) -> None:
+        orders = [
+            {"id": 1, "allocations": [{"id": 10, "shipment": {"id": 7001}}]},
+            {"id": 2, "allocations": [{"id": 20, "shipment": {"id": 7002}}]},
+        ]
+        result = _run(
+            route(
+                {
+                    "/orders": [_page(orders)],
+                    "/shipping/tracking_events/7002": [_page([{"timestamp": "t2", "status": "delivered"}])],
+                }
+            ),
+            endpoint="shipment_tracking_events",
+            resume_state=VeeqoResumeConfig(
+                endpoint="shipment_tracking_events",
+                fanout_state={"completed": ["/shipping/tracking_events/7001"], "current": None, "child_state": None},
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/orders", "/shipping/tracking_events/7002"]
+        assert result.rows == [{"timestamp": "t2", "status": "delivered", "shipment_id": 7002, "order_id": 2}]
+        assert result.saved_states[-1] == VeeqoResumeConfig(
+            endpoint="shipment_tracking_events",
+            fanout_state={
+                "completed": ["/shipping/tracking_events/7001", "/shipping/tracking_events/7002"],
+                "current": None,
+                "child_state": None,
+            },
+        )

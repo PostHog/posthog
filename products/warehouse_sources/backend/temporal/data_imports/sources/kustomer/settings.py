@@ -28,6 +28,16 @@ KUSTOMER_ENDPOINTS: dict[str, KustomerEndpointConfig] = {
     "sub_statuses": KustomerEndpointConfig(path="/v1/sub-statuses", params={"resource": "conversation"}),
     # Satisfaction (CSAT) form definitions. Responses are only readable one id at a time.
     "satisfaction_forms": KustomerEndpointConfig(path="/v1/satisfaction"),
+    # These lists paginate by page number, so an ascending sort keeps rows created
+    # during a sync from shifting later pages.
+    "messages": KustomerEndpointConfig(path="/v1/messages", params={"sort": "asc"}),
+    "notes": KustomerEndpointConfig(path="/v1/notes", params={"sort": "asc"}),
+    "queues": KustomerEndpointConfig(path="/v1/routing/queues"),
+    "work_items": KustomerEndpointConfig(path="/v1/routing/work-items", params={"sort": "asc"}),
+    # `user=true` would return only the sessions of the user who owns the API key.
+    "work_sessions": KustomerEndpointConfig(
+        path="/v1/routing/work-sessions", params={"sort": "asc", "user": "false", "active": "false"}
+    ),
 }
 
 ENDPOINTS = tuple(KUSTOMER_ENDPOINTS.keys())

@@ -39,7 +39,7 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     },
 }
 
-export const SideBar = (): JSX.Element => {
+export const SideBar = ({ className = 'w-72 max-w-[50%] shrink-0' }: { className?: string }): JSX.Element => {
     const { activeSideBarTab, effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { setSideBarTab } = useActions(dataVisualizationLogic)
 
@@ -57,7 +57,7 @@ export const SideBar = (): JSX.Element => {
     const activeTab = tabs.some((tab) => tab.key === activeSideBarTab) ? activeSideBarTab : SideBarTab.Series
 
     return (
-        <div className="bg-surface-primary w-72 min-h-0 max-w-[50%] shrink-0 flex flex-col">
+        <div className={`bg-surface-primary min-h-0 flex flex-col ${className}`}>
             <LemonTabs
                 size="small"
                 activeKey={activeTab}

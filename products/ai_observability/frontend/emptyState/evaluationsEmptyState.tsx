@@ -39,7 +39,7 @@ export const evaluationsEmptyState: SceneProductEmptyState = {
         },
         docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
         skippable: false,
-        previewLabel: 'Your evaluations, once running',
+        previewLabel: 'Example: how your evaluations will score',
         Preview: EvaluationsPreview,
     },
 }

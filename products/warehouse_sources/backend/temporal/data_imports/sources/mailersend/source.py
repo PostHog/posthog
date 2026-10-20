@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILERSEND_",),
+        npm=("mailersend",),
+        pypi=("mailersend",),
+        composer=("mailersend/mailersend", "mailersend/laravel-driver"),
+        go=("github.com/mailersend/mailersend-go",),
+        maven=("com.mailersend:java-sdk",),
+        rubygems=("mailersend-ruby",),
+    )
+
     api_docs_url = "https://developers.mailersend.com/api/v1/"
 
     @property

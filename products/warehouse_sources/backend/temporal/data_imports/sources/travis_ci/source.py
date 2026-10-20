@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TravisCISource(ResumableSource[TravisCISourceConfig, TravisCIResumeConfig]):
+    codebase_detection = detect(
+        env=("^(TRAVIS_CI|TRAVISCI)_",),
+        rubygems=(
+            "travis",
+            "travis-artifacts",
+            "travis-backup",
+            "travis-backup-for-v3",
+            "travis-ci-em-pusher",
+            "travis-cl",
+            "travis-cli",
+            "travis-cli-gh",
+            "travis-client",
+            "travis-conditions",
+            "travis-core",
+            "travis-deploy",
+            "travis-encrypt",
+            "travis-env_vars",
+            "travis-gh",
+            "travis-lint",
+            "travis-lock",
+            "travis-metrics",
+            "travis-packagecloud-ruby",
+            "travis-rollout",
+            "travis-yaml",
+            "travis_migrate_to_apps",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

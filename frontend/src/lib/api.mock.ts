@@ -196,6 +196,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     id: MOCK_TEAM_ID,
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
+    logo_media_id: null,
     created_at: '2020-06-30T09:53:35.932534Z',
     is_pending_deletion: false,
     deletion_scheduled_at: null,
@@ -263,8 +264,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     has_social_auth: false,
     has_sso_enforcement: false,
     shortcut_position: 'above',
-    // Most stories show a settled sidebar. Stories of the starred products setup override this.
-    ui_configuration: { version: 1, sidebar: { starred_products_setup_completed: true } },
+    ui_configuration: null,
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

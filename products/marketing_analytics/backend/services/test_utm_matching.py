@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.hogql import ast
 
 from products.marketing_analytics.backend.services.types import Campaign, MatchType, TeamMappings
@@ -244,7 +246,7 @@ class TestCampaignsQueryShape(BaseTest):
         )
 
 
-class TestSharedMatchHelpers(BaseTest):
+class TestSharedMatchHelpers(SimpleTestCase):
     """These existed as private copies in both suggesters before they moved here."""
 
     PREFERS_ID = TeamMappings(

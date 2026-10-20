@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use chrono_tz::America::New_York;
 use chrono_tz::Asia::Kolkata;
 use chrono_tz::{Tz, UTC};
-use cohort_stream_processor::consumers::{CohortStreamEvent, EventDispatcher};
+use cohort_stream_processor::consumers::{BootReadiness, CohortStreamEvent, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
@@ -39,7 +39,9 @@ use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonRecordKey,
     Stage2Key, StoreConfig, StoreHandle,
 };
-use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, Stage1Worker};
+use cohort_stream_processor::workers::{
+    process_event, EvictionRestore, MergeWorkerDeps, Stage1Worker,
+};
 use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -288,7 +290,7 @@ fn spawn_worker(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
-    spawn_worker_with_restore(store, catalog, sink, tracker, false)
+    spawn_worker_with_restore(store, catalog, sink, tracker, EvictionRestore::Skip)
 }
 
 /// Like [`spawn_worker`] but with the durable-restart `EvictionQueue` rebuild on: the worker re-seeds
@@ -299,7 +301,14 @@ fn spawn_worker_durable(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
-    spawn_worker_with_restore(store, catalog, sink, tracker, true)
+    let rebuild = BootReadiness::new(catalog.clone()).rebuild_started();
+    spawn_worker_with_restore(
+        store,
+        catalog,
+        sink,
+        tracker,
+        EvictionRestore::Rebuild(rebuild),
+    )
 }
 
 /// Like [`spawn_worker`] but pinned to a given offload mode instead of the default `All`.
@@ -320,7 +329,7 @@ fn spawn_worker_with_mode(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
     (tx, worker)
 }
@@ -330,7 +339,7 @@ fn spawn_worker_with_restore(
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
-    durable_restore: bool,
+    restore: EvictionRestore,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
     let rx = WorkerInbox::live_only(rx);
@@ -342,7 +351,7 @@ fn spawn_worker_with_restore(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        durable_restore,
+        restore,
     );
     (tx, worker)
 }
@@ -371,7 +380,7 @@ fn spawn_worker_prefilled(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     )
 }
 
