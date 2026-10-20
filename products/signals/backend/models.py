@@ -191,7 +191,7 @@ class SignalFirstReportNotification(UUIDModel):
     # Activation and report visibility belong to the environment, so the recipient must not be canonicalized to its parent.
     objects = EnvironmentScopedManager()
 
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     activated_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, related_name="+", db_constraint=False
     )

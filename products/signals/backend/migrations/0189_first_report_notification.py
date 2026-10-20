@@ -33,12 +33,7 @@ class Migration(migrations.Migration):
                 ("next_attempt_at", models.DateTimeField(blank=True, null=True)),
                 ("queued_at", models.DateTimeField(blank=True, null=True)),
                 ("message_id", models.CharField(blank=True, max_length=200, null=True)),
-                (
-                    "last_error",
-                    models.CharField(
-                        blank=True, db_default="", default="", max_length=50
-                    ),
-                ),
+                ("last_error", models.CharField(blank=True, db_default="", default="", max_length=50)),
                 ("cancelled_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "activated_by",
@@ -64,6 +59,7 @@ class Migration(migrations.Migration):
                     models.OneToOneField(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
