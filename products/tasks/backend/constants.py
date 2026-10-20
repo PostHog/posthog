@@ -42,10 +42,6 @@ HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
-# Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
-# runtime, so the effective audience is teams with both this flag and
-# PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
-AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
 
