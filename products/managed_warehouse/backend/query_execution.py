@@ -93,7 +93,7 @@ def execute_managed_trino_query(
         return paginator.paginate(parsed) if paginator is not None else parsed
 
     if query.sendRawQuery:
-        sql = ensure_read_only_raw_trino_statement(query.query)
+        sql = query.query
         values = None
         hogql = None
     else:

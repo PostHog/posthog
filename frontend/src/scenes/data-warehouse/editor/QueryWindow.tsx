@@ -364,9 +364,7 @@ export function QueryWindow({
                     editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
-                        ...(sourceQuery.source.executionTarget === 'managed_trino' && sendRawQueryEnabled
-                            ? { language: 'sql' }
-                            : {}),
+                        ...(sendRawQueryEnabled ? { language: 'sql' } : {}),
                         queryKey: codeEditorKey,
                         autoFocus: autoFocusQueryPane ?? true,
                         // Bind the editor to the tab's persistent Monaco model and keep it
