@@ -9,10 +9,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    InputGroupText,
     Item,
     ItemActions,
     ItemContent,
@@ -40,6 +36,7 @@ import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -194,21 +191,13 @@ function AnalyticsSpacesContent(): JSX.Element {
                     </Empty>
                 ) : (
                     <>
-                        <InputGroup className="h-8 w-56 max-w-full">
-                            <InputGroupAddon align="inline-start">
-                                <InputGroupText>
-                                    <IconSearch />
-                                </InputGroupText>
-                            </InputGroupAddon>
-                            <InputGroupInput
-                                type="search"
-                                aria-label="Search collections"
-                                placeholder="Search collections"
-                                value={search}
-                                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
-                                data-attr="analytics-spaces-search"
-                            />
-                        </InputGroup>
+                        <AnalyticsSearchInput
+                            value={search}
+                            onChange={setSearch}
+                            label="Search collections"
+                            placeholder="Search collections"
+                            dataAttr="analytics-spaces-search"
+                        />
                         {visibleSpaces.length ? (
                             <ItemGroup className="flex flex-col gap-2 pb-8">
                                 {visibleSpaces.map((space) => (
