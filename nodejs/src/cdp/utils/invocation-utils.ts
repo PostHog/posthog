@@ -104,7 +104,8 @@ export async function buildHogFunctionInvocations(
 
     const _buildInvocation = async (
         hogFunction: HogFunctionType,
-        additionalInputs?: HogFunctionType['inputs']
+        additionalInputs?: HogFunctionType['inputs'],
+        mcpEvent?: CyclotronJobInvocationHogFunction['state']['mcpEvent']
     ): Promise<CyclotronJobInvocationHogFunction | null> => {
         try {
             const globalsWithSource = {
@@ -122,7 +123,11 @@ export async function buildHogFunctionInvocations(
                 additionalInputs
             )
 
-            return createInvocation(globalsWithInputs, hogFunction)
+            const invocation = createInvocation(globalsWithInputs, hogFunction)
+            if (mcpEvent) {
+                invocation.state.mcpEvent = mcpEvent
+            }
+            return invocation
         } catch (error) {
             // A dependency outage, such as Postgres refusing an integration lookup, is not this
             // function's fault. Rethrowing fails the batch, so the offsets stay put and it retries.
@@ -176,14 +181,22 @@ export async function buildHogFunctionInvocations(
 
     await Promise.all(
         hogFunctions.map(async (hogFunction) => {
+            // Workers reload function config after queuing, so provenance must travel with the event.
+            const filters = hogFunction.filters?.mcp_property_dependencies
+                ? structuredClone(hogFunction.filters)
+                : hogFunction.filters
+            const mcpEvent =
+                filters?.mcp_property_dependencies && filters.bytecode
+                    ? { filterBytecode: filters.bytecode }
+                    : undefined
             // We always check the top level filters
-            if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
+            if (!(await _filterHogFunction(hogFunction, filters, filterGlobals))) {
                 return
             }
 
             // Check for non-mapping functions first
             if (!hogFunction.mappings) {
-                const invocation = await _buildInvocation(hogFunction)
+                const invocation = await _buildInvocation(hogFunction, undefined, mcpEvent)
                 if (!invocation) {
                     return
                 }
@@ -198,7 +211,7 @@ export async function buildHogFunctionInvocations(
                         return
                     }
 
-                    const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {})
+                    const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {}, mcpEvent)
                     if (!invocation) {
                         return
                     }

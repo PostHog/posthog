@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -26,6 +27,7 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
+import { executeMcpEventDelivery } from './mcp-event-delivery.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
@@ -125,7 +127,7 @@ export class HogExecutorAsyncService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             const queueParamsType = nextInvocation.queueParameters?.type
-            if (['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
+            if (['fetch', 'mcp_event', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -143,7 +145,7 @@ export class HogExecutorAsyncService {
                 // will also handle fetches inline. The only reason to reschedule
                 // back to hogflow will be when overall execution time exceeds the
                 // budget, to avoid blocking the queue.
-                if (queueParamsType === 'fetch') {
+                if (queueParamsType === 'fetch' || queueParamsType === 'mcp_event') {
                     if (invocation.queue === 'email') {
                         // Intermediate results clone away queueMetadata (createInvocationResult
                         // drops it unless the target queue is passed explicitly), so read the
@@ -158,7 +160,13 @@ export class HogExecutorAsyncService {
                                 invocation.queuePriority
                         )
                     } else {
-                        result = await this.executeFetch(nextInvocation, options)
+                        result =
+                            queueParamsType === 'mcp_event'
+                                ? await executeMcpEventDelivery(nextInvocation, {
+                                      ...this.config,
+                                      fetchRetries: options?.maxFetchRetries ?? this.config.fetchRetries,
+                                  })
+                                : await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'sendPushNotification') {
                     result = await this.deps.pushNotificationService.executeSendPushNotification(
@@ -369,8 +377,6 @@ export class HogExecutorAsyncService {
             throw new Error('Bad invocation')
         }
 
-        const params = invocation.queueParameters
-
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
             {},
@@ -379,6 +385,13 @@ export class HogExecutorAsyncService {
             }
         )
         const addLog = createAddLogFunction(result.logs)
+        const parsed = CyclotronInvocationQueueParametersFetchSchema.safeParse(invocation.queueParameters)
+        if (!parsed.success) {
+            result.error = new Error('Invalid fetch queue parameters.')
+            result.finished = true
+            return result
+        }
+        const params = parsed.data
 
         const method = params.method.toUpperCase()
         let headers = params.headers ?? {}
