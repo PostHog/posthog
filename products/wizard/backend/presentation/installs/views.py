@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.conf import settings
 
-import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
@@ -13,13 +12,11 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.permissions import get_authenticator_client, posthog_feature_flag_enabled
 from posthog.utils import absolute_uri
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import StartWizardInstallInput
 from products.wizard.backend.facade.errors import WizardRunNotFoundError
-from products.wizard.backend.presentation.installs.config import WIZARD_MCP_INSTALL_FEATURE_FLAG
 from products.wizard.backend.presentation.installs.errors import (
     WIZARD_INSTALL_START_ERRORS,
     WizardInstallStartError,
@@ -34,8 +31,6 @@ from products.wizard.backend.presentation.permissions import WizardInstallAuthen
 from products.wizard.backend.presentation.runs.serializers import WizardRunErrorSerializer
 from products.wizard.backend.presentation.security import refuse_blocked_gateway_identity
 from products.wizard.backend.presentation.throttles import WizardRunCreateThrottle, WizardRunReadThrottle
-
-logger = structlog.get_logger(__name__)
 
 
 class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -82,7 +77,7 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # POST /projects/:projectId/wizard/installs
     def create(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         user = cast(User, request.user)
-        self._require_install_available(request)
+        self._require_cloud_execution()
         refuse_blocked_gateway_identity(request, self.team.organization_id, call_site="wizard_install")
 
         try:
@@ -120,26 +115,14 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     # GET /projects/:projectId/wizard/installs/:runId
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
-        self._require_install_available(request)
+        self._require_cloud_execution()
         try:
             install_status = wizard_facade.get_install_status(self.team_id, UUID(cast(str, self.kwargs["run_id"])))
         except (ValueError, WizardRunNotFoundError):
             raise NotFound("No setup run was found for this project.")
         return Response(WizardInstallStatusSerializer(install_status).data)
 
-    def _require_install_available(self, request: Request) -> None:
-        if not settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID or not self._install_flag_enabled(request):
+    @staticmethod
+    def _require_cloud_execution() -> None:
+        if not settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID:
             raise NotFound("Cloud setup runs aren't available for this project.")
-
-    def _install_flag_enabled(self, request: Request) -> bool:
-        try:
-            return posthog_feature_flag_enabled(
-                WIZARD_MCP_INSTALL_FEATURE_FLAG,
-                str(cast(User, request.user).distinct_id),
-                organization_id=self.team.organization_id,
-                team_id=self.team_id,
-                caller_properties=get_authenticator_client(request.successful_authenticator),
-            )
-        except Exception:
-            logger.exception("wizard_install_flag_check_failed")
-            return False

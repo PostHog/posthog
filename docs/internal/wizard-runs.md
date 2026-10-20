@@ -99,12 +99,12 @@ The server picks the `posthog-integration` program and uses the project's GitHub
 When the repository is missing from the integration's cached repository list, the server refreshes the list once, at most once a minute, before it refuses with `repository_not_accessible`.
 A `branch` is cloned instead of the default branch and becomes the pull request's base branch.
 The status response returns `status`, `stage`, `error_code`, `error_message`, `pull_request_url`, the task names and statuses, and a `next_step` sentence for the agent to relay.
-The MCP server exposes them as the `wizard-install-start` and `wizard-install-status` tools, behind the same feature flag.
+The MCP server exposes them as the `wizard-install-start` and `wizard-install-status` tools.
 The `installing-posthog-from-chat` skill walks an agent from connecting GitHub to sharing the pull request.
 
 Both endpoints accept browser sessions and OAuth access tokens, not personal API keys.
 Start needs `task:write` and status needs `task:read`.
-Both return `404` unless cloud execution is enabled and the `wizard-mcp-install` feature flag is on for the user and organization.
+Both return `404` unless cloud execution is enabled.
 Start uses the same per-user admission limits as browser-started cloud runs, and checks the AI gateway access rules with the caller's IP.
 
 ## Cloud execution
