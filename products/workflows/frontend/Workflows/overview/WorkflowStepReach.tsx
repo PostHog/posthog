@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -74,10 +75,14 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
             data-attr="workflow-overview-step-reach"
         >
             <div className="flex flex-col gap-1">
-                <h3 className="mb-0 text-base font-semibold">Step reach</h3>
+                <h3 className="mb-0 flex items-center gap-1 text-base font-semibold">
+                    Step reach
+                    <Tooltip title="A run that is waiting at a step counts for that step once it moves on.">
+                        <IconInfo className="text-muted" />
+                    </Tooltip>
+                </h3>
                 <span className="text-xs text-muted">
-                    How many runs finished each step in this date range, as a share of runs started. Runs still waiting
-                    at a step count once they move on.
+                    How many of the runs started in this date range got past each step.
                 </span>
             </div>
             {stepTotalsFailed || healthTotalsFailed ? (
