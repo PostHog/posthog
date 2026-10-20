@@ -12333,6 +12333,8 @@ export namespace Schemas {
      * * `Leantime` - Leantime
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13732,7 +13734,9 @@ export namespace Schemas {
         | "Creem"
         | "Leantime"
         | "Testomatio"
-        | "GoogleAdMob";
+        | "GoogleAdMob"
+        | "Klar"
+        | "ConectoCRM";
     /**
      * * `web` - web
      * * `api` - api
@@ -15141,6 +15145,8 @@ export namespace Schemas {
          * * `Leantime` - Leantime
          * * `Testomatio` - Testomatio
          * * `GoogleAdMob` - GoogleAdMob
+         * * `Klar` - Klar
+         * * `ConectoCRM` - ConectoCRM
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
