@@ -8,6 +8,8 @@ class PosthogAiConfig(AppConfig):
 
     def ready(self) -> None:
         # Deferred import: models aren't loadable at module import time, and ready() must stay light.
-        from products.posthog_ai.backend import receivers  # noqa: PLC0415
+        from products.posthog_ai.backend import receivers, task_profiles  # noqa: PLC0415
+        from products.tasks.backend.facade.profiles import register_task_profiles  # noqa: PLC0415
 
+        register_task_profiles(task_profiles.PROFILES)
         receivers.connect()
