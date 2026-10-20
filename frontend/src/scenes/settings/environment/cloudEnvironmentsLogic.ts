@@ -162,6 +162,12 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
         ],
     })),
     reducers({
+        environments: {
+            environmentCreated: (state, { environment }) => [
+                ...(state ?? []).filter((existing) => existing.id !== environment.id),
+                environment,
+            ],
+        },
         draft: [
             null as CloudEnvironmentDraft | null,
             {

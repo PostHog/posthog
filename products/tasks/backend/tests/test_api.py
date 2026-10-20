@@ -17480,6 +17480,18 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
                 "posthog_ai",
                 200,
             ),
+            (
+                "origin_fully_rolled_out_to_the_vm_runtime",
+                '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 100}}',
+                "posthog_ai",
+                200,
+            ),
+            (
+                "origin_partly_rolled_out_to_the_vm_runtime",
+                '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 50}}',
+                "posthog_ai",
+                403,
+            ),
             ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", 403),
             ("no_origin_given", '{"origin_products": ["user_created"]}', None, 200),
         ]

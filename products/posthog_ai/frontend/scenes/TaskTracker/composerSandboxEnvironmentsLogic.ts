@@ -141,16 +141,11 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
             actions.startNewEnvironment()
         },
         environmentCreated: ({ environment }) => {
-            if (!values.awaitingCreatedEnvironment) {
-                return
+            actions.syncCloudTargets()
+            if (values.awaitingCreatedEnvironment) {
+                posthog.capture('task composer environment created')
+                actions.pickCloudTarget(cloudTargetKey('environment', environment.id))
             }
-            posthog.capture('task composer environment created')
-            const environments = [
-                ...(values.environments ?? []).filter((existing) => existing.id !== environment.id),
-                environment,
-            ]
-            actions.setCloudTargets(environments, values.images)
-            actions.pickCloudTarget(cloudTargetKey('environment', environment.id))
         },
     })),
     afterMount(({ actions }) => {

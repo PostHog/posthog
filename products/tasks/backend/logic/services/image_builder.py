@@ -6,6 +6,7 @@ from products.tasks.backend.constants import (
     get_vm_sandbox_flag_payload,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
+    vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.logic.services.image_spec import (
     SANDBOX_IMAGE_SPEC_PATH,
@@ -25,8 +26,11 @@ def is_custom_images_enabled(*, distinct_id: str, organization_id: str, origin_p
         allowed = vm_sandbox_allowed_origin_products(payload)
         if Task.OriginProduct.USER_CREATED.value not in allowed:
             return False
-        return origin_product is None or (
-            origin_product in allowed or origin_product in vm_sandbox_default_base_origin_products(payload)
+        return (
+            origin_product is None
+            or origin_product in allowed
+            or origin_product in vm_sandbox_default_base_origin_products(payload)
+            or vm_sandbox_origin_rollout_percentages(payload).get(origin_product, 0) >= 100
         )
     except Exception as e:
         logger.warning("custom_images_flag_check_failed", extra={"error": str(e)})
