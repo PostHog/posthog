@@ -217,8 +217,9 @@ async fn isolate_source_rows_adds_no_file_to_an_insert_only_upsert() {
 }
 
 /// Rows per row group of each file the upsert added, with `read_batch_size = 100` so the
-/// writer sees batches of at most 100 rows. A cap of one byte closes a row group after
-/// every batch, on the survivor path (an update) and on the source path (an insert).
+/// writer sees survivor batches of at most 100 rows. A cap of one byte closes a row group
+/// after every survivor batch (an update), and after every source row because the source
+/// path also slices its writes by the cap (an update and an insert).
 #[tokio::test]
 async fn max_row_group_bytes_closes_row_groups_between_batches() {
     // (case, keys, row groups per added file without a cap, then with a one-byte cap)
@@ -228,13 +229,13 @@ async fn max_row_group_bytes_closes_row_groups_between_batches() {
             "update: survivors of 10 batches, the first missing 10 rows, then 10 source rows",
             keys("old", 0..10),
             vec![1000],
-            vec![90, 100, 100, 100, 100, 100, 100, 100, 100, 100, 10],
+            [vec![90], vec![100; 9], vec![1; 10]].concat(),
         ),
         (
             "insert: 250 source rows",
             keys("new", 0..250),
             vec![250],
-            vec![100, 100, 50],
+            vec![1; 250],
         ),
     ];
     for (case, batch, uncapped, capped) in cases {

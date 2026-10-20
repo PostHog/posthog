@@ -2372,9 +2372,10 @@ async fn rewrite_partition(
         // Flushing mid-source is order-safe: it closes the current file and opens
         // another, and every source row still lands after every survivor.
         let selected = sel.select_batch(b)?;
+        let slice_rows = source_slice_rows(&selected, opts.read_batch_size, max_row_group_bytes);
         let mut offset = 0usize;
         while offset < selected.num_rows() {
-            let n = (selected.num_rows() - offset).min(opts.read_batch_size.max(1));
+            let n = (selected.num_rows() - offset).min(slice_rows);
             writer.write(selected.slice(offset, n))?;
             offset += n;
             roll_writer(
@@ -2409,6 +2410,25 @@ async fn rewrite_partition(
         null_pk_rows,
         carried,
     })
+}
+
+/// Rows per source write. The row-group cap is checked between writes, so with a cap a
+/// source write holds about as many decoded bytes as a survivor batch, and a row group
+/// passes the cap by at most that much on either path. Otherwise one `read_batch_size`
+/// slice of wide rows goes in one write and closes as one row group, far past the cap.
+fn source_slice_rows(
+    batch: &RecordBatch,
+    read_batch_size: usize,
+    max_row_group_bytes: Option<usize>,
+) -> usize {
+    match max_row_group_bytes {
+        Some(cap) if batch.num_rows() > 0 => {
+            let bytes_per_row = batch.get_array_memory_size().div_ceil(batch.num_rows());
+            let slice_bytes = cap.min(INITIAL_DECODE_ESTIMATE_BYTES);
+            batch_rows_for_bytes_per_row(bytes_per_row, slice_bytes, read_batch_size)
+        }
+        _ => read_batch_size.max(1),
+    }
 }
 
 /// Close the open file at `target_file_size`, else its row group at `max_row_group_bytes`.
