@@ -840,10 +840,16 @@ class TestReportCheckExecution(APIBaseTest):
             assert listed.run_state == expected
             assert {row.id for row in collect_due_checks(now)} == ({check.id} if expected == "due" else set())
 
-    def test_flag_off_restores_the_legacy_soak_and_whole_window(self) -> None:
+    @parameterized.expand(
+        [("disabled", False, 14, 14 * 24), ("unavailable", None, 14, 14 * 24), ("query_window", False, 2, 7 * 24 + 12)]
+    )
+    def test_flag_off_restores_the_legacy_soak_and_whole_window(
+        self, _name: str, flag: bool | None, soak_days: int, ready_hours: int
+    ) -> None:
         start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        ready_at = start + timedelta(hours=ready_hours)
         with time_machine.travel(start, tick=False):
-            check = self._monitoring_check(start=start)
+            check = self._monitoring_check(start=start, soak_minutes=soak_days * 1440)
             with (
                 patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
                 patch(
@@ -853,18 +859,73 @@ class TestReportCheckExecution(APIBaseTest):
             ):
                 run_due_report_checks(now=start + timedelta(days=1))
             with (
-                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
                 patch(_MEASURE, return_value=MetricMeasurement(value=2, measured_at=start, series=None)) as measure,
             ):
                 run_due_report_checks(now=start + timedelta(days=2))
                 measure.assert_not_called()
                 check.refresh_from_db()
-                assert check.next_run_at == start + timedelta(days=14)
-                with time_machine.travel(start + timedelta(days=14), tick=False):
+                assert check.next_run_at == ready_at
+                assert check.expires_at == ready_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN
+                with time_machine.travel(ready_at, tick=False):
                     run_due_report_checks()
             check.refresh_from_db()
             assert check.status == SignalReportCheck.Status.PASSED
             assert check.runs_remaining == 0
+
+    @parameterized.expand([("repaired", 500, 45), ("overdue_backlog", 0, 45), ("future_backlog", 0, 20)])
+    @time_machine.travel("2026-10-01T12:00:00Z", tick=False)
+    def test_flag_off_defers_unrepaired_checks_and_expires_overdue_checks(
+        self, _name: str, repair_limit: int, age_days: int
+    ) -> None:
+        start = timezone.now() - timedelta(days=age_days)
+        check = self._monitoring_check(start=start)
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+            patch("products.signals.backend.report_check_execution.MAX_CHECK_PARKS_PER_TICK", repair_limit),
+            patch(_MEASURE) as measure,
+        ):
+            assert collect_due_checks(timezone.now()) == ([] if age_days > 44 else [check])
+            summary = run_due_report_checks()
+        measure.assert_not_called()
+        assert summary.deferred == (1 if age_days < 44 else 0)
+        check.refresh_from_db()
+        assert check.status == (SignalReportCheck.Status.EXPIRED if repair_limit else SignalReportCheck.Status.ACTIVE)
+        assert self._results() == []
+        if repair_limit:
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                run_due_report_checks(limit=0)
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.EXPIRED
+
+    def test_expiry_restoration_only_changes_disabled_monitoring_checks(self) -> None:
+        now = timezone.now()
+        check = self._monitoring_check(start=now)
+        resolved = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED)
+        legacy = self._check(report=resolved)
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Another organization"))
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.MONITORING, monitoring_started_at=now
+        )
+        enabled = self._check(
+            team=other_team,
+            report=other_report,
+            config=check.config,
+            measurement_start_at=now,
+            expires_at=now + MAX_CHECK_HORIZON,
+        )
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=lambda _flag, organization_id, **kwargs: organization_id == str(other_team.organization_id),
+        ):
+            run_due_report_checks(now=now, limit=0)
+        for row, expected_expiry in (
+            (check, now + timedelta(days=44)),
+            (legacy, legacy.expires_at),
+            (enabled, enabled.expires_at),
+        ):
+            row.refresh_from_db()
+            assert row.expires_at == expected_expiry
 
     @parameterized.expand([("success", False), ("query_error", True)])
     def test_flag_recovery_restores_the_latest_monitoring_attempt_schedule(self, _name: str, query_error: bool) -> None:
@@ -886,6 +947,7 @@ class TestReportCheckExecution(APIBaseTest):
                 run_due_report_checks(now=sample_at + interval)
             check.refresh_from_db()
             assert check.next_run_at == start + timedelta(days=14)
+            assert check.expires_at == start + timedelta(days=44)
             with (
                 patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
                 patch(
@@ -897,6 +959,7 @@ class TestReportCheckExecution(APIBaseTest):
                 measure.assert_not_called()
                 check.refresh_from_db()
                 assert check.next_run_at == sample_at + interval
+                assert check.expires_at == start + MAX_CHECK_HORIZON
                 run_due_report_checks(now=sample_at + interval)
                 measure.assert_called_once()
             assert self.report.artefacts.filter(type="check_observation").count() == 2

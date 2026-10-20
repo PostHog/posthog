@@ -452,6 +452,66 @@ def _monitoring_metric_filter(disabled_organizations: frozenset[UUID], *, starte
     )
 
 
+def _resolved_monitoring_expiry(check: SignalReportCheck) -> datetime:
+    start = check.report.monitoring_started_at
+    if (
+        check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD
+        or not check.config.get("monitoring")
+        or start is None
+        or check.measurement_start_at != start
+        or check.expires_at != start + MAX_CHECK_HORIZON
+    ):
+        return check.expires_at
+    ready_at = start + timedelta(minutes=check.soak_minutes or 0)
+    try:
+        config = cast(MetricThresholdConfig, parse_check_config(check.kind, check.config))
+        query = resolve_check_query(config, check.report)
+        ready_at = max(ready_at, metric_check_ready_at(query, check.report.team, start))
+    except (CheckConfigValidationError, ValueError):
+        pass
+    return check_schedule_expires_at(
+        next_run_at=ready_at,
+        run_interval_minutes=check.run_interval_minutes,
+        runs_remaining=check.runs_remaining,
+        start_at=start,
+    )
+
+
+def _restore_resolved_monitoring_expiries(now: datetime, disabled_organizations: frozenset[UUID]) -> None:
+    if not disabled_organizations:
+        return
+    candidates = (
+        SignalReportCheck.all_teams.filter(
+            _monitoring_metric_filter(frozenset()),
+            report__team__organization_id__in=disabled_organizations,
+            status=SignalReportCheck.Status.ACTIVE,
+            measurement_start_at=F("report__monitoring_started_at"),
+            expires_at=ExpressionWrapper(
+                F("report__monitoring_started_at") + Value(MAX_CHECK_HORIZON), output_field=DateTimeField()
+            ),
+        )
+        .select_related("report__team")
+        .order_by("expires_at", "id")[:MAX_CHECK_PARKS_PER_TICK]
+    )
+    for check in candidates:
+        expires_at = _resolved_monitoring_expiry(check)
+        if expires_at == check.expires_at:
+            continue
+        period = SignalReport.objects.filter(
+            id=OuterRef("report_id"),
+            team_id=OuterRef("team_id"),
+            status=SignalReport.Status.MONITORING,
+            monitoring_started_at=check.report.monitoring_started_at,
+        )
+        SignalReportCheck.objects.for_team(check.team_id).filter(
+            Exists(period),
+            id=check.id,
+            status=SignalReportCheck.Status.ACTIVE,
+            updated_at=check.updated_at,
+            expires_at=check.expires_at,
+        ).update(expires_at=expires_at, updated_at=now)
+
+
 def expire_overdue_checks(now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID] | None = None) -> int:
     """Retire open checks whose horizon passed without a run. Returns how many were retired.
 
@@ -766,6 +826,12 @@ def collect_due_checks(
     per_team: dict[int, int] = {}
     due: list[SignalReportCheck] = []
     for check in candidates:
+        if (
+            check.report.status == SignalReport.Status.MONITORING
+            and check.team.organization_id in disabled_monitoring_organization_ids
+            and _resolved_monitoring_expiry(check) <= now
+        ):
+            continue
         taken = per_team.get(check.team_id, 0)
         if taken >= MAX_CHECK_RUNS_PER_TEAM_PER_TICK:
             continue
@@ -820,6 +886,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     )
     disabled_organizations = check_monitoring_disabled_organizations(candidate_checks)
     _prepare_monitoring_metrics(now, disabled_organizations)
+    _restore_resolved_monitoring_expiries(now, disabled_organizations)
     expired = expire_overdue_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
@@ -853,6 +920,13 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
                 logger.exception(
                     "signals.report_check.monitoring_step_failed", check_id=str(check.id), team_id=check.team_id
                 )
+            continue
+        if (
+            check.report.status == SignalReport.Status.MONITORING
+            and check.team.organization_id in disabled_organizations
+            and _resolved_monitoring_expiry(check) != check.expires_at
+        ):
+            counts["deferred"] += 1
             continue
         if check.kind == SignalReportCheck.Kind.AGENT:
             # Deferred: the agent lane reaches the scout harness and the Temporal client, and this
