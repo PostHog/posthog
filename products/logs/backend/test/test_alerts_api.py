@@ -3438,7 +3438,7 @@ class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         functions = {
-            str(function.id): function.filters["events"][0]["id"]
+            str(function.id): (function.filters or {})["events"][0]["id"]
             for function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"])
         }
         firing = next(i for i, event in functions.items() if event == "$logs_alert_firing")
