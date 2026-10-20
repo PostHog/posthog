@@ -49,8 +49,7 @@ def get_events_route() -> "HogQLQueryModifiers | None":
 
 @contextmanager
 def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
-    # Lookups inside a query run, such as the earliest event of an all-time range, must read the same
-    # events cluster and table as the query. A nested run pins its own route and restores the outer one.
+    # Lookups inside a run, such as an all-time range's earliest event, must read the query's cluster and table.
     from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
     token = _query_route.set(
