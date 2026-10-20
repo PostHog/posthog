@@ -84,6 +84,59 @@ const decodeLiquidTags = (template: string): string => {
     return out + template.slice(cursor)
 }
 
+// The currency a locale implies when a template names only a locale, as in `currency: "en-GB"`.
+const REGION_CURRENCIES: Record<string, string> = {
+    US: 'USD',
+    GB: 'GBP',
+    CA: 'CAD',
+    AU: 'AUD',
+    NZ: 'NZD',
+    IN: 'INR',
+    JP: 'JPY',
+    CH: 'CHF',
+    SE: 'SEK',
+    NO: 'NOK',
+    DK: 'DKK',
+    PL: 'PLN',
+    BR: 'BRL',
+    MX: 'MXN',
+    ...Object.fromEntries(
+        ['AT', 'BE', 'DE', 'ES', 'FI', 'FR', 'GR', 'IE', 'IT', 'LU', 'NL', 'PT'].map((region) => [region, 'EUR'])
+    ),
+}
+
+// Customer.io's `currency` takes `locale, code` (`"en", "EUR"`) or a locale alone (`"en-GB"`), and
+// templates also pass a bare ISO code (`"USD"`), so all three forms resolve to a locale and a code.
+const resolveCurrencyFormat = (first: unknown, second: unknown): [string, string] | null => {
+    if (first === undefined) {
+        return ['en-US', 'USD']
+    }
+    const argument = String(first)
+    if (second === undefined && /^[a-z]{3}$/i.test(argument)) {
+        return ['en-US', argument.toUpperCase()]
+    }
+    const region = new Intl.Locale(argument).maximize().region
+    const code = second !== undefined ? String(second) : region && REGION_CURRENCIES[region]
+    return code ? [argument, code] : null
+}
+
+// A value that isn't a number, or arguments that don't resolve, pass through unchanged, so a bad value
+// stays visible instead of turning into "$0.00".
+const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unknown => {
+    const amount = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+    if (!Number.isFinite(amount)) {
+        return value
+    }
+    try {
+        const format = resolveCurrencyFormat(first, second)
+        return format
+            ? new Intl.NumberFormat(format[0], { style: 'currency', currency: format[1] }).format(amount)
+            : value
+    } catch {
+        return value
+    }
+}
+
 const createLiquid = (outputEscape: 'escape' | undefined): Liquid => {
     const liquid = new Liquid({
         outputEscape,
@@ -99,6 +152,7 @@ const createLiquid = (outputEscape: 'escape' | undefined): Liquid => {
             throw new Error(`liquid filter ${name} is not supported`)
         })
     }
+    liquid.registerFilter('currency', formatCurrency)
     return liquid
 }
 

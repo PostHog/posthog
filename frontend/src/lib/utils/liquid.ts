@@ -3,6 +3,19 @@ import { Liquid, Output, Template } from 'liquidjs'
 
 const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
 
+// Copy of formatCurrency in nodejs/src/cdp/utils/liquid.ts, so previews format money the way sends do.
+const formatCurrency = (value: unknown, currency: unknown = 'USD'): unknown => {
+    const amount = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+    if (!Number.isFinite(amount)) {
+        return value
+    }
+    try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: String(currency) }).format(amount)
+    } catch {
+        return value
+    }
+}
+
 // NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
@@ -15,6 +28,7 @@ export class LiquidRenderer {
                 // partial loading, so user-controlled templates can't read local files via include/render/layout.
                 templates: {},
             })
+            this._liquid.registerFilter('currency', formatCurrency)
         }
         return this._liquid
     }
