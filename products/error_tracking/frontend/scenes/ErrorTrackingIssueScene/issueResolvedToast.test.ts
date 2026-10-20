@@ -49,11 +49,12 @@ describe('showIssueResolvedToast', () => {
         expect(first).not.toEqual(second)
     })
 
-    it('offers a retry that saves the cohort again when saving fails', async () => {
+    it("keeps each issue's retry when saving fails for two issues", async () => {
         initKeaTests()
         mockHogqlQuery.mockResolvedValue({ results: [[3, 2]] } as never)
         const create = jest
             .spyOn(issueAffectedBroadcast, 'createAffectedPeopleCohort')
+            .mockRejectedValueOnce(new Error('500'))
             .mockRejectedValueOnce(new Error('500'))
             .mockResolvedValueOnce({ id: 7 } as CohortApi)
         const open = jest.spyOn(messageAudienceWarnings, 'openMessageAudience').mockResolvedValue()
@@ -61,11 +62,33 @@ describe('showIssueResolvedToast', () => {
         const error = jest.spyOn(lemonToast, 'error')
 
         await showIssueResolvedToast('1', { issueId: 'issue-1', issueName: 'Checkout timeout' })
+        await showIssueResolvedToast('1', { issueId: 'issue-2', issueName: 'Checkout timeout' })
         await success.mock.calls[0]?.[1]?.button?.action()
-        await error.mock.calls[0]?.[1]?.button?.action()
+        await success.mock.calls[1]?.[1]?.button?.action()
+        await error.mock.calls[1]?.[1]?.button?.action()
 
-        expect(create).toHaveBeenCalledTimes(2)
+        expect(error.mock.calls[0]?.[1]?.toastId).not.toEqual(error.mock.calls[1]?.[1]?.toastId)
+        expect(create.mock.calls.map(([, issue]) => issue.issueId)).toEqual(['issue-1', 'issue-2', 'issue-2'])
         expect(open).toHaveBeenCalledTimes(1)
+    })
+
+    it('saves one cohort when the offer is clicked again while the first save runs', async () => {
+        initKeaTests()
+        mockHogqlQuery.mockResolvedValue({ results: [[3, 2]] } as never)
+        const pendingSaves: ((cohort: CohortApi) => void)[] = []
+        const create = jest
+            .spyOn(issueAffectedBroadcast, 'createAffectedPeopleCohort')
+            .mockImplementation(() => new Promise((resolve) => pendingSaves.push(resolve)))
+        jest.spyOn(messageAudienceWarnings, 'openMessageAudience').mockResolvedValue()
+        const success = jest.spyOn(lemonToast, 'success')
+
+        await showIssueResolvedToast('1', { issueId: 'issue-1', issueName: 'Checkout timeout' })
+        const action = success.mock.calls[0]?.[1]?.button?.action
+        const clicks = [action?.(), action?.()]
+        pendingSaves.forEach((resolve) => resolve({ id: 7 } as CohortApi))
+        await Promise.all(clicks)
+
+        expect(create).toHaveBeenCalledTimes(1)
     })
 
     it.each([

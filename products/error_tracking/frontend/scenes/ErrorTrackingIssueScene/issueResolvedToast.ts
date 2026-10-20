@@ -22,7 +22,18 @@ import {
 const SOURCE = 'error_tracking_resolved'
 const MAX_TOAST_NAME_LENGTH = 60
 
+// The toast button stays clickable while the toast animates out, so a second click would save a second cohort.
+const savingIssueIds = new Set<string>()
+
+function toastIssueName(issue: IssueAffectedBroadcastLogicProps): string | null {
+    return issue.issueName ? `"${truncate(issue.issueName, MAX_TOAST_NAME_LENGTH)}"` : null
+}
+
 async function tellAffectedPeople(projectId: string, issue: IssueAffectedBroadcastLogicProps): Promise<void> {
+    if (savingIssueIds.has(issue.issueId)) {
+        return
+    }
+    savingIssueIds.add(issue.issueId)
     const startedOn = router.values.location.pathname
     try {
         const cohort = await createAffectedPeopleCohort(projectId, issue)
@@ -33,13 +44,18 @@ async function tellAffectedPeople(projectId: string, issue: IssueAffectedBroadca
         await openMessageAudience(issueFixedAudience(cohort, issue, SOURCE), 'broadcast')
     } catch {
         // Clicking the offer already closed it, so the retry has to live on this toast.
-        lemonToast.error("Couldn't save the people affected.", {
+        const name = toastIssueName(issue)
+        lemonToast.error(`Couldn't save the people affected by ${name ?? 'this issue'}.`, {
+            // The default id is a hash of the message, so a second failure would keep the first issue's retry.
+            toastId: `issue-resolved-broadcast-error-${issue.issueId}`,
             button: {
                 label: 'Try again',
                 dataAttr: 'issue-resolved-broadcast-retry',
                 action: () => tellAffectedPeople(projectId, issue),
             },
         })
+    } finally {
+        savingIssueIds.delete(issue.issueId)
     }
 }
 
@@ -60,9 +76,8 @@ export async function showIssueResolvedToast(
     if (withEmail === 0) {
         return
     }
-    const resolved = issue.issueName
-        ? `Resolved "${truncate(issue.issueName, MAX_TOAST_NAME_LENGTH)}".`
-        : 'Issue resolved.'
+    const name = toastIssueName(issue)
+    const resolved = name ? `Resolved ${name}.` : 'Issue resolved.'
     lemonToast.success(
         `${resolved} ${pluralize(withEmail, 'person', 'people')} with an email address hit it in the last ${AFFECTED_LOOKBACK_DAYS} days.`,
         {
