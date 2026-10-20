@@ -570,10 +570,9 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
         else:
             monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
-    runner = "SandboxedPrivateEval" if domain == "experiments" else "SandboxedPublicEval"
-    if suite_kind == SuiteKind.ONE_SHOT:
-        runner = "OneShotPublicEval"
-    monkeypatch.setattr(module, runner, run)
+    runner_kind = "OneShot" if suite_kind == SuiteKind.ONE_SHOT else "Sandboxed"
+    runner_visibility = "Private" if discovered.no_send_logs else "Public"
+    monkeypatch.setattr(module, f"{runner_kind}{runner_visibility}Eval", run)
 
     await discovered.fn(MagicMock(skill_delivery="bundled"))
 

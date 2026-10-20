@@ -6,9 +6,8 @@ import { useEffect, useRef } from 'react'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
+import __sqlBoxPlot from '~/mocks/fixtures/api/projects/team_id/insights/sqlBoxPlot.json'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import __sqlBoxPlot from '../../../mocks/fixtures/api/projects/team_id/insights/sqlBoxPlot.json'
 
 const availableSources = {
     Postgres: { name: 'Postgres', iconPath: '/static/services/postgres.png', fields: [], caption: '', featured: true },
