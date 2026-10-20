@@ -33,17 +33,21 @@ export function standaloneReadyImages(
     return (images ?? []).filter((image) => image.status === 'ready' && !attached.has(image.id))
 }
 
-export function isAvailableCloudTarget(
+export type CloudTargetAvailability = 'available' | 'missing' | 'unknown'
+
+export function cloudTargetAvailability(
     key: string | null,
     environments: SandboxEnvironmentDTOApi[] | null,
     images: SandboxCustomImageDTOApi[] | null
-): boolean {
+): CloudTargetAvailability {
     const { sandbox_environment_id, custom_image_id } = cloudTargetIds(key)
-    if (sandbox_environment_id) {
-        return !!environments?.some((environment) => environment.id === sandbox_environment_id)
+    const [list, id] = sandbox_environment_id
+        ? [environments, sandbox_environment_id]
+        : custom_image_id
+          ? [images, custom_image_id]
+          : [[], null]
+    if (list === null) {
+        return 'unknown'
     }
-    if (custom_image_id) {
-        return !!images?.some((image) => image.id === custom_image_id)
-    }
-    return false
+    return list.some((target) => target.id === id) ? 'available' : 'missing'
 }

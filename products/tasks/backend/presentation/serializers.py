@@ -2349,6 +2349,17 @@ class TaskSourcesListField(RepeatedOrCommaSeparatedListField, JSONTolerantListFi
         return value
 
 
+class SandboxCustomImageListQuerySerializer(serializers.Serializer):
+    origin_product = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskOriginProduct.choices,
+        help_text=(
+            "Return 403 unless tasks from this origin product can run on custom images. "
+            "Leave it out to only check that custom images are enabled."
+        ),
+    )
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 

@@ -17471,6 +17471,27 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
     def detail_url(self, image_id):
         return f"{self.base_url}{image_id}/"
 
+    @parameterized.expand(
+        [
+            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", 200),
+            (
+                "origin_on_the_default_vm_base",
+                '{"origin_products": ["user_created"], "default_base_origin_products": ["posthog_ai"]}',
+                "posthog_ai",
+                200,
+            ),
+            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", 403),
+            ("no_origin_given", '{"origin_products": ["user_created"]}', None, 200),
+        ]
+    )
+    def test_list_checks_the_vm_runtime_for_the_requested_origin(self, _name, payload, origin_product, expected):
+        self._vm_flag_payload = payload
+        query = f"?origin_product={origin_product}" if origin_product else ""
+
+        response = self.client.get(f"{self.base_url}{query}")
+
+        self.assertEqual(response.status_code, expected)
+
     def test_create_spawns_linked_builder_task_with_vm_override(self):
         response = self.client.post(
             self.base_url,

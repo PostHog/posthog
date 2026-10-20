@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheck, IconChevronDown, IconCloud, IconBox, IconPlus, IconStar, IconStarFilled } from '@posthog/icons'
@@ -35,6 +35,10 @@ export interface QuillCloudEnvironmentSelectProps {
     onChange: (cloudTarget: string | null) => void
     onToggleFavorite: (cloudTarget: string) => void
     onCreate: () => void
+    onRetry: () => void
+    loading: boolean
+    failed: boolean
+    favoriteSaving: boolean
     disabled?: boolean
 }
 
@@ -103,10 +107,13 @@ export function QuillCloudEnvironmentSelect({
     onChange,
     onToggleFavorite,
     onCreate,
+    onRetry,
+    loading,
+    failed,
+    favoriteSaving,
     disabled,
 }: QuillCloudEnvironmentSelectProps): JSX.Element {
-    const { environmentsLoading, environmentsFailed, draft } = useValues(cloudEnvironmentsLogic)
-    const { loadEnvironments } = useActions(cloudEnvironmentsLogic)
+    const { draft } = useValues(cloudEnvironmentsLogic)
     const [open, setOpen] = useState(false)
 
     const options: CloudTargetOption[] = [
@@ -150,6 +157,7 @@ export function QuillCloudEnvironmentSelect({
                         size="icon-xs"
                         variant="default"
                         tabIndex={-1}
+                        disabled={favoriteSaving}
                         aria-label={
                             isFavorite ? `Stop using ${option.name} by default` : `Use ${option.name} by default`
                         }
@@ -236,15 +244,15 @@ export function QuillCloudEnvironmentSelect({
                             </>
                         )}
                     </DropdownMenuGroup>
-                    {environmentsLoading && !environments ? (
+                    {loading ? (
                         <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
                             <Spinner className="size-3" />
                             Loading environments…
                         </div>
-                    ) : environmentsFailed && !environments ? (
+                    ) : failed ? (
                         <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
-                            <span>Couldn't load your environments.</span>
-                            <Button type="button" size="xs" variant="outline" onClick={() => loadEnvironments()}>
+                            <span>Couldn't load all your environments.</span>
+                            <Button type="button" size="xs" variant="outline" onClick={onRetry}>
                                 Retry
                             </Button>
                         </div>

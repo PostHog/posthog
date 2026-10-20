@@ -69,7 +69,7 @@ import type { TaskListParams } from '../../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
 import type { PendingAttachment } from '../../utils/attachments'
-import { type CloudTargetIds, cloudTargetIds, isAvailableCloudTarget } from '../../utils/cloudTargets'
+import { type CloudTargetIds, cloudTargetAvailability, cloudTargetIds } from '../../utils/cloudTargets'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -208,6 +208,7 @@ export interface taskTrackerSceneLogicValues {
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
     taskDefaults: TasksTaskDefaultsApi | null // taskDefaultsLogic
+    defaultCloudTargetSaving: boolean // taskDefaultsLogic
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultRuntimeAdapter: string | null // taskRunDefaultsLogic
@@ -515,7 +516,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter', 'defaultsResolved'],
             taskDefaultsLogic,
-            ['taskDefaults'],
+            ['taskDefaults', 'defaultCloudTargetSaving'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -774,7 +775,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     return null
                 }
                 const picked = newTaskData.cloudTarget !== undefined ? newTaskData.cloudTarget : favoriteCloudTarget
-                return isAvailableCloudTarget(picked, environments, images) ? picked : null
+                return picked && cloudTargetAvailability(picked, environments, images) !== 'missing' ? picked : null
             },
         ],
         selectedCloudTargetIds: [
@@ -831,6 +832,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.noteNewTaskDraft()
         },
         toggleFavoriteCloudTarget: ({ cloudTarget }) => {
+            if (values.defaultCloudTargetSaving) {
+                return
+            }
             const next = values.favoriteCloudTarget === cloudTarget ? null : cloudTarget
             posthog.capture('task composer environment starred', { starred: next !== null })
             actions.saveDefaultCloudTarget(next)

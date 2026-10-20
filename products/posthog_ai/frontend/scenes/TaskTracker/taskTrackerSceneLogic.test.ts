@@ -424,12 +424,19 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it.each([
-        ['a picked environment', 'environment:env-1', null, { sandbox_environment_id: 'env-1' }],
-        ['a picked image', 'image:img-1', null, { custom_image_id: 'img-1' }],
-        ['the starred environment', undefined, 'environment:env-1', { sandbox_environment_id: 'env-1' }],
-        ['no deleted starred environment', undefined, 'environment:env-gone', {}],
-        ['no environment once the default is picked', null, 'environment:env-1', {}],
-    ])('sends %s with the task and its run', async (_case, picked, starred, expected) => {
+        ['a picked environment', 'environment:env-1', null, true, { sandbox_environment_id: 'env-1' }],
+        ['a picked image', 'image:img-1', null, true, { custom_image_id: 'img-1' }],
+        ['the starred environment', undefined, 'environment:env-1', true, { sandbox_environment_id: 'env-1' }],
+        [
+            'the starred environment while the lists load',
+            undefined,
+            'environment:env-1',
+            false,
+            { sandbox_environment_id: 'env-1' },
+        ],
+        ['no deleted starred environment', undefined, 'environment:env-gone', true, {}],
+        ['no environment once the default is picked', null, 'environment:env-1', true, {}],
+    ])('sends %s with the task and its run', async (_case, picked, starred, listsLoaded, expected) => {
         useMocks({
             get: {
                 '/api/projects/:team/tasks/@me/config/': {
@@ -442,10 +449,12 @@ describe('taskTrackerSceneLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
         logic.mount()
         await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
-        logic.actions.setCloudTargets(
-            [{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi],
-            [{ id: 'img-1', name: 'Node image', status: 'ready' } as SandboxCustomImageDTOApi]
-        )
+        if (listsLoaded) {
+            logic.actions.setCloudTargets(
+                [{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi],
+                [{ id: 'img-1', name: 'Node image', status: 'ready' } as SandboxCustomImageDTOApi]
+            )
+        }
         if (picked !== undefined) {
             logic.actions.pickCloudTarget(picked)
         }
