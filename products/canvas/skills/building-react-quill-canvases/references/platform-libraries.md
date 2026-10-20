@@ -58,7 +58,7 @@ The axis charts need a parent like `<div className="flex h-[280px] flex-col">`; 
 | `BoxPlot`                             | Distributions                                                                                                                                                 |
 | `SlopeChart`                          | Change between two points                                                                                                                                     |
 | `Sparkline`                           | A small trend with no axes. Takes `data` and a `height` prop instead of a sized parent. Its `fill` prop means "fill a flex parent's height", not an area fill |
-| `MetricCard`                          | A headline number with a sparkline and a change pill                                                                                                          |
+| `MetricCard`                          | A headline number with a sparkline and a change pill. It draws no border: put each one in its own `Card`                                                      |
 | `Chart`, `RadialChart`                | The core the charts above are built on. Extend it for a shape that is not listed                                                                              |
 
 ```tsx
