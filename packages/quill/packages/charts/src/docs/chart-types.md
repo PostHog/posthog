@@ -56,6 +56,7 @@ One line per series from a left "before" to a right "after"; `data` is `[start, 
 Part of whole, one value per series (`data[0]`).
 
 - `innerRadiusRatio` makes a donut; `centerLabel` fills the hole.
+- A donut hides on-slice values by default, because `centerLabel` carries its number. Set `showValueOnSlice: true` to show them.
 - On-slice labels via `showLabelOnSlice` and `showValueOnSlice`, positioned with `labelRadiusRatio` (0 is the center, 1 the rim) and gated by `minSlicePercentForLabel`.
 - `sliceValueDisplay` picks what the numeric line holds: `'value'`, `'percent'`, or `'both'` for `352 (18.4%)`. Defaults to `'percent'` when `isPercent` is set, else `'value'`.
 - `config.legend` renders the built-in legend; a toggled-off slice is removed and the rest rescale to the full circle.
@@ -102,7 +103,8 @@ The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 ## Heatmap
 
 A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col]` counts mapped to color intensity on one accent.
-Log ramp by default; `colorScale: 'linear'` to opt out.
+`colorScale: 'auto'` (default) uses a log ramp for a long-tailed grid such as latency, where the median non-empty cell is under a tenth of the largest, and a linear ramp otherwise, so an even grid such as activity by day and hour does not flatten into one shade.
+Pass `'log'` or `'linear'` to fix the ramp.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
 `config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
 It runs for every cell, empty ones included; return null to leave one blank.
