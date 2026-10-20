@@ -1,3 +1,5 @@
+import { router } from 'kea-router'
+
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -44,8 +46,13 @@ export async function showIssueResolvedToast(
                 dataAttr: 'issue-resolved-broadcast',
                 action: async () => {
                     captureMessageAudienceClicked(SOURCE, 'broadcast')
+                    const startedOn = router.values.location.pathname
                     try {
                         const cohort = await createAffectedPeopleCohort(projectId, issue)
+                        if (router.values.location.pathname !== startedOn) {
+                            // The person left the page while the cohort saved, so don't pull them into the email.
+                            return
+                        }
                         await openMessageAudience(issueFixedAudience(cohort, issue, SOURCE), 'broadcast')
                     } catch {
                         lemonToast.error("Couldn't save the people affected. Try again.")

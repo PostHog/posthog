@@ -250,9 +250,22 @@ function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | nul
     if (!flag?.active || !isV1FeatureFlagConfig(flag.filters) || flag.filters.multivariate) {
         return false
     }
-    return (flag.filters.groups ?? []).some(
-        (group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100
-    )
+    const groups = flag.filters.groups ?? []
+    if (!flag.filters.early_exit) {
+        return groups.some((group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100)
+    }
+    // With early exit, a person who matches a set's properties but falls outside its rollout stops there
+    // with no match, so a partial set ahead of the untargeted one leaves some people without the flag.
+    for (const group of groups) {
+        const fullRollout = (group.rollout_percentage ?? 100) === 100
+        if (!group.properties?.length) {
+            return fullRollout
+        }
+        if (!fullRollout) {
+            return false
+        }
+    }
+    return false
 }
 
 /** True when this save is the one that turned the flag on for everyone, so the launch is worth announcing. */
@@ -266,16 +279,27 @@ export function flagWentLive(
 function liveFlagBroadcastButton(
     before: FeatureFlagType | null,
     after: FeatureFlagType,
-    cohortCreationEnabled: boolean,
-    openBroadcast: (source: string) => void
+    cohortCreationEnabled: boolean
 ): ToastButton | undefined {
-    if (!cohortCreationEnabled || messageAudienceAccessDisabledReason() || !flagWentLive(before, after)) {
+    const flagId = after.id
+    if (
+        flagId === null ||
+        !cohortCreationEnabled ||
+        messageAudienceAccessDisabledReason() ||
+        !flagWentLive(before, after)
+    ) {
         return undefined
     }
     return {
         label: "Tell people it's live",
         dataAttr: 'feature-flag-live-broadcast',
-        action: () => openBroadcast(FLAG_LIVE_BROADCAST_SOURCE),
+        action: () => {
+            // The toast outlives the logic that showed it: a create redirects from the 'new' key to the saved ID,
+            // and leaving the page unmounts the logic. Bind to the saved ID and hold it mounted for the whole search.
+            const logic = featureFlagLogic({ id: flagId })
+            const unmount = logic.mount()
+            void logic.asyncActions.findOrCreateBroadcastCohort(FLAG_LIVE_BROADCAST_SOURCE).finally(unmount)
+        },
     }
 }
 
@@ -4402,8 +4426,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 button: liveFlagBroadcastButton(
                     values.originalFeatureFlag,
                     featureFlag,
-                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION],
-                    actions.findOrCreateBroadcastCohort
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
                 ),
             })
             dismissAgentNotices(props.id, cache)
@@ -4549,8 +4572,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     button: liveFlagBroadcastButton(
                         values.originalFeatureFlag,
                         featureFlagActiveUpdate,
-                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION],
-                        actions.findOrCreateBroadcastCohort
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
                     ),
                 })
                 // Only active/version were persisted, so fold just those onto the working copy and

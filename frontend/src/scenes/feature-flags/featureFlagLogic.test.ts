@@ -1310,6 +1310,35 @@ describe('featureFlagLogic', () => {
                 live: false,
             },
             {
+                scenario: 'a 100% set behind a 0% set',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        groups: [
+                            { properties: [], rollout_percentage: 0 },
+                            { properties: [], rollout_percentage: 100 },
+                        ],
+                    },
+                },
+                live: true,
+            },
+            {
+                scenario: 'a 100% set behind a 0% set that stops evaluation early',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        early_exit: true,
+                        groups: [
+                            { properties: [], rollout_percentage: 0 },
+                            { properties: [], rollout_percentage: 100 },
+                        ],
+                    },
+                },
+                live: false,
+            },
+            {
                 scenario: 'a multivariate flag',
                 before: everyone(0),
                 after: { ...everyone(100), filters: { ...everyone(100).filters, multivariate: { variants: [] } } },

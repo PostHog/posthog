@@ -116,7 +116,7 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
         respondentsCohort: [
             null as CohortApi | null,
             {
-                emailRespondents: async () => {
+                emailRespondents: async (_, breakpoint) => {
                     const survey = values.survey as Survey
                     const filters = {
                         answerFilters: values.answerFilters,
@@ -125,6 +125,8 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
                         propertyFilters: values.propertyFilters,
                     }
                     const counted = await performQuery(respondentsQuery(survey, 'count', filters))
+                    // Leaving the survey unmounts this logic, and the breakpoint then stops the wizard from opening.
+                    breakpoint()
                     const [people, withEmail] = (counted.results?.[0] ?? [0, 0]) as [number, number]
                     if (!people) {
                         lemonToast.info(
@@ -146,6 +148,7 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
                         is_static: true,
                         query: respondentsQuery(survey, 'people', filters),
                     })
+                    breakpoint()
                     await openMessageAudience(
                         {
                             properties: cohortAudienceProperties(cohort),
