@@ -2089,9 +2089,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return None
 
     def _query_json_with_events_schema(self) -> dict[str, Any]:
-        # The worker rebuilds this runner from the payload. Pin the resolved table, so the worker writes the cache key
-        # this request reads even when its instance-setting snapshot differs.
+        # The worker rebuilds this runner from the payload. Pin a resolved native table, so the worker writes the cache
+        # key this request reads even when its instance-setting snapshot differs. A legacy payload stays unchanged,
+        # so workers from the previous deploy, which key on the raw query, still write the same key.
         query_json = self.query.model_dump()
+        if not self.modifiers.useNewEventsSchema:
+            return query_json
         node: dict[str, Any] | None = query_json
         while isinstance(node, dict) and "modifiers" not in node:
             node = node.get("source")
