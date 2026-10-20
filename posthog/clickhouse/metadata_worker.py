@@ -30,13 +30,20 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
             params,
         )
         confirmed = bool(matches)
+        kill_error: Exception | None = None
         for host, query_id in matches:
-            rows, columns = execute(
-                "KILL QUERY WHERE query_id=%(query_id)s SYNC SETTINGS max_execution_time=5",
-                {"query_id": query_id},
-                host,
-                typed=True,
-            )
+            try:
+                rows, columns = execute(
+                    "KILL QUERY WHERE query_id=%(query_id)s SYNC SETTINGS max_execution_time=5",
+                    {"query_id": query_id},
+                    host,
+                    typed=True,
+                )
+            except Exception as error:
+                # One unreachable host must not leave the queries on the remaining hosts running.
+                kill_error = kill_error or error
+                confirmed = False
+                continue
             names = [name for name, _ in columns]
             confirmed = (
                 confirmed
@@ -47,6 +54,8 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
                     for row in rows
                 )
             )
+        if kill_error is not None:
+            raise kill_error
         return confirmed
 
     discovery_error = None
@@ -78,7 +87,8 @@ if __name__ == "__main__":
     try:
         result = run_metadata_job(json.load(sys.stdin))
         json.dump({"result": result}, sys.stdout)
-    except Exception:
-        # Driver errors can include connection details; neither stdout nor stderr carries those back.
-        json.dump({"error": "ClickHouse metadata operation failed"}, sys.stdout)
+    except Exception as error:
+        # Driver messages can include connection details, so only the error type and ClickHouse code go back.
+        code = getattr(error, "code", None)
+        json.dump({"error": type(error).__name__, "code": code if isinstance(code, int) else None}, sys.stdout)
         sys.exit(1)

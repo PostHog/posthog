@@ -1,6 +1,7 @@
 import json
 from concurrent.futures import Future
 from threading import Event
+from time import monotonic
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.metadata_worker import run_metadata_job
+from posthog.clickhouse.native_metadata import _run_metadata_process as run_metadata_process
 from posthog.clickhouse.query_tagging import tag_queries
 
 
@@ -19,7 +21,11 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
     def setUp(self) -> None:
         patcher = patch(
             "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: getattr(settings, "CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
+            side_effect=lambda key: (
+                [44]
+                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                else getattr(settings, "CLICKHOUSE_NATIVE_EVENTS_HOST", "")
+            ),
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -29,6 +35,40 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         )
         worker.start()
         self.addCleanup(worker.stop)
+
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_projects_off_the_native_cluster_keep_the_in_process_legacy_cancel(self) -> None:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+        with (
+            patch("posthog.clickhouse.cancel._cancel_legacy_query") as legacy,
+            patch("posthog.clickhouse.cancel.submit_native_metadata") as native,
+        ):
+            cancel_query_on_cluster(45, "example-query")
+        legacy.assert_called_once_with(45, "example-query")
+        native.assert_not_called()
+
+    def test_native_kill_continues_past_an_unreachable_host(self) -> None:
+        job = {"operation": "native_cancel", "connection": {}, "cluster": "c", "prefix": "44_q_", "log_comment": ""}
+        killed: list[str] = []
+
+        def execute(sql: str, params: dict, **_kwargs: object) -> object:
+            if sql.startswith("SELECT"):
+                return [("down.example.com", "44_q_00000001"), ("up.example.com", "44_q_00000002")]
+            killed.append(params["query_id"])
+            if params["query_id"] == "44_q_00000001":
+                raise ConnectionError("host unreachable")
+            return [("44_q_00000002", "finished")], [("query_id", "String"), ("kill_status", "String")]
+
+        with patch("posthog.clickhouse.metadata_worker.Client") as client:
+            client.return_value.__enter__.return_value.execute.side_effect = execute
+            with self.assertRaises(ConnectionError):
+                run_metadata_job(job)
+        self.assertEqual(killed, ["44_q_00000001", "44_q_00000002"])
+
+    def test_metadata_failure_reports_the_error_type(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "ValueError"):
+            run_metadata_process(json.dumps({"operation": "unsupported", "log_comment": ""}), monotonic() + 10)
 
     def test_native_discovery_skips_unavailable_replicas(self) -> None:
         job = {"operation": "native_cancel", "connection": {}, "cluster": "c", "prefix": "44_q_", "log_comment": ""}
