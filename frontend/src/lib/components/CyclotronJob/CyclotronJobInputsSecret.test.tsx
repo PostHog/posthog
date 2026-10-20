@@ -44,4 +44,48 @@ describe('CyclotronJobInputs secret input', () => {
         expect(screen.getByText('This value is secret and is not displayed here.')).toBeInTheDocument()
         expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
     })
+
+    it('keeps the stored secret when the templating language changes before the user types', async () => {
+        initKeaTests()
+        const onInputChange = jest.fn()
+        render(
+            <Provider>
+                <CyclotronJobInputs
+                    configuration={{
+                        inputs_schema: [{ key: 'token', type: 'string', label: 'Token', secret: true }],
+                        inputs: { token: { value: null, secret: true } },
+                    }}
+                    onInputChange={onInputChange}
+                    showSource={false}
+                    sampleGlobalsWithInputs={null}
+                />
+            </Provider>
+        )
+
+        fireEvent.click(screen.getByText('Edit'))
+        fireEvent.click(screen.getByLabelText('Supports templating - click to see available options'))
+        fireEvent.click(await screen.findByText('Hog'))
+        fireEvent.click(await screen.findByText('Liquid'))
+        expect(onInputChange).not.toHaveBeenCalled()
+    })
+
+    it('hides the boolean mode selector while the secret is masked', () => {
+        initKeaTests()
+        render(
+            <Provider>
+                <CyclotronJobInputs
+                    configuration={{
+                        inputs_schema: [{ key: 'enabled', type: 'boolean', label: 'Enabled', secret: true }],
+                        inputs: { enabled: { value: null, secret: true } },
+                    }}
+                    onInputChange={jest.fn()}
+                    showSource={false}
+                    sampleGlobalsWithInputs={null}
+                />
+            </Provider>
+        )
+
+        fireEvent.click(screen.getByText('Edit'))
+        expect(screen.queryByText('Toggle')).not.toBeInTheDocument()
+    })
 })
