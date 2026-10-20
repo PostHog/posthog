@@ -82,7 +82,9 @@ def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str
     return result
 
 
-def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
+def recover_or_drop_masked_inputs(
+    inputs: Any, secret_keys: set[str], existing: dict, required_secret_keys: frozenset[str] = frozenset()
+) -> None:
     # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
     # read-back marker in that raw payload must never persist as a stored value - the worker would
     # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
@@ -91,12 +93,19 @@ def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: 
         return
     for key in secret_keys:
         value = inputs.get(key)
-        if isinstance(value, dict) and value.get("secret") and "value" not in value:
-            stored = existing.get(key)
-            if stored:
-                inputs[key] = stored
-            else:
-                inputs.pop(key, None)
+        if not isinstance(value, dict):
+            continue
+        is_marker = bool(value.get("secret")) and "value" not in value
+        # A required secret is never valid empty, so an empty value is an editor slip, not a clear.
+        # Keep the stored secret rather than let a mid-edit auto-save wipe the credential.
+        is_empty_required = key in required_secret_keys and value.get("value") in (None, "")
+        if not (is_marker or is_empty_required):
+            continue
+        stored = existing.get(key)
+        if stored:
+            inputs[key] = stored
+        elif is_marker:
+            inputs.pop(key, None)
 
 
 def mask_secret_action_inputs(
