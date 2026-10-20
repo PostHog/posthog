@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import socket
 import asyncio
 import subprocess
@@ -151,6 +152,9 @@ def test_desktop_bootstrap_relaunch_replaces_a_running_build(desktop_bootstrap_s
 
     _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "posthog/posthog")
     first_launcher = int((tmp_path / "state" / "launcher.pid").read_text())
+    deadline = time.monotonic() + 5
+    while not (tmp_path / "calls").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
     _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "posthog/posthog")
     (tmp_path / "release").write_text("0")
     waited = _wait_for_desktop_bootstrap(sandbox.env)
