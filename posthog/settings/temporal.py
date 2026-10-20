@@ -364,6 +364,11 @@ TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOU
 TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
     "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
 )
+TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
+    "TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED",
+    CLOUD_DEPLOYMENT in ("US", "EU"),
+    type_cast=str_to_bool,
+)
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
