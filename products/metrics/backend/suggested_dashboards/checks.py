@@ -7,6 +7,7 @@ the panels whose query fails as a dashboard tile runs it.
 
 from __future__ import annotations
 
+import time
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -28,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
@@ -38,6 +40,8 @@ logger = structlog.get_logger(__name__)
 PROFILE_LOOKBACK = dt.timedelta(hours=24)
 RUN_DATE_FROM = "-1h"
 RUN_WORKERS = 4
+# A panel run that has not started by then is left unchecked, so that the checks end in a bounded time.
+RUN_BUDGET_SECONDS = 180.0
 MIN_VARIABLE_VALUES = 2
 MAX_CANDIDATE_VALUES = 20
 MAX_CANDIDATES = 8
@@ -171,7 +175,21 @@ def one_to_one(team: Team, metric_names: Sequence[str], first: str, second: str)
     )
 
 
-def _run(team: Team, query: dict[str, Any], variables: Sequence[MetricsDashboardVariable]) -> str | None:
+def _run(
+    team: Team,
+    query: dict[str, Any],
+    variables: Sequence[MetricsDashboardVariable],
+    *,
+    timeout: float,
+    start_by: float,
+) -> str | None:
+    """The error of the panel query, or None when it runs or was not checked.
+
+    A transient ClickHouse failure says nothing about the panel, so it propagates and the activity retries.
+    """
+    started = time.monotonic()
+    if started > start_by:
+        return None
     try:
         runner = MetricsQueryRunner(
             query=MetricsQuery.model_validate({**query, "dateRange": DateRange(date_from=RUN_DATE_FROM)}),
@@ -187,11 +205,15 @@ def _run(team: Team, query: dict[str, Any], variables: Sequence[MetricsDashboard
         return None
     except ExposedHogQLError as error:
         return str(error)
+    except CH_TRANSIENT_ERRORS:
+        raise
     except Exception:
         logger.exception("metrics_suggested_dashboards_panel_run_failed", team_id=team.id)
         return "The query could not run."
     finally:
         connections.close_all()
+    if time.monotonic() - started > timeout:
+        return "The query took too long to run."
     return None
 
 
@@ -225,21 +247,20 @@ class ProjectChecks:
     def run_errors(self, queries: Mapping[str, dict[str, Any]], variables: Sequence[dict[str, Any]]) -> dict[str, str]:
         """The error of each query that fails, with every variable set to All.
 
-        A run still in flight at the deadline counts as too slow. It is waited for, so that no query of this
+        A run counts as too slow when it takes longer than the deadline from its own start, so a panel that waits
+        for a worker is not held against it. Every run finishes before this returns, so that no query of this
         generation runs on after it. ClickHouse ends each statement of a metrics query after 30 seconds.
         """
         definitions = [MetricsDashboardVariable.model_validate(variable) for variable in variables]
-        executor = ThreadPoolExecutor(max_workers=RUN_WORKERS, thread_name_prefix="metrics-suggested-check")
+        start_by = time.monotonic() + RUN_BUDGET_SECONDS
         errors: dict[str, str] = {}
-        try:
-            futures = {key: executor.submit(_run, self._team, query, definitions) for key, query in queries.items()}
-            wait(futures.values(), timeout=self._deadline)
+        with ThreadPoolExecutor(max_workers=RUN_WORKERS, thread_name_prefix="metrics-suggested-check") as executor:
+            futures = {
+                key: executor.submit(_run, self._team, query, definitions, timeout=self._deadline, start_by=start_by)
+                for key, query in queries.items()
+            }
+            wait(futures.values())
             for key, future in futures.items():
-                if not future.done():
-                    future.cancel()
-                    errors[key] = "The query took too long to run."
-                elif (error := future.result()) is not None:
+                if (error := future.result()) is not None:
                     errors[key] = error
-        finally:
-            executor.shutdown(wait=True, cancel_futures=True)
         return errors

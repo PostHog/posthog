@@ -1,9 +1,15 @@
 import datetime as dt
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from clickhouse_driver.errors import NetworkError
+
+from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.suggested_dashboards.checks import (
     ProjectChecks,
+    _run,
     attribute_profile,
     one_to_one,
     variable_candidates,
@@ -68,3 +74,14 @@ class TestSuggestedDashboardChecks(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert list(errors) == ["broken"]
+
+    def test_a_transient_failure_propagates_and_a_late_run_leaves_the_panel_unchecked(self) -> None:
+        query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "avg"}]}
+        checks = ProjectChecks(self.team, METRICS, None, deadline=30)
+
+        with (
+            patch.object(MetricsQueryRunner, "calculate", side_effect=NetworkError("connection reset")),
+            pytest.raises(NetworkError),
+        ):
+            checks.run_errors({"a": query}, [])
+        assert _run(self.team, {"kind": "MetricsQuery", "clauses": []}, [], timeout=30, start_by=0) is None
