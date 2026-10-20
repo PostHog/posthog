@@ -1759,7 +1759,7 @@ class TestPostgresSourceNonRetryableErrors:
         [
             # Raw psycopg message (what the activity-level check sees via str(e)) — a view/column's
             # own PL/pgSQL function raising a custom access-check error during our read.
-            "Access denied: No user ID provided\nCONTEXT:  PL/pgSQL function get_user_subscription_summary(uuid) line 5 at RAISE",
+            "Access denied: No user ID provided\nCONTEXT:  PL/pgSQL function reject_anonymous_reads(uuid) line 9 at RAISE",
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             "RaiseException: Access denied: No user ID provided",
         ],
