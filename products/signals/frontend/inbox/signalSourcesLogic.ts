@@ -102,7 +102,12 @@ const PINNED_SOURCE_ORDER: Partial<Record<AgentRosterSource, number>> = {
 
 /** Catalog categories in the order the definitions list them, so the catalog reads like the registry. */
 const CATALOG_CATEGORY_ORDER: readonly string[] = Array.from(
-    new Set(EXTERNAL_SIGNAL_SOURCES.map((source) => source.category))
+    new Set(
+        AGENT_ROSTER_GROUPS.filter((group) => group.id === 'external')
+            .flatMap((group) => group.agents)
+            .map((agent) => agent.category)
+            .filter((category): category is string => !!category)
+    )
 )
 
 function compareExternalAgents(a: AgentRosterDefinition, b: AgentRosterDefinition): number {

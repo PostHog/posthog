@@ -6,6 +6,8 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -297,6 +299,16 @@ describe('signalSourcesLogic', () => {
         ).toEqual(['jira', 'gitea'])
         expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
         expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true })
+        expect(logic.values.sourceCategoryOptions).toContainEqual({ label: 'Engineering', value: 'Engineering' })
+        logic.actions.setSourceCategory('Engineering')
+        expect(logic.values.sourceCatalog.map((group) => group.items.map((item) => item.agent.source))).toEqual([
+            ['engineering_analytics'],
+        ])
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: false })
+        expect(logic.values.sourceCategoryOptions).not.toContainEqual({ label: 'Engineering', value: 'Engineering' })
+        expect(logic.values.sourceCatalog).toEqual([])
 
         logic.actions.setSourceCategory('Error tracking')
         logic.actions.setSourceSearchQuery('SENTRY')
