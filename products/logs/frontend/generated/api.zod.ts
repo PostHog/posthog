@@ -1043,7 +1043,7 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe(
-                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\". Ignored when groupBys is provided.'
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
                 .enum(['log', 'resource', 'column'])
@@ -1058,7 +1058,7 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
                             ),
                         source: zod
                             .enum(['log', 'resource', 'column'])
@@ -2101,6 +2101,10 @@ export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
 
+export const logsServicesCreateBodyQueryOneEnvironmentMax = 200
+
+export const logsServicesCreateBodyQueryOneCompareDefault = `none`
+
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -2193,8 +2197,39 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters for the query.'),
+            environment: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneEnvironmentMax)
+                .optional()
+                .describe(
+                    'Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. \"(none)\" matches logs without one.'
+                ),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                )
+                .default(logsServicesCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                ),
         })
         .describe('The services aggregation query to execute.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('Explicit baseline window. Takes precedence over `query.compare`.'),
 })
 
 export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
