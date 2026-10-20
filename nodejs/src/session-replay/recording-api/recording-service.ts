@@ -11,7 +11,7 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingBlock, RecordingDecryptor, RecordingEncryptor, SessionKeyDeletedError } from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -22,10 +22,14 @@ export interface GetBlockParams {
     decompress?: boolean
 }
 
-export type GetBlockResult =
-    | { ok: true; data: Buffer }
-    | { ok: false; error: 'not_found' }
-    | { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+
+export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
+
+export type EncryptBlocksResult =
+    | { ok: true; blocks: Buffer[] }
+    | { ok: false; error: 'recording_exists' }
+    | RecordingDeletedResult
 
 export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number; deletedBy: string }
@@ -49,8 +53,43 @@ export class RecordingService {
         private metadataStore?: SessionMetadataStore,
         private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential }
+        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential },
+        private encryptor?: RecordingEncryptor
     ) {}
+
+    // Lets a caller write a copied recording without its own access to KMS or the key table.
+    async encryptBlocks(
+        sessionId: string,
+        teamId: number,
+        blocks: Buffer[],
+        retentionDays: number
+    ): Promise<EncryptBlocksResult> {
+        const encryptor = this.encryptor
+        if (!encryptor) {
+            throw new Error('Encryptor not initialized')
+        }
+        // Encrypting only for sessions with no stored recording keeps this route from touching ingested data,
+        // and stops a new key from breaking the plaintext blocks of a pre-encryption recording.
+        if (await this.recordingExists(sessionId, teamId)) {
+            return { ok: false, error: 'recording_exists' }
+        }
+        let sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        if (sessionKey.sessionState === 'cleartext') {
+            sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
+        }
+        if (sessionKey.sessionState === 'deleted') {
+            return {
+                ok: false,
+                error: 'deleted',
+                deletedAt: sessionKey.deletedAt,
+                deletedBy: sessionKey.deletedBy ?? '',
+            }
+        }
+        return {
+            ok: true,
+            blocks: blocks.map((block) => encryptor.encryptBlockWithKey(sessionId, teamId, block, sessionKey).data),
+        }
+    }
 
     validateS3Key(key: string): boolean {
         const pattern = `^${this.s3Prefix}/(${ValidRetentionPeriods.join('|')})/\\d+-[0-9a-f]{16}$`
@@ -162,6 +201,37 @@ export class RecordingService {
             RecordingApiMetrics.observeGetBlock('error', (performance.now() - startTime) / 1000, 'unknown')
             throw error
         }
+    }
+
+    private async recordingExists(sessionId: string, teamId: number): Promise<boolean> {
+        if (!this.clickhouse) {
+            throw new Error('ClickHouse client not initialized')
+        }
+        const { client, credential } = this.clickhouse
+        // No retention or is_deleted filter: an expired or deleted recording still has blocks a new key would break.
+        const result = await client.query({
+            query: `/* team_id:${teamId} query_type:recording_api_recording_exists */ SELECT 1
+                FROM session_replay_events
+                PREWHERE team_id = {team_id:Int32} AND session_id = {session_id:String}
+                LIMIT 1
+            `,
+            query_params: { team_id: teamId, session_id: sessionId },
+            format: 'JSONEachRow',
+            auth: await credential.auth(),
+            clickhouse_settings: {
+                log_comment: JSON.stringify({
+                    team_id: teamId,
+                    product: 'replay',
+                    kind: 'node',
+                    query_type: 'recording_api_recording_exists',
+                    service_name: 'recording-api',
+                    container_hostname: process.env.HOSTNAME || 'unknown',
+                }),
+                max_execution_time: 30,
+            },
+        })
+        const rows = await result.json()
+        return rows.length > 0
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {
