@@ -1,4 +1,4 @@
-import { MCPToolResultError } from '@/lib/errors'
+import { MCPToolResultError, PostHogValidationError, findRecoverableApiError } from '@/lib/errors'
 import { AnalyticsEvent, sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { ExecInnerCallProperties } from '@/tools/exec'
@@ -8,12 +8,12 @@ import type { Context } from '@/tools/types'
 /**
  * `$mcp_tool_call` properties for the CLI. Value-free by design: raw error
  * messages and inputs can carry caller-supplied content and API response
- * bodies, which must never reach usage analytics. Mirrors the hosted server,
- * whose tool-call events carry only the error flag — plus a bounded
- * classification and the backend's machine-readable error code so failures
- * stay diagnosable. Category and clipped description come from the tool
- * catalog (never the caller), matching the hosted server's stamps so per-tool
- * analytics see one schema.
+ * bodies, which must never reach usage analytics. Unlike the hosted server,
+ * the CLI never sends an error message, even a sanitized one. It sends only a
+ * bounded classification and the backend's machine-readable error code, so
+ * failures stay diagnosable. Category and clipped description come from the
+ * tool catalog (never the caller), matching the hosted server's stamps so
+ * per-tool analytics see one schema.
  */
 export function buildToolCallProperties(
     toolName: string,
@@ -21,7 +21,7 @@ export function buildToolCallProperties(
 ): Record<string, unknown> {
     const category = getToolCategory(toolName)
     const description = getToolDescription(toolName)
-    const code = errorCode(properties)
+    const code = errorCode(properties.error)
     return {
         tool_name: toolName,
         $mcp_tool_name: toolName,
@@ -30,8 +30,13 @@ export function buildToolCallProperties(
         output_format: properties.output_format,
         ...(category ? { $mcp_tool_category: category } : {}),
         ...(description ? { $mcp_tool_description: description } : {}),
-        ...(properties.success ? {} : { error_class: errorClass(properties), $mcp_error_type: errorType(properties) }),
-        ...(code ? { $mcp_error_code: code } : {}),
+        ...(properties.success
+            ? {}
+            : {
+                  error_class: errorClass(properties),
+                  $mcp_error_type: errorType(properties),
+                  ...(code ? { $mcp_error_code: code } : {}),
+              }),
         ...(properties.error_status !== undefined
             ? { error_status: properties.error_status, $mcp_error_status: properties.error_status }
             : {}),
@@ -84,7 +89,12 @@ function errorType(properties: ExecInnerCallProperties): MCPToolResultError['err
     return status >= 500 ? 'api_5xx' : 'api_4xx'
 }
 
-function errorCode(properties: ExecInnerCallProperties): string | undefined {
-    const code = properties.error instanceof MCPToolResultError ? properties.error.errorCode : undefined
+function errorCode(error: unknown): string | undefined {
+    const code = error instanceof MCPToolResultError ? error.errorCode : apiValidationErrorCode(error)
     return code ? sanitizeErrorToken(code) : undefined
+}
+
+function apiValidationErrorCode(error: unknown): string | undefined {
+    const apiError = findRecoverableApiError(error)
+    return apiError instanceof PostHogValidationError ? apiError.code : undefined
 }

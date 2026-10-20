@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildToolCallProperties } from '@/cli/tool-call-properties'
-import { MCPToolResultError } from '@/lib/errors'
+import { MCPToolResultError, PostHogValidationError } from '@/lib/errors'
 import type { ExecInnerCallProperties } from '@/tools/exec'
 import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
@@ -86,14 +86,30 @@ describe('buildToolCallProperties', () => {
             { error_class: 'error', $mcp_error_type: 'memory_limit' },
         ],
         [
-            'backend failure with an error code',
-            { error: new MCPToolResultError('Private SQL input', 'validation', 'unknown_identifier') },
-            { error_class: 'error', $mcp_error_type: 'validation', $mcp_error_code: 'unknown_identifier' },
-        ],
-        [
             'backend failure with a malformed error code',
             { error: new MCPToolResultError('Private SQL input', 'validation', ' query_\nsyntax\x00 ') },
             { error_class: 'error', $mcp_error_type: 'validation', $mcp_error_code: 'query_syntax' },
+        ],
+        [
+            'backend API validation failure',
+            {
+                error_status: 400,
+                error: new PostHogValidationError({
+                    detail: 'Private field value',
+                    attr: 'name',
+                    code: 'required',
+                    extra: undefined,
+                    url: 'https://example.com/api/projects/1/feature_flags/',
+                    method: 'POST',
+                }),
+            },
+            {
+                error_class: 'api_error',
+                error_status: 400,
+                $mcp_error_type: 'api_4xx',
+                $mcp_error_status: 400,
+                $mcp_error_code: 'required',
+            },
         ],
     ])('classifies a %s without carrying the message', (_name, extra, expected) => {
         expect(buildToolCallProperties('execute-sql', { ...base, ...extra })).toEqual({
@@ -108,7 +124,8 @@ describe('buildToolCallProperties', () => {
     })
 
     it('omits error fields entirely on success', () => {
-        expect(buildToolCallProperties('feature-flag-get-all', { ...base, success: true })).toEqual({
+        const coded = new MCPToolResultError('Private details', 'validation', 'unknown_identifier')
+        expect(buildToolCallProperties('feature-flag-get-all', { ...base, success: true, error: coded })).toEqual({
             tool_name: 'feature-flag-get-all',
             $mcp_tool_name: 'feature-flag-get-all',
             $mcp_duration_ms: 42,
