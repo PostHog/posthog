@@ -2897,7 +2897,8 @@ def resolve_postgres_keyset(
 ) -> PostgresKeyset:
     """Decide how far this run can go: no seek, seek only, or seek plus a durable checkpoint."""
     if should_use_incremental_field:
-        # Already resumable from its persisted watermark, and seeking would double the work.
+        # v3 moves the watermark only when the run's load completes, so a cut-off attempt restarts from the old
+        # watermark unless the handoff checkpoint applies. A keyset seek on top of that would double the work.
         return PostgresKeyset(reason="incremental_sync")
     if is_xmin:
         # An xmin read appends deltas, so restarting it from key 0 would duplicate what it wrote.
@@ -4781,6 +4782,17 @@ def postgres_source(
             )
         )
 
+    # One statement with `ORDER BY <incremental field>` proves the order for the whole run. A read
+    # per partition, per window or per LIMIT/OFFSET page issues several statements, so it does not.
+    reads_one_ordered_statement = (
+        should_use_incremental_field
+        and incremental_field is not None
+        and xmin_bounds is None
+        and not is_duckdb
+        and not use_window_chunking
+        and not use_per_partition_chunking
+    )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4793,6 +4805,7 @@ def postgres_source(
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
         supports_resume=can_checkpoint and takes_keyset_path,
+        sort_mode="asc" if reads_one_ordered_statement else None,
     )
 
 
