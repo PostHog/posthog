@@ -3356,12 +3356,12 @@ Diffed against: <https://www.courier.com/docs/llms.txt>
 - [x] `messages/{id}/history` — per-message state transition history (queued, sent, delivered, opened, clicked) - the deliverability funnel (high)
 - [x] `audiences/{audience_id}/members` — membership table for audiences we already sync; audiences without members are just filter definitions (high)
 - [x] `tenants/{tenant_id}/users` — membership table joining users to the tenants we already sync (medium)
-- [ ] `automations (GET /automations)` — lookup for saved automation templates that trigger sends (medium)
+- [x] `automations (GET /automations)` — lookup for saved automation templates that trigger sends (medium) — added as `Automations`
 - [x] `journeys (GET /journeys, plus journey versions)` — journey definitions and versions needed to attribute messages to a flow (medium)
 - [x] `digests (list digest instances)` — digest batching data explaining why messages were grouped or delayed (medium). Digest schedules have no listing endpoint; their ids are flattened out of `GET /preferences/sections`, where Courier nests them under each topic's digest config.
-- [ ] `notification-templates/{id}/versions` — template version history for before/after performance comparison (low)
-- [ ] `workspace-preferences (topics and sections)` — lookup for subscription topics referenced by user preference data (low)
-- [ ] `user-preferences (GET /users/{id}/preferences)` — per-user subscription state for opt-out analysis (low)
+- [x] `notification-templates/{id}/versions` — template version history for before/after performance comparison (low) — added as `NotificationTemplateVersions`
+- [x] `workspace-preferences (topics and sections)` — lookup for subscription topics referenced by user preference data (low) — added as `PreferenceSections` and `PreferenceTopics`
+- [x] `user-preferences (GET /users/{id}/preferences)` — per-user subscription state for opt-out analysis (low) — added as `PreferenceChanges` from `GET /preferences/logs`, because Courier has no user listing to fan the per-user endpoint out over
 
 Note: The payload's docs URLs (www.courier.com/docs/reference/...) now 404; the live reference lives under /docs/api-reference/ and is indexed in llms.txt. Providers and routing-strategies were excluded as configuration.
 
@@ -12562,10 +12562,10 @@ Today (3): `business_unit`, `product_reviews`, `service_reviews`
 
 Diffed against: <https://developers.trustpilot.com/product-reviews-api/>
 
-- [ ] `Catalog products (GET /v1/private/business-units/{businessUnitId}/catalog/products)` — join review product IDs to complete catalog records, variants, prices, and products with no reviews (high)
-- [ ] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
-- [ ] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
-- [ ] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
+- [x] `Catalog products (GET /v1/private/business-units/{businessUnitId}/catalog/products)` — join review product IDs to complete catalog records, variants, prices, and products with no reviews (high)
+- [x] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
+- [x] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
+- [x] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
 - [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium)
 - [ ] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
 - [ ] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
