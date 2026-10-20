@@ -799,6 +799,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LAMBDALABS = "LambdaLabs", "LambdaLabs"
     LANGSMITH = "LangSmith", "LangSmith"
     LINODE = "Linode", "Linode"
+    LISTMONK = "Listmonk", "Listmonk"
     LLAMACLOUD = "LlamaCloud", "LlamaCloud"
     MEM0 = "Mem0", "Mem0"
     METRIPORT = "Metriport", "Metriport"
