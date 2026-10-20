@@ -376,6 +376,11 @@ export function SavedInsights(): JSX.Element {
                 <LemonMenu
                     items={[
                         {
+                            label: 'Open dashboard',
+                            to: urls.dashboard(currentTeam.home_tab_dashboard),
+                            'data-attr': 'home-tab-open-dashboard',
+                        },
+                        {
                             label: 'Change Home dashboard',
                             onClick: openHomeDashboardStarter,
                             'data-attr': 'home-tab-choose-dashboard',
@@ -449,6 +454,12 @@ export function SavedInsights(): JSX.Element {
                                             <TooltipContent>Home dashboard options</TooltipContent>
                                         </QuillTooltip>
                                         <DropdownMenuContent align="end" className="min-w-48">
+                                            <DropdownMenuItem
+                                                onClick={() => push(urls.dashboard(currentTeam.home_tab_dashboard!))}
+                                                data-attr="home-tab-open-dashboard"
+                                            >
+                                                Open dashboard
+                                            </DropdownMenuItem>
                                             <DropdownMenuItem
                                                 onClick={openHomeDashboardStarter}
                                                 data-attr="home-tab-choose-dashboard"

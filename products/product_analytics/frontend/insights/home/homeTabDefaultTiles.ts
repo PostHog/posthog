@@ -483,6 +483,15 @@ interface HomeTabDashboardTile {
     h: number
 }
 
+// The Metric display (number with a sparkline) sums or averages the interval points. That would count
+// a person once per active day and average the daily session durations, so those two tiles keep the
+// bold number to show the same values as Home.
+const HOME_TAB_STAT_METRIC_SUMMARIES: Partial<Record<HomeTabMetricKey, 'total' | 'average'>> = {
+    sessions: 'total',
+    new_users: 'total',
+    daily_active_users: 'average',
+}
+
 /** PostHog Home as a dashboard template, so a copy keeps the Home charts and the user can edit them. */
 export function getHomeTabDashboardTemplate(): DashboardTemplateType {
     const dateRange = HOME_TAB_DEFAULT_DATE_RANGE
@@ -501,23 +510,23 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
         }
         return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
     }
-    const statTiles = getHomeTabStatQueries(dateRange, compare)
-        .filter((stat) => stat.key !== 'daily_active_users')
-        .map(
-            (stat): HomeTabDashboardTile => ({
-                name: stat.title,
-                description: '',
-                source:
-                    stat.kind === 'duration_s'
-                        ? {
-                              ...stat.query,
-                              trendsFilter: { ...stat.query.trendsFilter, aggregationAxisFormat: 'duration' },
-                          }
-                        : stat.query,
-                w: 3,
-                h: 3,
-            })
-        )
+    const statTiles = getHomeTabStatQueries(dateRange, compare).map((stat): HomeTabDashboardTile => {
+        const metricSummary = HOME_TAB_STAT_METRIC_SUMMARIES[stat.key]
+        return {
+            name: stat.title,
+            description: stat.description ?? '',
+            source: {
+                ...stat.query,
+                trendsFilter: {
+                    ...stat.query.trendsFilter,
+                    ...(metricSummary ? { display: ChartDisplayType.Metric, metricSummary } : {}),
+                    ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
+                },
+            },
+            w: stat.key === 'active_users' || stat.key === 'daily_active_users' ? 3 : 2,
+            h: 3,
+        }
+    })
     const rows: HomeTabDashboardTile[][] = [
         statTiles,
         [chartTile('daily_active_users', 12, 5)],

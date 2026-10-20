@@ -296,6 +296,7 @@ describe('homeTabDefaultTiles', () => {
             'Sessions',
             'First-time users',
             'Session duration',
+            'Avg. DAU',
             'Daily active users',
             'Top pages',
             'Top screens',
@@ -317,8 +318,21 @@ describe('homeTabDefaultTiles', () => {
                 }
             }
         }
-        expect(tiles[3].type === 'INSIGHT' && tiles[3].query).toMatchObject({
-            source: { trendsFilter: { aggregationAxisFormat: 'duration' } },
-        })
+        expect(tiles.slice(0, 5).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
+            { source: { trendsFilter: { display: ChartDisplayType.BoldNumber } } },
+            { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
+            { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
+            {
+                source: {
+                    trendsFilter: { display: ChartDisplayType.BoldNumber, aggregationAxisFormat: 'duration' },
+                },
+            },
+            {
+                source: {
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'average' },
+                },
+            },
+        ])
     })
 })
