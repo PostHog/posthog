@@ -67,6 +67,27 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     },
 })
 
+const WorkflowsConvertToBroadcastSchema = () => {
+    const HogFlowsConvertToBroadcastParams = orvalSchemas.HogFlowsConvertToBroadcastParams()
+    return HogFlowsConvertToBroadcastParams.omit({ project_id: true })
+}
+
+const workflowsConvertToBroadcast = (): ToolBase<
+    ReturnType<typeof WorkflowsConvertToBroadcastSchema>,
+    WithPostHogUrl<Schemas.HogFlowConvertedToBroadcast>
+> => ({
+    name: 'workflows-convert-to-broadcast',
+    schema: WorkflowsConvertToBroadcastSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsConvertToBroadcastSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFlowConvertedToBroadcast>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/convert_to_broadcast/`,
+        })
+        return await withPostHogUrl(context, result, `/broadcasts/${result.id}`)
+    },
+})
+
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -850,27 +871,6 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
         ),
     })
 
-const WorkflowsConvertToBroadcastSchema = () => {
-    const HogFlowsConvertToBroadcastParams = orvalSchemas.HogFlowsConvertToBroadcastParams()
-    return HogFlowsConvertToBroadcastParams.omit({ project_id: true })
-}
-
-const workflowsConvertToBroadcast = (): ToolBase<
-    ReturnType<typeof WorkflowsConvertToBroadcastSchema>,
-    WithPostHogUrl<Schemas.HogFlowConvertedToBroadcast>
-> => ({
-    name: 'workflows-convert-to-broadcast',
-    schema: WorkflowsConvertToBroadcastSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsConvertToBroadcastSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HogFlowConvertedToBroadcast>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/convert_to_broadcast/`,
-        })
-        return await withPostHogUrl(context, result, `/broadcasts/${result.id}`)
-    },
-})
-
 const WorkflowsUpdateScheduleSchema = () => {
     const HogFlowsSchedulesPartialUpdateBody = orvalSchemas.HogFlowsSchedulesPartialUpdateBody()
     const HogFlowsSchedulesPartialUpdateParams = orvalSchemas.HogFlowsSchedulesPartialUpdateParams()
@@ -945,6 +945,7 @@ const workflowsVersionStats = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
     'workflows-create': workflowsCreate,
     'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
     'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
@@ -972,7 +973,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
-    'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
     'workflows-update-schedule': workflowsUpdateSchedule,
     'workflows-version-stats': workflowsVersionStats,
 }
