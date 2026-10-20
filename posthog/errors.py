@@ -86,6 +86,8 @@ def clickhouse_error_type(e: Exception) -> str:
 
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
@@ -1181,10 +1183,6 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     if is_clickhouse_query_rejection(code_name):
         return f"ClickHouse rejected the query with error {code_name}."
     return None
-
-
-_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
-_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 
 
 def error_code_from_type(error: BaseException) -> str:

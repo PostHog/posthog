@@ -137,6 +137,8 @@ HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX = (
 
 RECORDABLE_STATUS_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,99}")
 
+QUERY_RESULT_ERROR_CODE = "query_result_error"
+
 HOGQL_INPUT_ERROR_CODES = frozenset({QueryError.code_name, HogQLSyntaxError.code_name, TrinoLoweringError.code_name})
 
 
@@ -637,7 +639,7 @@ class AssistantQueryExecutor:
         # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
         # `query_status.error` check the async-polling branch above already does.
         if isinstance(response_dict, dict) and (error := response_dict.get("error")):
-            raise MaxToolRetryableError(str(error), error_type="internal", error_code="query_result_error")
+            raise MaxToolRetryableError(str(error), error_type="internal", error_code=QUERY_RESULT_ERROR_CODE)
 
         total_elapsed = time.time() - start_time
         if debug_timing:
