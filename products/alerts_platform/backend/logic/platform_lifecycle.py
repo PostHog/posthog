@@ -589,6 +589,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 now=now,
                 configuration_id=configuration.id,
                 shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
+                schedule_key=outcome.schedule_key,
             )
 
         # Batched, because a grouped check writes a row per group rather than one per configuration.

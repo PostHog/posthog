@@ -2,6 +2,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +16,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
@@ -62,15 +63,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
             return platform_testing.create_configuration(
-                team_id=self.team.id,
-                name="alert",
-                source_kind=SourceKind.INSIGHT,
-                source_config={},
-                check_interval_minutes=60 * 24,
-                recurrence_unit="day",
-                next_check_at=CUTOFF - timedelta(minutes=1),
-                legacy_configuration_id=alert.id if alert else None,
-                **overrides,
+                **{
+                    "team_id": self.team.id,
+                    "name": "alert",
+                    "source_kind": SourceKind.INSIGHT,
+                    "source_config": {},
+                    "check_interval_minutes": 60 * 24,
+                    "recurrence_unit": "day",
+                    "next_check_at": CUTOFF - timedelta(minutes=1),
+                    "legacy_configuration_id": alert.id if alert else None,
+                    **overrides,
+                }
             )
 
     def _evaluate_per_series(
@@ -167,6 +170,32 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert platform_alert is not None and platform_alert.state == "firing"
         assert AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id) == before
         assert not AlertCheck.objects.filter(alert_configuration=alert).exists()
+
+    @parameterized.expand(
+        [
+            (AlertCalculationInterval.EVERY_15_MINUTES, 15, None),
+            (AlertCalculationInterval.HOURLY, 60, None),
+            (AlertCalculationInterval.DAILY, 60 * 24, "day"),
+            (AlertCalculationInterval.WEEKLY, 60 * 24 * 7, "week"),
+        ]
+    )
+    def test_a_copy_is_next_due_when_the_production_alert_is(
+        self, interval: AlertCalculationInterval, minutes: int, unit: str | None
+    ) -> None:
+        # A half-hour timezone, where the local hour starts at :30 UTC.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        alert = self._alert(calculation_interval=interval)
+        configuration = self._copy(alert, check_interval_minutes=minutes, recurrence_unit=unit)
+
+        with time_machine.travel(CUTOFF, tick=False):
+            outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+            assert outcome is not None
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+            expected = next_check_time(alert)
+
+        with team_scope(self.team.id):
+            assert platform_testing.configuration(configuration.id).next_check_at == expected
 
     @parameterized.expand(
         [

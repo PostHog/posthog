@@ -198,6 +198,9 @@ def evaluate_insight_check(
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
         outcome = _decide(checks[0], cutoff, evaluation_id=evaluation_id)
+        if checks[0].legacy_configuration_id is not None:
+            # Production times each check by its own alert's id, so the copy checks at that minute.
+            outcome = replace(outcome, schedule_key=str(checks[0].legacy_configuration_id))
         delivery = _delivery(checks[0], outcome)
         return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
     finally:
