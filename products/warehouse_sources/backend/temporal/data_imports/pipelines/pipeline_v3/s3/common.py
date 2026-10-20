@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import NonRet
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class BatchWriteResult:
     """Result of writing a batch to S3."""
 
@@ -22,6 +22,8 @@ class BatchWriteResult:
     byte_size: int
     batch_index: int
     timestamp_ns: int = field(default_factory=time.time_ns)
+    # Decoded size of the batch in Arrow, which the loader uses to size the sets it writes at once.
+    arrow_bytes: int | None = None
 
 
 def strip_s3_protocol(s3_path: str) -> str:

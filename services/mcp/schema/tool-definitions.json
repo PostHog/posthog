@@ -270,6 +270,21 @@
             "readOnlyHint": true
         }
     },
+    "insight-trust-check": {
+        "description": "Check whether the numbers of a product analytics insight can be trusted. It looks at the events behind the insight for four common problems that inflate its numbers: events from internal and test users, events from local development, bot and crawler traffic, and events sent twice. Pass the `id` or 8-character `short_id` of a saved insight, or the `query` of one that is not saved yet, such as a query you are about to pass to `insight-create`. Use it after you create or change a trends, funnel, stickiness, or lifecycle insight, and when the user asks whether an insight's numbers are accurate or can be trusted.\n\nOnly event series are checked. The `status` is `unsupported` for a SQL insight, for a series built on an action or a data warehouse table, for an insight that still stores legacy `filters`, and when a property of the project is hidden from you. It is `no_events` when no event matches the insight.\n\nEach check has a `level` (`passed`, `warning`, `problem` or `skipped`), the `events` it found with their `share`, and the `top_events` it found most often. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to true on the query, with `insight-update` for a saved insight. When it is `open_filter_settings`, the project's internal and test users filter misses the team, and the user must change it in the project settings. The checks read the newest days of the date range, up to 7, and `coverage` says which days and how many events. Each check's `method` says whether it counted every event on those days or read a sample, and `scaled` is true when its `events` is an estimate from a sample. The internal users check matches the organization's member emails only with the `organization_member:read` scope, and its verified domains only with `organization:read`. Checking a `query` needs the `query:read` scope as well.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Check whether an insight's numbers can be trusted.",
+        "title": "Check whether an insight's numbers can be trusted",
+        "required_scopes": ["insight:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "insight-data-checks"
+    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
