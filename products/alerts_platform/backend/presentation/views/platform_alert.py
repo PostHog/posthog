@@ -377,7 +377,6 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
         current = self._writable_configuration(team_id, configuration_id, "edit")
-        writable = self._writable_source_kinds
         # Checked again under the row lock. Here it answers before the body is validated, so a caller
         # never fixes a body for an alert it can never write.
         if current.owner != PlatformAlertOwner.PLATFORM:
@@ -395,7 +394,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         try:
             updated = platform_api.update_configuration(
                 team_id=team_id,
-                source_kinds=writable,
+                source_kinds=self._writable_source_kinds,
                 configuration_id=configuration_id,
                 # A partial update names only the fields it changes. The rest keep what is stored.
                 change=lambda stored: replace(stored, **fields),
