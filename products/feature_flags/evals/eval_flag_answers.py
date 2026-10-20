@@ -48,6 +48,8 @@ from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
+NO_SEND_LOGS = True
+
 _TOOL_DEFINITIONS = Path(__file__).parents[3] / "services/mcp/schema/generated-tool-definitions.json"
 FLAG_TOOL_CATEGORY = "Feature flags"
 
@@ -112,6 +114,7 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-answers-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_flag_answers::eval_flag_answers",

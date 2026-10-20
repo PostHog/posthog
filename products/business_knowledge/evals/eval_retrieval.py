@@ -18,6 +18,8 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.harness.context import EvalContext
 
+NO_SEND_LOGS = True
+
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
@@ -86,6 +88,7 @@ async def eval_retrieval(ctx: EvalContext) -> None:
         return await asyncio.to_thread(search_case, case)
 
     await OneShotPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="business-knowledge-retrieval",
         cases=CASES,
         task=task,

@@ -38,6 +38,7 @@ async def test_discovered_suites_publish_every_scorer(tmp_path: Path) -> None:
             await suite.fn(ctx)
             assert len(runs) == 1, suite.id
             run = runs[0]
+            assert run.no_send_logs == suite.no_send_logs, suite.id
             config = run.offline_suite
             assert config is not None, suite.id
             assert run.send_to_posthog, suite.id

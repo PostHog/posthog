@@ -15,6 +15,12 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 Set `send_to_posthog=True` alongside `offline_suite` to publish results to PostHog while keeping Braintrust uploads disabled.
 Set `send_to_posthog=False` to disable PostHog result uploads independently. The same options apply to one-shot suites.
 
+Suites that disable Braintrust uploads declare `NO_SEND_LOGS = True` at module level and pass `no_send_logs=NO_SEND_LOGS` to their runner.
+Discovery uses this declaration to validate credentials before starting infrastructure; the enrollment test checks that it matches the runner.
+`BRAINTRUST_API_KEY` is required for reporting only when at least one selected suite enables Braintrust uploads.
+PostHog-only suites still use the Braintrust library locally, without authenticating to its experiment service.
+Scorer model credentials remain separate: using Braintrust's model proxy still needs its credential, while other providers use their own keys.
+
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
 

@@ -59,6 +59,8 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 
+NO_SEND_LOGS = True
+
 # The rename case asks for these two values, so the prompt and the scorer read the same
 # constants: a prompt that changed without the expectation would grade the old request.
 METADATA_RENAMED_KEY = "file-preview-tiles"
@@ -141,6 +143,7 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-tool-selection-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_flag_tool_selection::eval_flag_tool_selection",

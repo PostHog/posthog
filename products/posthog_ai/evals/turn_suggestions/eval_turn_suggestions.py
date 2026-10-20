@@ -18,6 +18,8 @@ from products.posthog_ai.evals.offline_config import offline_suite
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.harness.context import EvalContext
 
+NO_SEND_LOGS = True
+
 SUITE_KIND = SuiteKind.ONE_SHOT
 BENCHMARK_CASES = {case.name: case for case in load_cases()}
 CASES = [
@@ -72,6 +74,7 @@ async def eval_turn_suggestions(ctx: EvalContext) -> None:
         }
 
     await OneShotPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="turn-suggestions",
         cases=[
             case.model_copy(update={"metadata": {**case.metadata, "threshold": threshold, "judge_model": model}})

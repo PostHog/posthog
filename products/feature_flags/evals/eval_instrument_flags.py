@@ -62,6 +62,8 @@ from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
+NO_SEND_LOGS = True
+
 SKILL_NAME = "instrument-feature-flags"
 SCORER_NAME = "instrument_flags_skill_triggered"
 
@@ -145,6 +147,7 @@ async def eval_instrument_flags(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-instrument-trigger-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_instrument_flags::eval_instrument_flags",
