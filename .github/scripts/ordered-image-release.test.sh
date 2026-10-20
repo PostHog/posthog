@@ -79,6 +79,7 @@ check_skip() {
 check_skip EXPECTED_DIGEST 'Ordered image alias source digest unavailable'
 check_skip ECR_REGISTRY 'Ordered image alias destination unavailable'
 check_skip ECR_REPO 'Ordered image alias destination unavailable'
+check_skip REGCTL 'Ordered image alias copy client unavailable'
 check_skip SOURCE_REGISTRY 'Ordered image alias source unavailable'
 check_skip SOURCE_REPO 'Ordered image alias source unavailable'
 unset SOURCE_REGISTRY SOURCE_REPO
@@ -146,6 +147,14 @@ test "$(git -C "$scratch/shallow" rev-list --first-parent --count HEAD)" = 1
 test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = false
 test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
 echo 'PASS shallow checkout fetches its configured origin and recovers first-parent ordinal'
+GITHUB_SHA="$(git -C "$scratch/mirror" rev-parse HEAD^1)"
+git -C "$scratch/mirror" cat-file -e "$GITHUB_SHA^{commit}"
+test "$GITHUB_SHA" != "$(git -C "$scratch/mirror" rev-parse HEAD)"
+: > "$GITHUB_OUTPUT"
+(cd "$scratch/mirror" && bash "$helper" tag) > "$scratch/wrong-checkout"
+test ! -s "$GITHUB_OUTPUT"
+grep -Fq 'The checked-out revision does not match GITHUB_SHA.' "$scratch/wrong-checkout"
+echo 'PASS available built revision that differs from HEAD produces no tag'
 export GITHUB_SHA=ffffffffffffffffffffffffffffffffffffffff
 : > "$GITHUB_OUTPUT"
 (cd "$scratch/mirror" && bash "$helper" tag) > "$scratch/missing"

@@ -114,7 +114,7 @@ describe('shared-image policy and legacy projection', () => {
   })
 
   test.each(['dw-metadata', '__proto__'])('enumerates explicitly approved prototype image and %s channel keys', name => {
-    const policy = loadPolicy(fixture.replace('posthog-cloud:', '__proto__:').replace(/dataWarehouseMetadata/g, '__proto__'))
+    const policy = loadPolicy(fixture.replace('posthog-cloud:', '__proto__:'))
     const channels = policy.images['__proto__'].channels
     expect(Object.keys(channels)).toEqual(['dw-metadata'])
     const channel = channels['dw-metadata']
@@ -125,10 +125,17 @@ describe('shared-image policy and legacy projection', () => {
     expect(Object.prototype.hasOwnProperty.call(resolved, '__proto__')).toBe(true)
     expect(Object.prototype.hasOwnProperty.call(resolved['__proto__'], name)).toBe(true)
     expect(resolved['__proto__'][name]).toEqual(destination)
-    expect(Object.keys(policy.filters)).toEqual(['__proto__', 'metadataAlias', 'dataWarehouse'])
+    expect(Object.keys(policy.filters)).toEqual(['dataWarehouseMetadata', 'metadataAlias', 'dataWarehouse'])
     const projected = yaml.load(projectLegacyFilters(policy, '{}')) as Record<string, Paths>
     expect(Object.keys(projected)).toEqual(Object.keys(policy.filters))
-    expect(projected['__proto__']).toEqual(policy.filters['__proto__'])
+    expect(projected.dataWarehouseMetadata).toEqual(policy.filters.dataWarehouseMetadata)
+  })
+
+  test.each(['policy', 'legacy projection'])('rejects unrepresentable filter names in %s', boundary => {
+    const operation = boundary === 'policy'
+      ? () => loadPolicy(fixture.replace(/dataWarehouseMetadata/g, '__proto__'))
+      : () => projectLegacyFilters(loadPolicy(fixture), '__proto__: ["worker/**"]')
+    expect(operation).toThrow('filters.__proto__: not representable by the matcher')
   })
 
   test('rejects independent channels whose regional replicas collide', () => {
@@ -141,12 +148,12 @@ describe('shared-image policy and legacy projection', () => {
   })
 
   test('the production workflow projects all legacy rules in their original order with identical patterns', () => {
-    const workflow = yaml.load(readFileSync(path.join(__dirname, '../../../workflows/container-images-cd.yml'), 'utf8')) as
+    const workflow = yaml.load(readFileSync(path.join(__dirname, '../../../../.github/workflows/container-images-cd.yml'), 'utf8')) as
       {jobs: {posthog_build: {steps: {id?: string; with?: {filters?: string}}[]}}}
     const inline = workflow.jobs.posthog_build.steps.find(step => step.id === 'check_temporal_worker_changes')?.with?.filters
     expect(inline).toBeDefined()
     const inlineRules = yaml.load(inline!) as Record<string, Paths | null>
-    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../shared-image-releases.yaml'), 'utf8'))
+    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../../.github/shared-image-releases.yaml'), 'utf8'))
     const projected = yaml.load(projectLegacyFilters(policy, inline!)) as Record<string, Paths>
     expect(Object.keys(projected)).toEqual(Object.keys(inlineRules))
     for (const [name, rule] of Object.entries(inlineRules)) {
@@ -206,6 +213,9 @@ describe('shared-image policy and legacy projection', () => {
     })
     expect(() => validateConsumerBinding(consumer, source, {...destination, replicas: [...destination.replicas]})).not.toThrow()
     expect(() => validateConsumerBinding(consumer, {...source, destinations: []}, destination)).toThrow('metadata.destination: unsupported source/consumer binding')
+    const expanded = {...destination, replicas: [...destination.replicas, '123456789012.dkr.ecr.ap-southeast-1.amazonaws.com']}
+    const repositories = [expanded.registry, ...expanded.replicas].map(registry => `${registry}/${expanded.repository}`)
+    expect(() => validateConsumerBinding({...consumer, repositories}, source, expanded)).toThrow('metadata.destination: unsupported source/consumer binding')
   })
 
   test('rejects conflicting independent owners in approved destination configuration', () => {
@@ -215,7 +225,7 @@ describe('shared-image policy and legacy projection', () => {
 
   test('metadata removal-parent coverage stays distinct from the broader active warehouse rule', () => {
     const historical = readFileSync(path.join(__dirname, 'fixtures/metadata-removal-parent.yaml'), 'utf8')
-    const current = loadPolicy(readFileSync(path.join(__dirname, '../../../shared-image-releases.yaml'), 'utf8'))
+    const current = loadPolicy(readFileSync(path.join(__dirname, '../../../../.github/shared-image-releases.yaml'), 'utf8'))
     const filter = new Filter(projectLegacyFilters(current, historical))
     const files = [
       {filename: 'products/warehouse_sources/backend/temporal/data_imports/source.py', status: ChangeStatus.Modified},

@@ -43362,13 +43362,24 @@ function validateChannelPaths(entries, location) {
         throw new Error(`${location}: channel requires a positive pattern`);
     }
 }
+function validatedMatcherYaml(filters) {
+    const serialized = yaml.dump(filters);
+    const authored = Object.keys(filters);
+    const represented = Object.keys(new filter_1.Filter(serialized).rules);
+    const missing = authored.find(name => !represented.includes(name));
+    if (missing !== undefined || represented.length !== authored.length) {
+        const name = missing !== null && missing !== void 0 ? missing : represented.find(name => !authored.includes(name));
+        throw new Error(`filters.${name}: not representable by the matcher`);
+    }
+    return serialized;
+}
 function loadPolicy(text) {
     const root = object(yaml.load(text), 'policy');
     shape(root, ['version', 'filters', 'images'], [], 'policy');
     if (root.version !== 1)
         throw new Error('policy.version: expected 1');
     const filters = Object.fromEntries(Object.entries(object(root.filters, 'filters')).map(([name, value]) => [name, paths(value, `filters.${name}`)]));
-    new filter_1.Filter(yaml.dump(filters));
+    validatedMatcherYaml(filters);
     const images = Object.create(null);
     for (const [image, value] of Object.entries(object(root.images, 'images'))) {
         const definition = object(value, `images.${image}`);
@@ -43442,7 +43453,7 @@ function projectLegacyFilters(policy, inlineYaml) {
     }
     if (Object.values(merged).some(value => value === null))
         throw new Error('legacy filters: unresolved policy reference');
-    return yaml.dump(merged);
+    return validatedMatcherYaml(merged);
 }
 function canonical(value) {
     if (Array.isArray(value))

@@ -90,6 +90,18 @@ function validateChannelPaths(entries: Paths, location: string): void {
   }
 }
 
+function validatedMatcherYaml(filters: Record<string, unknown>): string {
+  const serialized = yaml.dump(filters)
+  const authored = Object.keys(filters)
+  const represented = Object.keys(new Filter(serialized).rules)
+  const missing = authored.find(name => !represented.includes(name))
+  if (missing !== undefined || represented.length !== authored.length) {
+    const name = missing ?? represented.find(name => !authored.includes(name))
+    throw new Error(`filters.${name}: not representable by the matcher`)
+  }
+  return serialized
+}
+
 export function loadPolicy(text: string): Policy {
   const root = object(yaml.load(text), 'policy')
   shape(root, ['version', 'filters', 'images'], [], 'policy')
@@ -97,7 +109,7 @@ export function loadPolicy(text: string): Policy {
   const filters = Object.fromEntries(
     Object.entries(object(root.filters, 'filters')).map(([name, value]) => [name, paths(value, `filters.${name}`)])
   )
-  new Filter(yaml.dump(filters))
+  validatedMatcherYaml(filters)
   const images: Policy['images'] = Object.create(null)
   for (const [image, value] of Object.entries(object(root.images, 'images'))) {
     const definition = object(value, `images.${image}`)
@@ -168,7 +180,7 @@ export function projectLegacyFilters(policy: Policy, inlineYaml: string): string
     merged[name] = policy.filters[name]
   }
   if (Object.values(merged).some(value => value === null)) throw new Error('legacy filters: unresolved policy reference')
-  return yaml.dump(merged)
+  return validatedMatcherYaml(merged)
 }
 
 function canonical(value: unknown): unknown {

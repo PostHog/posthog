@@ -61,6 +61,10 @@ publish_alias() {
         echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry or repository name resolved empty."
         return 0
     fi
+    if [ -z "${REGCTL:-}" ]; then
+        echo "::warning title=Ordered image alias copy client unavailable::Ordered image alias publication was skipped because no copy client was supplied."
+        return 0
+    fi
     if { [ -n "${SOURCE_REGISTRY:-}" ] && [ -z "${SOURCE_REPO:-}" ]; } ||
         { [ -z "${SOURCE_REGISTRY:-}" ] && [ -n "${SOURCE_REPO:-}" ]; }; then
         echo "::warning title=Ordered image alias source unavailable::Ordered image alias publication was skipped because the source registry and repository must be supplied together."
@@ -69,12 +73,8 @@ publish_alias() {
     local source_image="${SOURCE_REGISTRY:-$ECR_REGISTRY}/${SOURCE_REPO:-$ECR_REPO}@${EXPECTED_DIGEST}"
     local target_image="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
     local publication_status=0 readback_status=0 resolved_digest result
-    if [ -n "${REGCTL:-}" ]; then
-        timeout --kill-after=5s 40s "$REGCTL" image copy \
-            "$source_image" "$target_image" || publication_status=$?
-    else
-        publication_status=127
-    fi
+    timeout --kill-after=5s 40s "$REGCTL" image copy \
+        "$source_image" "$target_image" || publication_status=$?
     if [ "$publication_status" -ne 0 ]; then
         echo "::warning::Ordered alias publication exited with status $publication_status"
     fi
