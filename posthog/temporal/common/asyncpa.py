@@ -1,5 +1,6 @@
 import asyncio
 import collections.abc
+from collections import deque
 
 import pyarrow as pa
 
@@ -23,9 +24,10 @@ class InvalidMessageFormat(Exception):
 class AsyncMessageReader:
     """Asynchronously read PyArrow messages from bytes iterator."""
 
-    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]):
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]) -> None:
         self._bytes = bytes_iter
-        self._buffer = bytearray()
+        self._chunks: deque[memoryview] = deque()
+        self._buffered_bytes = 0
         self._bytes_consumed = 0
 
     @property
@@ -43,6 +45,32 @@ class AsyncMessageReader:
     async def __anext__(self) -> pa.Message:
         return await self.read_next_message()
 
+    def _peek(self, n: int) -> memoryview:
+        if n == 0:
+            return memoryview(b"")
+        if len(self._chunks[0]) >= n:
+            return self._chunks[0][:n]
+
+        # Arrow needs contiguous messages; only messages spanning input chunks need a copy.
+        parts: list[memoryview] = []
+        remaining = n
+        for chunk in self._chunks:
+            part = chunk[:remaining]
+            parts.append(part)
+            remaining -= len(part)
+            if remaining == 0:
+                break
+        return memoryview(b"".join(parts))
+
+    def _consume(self, n: int) -> None:
+        self._buffered_bytes -= n
+        while n:
+            chunk = self._chunks.popleft()
+            if len(chunk) > n:
+                self._chunks.appendleft(chunk[n:])
+                break
+            n -= len(chunk)
+
     async def read_next_message(self) -> pa.Message:
         """Read the next message as an encapsulated IPC binary message.
 
@@ -50,7 +78,7 @@ class AsyncMessageReader:
         """
         await self.read_until(4)
 
-        if self._buffer[:4] != CONTINUATION_BYTES:
+        if self._peek(4) != CONTINUATION_BYTES:
             unparsed = await self.read_remaining()
             preview = unparsed[:200].decode("utf-8", errors="replace")
             raise InvalidMessageFormat(f"{INVALID_MESSAGE_FORMAT_ERROR}: {preview!r}", unparsed=unparsed)
@@ -58,48 +86,45 @@ class AsyncMessageReader:
         await self.read_until(8)
 
         # Size of the metadata message + padding to 8-byte boundary.
-        metadata_size = int.from_bytes(self._buffer[4:8], byteorder="little")
+        metadata_size = int.from_bytes(self._peek(8)[4:8], byteorder="little")
 
         if not metadata_size:
             raise StopAsyncIteration()
 
         await self.read_until(8 + metadata_size)
 
-        with memoryview(self._buffer) as buffer_view:
-            metadata_flatbuffer = buffer_view[8:][:metadata_size]
-            body_size = self.parse_body_size(metadata_flatbuffer)
-
-        del metadata_flatbuffer
+        with self._peek(8 + metadata_size) as buffer_view:
+            body_size = self.parse_body_size(buffer_view[8:])
 
         total_message_size = 8 + metadata_size + body_size
         await self.read_until(total_message_size)
 
-        with memoryview(self._buffer) as buffer_view:
-            loop = asyncio.get_running_loop()
-            msg = await loop.run_in_executor(None, pa.ipc.read_message, buffer_view[:total_message_size])
+        message_buffer = self._peek(total_message_size)
+        loop = asyncio.get_running_loop()
+        msg = await loop.run_in_executor(None, pa.ipc.read_message, message_buffer)
 
-        self._buffer = self._buffer[total_message_size:]
+        self._consume(total_message_size)
         self._bytes_consumed += total_message_size
 
         return msg
 
     async def read_until(self, n: int) -> None:
-        """Read from self._bytes until there are at least n bytes in self._buffer."""
-        while len(self._buffer) < n:
-            bytes = await anext(self._bytes)
-            self._buffer.extend(bytes)
+        while self._buffered_bytes < n:
+            chunk = await anext(self._bytes)
+            if chunk:
+                self._chunks.append(memoryview(chunk))
+                self._buffered_bytes += len(chunk)
 
     async def read_remaining(self) -> bytes:
         """Read the rest of the stream, up to MAX_UNPARSED_BYTES, and return it with the buffer."""
         try:
             # Callers can read without a request timeout, so a stalled stream must not block here.
             async with asyncio.timeout(UNPARSED_READ_TIMEOUT_SECONDS):
-                while len(self._buffer) < MAX_UNPARSED_BYTES:
-                    self._buffer.extend(await anext(self._bytes))
+                await self.read_until(MAX_UNPARSED_BYTES)
         except Exception:
             # The stream ended, the server closed the connection, or the deadline passed.
             pass
-        return bytes(self._buffer[:MAX_UNPARSED_BYTES])
+        return bytes(self._peek(min(self._buffered_bytes, MAX_UNPARSED_BYTES)))
 
     def parse_body_size(self, metadata_flatbuffer: bytes | bytearray | memoryview) -> int:
         """Parse body size from metadata flatbuffer.

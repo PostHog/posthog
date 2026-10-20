@@ -136,9 +136,12 @@ async def test_record_batch_reader_resumes_from_byte_offset(batches_before_resum
     assert batches_resumed == batches[batches_before_resume:]
 
 
-async def test_message_reader_stops_waiting_for_a_stalled_error_tail(monkeypatch):
+@pytest.mark.parametrize("chunk_size", [1, 1024])
+async def test_message_reader_stops_waiting_for_a_stalled_error_tail(monkeypatch, chunk_size: int):
     async def stalled_stream():
-        yield b"Code: 241. DB::Exception: an error"
+        error = b"Code: 241. DB::Exception: an error"
+        for offset in range(0, len(error), chunk_size):
+            yield error[offset : offset + chunk_size]
         await asyncio.Event().wait()
         yield b""
 
@@ -149,3 +152,28 @@ async def test_message_reader_stops_waiting_for_a_stalled_error_tail(monkeypatch
         await asyncio.wait_for(reader.read_next_message(), timeout=5)
 
     assert exc_info.value.unparsed == b"Code: 241. DB::Exception: an error"
+
+
+@pytest.mark.parametrize("chunk_size", [1, 17, 128 * 1024])
+async def test_record_batch_reader_shares_input_chunks(chunk_size: int) -> None:
+    batches = [pa.record_batch([pa.array(range(index, index + 10))], names=["id"]) for index in range(20)]
+    stream = io.BytesIO()
+    with pa.ipc.new_stream(stream, schema=batches[0].schema) as writer:
+        for batch in batches:
+            writer.write_batch(batch)
+    data = stream.getvalue()
+
+    async def chunks() -> collections.abc.AsyncIterator[bytes]:
+        for offset in range(0, len(data), chunk_size):
+            yield b""
+            yield data[offset : offset + chunk_size]
+
+    held_batches = [batch async for batch in asyncpa.AsyncRecordBatchReader(chunks())]
+
+    assert held_batches == batches
+    if chunk_size >= len(data):
+        source = pa.py_buffer(data)
+        for batch in held_batches:
+            values = batch.column(0).buffers()[1]
+            assert source.address <= values.address
+            assert values.address + values.size <= source.address + source.size
