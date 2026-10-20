@@ -95,7 +95,9 @@ class TestDivergenceInspection(ClickhouseTestMixin, BaseTest):
         self._log_person_activity("updated", item_id=stale.pk, name=None)
         self._log_person_activity("updated", item_id=tie.pk, name=None)
 
-        inspections = inspect_persons(self.team.pk, [str(p.uuid) for p in (tie, blanked, deleted, stale)] + [ghost])
+        inspections = inspect_persons(
+            self.team.pk, [str(p.uuid) for p in (tie, blanked, deleted)] + [str(stale.uuid).upper(), ghost]
+        )
         by_key = {i.key: i for i in inspections}
         flavors = self._flavors(inspections)
 
