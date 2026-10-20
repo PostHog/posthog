@@ -966,7 +966,7 @@ class HogQLQueryExecutor:
 
             workload = self.workload
             table_workload = clickhouse_context.workload
-            if workload in MAIN_CLUSTER_WORKLOADS and table_workload not in (None, Workload.DEFAULT):
+            if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
             if use_new_events_cluster(self.team.pk, self.query_modifiers):
                 if get_query_tags().product == Product.ENDPOINTS or workload not in (
