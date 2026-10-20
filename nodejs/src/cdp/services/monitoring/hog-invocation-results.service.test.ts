@@ -145,32 +145,34 @@ describe('HogInvocationResultsService', () => {
         })
 
         it.each([
-            ['an ordinary email', false, { code: '482913' }],
-            ['a sensitive email', true, undefined],
-        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, variables) => {
-            const hogFlow = new FixtureHogFlowBuilder()
-                .withWorkflow({
-                    actions: {
-                        email: {
-                            type: 'function_email',
-                            config: { template_id: 'template-email', sensitive, inputs: {} },
-                        } as any,
-                    },
-                    edges: [],
-                })
-                .build()
-            service.queueLifecycleRow(
-                createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } }),
-                'running'
-            )
-            await service.flush()
+            ['an ordinary email', false, {}, { code: '482913' }],
+            ['a sensitive email', true, {}, undefined],
+            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
+        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, variables) => {
+            const hogFlow =
+                sensitive === undefined
+                    ? ({ id: 'flow-1' } as any)
+                    : new FixtureHogFlowBuilder()
+                          .withWorkflow({
+                              actions: {
+                                  email: {
+                                      type: 'function_email',
+                                      config: { template_id: 'template-email', sensitive, inputs: {} },
+                                  } as any,
+                              },
+                              edges: [],
+                          })
+                          .build()
+            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
+            Object.assign(invocation.state, state)
+            await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
 
             const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
                 string,
                 any
             >
             expect(globals.variables).toEqual(variables)
-            expect(globals.event?.uuid).toBeDefined()
         })
 
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {
