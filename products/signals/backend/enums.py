@@ -23,6 +23,7 @@ class ReportPriority(StrEnum):
 class ReportTaskActionKind(LabeledStrEnum):
     # A report action that starts an agent run from the API. See `report_task_actions.py`.
     GET_IT_MERGED = "get_it_merged", "Get it merged"
+    MAKE_IT_GREEN = "make_it_green", "Make it green"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
 
 

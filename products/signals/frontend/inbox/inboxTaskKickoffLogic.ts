@@ -54,7 +54,11 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
-import { hasApprovedOpenReportPullRequest, reportPullRequests } from './utils/reportPullRequests'
+import {
+    hasActiveReportPullRequest,
+    hasApprovedOpenReportPullRequest,
+    reportPullRequests,
+} from './utils/reportPullRequests'
 
 export const REPORT_AI_PANEL = 'inbox-report'
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
@@ -179,10 +183,13 @@ export function isActionCapableReport(report: SignalReport): boolean {
 }
 
 /** Why Ask AI got the question: a dedicated surface that frames the run for one job. */
-export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr'
+export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr' | 'fix_ci'
 
 /** What "Get it merged" in the Ask AI menu sends. The chat shows it as the person's own message. */
 export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make.`
+
+/** What "Make it green" in the Ask AI menu sends. The run fixes CI and stops: it never merges. */
+export const FIX_CI_REQUEST = `Make CI green on this PR. Fix the failing checks and resolve any merge conflicts, then stop. Do not merge it. Ask me before you make a decision I did not make.`
 
 function discussReportInstructions(
     report: SignalReport | null,
@@ -203,6 +210,13 @@ function discussReportInstructions(
         return [
             `A person approved the pull request on the PostHog Inbox report at ${reportUrl} and asked you to get it merged in the message after this block.`,
             `Read the report first and find its open, approved pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Fix failing CI checks with the smallest change that keeps what the reviewer approved. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them, then run the affected tests. Then merge it with the repository's own merge process: read its contribution guide and agent instructions first, and use its merge queue when it has one. This request approves the merge of this pull request only. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, a new review that requests changes, a failure that this PR did not cause, or a merge rule that needs a person. Do not change the report state: the merge resolves the report.`,
+            NO_CHECKOUT_INSTRUCTIONS,
+        ]
+    }
+    if (intent === 'fix_ci' && report !== null && hasActiveReportPullRequest(report)) {
+        return [
+            `A person asked you to make CI green on the pull request of the PostHog Inbox report at ${reportUrl}, without merging it, in the message after this block.`,
+            `Read the report first and find its open pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state.`,
             NO_CHECKOUT_INSTRUCTIONS,
         ]
     }
@@ -819,6 +833,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 !hasApprovedOpenReportPullRequest(currentReport)
             ) {
                 lemonToast.info('This PR is no longer open and approved, so AI will answer instead.')
+            } else if (
+                intent === 'fix_ci' &&
+                currentReport !== null &&
+                hasActiveReportPullRequest(report) &&
+                !hasActiveReportPullRequest(currentReport)
+            ) {
+                lemonToast.info('This PR is no longer open, so AI will answer instead.')
             }
             if (values.currentProjectId == null) {
                 lemonToast.error("Couldn't ask AI about this report. Try again.")

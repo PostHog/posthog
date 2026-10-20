@@ -1535,12 +1535,14 @@ export interface SignalReportDeletionStatusApi {
 
 /**
  * * `get_it_merged` - Get it merged
+ * * `make_it_green` - Make it green
  * * `suggested_prompt` - Suggested prompt
  */
 export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[keyof typeof ReportTaskActionKindEnumApi]
 
 export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
+    MakeItGreen: 'make_it_green',
     SuggestedPrompt: 'suggested_prompt',
 } as const
 
@@ -1548,9 +1550,10 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
+     * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt */
     action: ReportTaskActionKindEnumApi
     /** Whether a run of this action can start now. */
@@ -1578,6 +1581,7 @@ export interface SignalReportTaskActionRunRequestApi {
     /** The action to run. Use a value from the actions list.
      *
      * * `get_it_merged` - Get it merged
+     * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt */
     action: ReportTaskActionKindEnumApi
     /**

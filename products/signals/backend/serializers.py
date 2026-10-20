@@ -3071,6 +3071,7 @@ class SignalReportTaskActionSerializer(serializers.Serializer):
         choices=ReportTaskActionKind.choices,
         help_text=(
             "The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. "
+            "`make_it_green` fixes failing CI on the report's open pull request and stops without merging it. "
             "`suggested_prompt` sends one of the prompts the report suggests."
         ),
     )

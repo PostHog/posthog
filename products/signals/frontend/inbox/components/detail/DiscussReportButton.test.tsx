@@ -2,11 +2,13 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -14,11 +16,13 @@ import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
+    FIX_CI_REQUEST,
     inboxTaskKickoffLogic,
     MERGE_PR_REQUEST,
     REPORT_AI_PANEL,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
 } from '../../inboxTaskKickoffLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { DiscussReportButton } from './DiscussReportButton'
 import { ReportDiscussionComposer } from './ReportDiscussionComposer'
@@ -74,6 +78,14 @@ describe('DiscussReportButton', () => {
     let discussReport: jest.Mock
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                '/api/projects/:team_id/signals/reports/:id/pr_checks/': { checks: [] },
+                '/api/projects/:team_id/signals/reports/:id/pr_comments/': { comments: [] },
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+            },
+        })
         initKeaTests()
         inboxTaskKickoffLogic.mount()
         discussReport = jest.fn()
@@ -302,6 +314,60 @@ describe('DiscussReportButton', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: flagEnabled,
         })
+        render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
+
+        expect(screen.queryByTestId('inbox-report-ask-ai-actions')).not.toBeInTheDocument()
+    })
+
+    async function setChecks(report: SignalReport, conclusion: 'failure' | 'success'): Promise<void> {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/pr_checks/': {
+                    checks: [{ name: 'backend', status: 'completed', conclusion, url: null }],
+                },
+            },
+        })
+        const logic = inboxReportDetailLogic({ reportId: report.id, report })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    }
+
+    it('sends Make it green with the fix CI intent when CI fails on an unapproved PR', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
+        })
+        const report = withPullRequest(makeReport(), 'open', 'review_required')
+        await setChecks(report, 'failure')
+        const user = userEvent.setup()
+        render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
+
+        await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
+        expect(screen.queryByText('Get it merged')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Make it green'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            FIX_CI_REQUEST,
+            undefined,
+            'fix_ci'
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            question_source: 'suggested',
+            suggestion_count: 1,
+            question_intent: 'fix_ci',
+        })
+    })
+
+    it.each([
+        ['CI passes', 'success', 'open'],
+        ['the PR is already merged', 'failure', 'merged'],
+    ] as const)('does not offer Make it green when %s', async (_name, conclusion, state) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
+        })
+        const report = withPullRequest(makeReport(), state, 'review_required')
+        await setChecks(report, conclusion)
         render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
 
         expect(screen.queryByTestId('inbox-report-ask-ai-actions')).not.toBeInTheDocument()

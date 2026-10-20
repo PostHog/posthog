@@ -1,7 +1,6 @@
 import re
 import json
 import uuid
-from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, timedelta
 from functools import cached_property, partial
@@ -148,6 +147,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
@@ -210,7 +210,7 @@ from products.signals.backend.report_task_actions import (
     ReportActionState,
     ReportTaskActionContext,
     ReportTaskActionStartError,
-    active_merge_run,
+    active_pull_request_run,
     inbox_report_action_properties,
     list_report_task_actions,
     resolve_report_task_action,
@@ -322,18 +322,9 @@ _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     description="Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).",
 )
 
-# The pill in a report list needs a glyph, not a live build log, so its CI state is cached longer
-# than the detail view's checks. The detail view stays the authoritative, 15s-fresh read of the
-# same pull request.
-PR_CI_STATUS_CACHE_SECONDS = 60
-# How long a pull request GitHub cannot answer for is remembered as unreadable.
-PR_CI_STATUS_UNREADABLE_CACHE_SECONDS = 300
 # Reports one batch CI-status request may ask about. A report list page is 50 rows, so a full page
 # of pull requests fits, with room for a flat list that merges several sections.
 PR_CI_STATUS_MAX_REPORTS = 100
-# Cached in place of a CI status for a pull request GitHub cannot answer for. Not a member of the
-# status vocabulary, so it can never be served to a caller as one.
-_PR_CI_STATUS_UNREADABLE = "unreadable"
 # Report statuses whose pull request is no longer open, so its CI is not worth a GitHub call.
 _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
     {SignalReport.Status.FAILED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
@@ -3104,6 +3095,7 @@ class SignalReportViewSet(
         description=(
             "List the actions on this report that start an agent run, read from the report's current state. "
             "`get_it_merged` is available only while the report has an open, approved pull request. "
+            "`make_it_green` is available only while CI fails on the report's open pull request. "
             "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
         ),
         operation_id="signals_reports_actions_list",
@@ -3149,7 +3141,7 @@ class SignalReportViewSet(
             409: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
-                    "A merge run is already working on this report (code `report_action_run_active`). "
+                    "A run is already working on this report's pull request (code `report_action_run_active`). "
                     "The body carries its `task_id` and `run_id`."
                 ),
             ),
@@ -3220,13 +3212,13 @@ class SignalReportViewSet(
             )
             return self._task_action_error("report_action_unavailable", report_action.disabled_reason, error_status)
 
-        if kind == ReportTaskActionKind.GET_IT_MERGED and (
-            active := active_merge_run(team_id=self.team.id, report_id=str(report.id))
+        if kind in (ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN) and (
+            active := active_pull_request_run(team_id=self.team.id, report_id=str(report.id))
         ):
             capture("limited", "report_action_run_active")
             return self._task_action_error(
                 "report_action_run_active",
-                "A merge run is already working on this report. Follow that run instead.",
+                "A run is already working on this report's pull request. Follow that run instead.",
                 status.HTTP_409_CONFLICT,
                 task_id=active.task_id,
                 run_id=active.run_id,
@@ -4297,19 +4289,12 @@ class SignalReportViewSet(
                 if (parsed := GitHubIntegration.parse_pull_request_url(pr.url)) is not None
             ]
 
-        statuses = self._pr_ci_statuses_for_references(ref for refs in references.values() for ref in refs)
-        rollups = []
-        for report_id, refs in references.items():
-            known = {statuses[ref] for ref in refs if ref in statuses}
-            if "failing" in known:
-                rollup = "failing"
-            elif not refs or any(ref not in statuses for ref in refs):
-                continue
-            elif "pending" in known:
-                rollup = "pending"
-            else:
-                rollup = "passing" if known == {"passing"} else "none"
-            rollups.append({"report_id": report_id, "ci_status": rollup})
+        statuses = pr_ci_statuses_for_references(self.team.id, [ref for refs in references.values() for ref in refs])
+        rollups = [
+            {"report_id": report_id, "ci_status": rollup}
+            for report_id, refs in references.items()
+            if (rollup := rollup_ci_status(refs, statuses)) is not None
+        ]
         return self._pr_ci_statuses_response(rollups)
 
     @staticmethod
@@ -4318,89 +4303,6 @@ class SignalReportViewSet(
         """Render the batch CI-status payload through its declared response serializer, so the wire
         shape cannot drift from the OpenAPI schema the frontend types and MCP tools are built from."""
         return Response(PullRequestCiStatusesResponseSerializer({"statuses": statuses}).data)
-
-    def _pr_ci_statuses_for_references(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
-        """CI rollup per pull request, from the shared cache where it is warm and one batched GitHub
-        call per integration for the rest. A pull request GitHub cannot answer for is absent from the
-        result: this paints a glyph onto a list, so it degrades to no glyph rather than to an error."""
-        resolved: dict[PullRequestRef, str] = {}
-        misses_by_repository: dict[str, list[PullRequestRef]] = defaultdict(list)
-        for reference in dict.fromkeys(references):
-            cached = cache.get(self._pr_ci_status_cache_key(reference))
-            if cached == _PR_CI_STATUS_UNREADABLE:
-                continue
-            if isinstance(cached, str):
-                resolved[reference] = cached
-            else:
-                misses_by_repository[reference.repository].append(reference)
-
-        # An installation is granted per repository, so one integration lookup per repository is what
-        # bounds the access probes. Repositories that share an installation collapse into one query.
-        batches: dict[int, tuple[GitHubIntegration, list[PullRequestRef]]] = {}
-        for repository, repository_references in misses_by_repository.items():
-            try:
-                github = GitHubIntegration.first_for_team_repository(
-                    self.team.id, repository, source="signals_pr_ci_status", priority=Priority.NORMAL
-                )
-            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-                # The probe never reached GitHub, so nothing was learned about the repository. Same
-                # policy as a throttled fetch below: remember nothing and let the next poll ask again.
-                logger.info("signals.reports.pr_ci_statuses.lookup_throttled", repository=repository)
-                continue
-            except Exception:
-                logger.warning(
-                    "signals.reports.pr_ci_statuses.integration_lookup_failed", repository=repository, exc_info=True
-                )
-                continue
-            if github is None:
-                # GitHub answered, and no installation reaches the repository. That is stable enough
-                # to remember, so the probe does not run again on every load and every poll.
-                self._remember_unreadable_pr_ci_statuses(repository_references)
-                continue
-            _, pending = batches.setdefault(github.integration.id, (github, []))
-            pending.extend(repository_references)
-
-        for github, pending in batches.values():
-            # One call per batch, cached as it lands, so a failure costs the batches it stopped and
-            # not the ones GitHub already answered for. Stop this integration at the first failure:
-            # another call would spend the same budget on the same condition.
-            batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
-            for start in range(0, len(pending), batch_size):
-                batch = pending[start : start + batch_size]
-                try:
-                    fetched = github.get_pull_request_ci_statuses(batch)
-                except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-                    # Expected under load, and the reader loses nothing they had: skip the glyph and
-                    # let the next request (or the detail view) answer once the limit clears.
-                    logger.info("signals.reports.pr_ci_statuses.throttled", pr_count=len(batch))
-                    break
-                except Exception:
-                    logger.warning("signals.reports.pr_ci_statuses.fetch_failed", pr_count=len(batch), exc_info=True)
-                    break
-                for reference, ci_status in fetched.items():
-                    cache.set(self._pr_ci_status_cache_key(reference), ci_status, timeout=PR_CI_STATUS_CACHE_SECONDS)
-                    resolved[reference] = ci_status
-                # GitHub answered the batch but left this pull request out, so the installation cannot
-                # read it (deleted, transferred, or access revoked). That is stable enough to remember.
-                self._remember_unreadable_pr_ci_statuses([ref for ref in batch if ref not in fetched])
-        return resolved
-
-    def _remember_unreadable_pr_ci_statuses(self, references: Iterable[PullRequestRef]) -> None:
-        """Remember, briefly, that GitHub cannot answer for these pull requests.
-
-        Without this every list load and every poll re-runs the per-repository access probe, and then
-        the query, for a pull request that is never going to resolve. The window is short so access
-        granted a moment later still takes effect quickly.
-        """
-        for reference in references:
-            cache.set(
-                self._pr_ci_status_cache_key(reference),
-                _PR_CI_STATUS_UNREADABLE,
-                timeout=PR_CI_STATUS_UNREADABLE_CACHE_SECONDS,
-            )
-
-    def _pr_ci_status_cache_key(self, reference: PullRequestRef) -> str:
-        return f"signals:pr-ci-status:{self.team.id}:{reference.repository}:{reference.number}"
 
     @extend_schema(
         parameters=[_PULL_REQUEST_ID_PARAMETER],

@@ -209,6 +209,9 @@ const PR_CHECKS_POLL_INTERVAL_MS = 15000
 // checks for (deleted branch, lost integration access) re-fails on every 15s tick for nothing.
 const PR_CHECKS_MAX_CONSECUTIVE_FAILURES = 3
 
+// Check conclusions that mean the check failed. Matches the failure bucket of `PrChecksSection`.
+const FAILED_CHECK_CONCLUSIONS = ['failure', 'timed_out', 'action_required', 'startup_failure']
+
 // While backed off, still retry every Nth tick (20 × 15s = 5 min) so a transient GitHub outage
 // heals the section without the report having to be closed and reopened.
 const PR_CHECKS_FAILURE_BACKOFF_TICKS = 20
@@ -331,6 +334,7 @@ export interface inboxReportDetailLogicValues {
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
+    prChecksFailing: boolean
     prChecksConsecutiveFailures: number
     prChecksError: PrChecksError | null
     prChecksLoading: boolean
@@ -685,6 +689,10 @@ export interface inboxReportDetailLogicMeta {
         selectedPullRequest: (report: SignalReport | null, selectedPullRequestUrl: string | null) => ReportPullRequest
         hasImplementationPr: (report: SignalReport | null) => boolean
         prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
+        prChecksFailing: (
+            selectedPullRequest: ReportPullRequest,
+            prChecks: readonly PullRequestCheckApi[] | null
+        ) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
         inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>
@@ -1231,6 +1239,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         hasImplementationPr: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => reportPullRequests(report).length > 0,
+        ],
+        // Whether a check fails on the selected PR while it is still open, so CI there is worth fixing.
+        prChecksFailing: [
+            (s) => [s.selectedPullRequest, s.prChecks],
+            (pr: ReportPullRequest, prChecks: readonly PullRequestCheckApi[] | null): boolean =>
+                !pr.merged &&
+                pr.state !== 'closed' &&
+                pr.state !== 'merged' &&
+                (prChecks ?? []).some(
+                    (check) => check.status === 'completed' && FAILED_CHECK_CONCLUSIONS.includes(check.conclusion ?? '')
+                ),
         ],
         // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
         // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
