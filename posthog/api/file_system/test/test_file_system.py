@@ -1143,16 +1143,25 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystemViewLog.objects.create(
             team=self.team, user=other_user, type="dashboard", ref="2", viewed_at="2026-09-03T00:00:00Z"
         )
-        base = f"/api/projects/{self.team.id}/file_system/?{type_filter}&order_by="
-        for ordering, expected in [("-last_viewed_at", [1, 0, 2]), ("last_viewed_at", [0, 1, 2])]:
-            response = self.client.get(f"{base}{ordering}&limit=2")
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-            data = response.json()
-            self.assertEqual([row["id"] for row in data["results"]], [str(files[index].id) for index in expected[:2]])
-            self.assertEqual(data["count"], 3)
-            page = self.client.get(data["next"]).json()
-            self.assertEqual(page["results"][0]["id"], str(files[2].id))
-            self.assertIsNone(page["results"][0]["last_viewed_at"])
+        files.append(FileSystem.objects.create(team=self.team, path="Dashboard copy", type="dashboard", ref="0"))
+        FileSystem.objects.create(team=self.team, path="Excluded", type="dashboard", ref="excluded")
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="excluded", viewed_at="2026-09-04T00:00:00Z"
+        )
+        base = f"/api/projects/{self.team.id}/file_system/?{type_filter}&search=name:Dashboard&order_by="
+        for ordering, expected in [("-last_viewed_at", [1, 3, 0, 2]), ("last_viewed_at", [3, 0, 1, 2])]:
+            next_url = f"{base}{ordering}&limit=2"
+            results = []
+            while next_url:
+                response = self.client.get(next_url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+                data = response.json()
+                self.assertEqual(data["count"], 4)
+                results.extend(data["results"])
+                next_url = data["next"]
+            self.assertEqual([row["id"] for row in results], [str(files[index].id) for index in expected])
+            self.assertIsNone(results[-1]["last_viewed_at"])
+            self.assertTrue(all(row["last_viewed_at"] for row in results[:-1]))
 
     def test_list_order_by_created_at(self):
         # Create items in chronological order

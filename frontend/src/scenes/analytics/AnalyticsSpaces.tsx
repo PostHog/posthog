@@ -138,7 +138,7 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
 
 function AnalyticsSpacesContent(): JSX.Element {
     const { spaces, visibleSpaces, spacesLoading, spacesFailed, search, pagination } = useValues(analyticsSpacesLogic)
-    const { loadSpaces, loadMore, setSearch } = useActions(analyticsSpacesLogic)
+    const { refreshSpaces, loadMore, setSearch } = useActions(analyticsSpacesLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
 
     const newSpaceButton = (
@@ -169,7 +169,7 @@ function AnalyticsSpacesContent(): JSX.Element {
                             <EmptyDescription>Try again, and if it keeps happening contact support.</EmptyDescription>
                         </EmptyHeader>
                         <EmptyContent>
-                            <Button variant="outline" loading={spacesLoading} onClick={() => loadSpaces()}>
+                            <Button variant="outline" loading={spacesLoading} onClick={() => refreshSpaces()}>
                                 Try again
                             </Button>
                         </EmptyContent>

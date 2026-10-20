@@ -56,7 +56,7 @@ export interface AnalyticsSpace {
 type SpacesPagination = { offset: number; hasMore: boolean }
 
 /** One request per type reads the count and the newest row, so a big space costs four small calls. */
-export async function loadSpace(folder: FileSystemEntry): Promise<AnalyticsSpace> {
+export async function loadSpace(folder: FileSystemEntry, signal?: AbortSignal): Promise<AnalyticsSpace> {
     const pages = await Promise.all(
         ANALYTICS_TYPES.map((info) =>
             api.fileSystem.list({
@@ -64,6 +64,7 @@ export async function loadSpace(folder: FileSystemEntry): Promise<AnalyticsSpace
                 ...fileSystemTypeParams(info.type),
                 orderBy: '-created_at',
                 limit: 1,
+                signal,
             })
         )
     )
@@ -141,6 +142,9 @@ export interface analyticsSpacesLogicActions {
         spaces: AnalyticsSpace[]
         payload?: boolean
     }
+    refreshSpaces: () => {
+        value: true
+    }
     setPagination: (
         offset: number,
         hasMore: boolean
@@ -187,38 +191,78 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
         togglePinDone: true,
         setSearch: (search: string) => ({ search }),
         loadMore: true,
+        refreshSpaces: true,
         setPagination: (offset: number, hasMore: boolean) => ({ offset, hasMore }),
     }),
     loaders(({ actions, values, cache }) => ({
         shortcuts: [
             [] as FileSystemEntry[],
             {
-                loadShortcuts: async () => (await api.fileSystemShortcuts.list()).results,
+                loadShortcuts: async () => {
+                    cache.shortcutsRequest = api.fileSystemShortcuts.list()
+                    return (await cache.shortcutsRequest).results
+                },
             },
         ],
         spaces: [
             [] as AnalyticsSpace[],
             {
                 loadSpaces: async (append: boolean = false, breakpoint): Promise<AnalyticsSpace[]> => {
-                    const offset = append ? values.pagination.offset : 0
-                    const page = await api.fileSystem.list({
-                        depth: 1,
-                        type: 'folder',
-                        limit: ANALYTICS_FEED_PAGE_SIZE,
-                        offset,
-                        orderBy: 'path',
-                        search: values.search.trim() || undefined,
-                        searchNameOnly: true,
-                    })
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'spacesRequest', { pauseOnPageHidden: false })
+                    const metadata: Map<string, AnalyticsSpace> = (cache.metadata ??= new Map())
+                    let folders: FileSystemEntry[] | undefined = cache.folders
+                    if (!folders) {
+                        folders = []
+                        for (let offset = 0; ; offset += 200) {
+                            const page = await api.fileSystem.list({
+                                depth: 1,
+                                type: 'folder',
+                                limit: 200,
+                                offset,
+                                orderBy: 'path',
+                                signal: controller.signal,
+                            })
+                            breakpoint()
+                            folders.push(...page.results)
+                            if (!page.next || !page.results.length) {
+                                break
+                            }
+                        }
+                        cache.folders = folders
+                    }
+                    if (!cache.shortcutsRequest) {
+                        actions.loadShortcuts()
+                    }
+                    const shortcuts: FileSystemEntry[] = (await cache.shortcutsRequest).results
                     breakpoint()
+                    const pinned = new Set(shortcuts.filter((item) => item.type === 'folder').map((item) => item.ref))
+                    const needle = values.search.trim().toLowerCase()
+                    const matches = folders
+                        .filter(
+                            (folder) =>
+                                isSpacePath(folder.path) && fileSystemEntryName(folder).toLowerCase().includes(needle)
+                        )
+                        .sort((first, second) => {
+                            const pinnedFirst = Number(pinned.has(second.path)) - Number(pinned.has(first.path))
+                            return pinnedFirst || first.path.localeCompare(second.path)
+                        })
+                    const offset = append ? values.pagination.offset : 0
+                    const page = matches.slice(offset, offset + ANALYTICS_FEED_PAGE_SIZE)
                     const spaces = await Promise.all(
-                        page.results
-                            .filter((folder) => ![UNFILED_FOLDER, USERS_FOLDER].includes(fileSystemEntryName(folder)))
-                            .map(loadSpace)
+                        page.map(async (folder) => {
+                            const existing = metadata.get(folder.path)
+                            if (existing) {
+                                return existing
+                            }
+                            const space = await loadSpace(folder, controller.signal)
+                            metadata.set(folder.path, space)
+                            return space
+                        })
                     )
                     breakpoint()
                     cache.loaded = true
-                    actions.setPagination(offset + page.results.length, !!page.next && page.results.length > 0)
+                    actions.setPagination(offset + page.length, offset + page.length < matches.length)
                     const combined = append ? [...values.spaces, ...spaces] : spaces
                     return combined.sort((first, second) => first.name.localeCompare(second.name))
                 },
@@ -279,7 +323,20 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        refreshSpaces: () => {
+            cache.folders = undefined
+            cache.metadata = new Map<string, AnalyticsSpace>()
+            actions.loadSpaces()
+        },
+        loadShortcutsFailure: () => {
+            cache.shortcutsRequest = undefined
+        },
+        loadShortcutsSuccess: () => {
+            if (cache.loaded && removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsSpaces()) {
+                actions.loadSpaces()
+            }
+        },
         loadMore: () => {
             if (!values.spacesLoading && values.pagination.hasMore) {
                 actions.loadSpaces(true)
@@ -316,13 +373,13 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             cache.flagSeen = true
             actions.loadShortcuts()
             if (removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsSpaces()) {
-                actions.loadSpaces()
+                actions.refreshSpaces()
             }
         },
         // A space made from the dialog shows up without a reload.
         folderCreated: () => {
             if (removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsSpaces()) {
-                actions.loadSpaces()
+                actions.refreshSpaces()
             }
         },
         // A collection is deleted like any folder, through the project tree. The server keeps its pin, so it goes here.
@@ -338,7 +395,7 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             posthog.capture('analytics collection deleted')
             actions.loadShortcuts()
             if (removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsSpaces()) {
-                actions.loadSpaces()
+                actions.refreshSpaces()
             }
         },
         togglePinDone: () => {
@@ -350,7 +407,7 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.analyticsSpaces()]: () => {
             if (values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-                actions.loadSpaces()
+                actions.refreshSpaces()
             }
         },
     })),
