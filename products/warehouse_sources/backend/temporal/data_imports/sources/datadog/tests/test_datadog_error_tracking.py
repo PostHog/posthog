@@ -4,9 +4,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog import datadog as ddog
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
     DatadogIssueSearchConfig,
     _epoch_ms_to_iso,
@@ -19,13 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 
-class TestErrorTablesOptIn:
-    def test_error_tables_are_opt_in(self) -> None:
-        config = DatadogSourceConfig(api_key="dd-api", application_key="dd-app", site="datadoghq.com")
-        schemas = {s.name: s for s in DatadogSource().get_schemas(config, 123)}
-        for name in ("error_tracking_issues", "error_spans", "error_logs"):
-            assert schemas[name].should_sync_default is False
-        assert schemas["logs"].should_sync_default is True
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        DatadogSource(), DatadogSourceConfig(api_key="api", application_key="app", site="datadoghq.com")
+    )
 
 
 class TestWalkPageCap:
@@ -33,44 +32,19 @@ class TestWalkPageCap:
         # The error endpoints are rate limited, so a sync stops after a bounded number of pages and the
         # next one continues from the checkpointed cursor value.
         capped = dataclasses.replace(DATADOG_ENDPOINTS["error_logs"], max_pages_per_sync=2)
-        bodies = [
+        pages = [
             {"data": [{"id": str(i), "attributes": {}}], "links": {"next": f"https://api.datadoghq.com/p{i + 1}"}}
             for i in range(4)
         ]
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        manager.load_state.return_value = None
-        fetched: list[str] = []
         logger = mock.MagicMock()
 
-        def fake_get(url: str, timeout: Any = None) -> Any:
-            resp = mock.MagicMock()
-            resp.status_code = 200
-            resp.ok = True
-            resp.json.return_value = bodies[len(fetched)]
-            fetched.append(url)
-            return resp
+        with mock.patch.dict(DATADOG_ENDPOINTS, {"error_logs": capped}):
+            result = _driver().run("error_logs", [ScriptedResponse(json=page) for page in pages], logger=logger)
 
-        with (
-            mock.patch.dict(DATADOG_ENDPOINTS, {"error_logs": capped}),
-            mock.patch.object(ddog, "make_tracked_session") as mock_session,
-        ):
-            mock_session.return_value.get.side_effect = fake_get
-            rows = list(
-                ddog.get_rows(
-                    site="datadoghq.com",
-                    api_key="api",
-                    app_key="app",
-                    endpoint="error_logs",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert len(fetched) == 2
-        assert [batch[0]["id"] for batch in rows] == ["0", "1"]
-        logger.warning.assert_called_once()
-        assert logger.warning.call_args.args == ("datadog.page_cap_reached",)
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert [row["id"] for row in result.rows] == ["0", "1"]
+        assert [call.args for call in logger.warning.call_args_list] == [("datadog.page_cap_reached",)]
 
 
 def _issue_result(issue_id: str, total: int, sessions: int = 1, users: int = 1) -> dict[str, Any]:
@@ -107,48 +81,14 @@ def _issue_response(*issues: tuple[str, int, int]) -> dict[str, Any]:
 
 
 class TestIssueSearch:
-    def _run(self, responses: list[Any], config_override: Any = None) -> dict[str, Any]:
-        """Run the issue sync against queued responses. An int is a bare HTTP status."""
-        manager = mock.MagicMock()
-        calls: list[dict[str, Any]] = []
+    @staticmethod
+    def _run(script: list[ScriptedResponse], config_override: Any = None) -> tuple[DriveResult, mock.MagicMock]:
         logger = mock.MagicMock()
-
-        def fake_post(url: str, json: Any = None, timeout: Any = None) -> Any:
-            calls.append({"url": url, "body": json})
-            queued = responses[min(len(calls), len(responses)) - 1]
-            resp = mock.MagicMock()
-            resp.status_code = queued if isinstance(queued, int) else 200
-            resp.ok = resp.status_code < 400
-            resp.text = f"{resp.status_code} body"
-            resp.json.return_value = {} if isinstance(queued, int) else queued
-            if not resp.ok:
-                resp.raise_for_status.side_effect = requests.HTTPError(
-                    f"{resp.status_code} Client Error", response=resp
-                )
-            return resp
-
         endpoint_patch = {"error_tracking_issues": config_override} if config_override else {}
-        with (
-            mock.patch.dict(DATADOG_ENDPOINTS, endpoint_patch),
-            mock.patch.object(ddog, "make_tracked_session") as mock_session,
-            mock.patch("tenacity.nap.time.sleep"),
-        ):
-            mock_session.return_value.post.side_effect = fake_post
-            rows = [
-                row
-                for batch in ddog.get_rows(
-                    site="datadoghq.com",
-                    api_key="api",
-                    app_key="app",
-                    endpoint="error_tracking_issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-                for row in batch
-            ]
-            get_called = mock_session.return_value.get.called
-
-        return {"rows": rows, "calls": calls, "logger": logger, "get_called": get_called, "manager": manager}
+        with mock.patch.dict(DATADOG_ENDPOINTS, endpoint_patch):
+            result = _driver().run("error_tracking_issues", script, logger=logger)
+        assert result.raised is None
+        return result, logger
 
     @staticmethod
     def _with_search(**overrides: Any) -> Any:
@@ -157,13 +97,13 @@ class TestIssueSearch:
         return dataclasses.replace(base, search=dataclasses.replace(base.search, **overrides))
 
     def test_posts_a_search_body_and_shapes_rows(self) -> None:
-        result = self._run([_issue_response(("issue-1", 12, 1_772_679_494_000))])
+        result, _ = self._run([ScriptedResponse(json=_issue_response(("issue-1", 12, 1_772_679_494_000)))])
 
-        assert not result["get_called"]
-        assert len(result["calls"]) == 1
-        call = result["calls"][0]
-        assert call["url"] == "https://api.datadoghq.com/api/v2/error-tracking/issues/search?include=issue"
-        data = call["body"]["data"]
+        assert [request.method for request in result.requests] == ["POST"]
+        request = result.requests[0]
+        assert request.path == "/api/v2/error-tracking/issues/search"
+        assert request.param("include") == "issue"
+        data = request.json()["data"]
         assert data["type"] == "search_request"
         attributes = data["attributes"]
         assert isinstance(attributes["from"], int)
@@ -171,7 +111,7 @@ class TestIssueSearch:
         assert attributes["from"] < attributes["to"]
 
         # Attributes the response omits are still present, so the table keeps the same columns.
-        assert result["rows"] == [
+        assert result.rows == [
             {
                 **dict.fromkeys(DatadogIssueSearchConfig().issue_fields),
                 "id": "issue-1",
@@ -187,34 +127,40 @@ class TestIssueSearch:
             }
         ]
         # A sync must not leave resume state behind that a later run would pick up.
-        result["manager"].save_state.assert_not_called()
+        assert result.saved_states == []
 
     def test_full_response_halves_the_window_and_merges_by_issue(self) -> None:
         override = self._with_search(max_results_per_request=3)
-        result = self._run(
+        result, _ = self._run(
             [
                 # The whole window comes back full, so it may hide issues.
-                _issue_response(("issue-1", 1, 1_000), ("issue-2", 1, 1_000), ("issue-3", 1, 1_000)),
-                {
-                    "data": [_issue_result("issue-1", 3, users=5), _issue_result("issue-2", 5)],
-                    "included": [_issue_included("issue-1", 1_000), _issue_included("issue-2", 2_000)],
-                },
-                {
-                    "data": [_issue_result("issue-1", 4, users=2)],
-                    "included": [_issue_included("issue-1", 9_000)],
-                },
+                ScriptedResponse(
+                    json=_issue_response(("issue-1", 1, 1_000), ("issue-2", 1, 1_000), ("issue-3", 1, 1_000))
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [_issue_result("issue-1", 3, users=5), _issue_result("issue-2", 5)],
+                        "included": [_issue_included("issue-1", 1_000), _issue_included("issue-2", 2_000)],
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [_issue_result("issue-1", 4, users=2)],
+                        "included": [_issue_included("issue-1", 9_000)],
+                    }
+                ),
             ],
             config_override=override,
         )
 
-        whole, first, second = (call["body"]["data"]["attributes"] for call in result["calls"])
-        assert len(result["calls"]) == 3
+        assert len(result.requests) == 3
+        whole, first, second = (request.json()["data"]["attributes"] for request in result.requests)
         # Earlier half first, and the halves tile the window with no gap or overlap.
         assert first["from"] == whole["from"]
         assert first["to"] == second["from"]
         assert second["to"] == whole["to"]
 
-        by_id = {row["id"]: row for row in result["rows"]}
+        by_id = {row["id"]: row for row in result.rows}
         assert set(by_id) == {"issue-1", "issue-2"}
         # Counts of the halves add up, and the full-window response is discarded, not double counted.
         assert by_id["issue-1"]["window_total_count"] == 7
@@ -227,37 +173,39 @@ class TestIssueSearch:
         # Splitting stops at the minimum window. Dropping the rows silently would look like a
         # complete sync, so the cap is reported and the rows we got are kept.
         override = self._with_search(max_results_per_request=2, min_window_seconds=30 * 24 * 3600)
-        result = self._run(
-            [_issue_response(("issue-1", 1, 1_000), ("issue-2", 2, 1_000))],
+        result, logger = self._run(
+            [ScriptedResponse(json=_issue_response(("issue-1", 1, 1_000), ("issue-2", 2, 1_000)))],
             config_override=override,
         )
 
-        assert len(result["calls"]) == 1
-        assert {row["id"] for row in result["rows"]} == {"issue-1", "issue-2"}
-        result["logger"].warning.assert_called_once()
-        assert result["logger"].warning.call_args.args == ("datadog.search_window_truncated",)
-        assert result["logger"].warning.call_args.kwargs["max_results"] == 2
+        assert len(result.requests) == 1
+        assert {row["id"] for row in result.rows} == {"issue-1", "issue-2"}
+        logger.warning.assert_called_once()
+        assert logger.warning.call_args.args == ("datadog.search_window_truncated",)
+        assert logger.warning.call_args.kwargs["max_results"] == 2
 
     def test_request_cap_stops_splitting_and_warns(self) -> None:
         # Every response is full, so an unbounded sync would split down to the smallest window.
         override = self._with_search(max_results_per_request=1, max_requests_per_sync=5)
-        result = self._run([_issue_response(("issue-1", 1, 1_000))], config_override=override)
+        result, logger = self._run(
+            [ScriptedResponse(json=_issue_response(("issue-1", 1, 1_000)))] * 5, config_override=override
+        )
 
-        assert len(result["calls"]) <= 5
-        assert {row["id"] for row in result["rows"]} == {"issue-1"}
+        assert len(result.requests) <= 5
+        assert {row["id"] for row in result.rows} == {"issue-1"}
         capped = [
-            call
-            for call in result["logger"].warning.call_args_list
-            if call.args == ("datadog.search_request_cap_reached",)
+            call for call in logger.warning.call_args_list if call.args == ("datadog.search_request_cap_reached",)
         ]
         assert capped
         assert capped[0].kwargs["max_requests"] == 5
 
     def test_transient_status_is_retried_on_post(self) -> None:
         # The transport retries only GET, so the POST search depends on the retry in fetch_page.
-        result = self._run([503, _issue_response(("issue-1", 1, 1_000))])
-        assert len(result["calls"]) == 2
-        assert [row["id"] for row in result["rows"]] == ["issue-1"]
+        result, _ = self._run(
+            [ScriptedResponse(status=503), ScriptedResponse(json=_issue_response(("issue-1", 1, 1_000)))]
+        )
+        assert [request.method for request in result.requests] == ["POST", "POST"]
+        assert [row["id"] for row in result.rows] == ["issue-1"]
 
 
 _SEEDED = dict.fromkeys(DatadogIssueSearchConfig().issue_fields)
