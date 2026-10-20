@@ -68,7 +68,7 @@ describe("DesktopAccessScreen", () => {
   it.each([
     ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
-    [null, "Join the waitlist and we'll email you"],
+    [null, "nobody has paused those"],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
     track.mockClear();
     renderScreen({ projectId: 1, status: "blocked", reason });
@@ -97,27 +97,28 @@ describe("DesktopAccessScreen", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ["Join the waitlist", "waitlist", /external_surveys\//],
-    ["Play PostHog games while you wait", "games", /posthog\.com\/sparks-joy/],
-  ] as const)("opens %s when sign-ups are paused", async (label, link, url) => {
+  it("opens the games when sign-ups are paused", async () => {
     const user = userEvent.setup();
     track.mockClear();
     renderScreen({ projectId: 1, status: "blocked", reason: null });
 
-    await user.click(screen.getByText(label));
+    await user.click(screen.getByText("Play a hedgehog game instead"));
 
     expect(track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED,
-      { link },
+      { link: "games" },
     );
-    expect(openExternalUrl).toHaveBeenCalledWith(expect.stringMatching(url));
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://posthog.com/sparks-joy",
+    );
   });
 
-  it("does not offer the waitlist for other blocks", () => {
+  it("does not offer the games for other blocks", () => {
     renderScreen({ projectId: 1, status: "blocked", reason: "startup_plan" });
 
-    expect(screen.queryByText("Join the waitlist")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Play a hedgehog game instead"),
+    ).not.toBeInTheDocument();
   });
 
   it("lets the user select another project", async () => {

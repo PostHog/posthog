@@ -356,7 +356,7 @@ export interface DesktopAccessScreenShownProperties {
 }
 
 export interface DesktopAccessLinkOpenedProperties {
-  link: "waitlist" | "games";
+  link: "games";
 }
 
 export type TaskListSurface = "sidebar" | "space" | "saved_search";

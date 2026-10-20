@@ -4,7 +4,6 @@ import {
   Coins,
   GameController,
   HourglassMedium,
-  ListChecks,
   RocketLaunch,
   SignOut,
   WarningCircle,
@@ -70,18 +69,14 @@ const SIGNUPS_PAUSED_CONTENT = {
   icon: <HourglassMedium />,
   title: "Desktop sign-ups are paused",
   description:
-    "We aren't letting new accounts into PostHog Desktop yet. Join the waitlist and we'll email you when you can get in.",
+    "Sorry, we aren't letting new accounts into PostHog Desktop at the moment. Not ideal, we know. The hedgehogs have made some games in the meantime, and nobody has paused those.",
 };
 
-const ACCESS_SCREEN_LINKS = {
-  waitlist:
-    "https://us.posthog.com/external_surveys/01a15a76-48ce-0000-a2f8-e898869707a7",
-  games: "https://posthog.com/sparks-joy",
-} as const;
+const POSTHOG_GAMES_URL = "https://posthog.com/sparks-joy";
 
-function openAccessScreenLink(link: keyof typeof ACCESS_SCREEN_LINKS): void {
-  track(ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED, { link });
-  openExternalUrl(ACCESS_SCREEN_LINKS[link]);
+function openGames(): void {
+  track(ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED, { link: "games" });
+  openExternalUrl(POSTHOG_GAMES_URL);
 }
 
 interface DesktopAccessScreenProps {
@@ -201,26 +196,15 @@ export function DesktopAccessScreen({
             </EmptyHeader>
             <EmptyContent className="w-full max-w-md gap-4">
               {isSignupsPaused && (
-                <div className="flex w-full flex-col items-center gap-2">
-                  <Button
-                    variant="primary"
-                    className="w-full"
-                    onClick={() => openAccessScreenLink("waitlist")}
-                    data-attr="desktop-access-waitlist"
-                  >
-                    <ListChecks />
-                    Join the waitlist
-                  </Button>
-                  <Button
-                    variant="link-muted"
-                    size="sm"
-                    onClick={() => openAccessScreenLink("games")}
-                    data-attr="desktop-access-games"
-                  >
-                    <GameController />
-                    Play PostHog games while you wait
-                  </Button>
-                </div>
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={openGames}
+                  data-attr="desktop-access-games"
+                >
+                  <GameController />
+                  Play a hedgehog game instead
+                </Button>
               )}
 
               <div className="flex w-full flex-col gap-4">
