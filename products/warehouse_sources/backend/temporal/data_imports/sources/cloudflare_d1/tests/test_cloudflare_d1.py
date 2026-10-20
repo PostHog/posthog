@@ -259,6 +259,26 @@ def test_schemas_hide_internal_tables_and_offer_only_comparable_columns() -> Non
     assert schemas["active_users"].detected_primary_keys is None
 
 
+def test_schemas_return_only_the_names_the_caller_asked_for() -> None:
+    # The shared schema contract test cannot drive this source, because the table list comes from
+    # the database, so the filter keeps its check here.
+    setup = """
+        CREATE TABLE users (id INTEGER PRIMARY KEY);
+        CREATE TABLE orders (id INTEGER PRIMARY KEY);
+    """
+    source = CloudflareD1Source()
+
+    def names_for(names: list[str] | None) -> list[str]:
+        with scripted_network(d1(setup)):
+            return sorted(schema.name for schema in source.get_schemas(CONFIG, team_id=1, names=names))
+
+    assert names_for(None) == ["orders", "users"]
+    assert names_for(["users"]) == ["users"]
+    assert names_for(["users", "missing"]) == ["users"]
+    # An empty list names no table, so it is not a request for all of them.
+    assert names_for([]) == []
+
+
 @pytest.mark.parametrize(
     ("status", "body", "expected"),
     [
