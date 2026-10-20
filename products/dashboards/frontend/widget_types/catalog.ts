@@ -11,6 +11,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -165,6 +166,8 @@ export type DashboardWidgetCatalogEntry = {
     description: string
     defaultConfig: Record<string, unknown>
     hideFromPicker?: boolean
+    /** Hides the widget from the Add widget picker unless this flag is on. Match the backend `WidgetSpec.creation_flag`. */
+    creationFlag?: FeatureFlagKey
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
     productAccess?: DashboardWidgetProductAccess
     headerLayout?: DashboardWidgetHeaderLayout
@@ -350,6 +353,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     },
     canvas_app: {
         groupId: 'canvas',
+        creationFlag: FEATURE_FLAGS.SMALL_SOFTWARE_APPS,
         label: 'Canvas app',
         description: "A published canvas app, rendered with each viewer's own permissions.",
         headerTitle: 'Canvas app',
