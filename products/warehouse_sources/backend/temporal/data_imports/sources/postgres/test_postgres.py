@@ -1623,6 +1623,49 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class
+            # name. Unlike InsufficientPrivilege's SQLSTATE 42501 text, this wording is
+            # customer-authored RAISE text, but "access denied"/"unauthorized" is common enough
+            # phrasing for a hand-rolled access check to match directly, without a class name.
+            "Access denied: No user ID provided",
+            "unauthorized: missing tenant claim",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class
+            # name, matched the same way regardless.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_access_denial_raise_is_non_retryable(self, source, error_msg):
+        # Matching is case-insensitive in production (`error_message_matches`), unlike the
+        # customer-authored sentence-case wording a hand-rolled RAISE typically uses.
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Custom access-denial RAISE EXCEPTION should be non-retryable: {error_msg}"
+        )
+
+    def test_custom_access_denial_raise_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "RaiseException: Access denied: No user ID provided"
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, "Custom access-denial RAISE EXCEPTION should surface an actionable message"
+        assert "row-level security" in friendly[0]
+
+    def test_unrelated_custom_raise_exception_stays_retryable(self, source):
+        # A custom RAISE EXCEPTION that doesn't name an access denial (e.g. a lock wait or a
+        # maintenance-window check) must stay retryable — classifying every RaiseException would
+        # wrongly auto-disable a sync over a transient condition instead of a permanent one.
+        error_msg = "RaiseException: table is temporarily locked for maintenance, try again later"
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Unrelated custom RAISE EXCEPTION should stay retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
@@ -1640,6 +1683,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Unpopulated materialized view error should surface an actionable message"
         assert "REFRESH MATERIALIZED VIEW" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'pg_stat_statements must be loaded via "shared_preload_libraries"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'ObjectNotInPrerequisiteState: pg_stat_statements must be loaded via "shared_preload_libraries"',
+        ],
+    )
+    def test_pg_stat_statements_not_loaded_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"pg_stat_statements not loaded error should be non-retryable: {error_msg}"
+
+    def test_pg_stat_statements_not_loaded_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'pg_stat_statements must be loaded via "shared_preload_libraries"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "pg_stat_statements not loaded error should surface an actionable message"
+        assert "shared_preload_libraries" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1711,6 +1775,49 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Unsupported interval-unit error should surface an actionable message"
         assert "interval" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "division by zero",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "DivisionByZero: division by zero",
+        ],
+    )
+    def test_division_by_zero_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Division-by-zero error should be non-retryable: {error_msg}"
+
+    def test_division_by_zero_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "division by zero"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Division-by-zero error should surface an actionable message"
+        assert "divides by" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/column's
+            # own PL/pgSQL function raising a custom access-check error during our read.
+            "Access denied: No user ID provided\nCONTEXT:  PL/pgSQL function reject_anonymous_reads(uuid) line 9 at RAISE",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_function_access_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Custom function access-denied error should be non-retryable: {error_msg}"
+
+    def test_custom_function_access_denied_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "Access denied: No user ID provided"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Custom function access-denied error should surface an actionable message"
+        assert "auth.uid()" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2555,6 +2662,14 @@ class TestIsConnectionDroppedError:
                 "safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: connection "
                 'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
                 "failed: server closed the connection unexpectedly"
+            ),
+            # A TCP proxy fronting the actual backend (a public endpoint over a private-network
+            # database) reports a failed connect to its own upstream as a bare FATAL error. The
+            # proxy itself answered; the backend behind it was momentarily unreachable. Transient —
+            # the reconnect must catch it rather than letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  failed to connect to upstream 10.0.0.2:5432"
             ),
         ],
     )
@@ -4383,6 +4498,9 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        is_duckdb: bool = False,
+        child_partitions: list[ChildPartition] | None = None,
+        partition_strategy: PartitionStrategy | None = None,
         text_ids: list[str] | None = None,
         worker_deaths: int = 0,
     ) -> list[int | str]:
@@ -4420,10 +4538,12 @@ class TestChunkedRereadAfterRecoveryConflict:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
-            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=is_duckdb),
             patch(f"{module}._get_primary_keys", return_value=primary_keys),
             patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
-            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._is_partitioned_table", return_value=child_partitions is not None),
+            patch(f"{module}.list_child_partitions", return_value=child_partitions or []),
+            patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
             patch(
                 f"{module}._get_table_chunk_size",
                 return_value=chunking or _TableChunking(batch_rows=2, fetch_rows=2),
@@ -4454,6 +4574,8 @@ class TestChunkedRereadAfterRecoveryConflict:
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
+            if pages_to_take == 0:
+                return []
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
             ids: list[int | str] = []
             taken = 0
@@ -4650,6 +4772,43 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert self.last_response.supports_resume is False
+
+    @pytest.mark.parametrize(
+        "kwargs,expected",
+        [
+            ({"should_use_incremental_field": True, "primary_keys": ["id"]}, True),
+            ({"should_use_incremental_field": True, "primary_keys": ["id"], "is_duckdb": True}, False),
+            ({"should_use_incremental_field": True, "primary_keys": ["id"], "child_partitions": []}, False),
+            (
+                {
+                    "should_use_incremental_field": True,
+                    "primary_keys": ["id"],
+                    "child_partitions": [ChildPartition(oid=1, schema="public", name="orders_p1", partbound="")],
+                    "partition_strategy": PartitionStrategy(strategy="r", key_columns=("id",)),
+                },
+                False,
+            ),
+            ({"should_use_incremental_field": False, "primary_keys": ["id"]}, False),
+            ({"should_use_incremental_field": False, "primary_keys": None}, False),
+            ({"should_use_incremental_field": False, "is_xmin": True, "primary_keys": ["id"]}, False),
+        ],
+        ids=[
+            "incremental_one_server_cursor",
+            "incremental_duckdb_offset_pages",
+            "incremental_partitioned_windows",
+            "incremental_per_child_partition",
+            "full_refresh_keyset",
+            "full_refresh_no_seekable_key",
+            "xmin",
+        ],
+    )
+    def test_only_one_ordered_statement_claims_ascending_for_the_whole_run(
+        self, kwargs: dict[str, Any], expected: bool
+    ) -> None:
+        # The claim is set when the response is built, so no page is read here.
+        self._read_ids(rows_before_conflict=0, pages_to_take=0, **kwargs)
+
+        assert self.last_response.sort_mode == ("asc" if expected else None)
 
     def test_a_text_primary_key_seeks_but_never_checkpoints(self):
         # The collation decision. Ordering a text key is stable within one process, so the in-process
@@ -8663,6 +8822,14 @@ class TestHasDuplicatePrimaryKeys:
                 "permission_denied",
                 psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
                 psycopg.errors.InsufficientPrivilege,
+            ),
+            # A row-level security policy (or other PL/pgSQL function) blocked the read with a
+            # custom RAISE (SQLSTATE P0001). Already non-retryable via get_non_retryable_errors,
+            # so the probe must propagate it rather than capture it.
+            (
+                "raise_exception",
+                psycopg.errors.RaiseException("Access denied: No user ID provided"),
+                psycopg.errors.RaiseException,
             ),
         ]
     )
