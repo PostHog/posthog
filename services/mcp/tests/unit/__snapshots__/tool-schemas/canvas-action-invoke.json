@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the canvas whose declared verb to invoke.",
+            "type": "string"
+        },
+        "payload": {
+            "additionalProperties": {},
+            "description": "The verb's arguments, matching the payload shape in its canvas-actions-list `usage` docs.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "verb": {
+            "description": "Registered verb to invoke, exactly as listed by canvas-actions-list, e.g. 'feature_flags.enable'.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["id", "verb"],
+    "type": "object"
+}

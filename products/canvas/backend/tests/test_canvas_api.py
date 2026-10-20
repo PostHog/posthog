@@ -112,7 +112,9 @@ class CanvasAPIBaseTest(APIBaseTest):
         assert entry.detail is not None
         return entry.detail["changes"]
 
-    def _sandbox_client(self, task_id: UUID, *, user: User | None = None) -> APIClient:
+    def _sandbox_client(
+        self, task_id: UUID, *, user: User | None = None, scope: str = "canvas:read canvas:write task:read"
+    ) -> APIClient:
         actor = user or self.user
         application = OAuthApplication.objects.create(
             name="Canvas sandbox",
@@ -129,7 +131,7 @@ class CanvasAPIBaseTest(APIBaseTest):
             application=application,
             token=f"pha_canvas_{uuid4().hex}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="canvas:read canvas:write task:read",
+            scope=scope,
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id,
         )
@@ -2527,6 +2529,21 @@ class TestCanvasActions(CanvasAPIBaseTest):
         for row in rows.values():
             assert row["usage"].strip(), f"verb {row['verb']} shipped without usage docs"
 
+    def test_registry_is_readable_with_a_canvas_read_key(self) -> None:
+        # The canvas-actions-list MCP tool advertises canvas:read, so a key with that scope must read the registry.
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-read", user=self.user, secure_value=hash_key_value(raw_key), scopes=["canvas:read"]
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/actions/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["verb"] for row in response.json()["actions"]} == set(CANVAS_ACTIONS)
+
     def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
         canvas_id = self._actions_canvas()
 
@@ -2897,7 +2914,8 @@ class TestCanvasActions(CanvasAPIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
-        client = self._sandbox_client(task.id)
+        # The token holds the verb's own write scope, so only the sandbox check can refuse it.
+        client = self._sandbox_client(task.id, scope="canvas:read canvas:write task:read task:write")
 
         response = client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
@@ -2907,6 +2925,8 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "Canvas actions are invoked by viewers; sandbox tokens cannot use them."
+        assert not Task.objects.filter(title="t").exists()
 
 
 class TestTaskCreatePayloadSerializer(SimpleTestCase):
