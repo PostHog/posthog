@@ -22,7 +22,7 @@ import { alertTriggerOptionsLogic } from './alertTriggerOptionsLogic'
 function StepTriggerConfigurationAlert({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { alerts, alertsLoading } = useValues(alertTriggerOptionsLogic)
+    const { alerts, alertsLoading, inMainEnvironment } = useValues(alertTriggerOptionsLogic)
     const { loadAlerts } = useActions(alertTriggerOptionsLogic)
 
     const config = node.data.config as InternalEventAlertTriggerConfig
@@ -40,12 +40,23 @@ function StepTriggerConfigurationAlert({ node }: { node: any }): JSX.Element {
         })
     }
 
+    if (!inMainEnvironment) {
+        return (
+            <LemonBanner type="info" className="w-full">
+                Alert triggers work only in the project's main environment. Switch to it to add this trigger.
+            </LemonBanner>
+        )
+    }
     if (alerts === null && alertsLoading) {
         return <p className="mb-0 text-sm text-muted-alt">Loading alerts…</p>
     }
     if (alerts === null) {
         return (
-            <LemonBanner type="error" className="w-full" action={{ children: 'Try again', onClick: loadAlerts }}>
+            <LemonBanner
+                type="error"
+                className="w-full"
+                action={{ children: 'Try again', onClick: () => loadAlerts() }}
+            >
                 Couldn't load this project's alerts.
             </LemonBanner>
         )

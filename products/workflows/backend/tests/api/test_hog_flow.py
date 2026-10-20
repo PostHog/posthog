@@ -3703,7 +3703,12 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
     def _post_alert_trigger_flow(
-        self, value: Any, headers: dict | None = None, property_type: str = "event", properties: Any = None
+        self,
+        value: Any,
+        headers: dict | None = None,
+        property_type: str = "event",
+        properties: Any = None,
+        team_id: int | None = None,
     ) -> Any:
         if properties is None:
             properties = (
@@ -3725,7 +3730,7 @@ class TestHogFlowAPI(APIBaseTest):
             },
         }
         return self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows",
+            f"/api/projects/{team_id or self.team.id}/hog_flows",
             {"name": "Alert flow", "status": "active", "actions": [trigger_action]},
             format="json",
             headers=headers or {},
@@ -3760,6 +3765,16 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert message in str(response.json())
+
+    def test_hog_flow_alert_trigger_is_refused_outside_the_main_environment(self):
+        # The alert's transitions carry the main environment's team, so a workflow stored under
+        # another environment would never run.
+        sibling_env = Team.objects.create(organization=self.organization, project=self.project, name="sibling env")
+
+        response = self._post_alert_trigger_flow([str(self._alert_configuration().id)], team_id=sibling_env.id)
+
+        assert response.status_code == 400, response.json()
+        assert "main environment" in str(response.json())
 
     def test_hog_flow_alert_trigger_rejects_non_list_properties_without_a_server_error(self):
         response = self._post_alert_trigger_flow(None, properties=1)

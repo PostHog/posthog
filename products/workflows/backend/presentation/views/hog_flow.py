@@ -632,6 +632,10 @@ def _alert_trigger_error(request: Request | None, team: Team, filters: dict, *, 
     An alert's transitions carry its source product's data, and a workflow runs without the
     person who saved it, so access is checked here, against each named alert.
     """
+    # Alerts belong to a project's main environment, and their transitions carry its team id. A
+    # workflow saved in another environment would be stored under that team and never run.
+    if team.id != team.project_id:
+        return "Alert triggers work only in the project's main environment. Switch to it to add this trigger."
     configuration_ids = _alert_configuration_ids(filters)
     if configuration_ids is None:
         return "Pick alerts from the list for this trigger."
