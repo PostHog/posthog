@@ -1681,7 +1681,6 @@ class TestStateDualWrite:
             (datetime(2026, 1, 3, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {}, False, False),
             (100, 250, {}, False, True),
             (300, 250, {}, False, False),
-            (None, datetime(2026, 1, 2, tzinfo=UTC), {}, False, False),
             (datetime(2026, 1, 1, tzinfo=UTC), None, {}, False, False),
             (1767225600, datetime(2026, 1, 2, tzinfo=UTC), {}, False, False),
             (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {"field": "created_at"}, False, False),
@@ -1702,7 +1701,6 @@ class TestStateDualWrite:
             "new_start_higher",
             "number_lower",
             "number_higher",
-            "new_start_unknown",
             "old_start_unknown",
             "kinds_differ",
             "fields_differ",
@@ -1716,8 +1714,9 @@ class TestStateDualWrite:
     async def test_supersede_drops_the_queued_batches_of_a_spared_run_the_current_run_rereads(
         self, conn, sync_conn, new_start, old_start, old_overrides, old_final, expect_dropped
     ):
-        # A restarted incremental merge extracts again from the same committed cursor. The spared
-        # older run's queued batches only repeat that work in the serial per-(team, schema) gate.
+        # A restarted incremental merge queued again every row of the spared older run. Its unstarted
+        # batches only repeat that work. A started or retrying batch can still have a worker that
+        # writes it, so it must load in its own run before the newer rows.
         row_overrides = dict(old_overrides)
         field = row_overrides.pop("field", "updated_at")
         old_cursor = RunStartCursor.from_value(field=field, value=old_start)
@@ -1746,19 +1745,18 @@ class TestStateDualWrite:
         bystander = await spared_run(team_id=2, job_id="job-other")
         current = await _insert_batch(conn, run_uuid="run-new", job_id="job-dw", **run_rows)
         new_cursor = RunStartCursor.from_value(field="updated_at", value=new_start)
+        assert new_cursor is not None
 
-        superseded = BatchQueue.supersede_other_runs(
-            sync_conn,
-            job_id="job-dw",
-            current_run_uuid="run-new",
-            rereads_run_start=None if new_cursor is None else new_cursor.rereads,
+        assert BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new") == 0
+        superseded = BatchQueue.supersede_reread_runs(
+            sync_conn, job_id="job-dw", current_run_uuid="run-new", rereads_run_start=new_cursor.rereads
         )
 
-        assert superseded == (2 if expect_dropped else 0)
+        assert superseded == (1 if expect_dropped else 0)
         assert (await _batch_state(conn, loaded))[0] == "succeeded"
         assert (await _batch_state(conn, executing))[0] == "executing"
         assert (await _batch_state(conn, pending))[0] == ("failed" if expect_dropped else "pending")
-        assert (await _batch_state(conn, retrying))[0] == ("failed" if expect_dropped else "waiting_retry")
+        assert (await _batch_state(conn, retrying))[0] == "waiting_retry"
         assert (await _batch_state(conn, current))[0] == "pending"
         assert [(await _batch_state(conn, batch_id))[0] for batch_id in bystander] == [
             "succeeded",
@@ -1768,7 +1766,7 @@ class TestStateDualWrite:
         ]
         if expect_dropped:
             cur = await conn.execute(
-                f"SELECT bool_and(superseded) FROM {BATCH_TABLE} WHERE id = ANY(%s)", [[pending, retrying]]
+                f"SELECT bool_and(superseded) FROM {BATCH_TABLE} WHERE id = ANY(%s)", [[pending]]
             )
             row = await cur.fetchone()
             assert row is not None and row[0] is True

@@ -54,6 +54,9 @@ def _make_batch_result(batch_index: int = 0) -> BatchWriteResult:
     )
 
 
+_PRODUCER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer"
+
+
 def _mock_conn(producer: PostgresProducer) -> Any:
     return producer._conn
 
@@ -184,7 +187,6 @@ class TestPostgresProducerSupersede:
             job_id="job-1",
             current_run_uuid="run-1",
             spare_runs_with_progress=False,
-            rereads_run_start=None,
         )
 
     @pytest.mark.parametrize(
@@ -247,11 +249,15 @@ class TestPostgresProducerSupersede:
             "unknown_start",
         ],
     )
+    @pytest.mark.parametrize("held", [True, False], ids=["held_final_row", "direct_final_row"])
+    @pytest.mark.parametrize("enabled", [True, False], ids=["enabled", "disabled"])
     def test_only_an_incremental_merge_records_and_compares_its_start_cursor(
-        self, overrides: dict[str, Any], expect_cursor: bool
+        self, settings: Any, overrides: dict[str, Any], expect_cursor: bool, enabled: bool, held: bool
     ) -> None:
         # The loader merges on the primary key only for these runs. Any other run loads a row twice
         # as two rows, so its batches must never be dropped for a newer run that reads them again.
+        # The drop waits for this run's final row, so a restart cannot leave neither copy queued.
+        settings.DATA_WAREHOUSE_SUPERSEDE_REREAD_RUNS_ENABLED = enabled
         start = RunStartCursor.from_value(field="updated_at", value=datetime(2026, 1, 2, tzinfo=UTC))
         kwargs: dict[str, Any] = {
             "sync_type": "incremental",
@@ -260,22 +266,59 @@ class TestPostgresProducerSupersede:
             **overrides,
         }
         producer = _make_producer(is_resume=False, **kwargs)
+        batches = [_make_batch_result(batch_index=index) for index in range(2)]
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
-            return_value=0,
-        ) as mock_supersede:
-            producer.send_batch_notification(_make_batch_result(batch_index=0))
+        with (
+            patch(f"{_PRODUCER}.BatchQueue.supersede_other_runs", return_value=0),
+            patch(f"{_PRODUCER}.BatchQueue.supersede_reread_runs", return_value=0) as mock_reread,
+        ):
+            if held:
+                for batch in batches:
+                    producer.hold_batch(batch, cumulative_row_count=100)
+                assert mock_reread.call_count == 0
+                producer.send_final_batch(
+                    batches[-1], total_batches=2, total_rows=200, data_folder="s3://d", schema_path=None
+                )
+            else:
+                producer.send_batch_notification(batches[0])
+                assert mock_reread.call_count == 0
+                producer.send_batch_notification(batches[1], is_final_batch=True)
 
-        rereads_run_start = mock_supersede.call_args.kwargs["rereads_run_start"]
         metadata = json.loads(_mock_conn(producer).execute.call_args.args[1]["metadata"])
         if expect_cursor:
             assert start is not None
             assert metadata[RUN_START_CURSOR_KEY] == start.to_payload()
-            assert rereads_run_start(metadata[RUN_START_CURSOR_KEY]) is True
         else:
             assert RUN_START_CURSOR_KEY not in metadata
-            assert rereads_run_start is None
+        if expect_cursor and enabled:
+            mock_reread.assert_called_once()
+            rereads_run_start = mock_reread.call_args.kwargs["rereads_run_start"]
+            assert rereads_run_start(metadata[RUN_START_CURSOR_KEY]) is True
+        else:
+            mock_reread.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "queue_error",
+        [psycopg.errors.UndefinedTable("relation does not exist"), psycopg.errors.QueryCanceled("timeout")],
+        ids=["permanent", "transient"],
+    )
+    def test_a_failed_reread_supersede_does_not_fail_the_finished_run(
+        self, settings: Any, queue_error: psycopg.Error
+    ) -> None:
+        # The final row is already queued. Raising here would retry the whole extraction for an
+        # optimization that only saves duplicate loader work.
+        settings.DATA_WAREHOUSE_SUPERSEDE_REREAD_RUNS_ENABLED = True
+        start = RunStartCursor.from_value(field="updated_at", value=datetime(2026, 1, 2, tzinfo=UTC))
+        producer = _make_producer(is_resume=False, sync_type="incremental", primary_keys=["id"], run_start_cursor=start)
+
+        with (
+            patch(f"{_PRODUCER}.BatchQueue.supersede_other_runs", return_value=0),
+            patch(f"{_PRODUCER}.BatchQueue.supersede_reread_runs", side_effect=queue_error) as mock_reread,
+        ):
+            producer.send_batch_notification(_make_batch_result(batch_index=0), is_final_batch=True)
+
+        mock_reread.assert_called_once()
+        assert _inserted_rows(producer) == [(0, True)]
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)
@@ -437,6 +480,5 @@ class TestPostgresProducerHeldBatch:
             job_id="job-1",
             current_run_uuid="run-1",
             spare_runs_with_progress=False,
-            rereads_run_start=None,
         )
         assert _inserted_rows(producer) == []

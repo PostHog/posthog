@@ -314,6 +314,12 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
 )
+# When an incremental merge from a SQL source has queued its final batch, fail the unclaimed batches
+# of an older attempt of the same job that started at or above this run's start cursor. This run
+# holds all of those rows, so loading them again is only duplicate work. Import pods only.
+DATA_WAREHOUSE_SUPERSEDE_REREAD_RUNS_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_SUPERSEDE_REREAD_RUNS_ENABLED", False, type_cast=str_to_bool
+)
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool

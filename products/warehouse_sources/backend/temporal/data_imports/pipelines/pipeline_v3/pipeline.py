@@ -118,6 +118,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     ResumableData,
     SourceResponse,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -128,6 +129,13 @@ PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
 # How long a preemption waits for a write of the source's resume state that is in progress.
 SOURCE_FENCE_TIMEOUT_SECONDS = 5.0
+
+# SQL sources read `incremental_field <op> stored watermark` and nothing else. Many API sources also
+# clamp the lower bound to a retention window that moves with the clock, so two runs that record
+# the same watermark can read different rows.
+RUN_START_CURSOR_SOURCE_TYPES: frozenset[str] = frozenset(
+    {ExternalDataSourceType.POSTGRES.value, ExternalDataSourceType.MYSQL.value, ExternalDataSourceType.MSSQL.value}
+)
 
 
 def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool) -> bool:
@@ -331,12 +339,14 @@ class PipelineV3(Generic[ResumableData]):
 
         # A run that resumes an earlier attempt, or a source that reads from its own cursor, does
         # not start at `incremental_start_value`. The value would then claim rows the run never reads.
+        # Row order does not matter: the older run's batches go only after this run read every row.
         run_start_cursor: RunStartCursor | None = None
         if (
             sync_type == "incremental"
+            and models.source.source_type in RUN_START_CURSOR_SOURCE_TYPES
             and self._schema.is_incremental
             and self._schema.incremental_field
-            and source_response.sort_mode == "asc"
+            and source_response.sort_mode != "desc"
             and not is_resume
             and not reset_pipeline
             and source_cursor_manager is None

@@ -217,6 +217,7 @@ class PostgresProducer:
             schema_path=schema_path,
             cumulative_row_count=total_rows,
         )
+        self._supersede_reread_runs()
 
     def send_final_batch_for_resumed_run(self, run_uuid: str) -> None:
         """Append a final-only copy of the last queued batch from an earlier attempt."""
@@ -268,6 +269,8 @@ class PostgresProducer:
             schema_path=schema_path,
             cumulative_row_count=cumulative_row_count,
         )
+        if is_final_batch:
+            self._supersede_reread_runs()
 
     def _supersede_other_runs(self) -> None:
         # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
@@ -281,10 +284,6 @@ class PostgresProducer:
         #
         # An append is the same: the loader removes an older attempt's rows when this
         # run's batch 0 arrives (see `load/append_rollback.py`).
-        #
-        # An incremental merge also drops the queued batches of a spared run that started at
-        # or above this run's start cursor, because this run extracts all of those rows again.
-        start_cursor = self.merge_start_cursor
         with _queue_db_errors():
             superseded = BatchQueue.supersede_other_runs(
                 self._conn,
@@ -294,10 +293,31 @@ class PostgresProducer:
                     self._sync_type != "full_refresh"
                     and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
                 ),
-                rereads_run_start=None if start_cursor is None else start_cursor.rereads,
             )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)
+
+    def _supersede_reread_runs(self) -> None:
+        # Runs after this run's final batch is in the queue, so every row this run read is durable
+        # before the older run's queued copy of those rows goes. Before that point a restart could
+        # leave neither copy queued.
+        start_cursor = self.merge_start_cursor
+        if start_cursor is None or not settings.DATA_WAREHOUSE_SUPERSEDE_REREAD_RUNS_ENABLED:
+            return
+        # Only an optimization: the older batches load as duplicate work if this fails.
+        try:
+            with _queue_db_errors():
+                superseded = BatchQueue.supersede_reread_runs(
+                    self._conn,
+                    job_id=self._job_id,
+                    current_run_uuid=self._run_uuid,
+                    rereads_run_start=start_cursor.rereads,
+                )
+        except (psycopg.Error, PostHogInternalDatabaseError):
+            self._logger.warning("supersede_reread_runs_failed", exc_info=True)
+            return
+        if superseded > 0:
+            self._logger.info("superseded_reread_run_batches", count=superseded)
 
     def _insert(
         self,

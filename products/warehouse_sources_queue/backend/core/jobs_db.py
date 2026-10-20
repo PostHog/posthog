@@ -1988,7 +1988,6 @@ class BatchQueue:
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
         spare_runs_with_progress: bool = True,
-        rereads_run_start: Callable[[Any], bool] | None = None,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -2017,14 +2016,8 @@ class BatchQueue:
         those runs protects nothing, and leaves their batches to drain through the serial
         per-(team, schema) gate — holding the queue head for hours to write data that has
         already been thrown away. Incremental and CDC keep the sparing rule, because their
-        partially merged work survives into the new run.
-
-        ``rereads_run_start`` also supersedes the queued batches of a spared incremental run when
-        the current run extracts every row that run queued. It receives the ``RUN_START_CURSOR_KEY``
-        value of an older run and returns True when the current run starts at or below it. The
-        merge on the primary key makes the second load of a row idempotent, so the older run's
-        unloaded batches are only duplicate work in the serial per-(team, schema) gate. See
-        ``_supersede_reread_runs`` for what stays protected.
+        partially merged work survives into the new run. ``supersede_reread_runs`` drops a spared
+        run later, once the current run has queued all of its rows again.
         """
         progress_guard = (
             f"""AND NOT EXISTS (
@@ -2050,33 +2043,35 @@ class BatchQueue:
                 "error_response": _SUPERSEDED_ERROR_RESPONSE,
             },
         )
-        superseded = cursor.rowcount or 0
-        if rereads_run_start is None:
-            return superseded
-        return superseded + BatchQueue._supersede_reread_runs(
-            conn, job_id=job_id, current_run_uuid=current_run_uuid, rereads_run_start=rereads_run_start
-        )
+        return cursor.rowcount or 0
 
     @staticmethod
-    def _supersede_reread_runs(
+    def supersede_reread_runs(
         conn: psycopg.Connection[Any],
         *,
         job_id: str,
         current_run_uuid: str,
         rereads_run_start: Callable[[Any], bool],
     ) -> int:
-        """Fail the unclaimed batches of older incremental runs that the current run extracts again.
+        """Fail the unclaimed batches of older incremental runs that the current run queued again.
+
+        Call it only after the current run's final batch is queued. ``rereads_run_start`` receives
+        the ``RUN_START_CURSOR_KEY`` value of an older run and returns True when the current run
+        starts at or below it. The current run then holds every row of the older run's unclaimed
+        batches, and the merge on the primary key makes a second load of a row idempotent, so those
+        batches are only duplicate work in the serial per-(team, schema) gate.
 
         A run qualifies only when each of its unclaimed batches is an incremental merge that
         records one and the same start cursor. A first-ever sync appends instead of merging, and a
-        batch written before the key existed has no cursor, so such runs keep the sparing rule.
+        batch written before the key existed has no cursor, so such runs are left alone.
 
-        A run with a final batch that is not failed is left alone. Its extraction finished, so it
-        can still complete and promote the watermark. Failing it would make progress depend on
-        the current run, which a restart can also interrupt.
+        A run with a final batch that is not failed is left alone. It can still complete and
+        promote the watermark by itself, without the current run.
 
-        Only 'pending', 'waiting' and 'waiting_retry' batches are failed. An 'executing' batch
-        finishes its write, and the group gate holds the current run until it does.
+        Only 'pending' and 'waiting' batches are failed, because no worker has started them. An
+        'executing' or 'waiting_retry' batch can still have a worker that writes it after its lease
+        expired. It stays in its run and loads before the current run, so that late write cannot
+        put an older row over a newer one.
         """
         rows = conn.execute(
             f"""
@@ -2085,7 +2080,7 @@ class BatchQueue:
             WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND b.job_id = %(job_id)s
                 AND b.run_uuid != %(current_run_uuid)s
-                AND b.latest_state IN ('pending', 'waiting', 'waiting_retry')
+                AND b.latest_state IN ('pending', 'waiting')
             GROUP BY b.run_uuid
             HAVING bool_and(
                     b.sync_type = 'incremental'
@@ -2113,7 +2108,7 @@ class BatchQueue:
         cursor = conn.execute(
             _bulk_fail_dual_write_sql(
                 """b.job_id = %(job_id)s AND b.run_uuid = ANY(%(run_uuids)s)
-                AND b.latest_state IN ('pending', 'waiting', 'waiting_retry')"""
+                AND b.latest_state IN ('pending', 'waiting')"""
             ),
             {"job_id": job_id, "run_uuids": run_uuids, "error_response": _SUPERSEDED_ERROR_RESPONSE},
         )

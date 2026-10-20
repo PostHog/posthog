@@ -698,12 +698,13 @@ class TestRunStartCursorWiring:
     def _run_start_cursor(
         *,
         sync_type: str = "incremental",
-        sort_mode: str = "asc",
+        sort_mode: str | None = "asc",
         reset_pipeline: bool = False,
         can_resume: bool = False,
         own_cursor: bool = False,
         lanes: list[Any] | None = None,
         start_value: Any = datetime(2026, 1, 2, tzinfo=UTC),
+        source_type: str = "Postgres",
     ) -> Any:
         schema = ExternalDataSchema(
             name="users",
@@ -744,7 +745,7 @@ class TestRunStartCursorWiring:
                 models=ImportJobModels(
                     job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
                     schema=schema,
-                    source=MagicMock(source_type="Postgres"),
+                    source=MagicMock(source_type=source_type),
                     table=None,
                 ),
                 source_cursor_manager=MagicMock() if own_cursor else None,
@@ -752,8 +753,10 @@ class TestRunStartCursorWiring:
             )
         return mock_producer_cls.call_args.kwargs["run_start_cursor"]
 
-    def test_a_fresh_ascending_incremental_run_records_where_it_starts(self) -> None:
-        cursor = self._run_start_cursor()
+    @pytest.mark.parametrize("sort_mode", ["asc", None])
+    @pytest.mark.parametrize("source_type", ["Postgres", "MySQL", "MSSQL"])
+    def test_a_fresh_incremental_sql_run_records_where_it_starts(self, source_type: str, sort_mode: str | None) -> None:
+        cursor = self._run_start_cursor(source_type=source_type, sort_mode=sort_mode)
 
         assert cursor is not None
         assert (cursor.field, cursor.kind) == ("updated_at", "datetime")
@@ -770,6 +773,8 @@ class TestRunStartCursorWiring:
             {"sync_type": "append"},
             {"sync_type": "full_refresh"},
             {"start_value": None},
+            {"source_type": "Vercel"},
+            {"source_type": "Stripe"},
         ],
         ids=[
             "descending_reads_newest_first",
@@ -780,6 +785,8 @@ class TestRunStartCursorWiring:
             "append",
             "full_refresh",
             "no_stored_watermark",
+            "api_source_clamps_its_lower_bound",
+            "api_source_with_its_own_windows",
         ],
     )
     def test_a_run_that_does_not_start_at_the_watermark_records_no_cursor(self, run: dict[str, Any]) -> None:
