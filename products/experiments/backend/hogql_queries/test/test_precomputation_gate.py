@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
 import time_machine
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentQuery, PrecomputationMode
+from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentQuery, HogQLQueryModifiers, PrecomputationMode
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -45,13 +46,18 @@ class TestPrecomputationDurationGate:
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
-    def _build_runner(self, experiment, precomputation_mode: PrecomputationMode | None = None) -> ExperimentQueryRunner:
+    def _build_runner(
+        self,
+        experiment,
+        precomputation_mode: PrecomputationMode | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+    ) -> ExperimentQueryRunner:
         metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
         kwargs = {"experiment_id": experiment.id, "kind": "ExperimentQuery", "metric": metric}
         if precomputation_mode is not None:
             kwargs["precomputation_mode"] = precomputation_mode
         query = ExperimentQuery(**kwargs)
-        return ExperimentQueryRunner(query=query, team=self.team)
+        return ExperimentQueryRunner(query=query, team=self.team, modifiers=modifiers)
 
     @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_team_default_skips_when_under_threshold(self):
@@ -85,6 +91,19 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         self._enable_precomputation()
         runner = self._build_runner(experiment, precomputation_mode=PrecomputationMode.PRECOMPUTED)
         assert runner._should_precompute() is True
+
+        native_settings = {
+            "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+            "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [self.team.pk],
+        }
+        with patch("posthog.models.event.new_events_schema.get_instance_setting", side_effect=native_settings.get):
+            native = self._build_runner(
+                experiment,
+                precomputation_mode=PrecomputationMode.PRECOMPUTED,
+                modifiers=HogQLQueryModifiers(useNewEventsCluster=True),
+            )
+            assert native._should_precompute() is False
+            assert native._precompute_skip_reason() == "native_events_cluster"
 
     @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_explicit_direct_mode_overrides_passing_gate(self):
