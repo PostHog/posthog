@@ -1,4 +1,4 @@
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 from parameterized import parameterized
 
 from posthog.errors import (
@@ -7,6 +7,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -178,6 +179,27 @@ class TestWrapClickhouseQueryError:
         assert wrapped.code_name == "bad_get"
         assert wrapped.nested is None
         assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.USER_ERROR
+
+    @parameterized.expand(
+        [
+            (
+                "session_state",
+                "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
+                "Finish it with `argMinMerge(column)`",
+            ),
+            ("parametric_state", "AggregateFunction(uniqCombined(17), String)", "the matching -Merge function"),
+            ("state_without_hogql_merge", "AggregateFunction(quantile, UInt8)", "the matching -Merge function"),
+            ("mixed_branch_types", "Variant(String, UInt8)", "Make every branch return the same type"),
+            ("other_type", "JSON", "Convert the column with `toString()`."),
+        ]
+    )
+    def test_unreadable_result_type_gives_advice_for_its_type(self, _name: str, column_type: str, advice: str) -> None:
+        wrapped = wrap_clickhouse_query_error(UnknownTypeError(f"Unknown type {column_type}"))
+
+        assert isinstance(wrapped, CHQueryErrorUnknownType)
+        assert wrapped.code_name == "unknown_type"
+        assert f"column of type `{column_type}`" in str(wrapped)
+        assert advice in str(wrapped)
 
     def test_bad_get_hides_unrecognized_raw_message(self) -> None:
         err = ServerException(

@@ -91,6 +91,10 @@ BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
 )
 
+AGGREGATE_STATE_TYPE_PATTERN = re.compile(
+    r"AggregateFunction\((?P<function>[A-Za-z_][A-Za-z0-9_]{0,63})(?P<parameters>\()?"
+)
+
 BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check function parameters and type conversions."
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
@@ -123,14 +127,35 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
+def _merge_call(aggregate_state: re.Match[str]) -> str:
+    from posthog.hogql.functions.mapping import find_hogql_aggregation
+
+    merge_function = f"{aggregate_state.group('function')}Merge"
+    if aggregate_state.group("parameters") or find_hogql_aggregation(merge_function) is None:
+        return "the matching -Merge function"
+    return f"`{merge_function}(column)`"
+
+
+def _unreadable_type_advice(unreadable_type: str) -> str:
+    if unreadable_type.startswith("Variant("):
+        return (
+            "The column mixes value types, for example `if(x, count(), -1)` or `if(x, 1, 'none')`. "
+            "Make every branch return the same type, for example with `toString()` or `toFloat64()`."
+        )
+    if aggregate_state := AGGREGATE_STATE_TYPE_PATTERN.match(unreadable_type):
+        return (
+            "The column holds a partial aggregate, as stored in pre-aggregated tables such as `raw_sessions`. "
+            f"Finish it with {_merge_call(aggregate_state)}, or query the `sessions` table, which returns "
+            "finished values."
+        )
+    return "Convert the column with `toString()`."
+
+
 def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
     unreadable_type = err.message.removeprefix("Unknown type ")
-    if unreadable_type.startswith("AggregateFunction("):
-        advice = "Call the aggregate function without the State suffix. To combine stored states, use its -Merge form."
-    else:
-        advice = "Convert the column with toString()."
     return CHQueryErrorUnknownType(
-        f"PostHog can't read the type {unreadable_type} in the query results. {advice}",
+        f"This query returns a column of type `{unreadable_type}`, which PostHog can't send back in results. "
+        f"{_unreadable_type_advice(unreadable_type)}",
         code=err.code,
         code_name="unknown_type",
     )
