@@ -960,7 +960,10 @@ class Team(UUIDTClassicModel):
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
         # The error tracking kill switch drops events by token, so its drop rule must move to the new token.
-        transaction.on_commit(lambda: regenerate_redis_for_restriction_type(RestrictionType.DROP_EVENT_FROM_INGESTION))
+        # robust=True logs a failed rebuild, so the rotation still logs activity and notifies Vercel.
+        transaction.on_commit(
+            lambda: regenerate_redis_for_restriction_type(RestrictionType.DROP_EVENT_FROM_INGESTION), robust=True
+        )
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,

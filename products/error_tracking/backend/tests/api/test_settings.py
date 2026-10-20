@@ -2,8 +2,10 @@ import json
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
 
 from posthog.models.event_ingestion_restriction_config import (
@@ -183,3 +185,15 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
 
         self.assertNotEqual(self.team.api_token, old_token)
         self.assertEqual([entry["token"] for entry in self._drop_event_entries()], [self.team.api_token])
+
+    def test_token_rotation_finishes_when_the_drop_rule_rebuild_fails(self):
+        old_token = self.team.api_token
+
+        with (
+            patch("posthog.models.event_ingestion_restriction_config.get_client", side_effect=RedisConnectionError),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
+
+        self.team.refresh_from_db()
+        self.assertNotEqual(self.team.api_token, old_token)
