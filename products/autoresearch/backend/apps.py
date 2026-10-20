@@ -10,7 +10,11 @@ class AutoresearchConfig(AppConfig):
     def ready(self) -> None:
         # Deferred because the receiver module imports models, which are not usable
         # at the time this module itself is imported.
+        from products.autoresearch.backend import task_profiles  # noqa: PLC0415
         from products.autoresearch.backend.signals import on_task_run_saved  # noqa: PLC0415
+        from products.tasks.backend.facade.profiles import register_task_profiles  # noqa: PLC0415
+
+        register_task_profiles(task_profiles.PROFILES)
 
         # Lazy "app_label.Model" sender keeps the tasks model off autoresearch's import path.
         post_save.connect(on_task_run_saved, sender="tasks.TaskRun", dispatch_uid="autoresearch.on_task_run_saved")
