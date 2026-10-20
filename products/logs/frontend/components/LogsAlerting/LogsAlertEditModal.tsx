@@ -18,6 +18,7 @@ import { logsAlertFormLogic } from './logsAlertFormLogic'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
+import { LogsAlertRegroupConfirmModal } from './LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
@@ -235,6 +236,7 @@ function LogsAlertEditModalContent({
                         />
                     </AlertEditor>
                 </Form>
+                <LogsAlertRegroupConfirmModal />
             </BindLogic>
         </BindLogic>
     )

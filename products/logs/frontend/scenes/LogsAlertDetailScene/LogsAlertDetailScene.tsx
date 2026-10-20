@@ -19,6 +19,7 @@ import { LogsAlertForm } from 'products/logs/frontend/components/LogsAlerting/Lo
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
 import { logsAlertNotificationLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertNotificationLogic'
 import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAlerting/LogsAlertNotifications'
+import { LogsAlertRegroupConfirmModal } from 'products/logs/frontend/components/LogsAlerting/LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
@@ -105,6 +106,7 @@ export function LogsAlertDetailScene(): JSX.Element {
                     >
                         <LogsAlertSimulation />
                     </LemonModal>
+                    <LogsAlertRegroupConfirmModal />
                 </SceneContent>
             </BindLogic>
         </BindLogic>
