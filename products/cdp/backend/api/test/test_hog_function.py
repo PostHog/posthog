@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import time_machine
@@ -515,14 +516,15 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_retrieve_records_terraform_read_at_most_once_a_day(self):
         function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
-        updated_at = function.updated_at
         url = f"/api/projects/{self.team.id}/hog_functions/{function.id}/"
         terraform_ua = "posthog/terraform-provider; version: 1.0.22"
 
+        def stored() -> tuple:
+            return HogFunction.objects.values_list("last_terraform_read_at", "updated_at").get(pk=function.pk)
+
         with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             self.client.get(url)
-            function.refresh_from_db()
-            assert function.last_terraform_read_at is None
+            assert stored() == (None, function.updated_at)
 
             response = self.client.get(url, headers={"user-agent": terraform_ua})
             assert response.status_code == status.HTTP_200_OK
@@ -530,14 +532,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with time_machine.travel("2026-01-01T23:00:00Z", tick=False):
             self.client.get(url, headers={"user-agent": terraform_ua})
-        function.refresh_from_db()
-        assert function.last_terraform_read_at.isoformat() == "2026-01-01T00:00:00+00:00"
+        assert stored() == (datetime(2026, 1, 1, tzinfo=UTC), function.updated_at)
 
         with time_machine.travel("2026-01-02T01:00:00Z", tick=False):
             self.client.get(url, headers={"user-agent": terraform_ua})
-        function.refresh_from_db()
-        assert function.last_terraform_read_at.isoformat() == "2026-01-02T01:00:00+00:00"
-        assert function.updated_at == updated_at
+        assert stored() == (datetime(2026, 1, 2, 1, tzinfo=UTC), function.updated_at)
 
     def test_retrieve_succeeds_when_recording_terraform_read_fails(self):
         function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
