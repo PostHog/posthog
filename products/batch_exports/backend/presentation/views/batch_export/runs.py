@@ -223,8 +223,10 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         )
 
     def dangerously_get_object(self) -> contracts.BatchExportRunDetail:
-        # This replaces the queryset read only. The facade scopes the read to the team and the
-        # export, and the object permissions run on the contract as they ran on the model.
+        # The mixin's get_object() reads through a queryset, which this view no longer has, so the
+        # run is read through the facade instead. That skips the mixin's team filter and object
+        # permission check, so both happen here: the facade filters by team and export, and
+        # check_object_permissions runs on the contract. `logs` reads the run through here too.
         # Like the list, a lookup only finds a run that matches the list filters.
         try:
             run = batch_exports_api.get_batch_export_run(

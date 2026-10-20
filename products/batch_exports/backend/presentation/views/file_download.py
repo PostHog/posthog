@@ -398,8 +398,10 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return super().get_throttles()
 
     def dangerously_get_object(self) -> contracts.FileDownloadRun:
-        # This replaces the queryset read only. The facade scopes the read to the team, and the
-        # object permissions run on the contract as they ran on the model. `logs` reads the run here.
+        # The mixin's get_object() reads through a queryset, which this view does not have, so the
+        # run is read through the facade instead. That skips the mixin's team filter and object
+        # permission check, so both happen here: the facade filters by team, and
+        # check_object_permissions runs on the contract. `logs` reads the run through here too.
         run_id = parse_path_uuid(self.kwargs["pk"])
         try:
             run = batch_exports_api.get_file_download_run(self.team_id, run_id)
