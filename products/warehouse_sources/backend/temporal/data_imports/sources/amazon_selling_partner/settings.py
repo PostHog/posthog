@@ -31,6 +31,9 @@ DEFERRED_RELEASE_SWEEP_DAYS = 60
 # no Retry-After. Ten attempts wait 1, 2, 4 ... 128 then 180 seconds, 435 in all, past that interval.
 SP_API_MAX_RETRY_ATTEMPTS = 10
 SP_API_RETRY_BACKOFF_MAX_SECONDS = 180.0
+# The shared retry budget is shorter than those 435 seconds of waits, so it would end the request
+# before the last attempt. The client carries its own, the waits plus a margin for the tries.
+SP_API_RETRY_BUDGET_SECONDS = 435.0 + 60.0
 
 ORDERS = "orders"
 ORDER_ITEMS = "order_items"
