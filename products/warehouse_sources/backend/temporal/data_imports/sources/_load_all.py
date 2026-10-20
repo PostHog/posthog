@@ -726,6 +726,7 @@ from .linkrunner.source import LinkrunnerSource
 from .linnworks.source import LinnworksSource
 from .linode.source import LinodeSource
 from .listmonk.source import ListmonkSource
+from .litellm.source import LiteLLMSource
 from .liveblocks.source import LiveblocksSource
 from .livestorm.source import LivestormSource
 from .llama_cloud.source import LlamaCloudSource
