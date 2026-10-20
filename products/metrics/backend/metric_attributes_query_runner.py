@@ -162,7 +162,7 @@ class MetricAttributeValuesQueryRunner:
     """Observed values for one attribute key in a window, most frequent first.
     `service_name`/`service.name` read the first-class column instead of
     attribute rows, matching how filters on it are executed. A metric name
-    limits values to those seen on that metric."""
+    limits values to values seen on that metric."""
 
     def __init__(
         self,
