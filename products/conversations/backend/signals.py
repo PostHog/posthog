@@ -6,7 +6,6 @@ from django.db.models import F
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-from django.utils import timezone
 
 import structlog
 
@@ -618,19 +617,24 @@ def sync_signing_secret_on_rotation(sender, team, **kwargs):
         .select_for_update()
         .get_or_create(team=team, defaults={"secret": team.secret_api_token})
     )
-    if created or row.rotated_independently:
+    if created:
         return
-    # Mirror the rotation's grace semantics: the replaced secret keeps verifying for
-    # the grace window, matching rotations made via the conversations endpoint. Only
-    # the just-retired primary (now in the backup column) qualifies; a stale mirror
-    # holds a retired key the staleness guard excluded, and granting it grace would
-    # resurrect it, so its grace copy is cleared instead.
-    if row.secret and row.secret == team.secret_api_token_backup:
-        row.previous_secret = row.secret
-        row.previous_secret_rotated_at = timezone.now()
-    else:
+    # A second legacy rotation retires the old backup for good (expired_token). An
+    # independent row may still hold that credential as its grace copy from the
+    # rotation that decoupled it; a revoked key must not keep verifying through it.
+    expired_token = kwargs.get("expired_token")
+    if expired_token and row.previous_secret == expired_token:
         row.previous_secret = None
         row.previous_secret_rotated_at = None
+        row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
+    if row.rotated_independently:
+        return
+    # No grace here: for a legacy rotation the backup column is the grace mechanism
+    # (the old key keeps working until the backup is deleted or expires on the next
+    # rotation). A previous_secret copy would outlive or duplicate those semantics,
+    # so a mirroring row never carries one.
+    row.previous_secret = None
+    row.previous_secret_rotated_at = None
     row.secret = team.secret_api_token
     row.save(update_fields=["secret", "previous_secret", "previous_secret_rotated_at"])
 

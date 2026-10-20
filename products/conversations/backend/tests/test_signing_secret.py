@@ -36,9 +36,8 @@ class TestSigningSecret(BaseTest):
         row = SigningSecret.objects.for_team(self.team.id).get()
         self.assertEqual(row.secret, self.team.secret_api_token)
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).count(), 1)
-        # A legacy rotation opens the same grace window as an independent one.
-        self.assertEqual(row.previous_secret, existing_token)
-        self.assertEqual(row.previous_secret_rotated_at is not None, existing_token is not None)
+        # Legacy grace lives in the backup column; a mirroring row never carries a grace copy.
+        self.assertIsNone(row.previous_secret)
 
     def test_legacy_rotation_clears_grace_for_a_stale_mirror(self):
         # A stale mirror holds a retired key; promoting it into the grace copy would
@@ -65,19 +64,49 @@ class TestSigningSecret(BaseTest):
         # Deleting the legacy backup is an explicit revocation; the same credential must
         # not keep verifying through the signing secret's grace copy.
         self.team.secret_api_token = "phs_current_token"
+        self.team.secret_api_token_backup = "phs_decoupled_token"
         self.team.save()
         SigningSecret.objects.for_team(self.team.id).update_or_create(
-            team=self.team, defaults={"secret": "phs_current_token"}
+            team=self.team,
+            defaults={
+                "secret": "an_independent_secret",
+                "rotated_independently": True,
+                "previous_secret": "phs_decoupled_token",
+                "previous_secret_rotated_at": timezone.now(),
+            },
         )
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-        row = SigningSecret.objects.for_team(self.team.id).get()
-        self.assertEqual(row.previous_secret, "phs_current_token")
 
         self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertIsNone(row.previous_secret)
+        self.assertIsNone(row.previous_secret_rotated_at)
+
+    def test_second_legacy_rotation_revokes_the_grace_copy(self):
+        # Revoking a leaked key by rotating the legacy token twice retires it everywhere
+        # else; the independent row's grace copy must die with it.
+        self.team.secret_api_token = "phs_leaked_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team,
+            defaults={
+                "secret": "an_independent_secret",
+                "rotated_independently": True,
+                "previous_secret": "phs_leaked_token",
+                "previous_secret_rotated_at": timezone.now(),
+            },
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.previous_secret, "phs_leaked_token")
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
 
         row.refresh_from_db()
         self.assertIsNone(row.previous_secret)
         self.assertIsNone(row.previous_secret_rotated_at)
+        self.assertEqual(row.secret, "an_independent_secret")
 
     def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
         # A legacy rotation syncing over an independent secret silently breaks verification.

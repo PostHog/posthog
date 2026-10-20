@@ -1003,7 +1003,9 @@ class Team(UUIDTClassicModel):
                     delete_project_secret_api_keys_for_token(self.id, expired_token)
                 # With the legacy verifiers off, only the mirror row authenticates the new token.
                 create_project_secret_api_key_for_token(self.id, new_token)
-                secret_api_token_rotated.send(sender=self.__class__, team=self)
+                # expired_token lets receivers drop their own copies of the credential
+                # this rotation retires for good (it leaves the backup column too).
+                secret_api_token_rotated.send(sender=self.__class__, team=self, expired_token=expired_token)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
             # rollback discarded. Rewrite that entry from the committed row.
