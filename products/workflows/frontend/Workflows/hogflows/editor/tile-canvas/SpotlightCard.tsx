@@ -23,10 +23,12 @@ export function SpotlightCard({
             <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: tile.color }}>
                 {tile.label}
             </div>
-            <div className="break-words text-[12.5px] font-semibold leading-snug">{tile.facts.headline}</div>
-            {tile.facts.detail && (
-                <div className="break-words text-[11.5px] leading-snug text-secondary">{tile.facts.detail}</div>
-            )}
+            <div className="ph-no-capture">
+                <div className="break-words text-[12.5px] font-semibold leading-snug">{tile.facts.headline}</div>
+                {tile.facts.detail && (
+                    <div className="break-words text-[11.5px] leading-snug text-secondary">{tile.facts.detail}</div>
+                )}
+            </div>
             <div
                 className="grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none"
                 style={{ gridTemplateRows: showPreview ? '1fr' : '0fr', opacity: showPreview ? 1 : 0 }}

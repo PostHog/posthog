@@ -79,7 +79,9 @@ export function TileStackNode({
                 <div className="break-words text-[13px] font-semibold leading-tight" style={{ color }}>
                     {group.label}
                 </div>
-                <div className="break-words text-xs leading-snug">{pathSummary(workflow, group, templateNameOf)}</div>
+                <div className="ph-no-capture break-words text-xs leading-snug">
+                    {pathSummary(workflow, group, templateNameOf)}
+                </div>
                 <div className="text-[11px] text-secondary">{members.length} steps</div>
             </div>
         </div>

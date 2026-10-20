@@ -4,12 +4,13 @@ import type { StepFacts } from './stepFacts'
 
 export const CAPTION_WIDTH = 230
 
+// Facts quote step content such as property values and messages, so recordings must not capture them.
 /** A tile and the panel head keep the caption short, so a long email subject cannot stretch them. The hover card shows more. */
 const LINES = { tile: 'line-clamp-2', card: 'line-clamp-4' }
 
 export function TileCaption({ facts, size = 'tile' }: { facts: StepFacts; size?: keyof typeof LINES }): JSX.Element {
     return (
-        <div className="flex w-57.5 flex-col gap-0.5 pt-1 text-left">
+        <div className="ph-no-capture flex w-57.5 flex-col gap-0.5 pt-1 text-left">
             <div className={cn('break-words text-[13px] font-semibold leading-tight', LINES[size])}>
                 {facts.headline}
             </div>
