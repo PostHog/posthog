@@ -405,12 +405,12 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
     // A missing recipient logs "Skipping send: the recipient has no email address. …" at WARN (EmailService).
-    // The specific term keeps it apart from the suspension skip, which also logs at WARN.
     email_missing_recipient: { search: 'has no email address', levels: ['WARN'] },
     message_frequency_capped: { search: 'reached the frequency cap', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
-    // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
-    email_suspended: { search: 'Skipping send', levels: ['WARN'] },
+    // Both suspension causes log "Skipping send: … for this project. …" at WARN (EmailService). The
+    // narrower term keeps other WARN skips, such as a missing recipient, out of this drill-down.
+    email_suspended: { search: 'for this project', levels: ['WARN'] },
     // A per-workflow pause logs "Skipping send: … paused …" at ERROR (EmailService). The search
     // term stays generic because the staff and automatic pauses word the line differently.
     email_paused: { search: 'Skipping send', levels: ['ERROR'] },

@@ -129,6 +129,10 @@ describe('buildEmailMetricInvocationSearchParams', () => {
             },
         ],
         [
+            'email_suspended',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'for this project', inv_log_levels: 'WARN' },
+        ],
+        [
             'message_frequency_capped',
             {
                 inv_date_from: dateFrom,
