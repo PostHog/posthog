@@ -314,11 +314,7 @@ type MergeConditionOptions = {
     payloadChangesFlagAggregation: boolean
     /** This set never gains group aggregation. See isPinnedToPerson. */
     pinnedToPerson: boolean
-    /**
-     * Property maps of the stored person sets that this set may come from. When one map has every
-     * typed group property of the set on the same group type, those properties do not set the set's
-     * aggregation_group_type_index.
-     */
+    /** Property maps of the stored person sets that this set may come from. */
     personSetProps: (Map<string, FlagProperty[]> | undefined)[]
 }
 
