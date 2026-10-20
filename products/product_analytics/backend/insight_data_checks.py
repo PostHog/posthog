@@ -231,11 +231,12 @@ class _EventReader:
 
 def _query_settings(max_bytes_read_per_shard: int) -> HogQLGlobalSettings:
     # Without "throw", a query that reaches a limit can return the events it counted so far as the answer.
+    # The leaf limits apply to each shard, where `max_bytes_to_read` would apply to the total across all shards.
     return HogQLGlobalSettings(
         max_execution_time=MAX_EXECUTION_SECONDS,
         timeout_overflow_mode="throw",
-        max_bytes_to_read=max_bytes_read_per_shard,
-        read_overflow_mode="throw",
+        max_bytes_to_read_leaf=max_bytes_read_per_shard,
+        read_overflow_mode_leaf="throw",
     )
 
 
