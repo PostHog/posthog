@@ -121,18 +121,18 @@ export function supportTicketUrl(
   );
 }
 
-/** `?project=<id>` for a share link, so the web interstitial can open the item in its own project. */
-function projectQuery(overrides?: LinkOverrides): string {
+/** `/project/<id>` for a share link, so the web interstitial can open the item in its own project. */
+function projectPrefix(overrides?: LinkOverrides): string {
   const projectId = resolveProjectId(overrides?.projectId);
-  return projectId ? `?project=${projectId}` : "";
+  return projectId ? `/project/${projectId}` : "";
 }
 
 /**
  * The shareable https link for a canvas (a dashboard inside a channel):
- * `<instance>/code/canvas/<channelId>/<dashboardId>?project=<id>`. Opening it in a
+ * `<instance>/project/<id>/code/canvas/<channelId>/<dashboardId>`. Opening it in a
  * browser hits a web interstitial that deep-links into the desktop app (or offers
  * the download), so the link works for anyone — app installed or not. The ids are
- * globally-unique desktop file-system row ids; the `project` param only tells the
+ * globally-unique desktop file-system row ids; the project prefix only tells the
  * interstitial which project to open the web canvas in. The inbound desktop side
  * lives in `CanvasLinkService` / `useCanvasDeepLink`.
  */
@@ -142,17 +142,17 @@ export function canvasShareUrl(
   overrides?: LinkOverrides,
 ): string | null {
   return getPostHogUrl(
-    `/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}${projectQuery(overrides)}`,
+    `${projectPrefix(overrides)}/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`,
     overrides?.cloudRegion,
   );
 }
 
 /**
  * The shareable https link for a channel — or a thread (channel-filed task)
- * inside it: `<instance>/code/channel/<channelId>[/tasks/<taskId>]?project=<id>`.
+ * inside it: `<instance>/project/<id>/code/channel/<channelId>[/tasks/<taskId>]`.
  * Opening it in a browser hits a web interstitial that deep-links into the
  * desktop app (or offers the download), so the link works for anyone — app
- * installed or not. The ids are globally-unique row ids; the `project` param only
+ * installed or not. The ids are globally-unique row ids; the project prefix only
  * tells the interstitial which project to open the web space in. The inbound
  * desktop side lives in `ChannelLinkService` / `useChannelDeepLink`.
  */
@@ -161,9 +161,9 @@ export function channelShareUrl(
   taskId?: string,
   overrides?: LinkOverrides,
 ): string | null {
-  const base = `/code/channel/${encodeURIComponent(channelId)}`;
+  const base = `${projectPrefix(overrides)}/code/channel/${encodeURIComponent(channelId)}`;
   const path = taskId ? `${base}/tasks/${encodeURIComponent(taskId)}` : base;
-  return getPostHogUrl(`${path}${projectQuery(overrides)}`, overrides?.cloudRegion);
+  return getPostHogUrl(path, overrides?.cloudRegion);
 }
 
 /**

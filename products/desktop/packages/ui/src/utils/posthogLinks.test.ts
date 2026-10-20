@@ -16,12 +16,15 @@ vi.mock("@posthog/ui/utils/urls", () => ({
 describe("canvasShareUrl", () => {
   it.each([
     [null, "https://us.posthog.com/code/canvas/chan%2F1/dash%202"],
-    [123, "https://us.posthog.com/code/canvas/chan%2F1/dash%202?project=123"],
-  ])("builds an https /code/canvas link for project %s", (projectId, expected) => {
-    expect(
-      canvasShareUrl("chan/1", "dash 2", { projectId, cloudRegion: "us" }),
-    ).toBe(expected);
-  });
+    [123, "https://us.posthog.com/project/123/code/canvas/chan%2F1/dash%202"],
+  ])(
+    "builds an https /code/canvas link for project %s",
+    (projectId, expected) => {
+      expect(
+        canvasShareUrl("chan/1", "dash 2", { projectId, cloudRegion: "us" }),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("inboxReportUrl", () => {

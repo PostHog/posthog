@@ -166,7 +166,7 @@ def _canvas_comments(team_id: int, canvas_id: UUID) -> QuerySet[Comment]:
 
 
 def _canvas_id_from_url(canvas_url: object) -> str:
-    # Canvas URLs carry a `?project=` query, so read the id from the path only.
+    # Read the id from the path only, so a query or fragment on the URL never becomes part of it.
     if not isinstance(canvas_url, str):
         return ""
     return urlsplit(canvas_url).path.rstrip("/").rsplit("/", 1)[-1]
