@@ -35,7 +35,7 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
     interrupted: bool,
     teardown_phase: Literal["async", "sync"],
 ) -> None:
-    monkeypatch.setenv("BRAINTRUST_API_KEY", "test-only-key")
+    monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "test-only-key")
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     started = asyncio.Event()
@@ -83,7 +83,14 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
         lifecycle,
         "discover_suites",
         lambda _: [
-            EvalSuite(domain="test", module_name="eval_test", fn_name="eval_test", fn=suite, kind=SuiteKind.ONE_SHOT)
+            EvalSuite(
+                domain="test",
+                module_name="eval_test",
+                fn_name="eval_test",
+                fn=suite,
+                kind=SuiteKind.ONE_SHOT,
+                no_send_logs=True,
+            )
         ],
     )
     monkeypatch.setattr(lifecycle, "ensure_personhog_binaries", lambda: None)
