@@ -4327,7 +4327,7 @@ jobs:
             # Depot's own checks carry no output and their pages need a Depot login, so this
             # check carries the gate summary: GitHub shows the title on the PR's check row
             # and the summary on the Checks tab. Branch protection requires this check, so a
-            # failed post fails the gate instead of leaving the PR pending with a green gate.
+            # failed post must fail the gate.
             - name: Post the test results check
               if: ${{ always() && steps.gate-token.outputs.token != '' }}
               env:
@@ -4335,14 +4335,14 @@ jobs:
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
                   GATE_CHECK: Backend CI on Depot / Test results
-                  # A `no-ci` draft skips change detection and every check, so its row says so.
+                  # A `no-ci` draft skips change detection and every check.
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || needs.changes.result == 'skipped' && 'skipped' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
                   # A completed check stays on the commit, so a draft's passing verdict would satisfy
-                  # branch protection the moment the PR turns ready. A draft run posts only a failure;
-                  # the ready run posts the verdict. Merge-queue PRs are drafts whose run is the verdict.
-                  DRAFT: ${{ github.event.pull_request.draft == true && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  # branch protection the moment the PR turns ready. Merge-queue PRs are drafts whose
+                  # run is the verdict.
+                  IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
               run: |
-                  if [[ "$DRAFT" == "true" && "$CONCLUSION" != "failure" ]]; then
+                  if [[ "$IS_DRAFT" == "true" && "$CONCLUSION" != "failure" ]]; then
                       echo "Draft run: the ready-for-review run posts the $GATE_CHECK check."
                       exit 0
                   fi
