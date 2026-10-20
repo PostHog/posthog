@@ -25,6 +25,12 @@ ALERT_STATE_CHOICES = [
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
 
+# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
+# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
+METRICS_INSIGHT_QUERY_FILTER = models.Q(insight__query__kind="MetricsQuery") | models.Q(
+    insight__query__source__kind="MetricsQuery"
+)
+
 
 class InvestigationStatus(models.TextChoices):
     PENDING = "pending", "pending"
@@ -494,9 +500,10 @@ class AlertCheck(UUIDTModel):
         the "destinations" key); legacy rows only carry configured recipients."""
         return "destinations" in (self.targets_notified or {})
 
+    RETENTION = timedelta(days=14)
+
     @classmethod
     def clean_up_old_checks(cls) -> int:
-        retention_days = 14
-        oldest_allowed_date = datetime.now(UTC) - timedelta(days=retention_days)
+        oldest_allowed_date = datetime.now(UTC) - cls.RETENTION
         rows_count, _ = cls.objects.filter(created_at__lt=oldest_allowed_date).delete()
         return rows_count

@@ -14,6 +14,47 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const HogQLExpression = z.string()
+
+const AssistantEventsQuery = z
+    .object({
+        kind: z.literal('EventsQuery').default('EventsQuery'),
+        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantDataTableNode = z
+    .object({
+        kind: z.literal('DataTableNode').default('DataTableNode'),
+        source: AssistantEventsQuery,
+    })
+    .catchall(z.unknown())
+
+const AssistantBareHogQLQuery = z
+    .object({
+        kind: z.literal('HogQLQuery').default('HogQLQuery'),
+        query: z.string().describe('The HogQL query to run.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantBIVisualizationNode = z
+    .object({
+        config: z
+            .record(z.string(), z.unknown())
+            .describe('Complete worksheet configuration, including shelves and filters. Validated by the insight API.'),
+        kind: z.literal('BIVisualizationNode').default('BIVisualizationNode'),
+        source: AssistantBareHogQLQuery,
+    })
+    .catchall(z.unknown())
+
+const AssistantPieChartOptions = z.object({
+    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+})
+
+const AssistantVizSpecificOptions = z.object({
+    ActionsPie: AssistantPieChartOptions.optional(),
+})
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -21,6 +62,7 @@ const AssistantInsightVizNode = z.object({
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
+    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
 })
 
 const AssistantDataVisualizationBoxPlotSettings = z.object({
@@ -85,16 +127,8 @@ const PieChartSettings = z.object({
 
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
     color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z
-        .enum(['auto', 'line', 'bar', 'area'])
-        .describe(
-            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
-        )
-        .optional(),
-    label: z
-        .string()
-        .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
-        .optional(),
+    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
+    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
     trendLine: z.coerce
         .boolean()
         .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
@@ -111,15 +145,10 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
+            '`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.'
         )
         .optional(),
-    suffix: z
-        .string()
-        .describe(
-            'Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.'
-        )
-        .optional(),
+    suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
 })
 
 const AssistantDataVisualizationAxisSettings = z.object({
@@ -198,6 +227,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsBarValue',
     'ActionsPie',
     'ActionsDonut',
+    'ActionsProportionBar',
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
@@ -219,7 +249,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
+        'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -246,18 +276,14 @@ const AssistantBareInsightQuery = z
     })
     .catchall(z.unknown())
 
-const AssistantBareHogQLQuery = z
-    .object({
-        kind: z.literal('HogQLQuery').default('HogQLQuery'),
-        query: z.string().describe('The HogQL query to run.'),
-    })
-    .catchall(z.unknown())
-
 const InsightQuery = z.union([
+    AssistantDataTableNode,
+    AssistantBIVisualizationNode,
     AssistantInsightVizNode,
     AssistantDataVisualizationNode,
     AssistantBareInsightQuery,
     AssistantBareHogQLQuery,
+    AssistantEventsQuery,
 ])
 
 const ElementsStatsRetrieveSchema = () => {

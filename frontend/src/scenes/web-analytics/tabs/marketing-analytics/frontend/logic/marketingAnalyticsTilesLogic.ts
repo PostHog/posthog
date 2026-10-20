@@ -86,7 +86,9 @@ export interface marketingAnalyticsTilesLogicValues {
     includeConversionGoals: boolean // marketingAnalyticsLogic
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
+    marketingChartSourceIds: string[] // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
+    sourcesInitialLoading: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
     defaultColumns: string[] // marketingAnalyticsTableLogic
     query: DataTableNode | null // marketingAnalyticsTableLogic
@@ -124,7 +126,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             baseCurrency: CurrencyCode,
             integrationFilter: IntegrationFilter,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            marketingChartSourceIds: string[]
         ) => QueryTile
         campaignBreakdownTile: (
             campaignCostsBreakdown: DataTableNode | null,
@@ -136,7 +139,7 @@ export interface marketingAnalyticsTilesLogicMeta {
             campaignBreakdownTile: QueryTile | null
         ) => QueryTile[]
         campaignCostsBreakdown: (
-            loading: boolean,
+            sourcesInitialLoading: boolean,
             query: DataTableNode | null,
             dateFilter: {
                 dateFrom: string | null
@@ -170,7 +173,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'compareFilter',
                 'dateFilter',
                 'createMarketingDataWarehouseNodes',
+                'marketingChartSourceIds',
                 'loading',
+                'sourcesInitialLoading',
                 'draftConversionGoal',
                 'chartDisplayType',
                 'tileColumnSelection',
@@ -240,6 +245,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.baseCurrency,
                 s.integrationFilter,
                 s.featureFlags,
+                s.marketingChartSourceIds,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -249,7 +255,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 tileColumnSelection: validColumnsForTiles,
                 baseCurrency: CurrencyCode,
                 integrationFilter: IntegrationFilter,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                marketingChartSourceIds: string[]
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -324,6 +331,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             : costsPrecomputeEnabled
                               ? [costSeriesNode]
                               : createMarketingDataWarehouseNodes,
+                        marketingAnalyticsCostFallback:
+                            costsPrecomputeEnabled && hasSources
+                                ? { series: createMarketingDataWarehouseNodes, sourceIds: marketingChartSourceIds }
+                                : undefined,
                         compareFilter: compareFilter || undefined,
                         // The precompute path reads a single node, so split by source here; the S3 adapters
                         // are already per-source series and need no breakdown.
@@ -404,7 +415,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
         ],
         campaignCostsBreakdown: [
             (s) => [
-                s.loading,
+                // Not `loading`: nulling the query on every background refresh unmounts the
+                // table and refetches it each time the user returns to the tab.
+                s.sourcesInitialLoading,
                 s.query,
                 s.dateFilter,
                 s.draftConversionGoal,
@@ -416,7 +429,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.includeConversionGoals,
             ],
             (
-                loading: boolean,
+                sourcesInitialLoading: boolean,
                 query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
@@ -427,7 +440,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 shouldFilterTestAccounts: boolean,
                 includeConversionGoals: boolean
             ): DataTableNode | null => {
-                if (loading) {
+                if (sourcesInitialLoading) {
                     return null
                 }
                 let marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined

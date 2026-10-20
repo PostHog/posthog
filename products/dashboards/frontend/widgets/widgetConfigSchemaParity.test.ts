@@ -2,6 +2,7 @@
 import configPropertyMetadata from '../generated/widget-config-property-keys.json'
 import {
     activityEventsWidgetConfigSchema,
+    canvasAppWidgetConfigSchema,
     conversationsRecentTicketsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
@@ -14,6 +15,7 @@ import {
 } from '../generated/widget-configs.zod'
 
 const WIDGET_CONFIG_SCHEMAS = {
+    canvas_app: canvasAppWidgetConfigSchema,
     conversations_recent_tickets: conversationsRecentTicketsWidgetConfigSchema,
     activity_events_list: activityEventsWidgetConfigSchema,
     error_tracking_list: errorTrackingWidgetConfigSchema,

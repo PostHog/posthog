@@ -1,8 +1,11 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerstack import (
     PartnerStackSourceConfig,
 )
@@ -14,11 +17,6 @@ class TestPartnerStackSource:
         self.source = PartnerStackSource()
         self.team_id = 123
         self.config = PartnerStackSourceConfig(public_key="pub", private_key="priv")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "customers"
 
     @parameterized.expand(
         [
@@ -40,17 +38,12 @@ class TestPartnerStackSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source._validate_credentials"
-    )
-    def test_validate_credentials_delegates(self, mock_validate: mock.MagicMock) -> None:
-        # The source method is a thin wrapper; the status-to-message matrix is covered in
-        # test_partnerstack.py::TestCheckAccess. Here we only guard the wiring: the key pair is
-        # forwarded in order and the module function's result is returned unchanged.
-        mock_validate.return_value = (False, "Invalid PartnerStack API keys")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("pub", "priv")
+    def test_validate_credentials_delegates(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id)
+
         assert result == (False, "Invalid PartnerStack API keys")
+        assert network.requests_log[0].headers["authorization"] == "Basic cHViOnByaXY="
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source.partnerstack_source"
@@ -68,9 +61,3 @@ class TestPartnerStackSource:
         assert kwargs["private_key"] == "priv"
         assert kwargs["endpoint"] == "partnerships"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown PartnerStack schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

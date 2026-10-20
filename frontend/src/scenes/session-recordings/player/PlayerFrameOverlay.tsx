@@ -91,7 +91,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         sessionPlayerMetaData,
         matchingEventSkipTarget,
     } = useValues(sessionRecordingPlayerLogic)
-    const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
+    const { setPlay, retryLoadingSnapshots, restartPlayerFrameLoad } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
@@ -149,7 +149,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 </div>
                 <div className="text-secondary text-sm text-center">
                     {playerFrameDocumentFailed
-                        ? "Your browser couldn't load the player. Check your internet connection and reload the page. If it keeps happening, a browser extension or security setting may be blocking it. Try turning off extensions for PostHog or using another browser."
+                        ? "Your browser couldn't load the player. Check your internet connection and retry. If it keeps happening, a browser extension or security setting may be blocking it. Try turning off extensions for PostHog or using another browser."
                         : isMissingFullSnapshot
                           ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
                           : isUnauthorized
@@ -177,7 +177,21 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                         Retry
                     </LemonButton>
                 )}
-                {!isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
+                {playerFrameDocumentFailed && (
+                    <LemonButton
+                        data-attr="replay-overlay-retry-player-frame"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            restartPlayerFrameLoad()
+                        }}
+                        type="primary"
+                        fullWidth
+                        center
+                    >
+                        Retry
+                    </LemonButton>
+                )}
+                {!playerFrameDocumentFailed && !isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
                     <LemonButton
                         data-attr="replay-overlay-reload"
                         onClick={() => {

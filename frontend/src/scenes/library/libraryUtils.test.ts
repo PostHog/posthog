@@ -8,7 +8,7 @@ import {
 
 describe('libraryUtils', () => {
     test.each([
-        ['insight', true],
+        ['insight', false],
         ['feature_flag', true],
         ['dashboard', false],
         ['notebook', false],
@@ -19,6 +19,8 @@ describe('libraryUtils', () => {
     test.each([
         ['Unfiled/Insights/Checkout funnel', 'Checkout funnel'],
         ['Unfiled/Insights/Signups a\\/b test', 'Signups a/b test'],
+        ['Unfiled/Dashboards/go\\\\\\/revenue', 'go\\/revenue'],
+        ['Unfiled/Folder\\\\/Revenue', 'Revenue'],
         ['Top level', 'Top level'],
     ])('names %s as %s', (path, name) => {
         expect(libraryObjectName({ path })).toBe(name)
@@ -49,7 +51,6 @@ describe('libraryUtils', () => {
 
     test.each([
         ['feature_flag', '/feature_flags'],
-        ['insight', '/insights'],
         ['cohort', '/cohorts'],
         ['session_recording_playlist', '/replay/playlists'],
         ['not_a_type', null],

@@ -37,7 +37,7 @@ def _is_hosted_service_target(host: str) -> bool:
     # Tenant endpoints are trusted only when issued by the control plane, never from external-source configuration.
     label, _, domain = host.lower().removesuffix(".").partition(".")
     return (
-        domain in {"dw.us.postwh.com", "dw.dev.postwh.com"}
+        domain in {"dw.us.postwh.com", "dw.eu.postwh.com", "dw.dev.postwh.com"}
         and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is not None
     )
 

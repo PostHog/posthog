@@ -1,11 +1,13 @@
-from unittest import mock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import (
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
     HetznerSourceConfig,
@@ -22,7 +24,7 @@ class TestHetznerSource:
         # The token is a credential — it must render as a masked password input and be marked secret,
         # or it would be stored/echoed in plaintext.
         config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hetzner"
         fields = config.fields
         assert len(fields) == 1
@@ -69,8 +71,9 @@ class TestHetznerSource:
     )
     def test_source_for_pipeline_routes_schema(self, _name: str, schema_name: str, primary_keys: list[str]) -> None:
         config = HetznerSourceConfig(api_token="tok")
-        inputs = mock.MagicMock()
-        inputs.schema_name = schema_name
-        response = self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, config).run(schema_name, [ScriptedResponse(json={})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == schema_name
         assert response.primary_keys == primary_keys

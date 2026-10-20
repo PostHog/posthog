@@ -182,6 +182,8 @@ class SupportReplyWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
         )
+        if ctx_output.ticket_gone:
+            return "skipped_ticket_deleted"
         if input.clarification_round >= 1 and ctx_output.followup_cancelled:
             return "skipped_human_engaged"
 

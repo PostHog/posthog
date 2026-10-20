@@ -23,6 +23,10 @@ ALL_ENDPOINTS = {
     "marketing_lists",
     "templates",
     "message_activity",
+    "unsubscribe_group_suppressions",
+    "singlesends",
+    "singlesend_stats",
+    "singlesend_link_stats",
 }
 
 

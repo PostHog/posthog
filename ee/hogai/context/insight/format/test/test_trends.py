@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
 
@@ -227,6 +228,41 @@ class TestTrendsResultsFormatter(BaseTest):
             "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "iso_strings_crossing_local_midnight",
+                {"date_from": "2026-10-12T23:41:45-07:00", "date_to": "2026-10-13T00:41:49-07:00"},
+                "2026-10-12 23:41:45-07:00 to 2026-10-13 00:41:49-07:00",
+            ),
+            (
+                "datetimes_with_microseconds",
+                {
+                    "date_from": datetime(2026, 10, 12, 23, 41, 45, 123456, tzinfo=ZoneInfo("America/Los_Angeles")),
+                    "date_to": datetime(2026, 10, 13, 0, 41, 49, 999999, tzinfo=ZoneInfo("America/Los_Angeles")),
+                },
+                "2026-10-12 23:41:45-07:00 to 2026-10-13 00:41:49-07:00",
+            ),
+        ]
+    )
+    def test_trends_aggregated_value_uses_resolved_date_range(self, _name, resolved_date_range, expected_range):
+        results = [
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 82,
+                "label": "$pageview",
+                "action": {"days": ["2026-10-12 00:00:00-07:00", "2026-10-13 00:00:00-07:00"]},
+            }
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(series=[]), results, resolved_date_range=resolved_date_range
+            ).format(),
+            f"Date range|Aggregated value for $pageview\n{expected_range}|82",
+        )
+
     def test_trends_aggregated_values(self):
         results = [
             {
@@ -333,7 +369,7 @@ class TestTrendsResultsFormatter(BaseTest):
                 "aggregated_value": 993,
                 "label": "$pageview",
                 "action": {
-                    "days": ["2025-01-17", "2025-01-18", "2025-01-19"],
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
                 },
                 "compare": True,
                 "compare_label": Compare.PREVIOUS,
@@ -352,6 +388,17 @@ class TestTrendsResultsFormatter(BaseTest):
             },
         ]
         self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 to 2025-01-19|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|1000",
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(series=[]),
+                results,
+                resolved_date_range={
+                    "date_from": "2025-01-20T00:00:00-08:00",
+                    "date_to": "2025-01-22T23:59:59.999999-08:00",
+                },
+                resolved_compare_date_range={
+                    "date_from": datetime(2025, 1, 17, tzinfo=ZoneInfo("America/Los_Angeles")),
+                    "date_to": datetime(2025, 1, 19, 23, 59, 59, 999999, tzinfo=ZoneInfo("America/Los_Angeles")),
+                },
+            ).format(),
+            "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 00:00:00-08:00 to 2025-01-19 23:59:59-08:00|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 00:00:00-08:00 to 2025-01-22 23:59:59-08:00|1000",
         )

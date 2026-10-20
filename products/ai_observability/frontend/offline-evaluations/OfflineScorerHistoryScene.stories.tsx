@@ -21,6 +21,10 @@ const meta: Meta<typeof OfflineScorerHistoryScene> = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team/tags': ({ request }) => {
+                    const tags = ['quality', 'production', 'regression', 'support']
+                    return new URL(request.url).searchParams.has('limit') ? { results: tags, next: null } : tags
+                },
                 '/api/projects/:project/llm_analytics/score_definitions/:definition/': OFFLINE_STORY_DEFINITION,
                 '/api/projects/:project/llm_analytics/score_definitions/:definition/versions/': {
                     results: [OFFLINE_STORY_VERSION],
@@ -30,7 +34,13 @@ const meta: Meta<typeof OfflineScorerHistoryScene> = {
                 '/api/projects/:project/llm_analytics/score_definitions/:definition/versions/:version/':
                     OFFLINE_STORY_VERSION,
                 '/api/projects/:project/ai_observability/offline_scorers/:definition/history/': {
-                    results: [...OFFLINE_STORY_POINTS].reverse(),
+                    results: [...OFFLINE_STORY_POINTS].reverse().map((point, index) => ({
+                        ...point,
+                        experiment: {
+                            ...point.experiment,
+                            tags: index % 2 ? ['quality'] : ['quality', 'production', 'regression', 'support'],
+                        },
+                    })),
                     next_cursor: 'older-page',
                     count: 127,
                 },

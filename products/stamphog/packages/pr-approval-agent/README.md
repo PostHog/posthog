@@ -97,7 +97,9 @@ Size ceiling (hard gate)
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
     .test/.spec/_test files), and generated/ artifacts
-    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
+    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt),
+    and Drizzle Kit schema snapshots (`migrations/meta/NNNN_snapshot.json`; the migrator reads only
+    the SQL and `_journal.json`, which still count)
     don't count toward the ceiling, because they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
     files and do count toward the ceiling. All files still count toward tier
@@ -123,6 +125,12 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   - Human 👀 reactions are not waited on; the LLM refuses over them instead
   - If the wait refetched the PR, classification and gates re-run on the
     fresh data before the LLM sees it
+  - Hosted runs also get external reviewers' status for the head from the
+    server (`review_evidence` in the context, for example PostHog Review). Any
+    pending review is WAIT; each completed one against the current merge base
+    counts as a current-head review only when it skipped no changed file. Each
+    gets its own line in the assurance summary and the verdict, which says why
+    a review with skipped files does not count
   │
   ▼
 LLM Review
@@ -171,37 +179,59 @@ The repo root is resolved from the package's own location, never from the workin
 
 ### `policy.yml`
 
-Required, at `.stamphog/policy.yml`.
-The machine policy, loaded and validated by a strict loader: a malformed or incomplete file hard-fails at load rather than reviewing under a half-loaded policy.
+The machine policy is the engine's shipped [`defaults/policy.yml`](defaults/policy.yml) with the repository's optional `.stamphog/policy.yml` merged onto it (`merge_policy` in `policy.py`).
+Mappings merge key by key, a list the repository declares replaces the default's list, and an `extend_<name>` key appends to the inherited `<name>` list.
+A strict loader validates the merged document: a malformed or incomplete result hard-fails at load rather than reviewing under a half-loaded policy.
 
 Top-level sections:
 
-| Section       | What it declares                                                     |
-| ------------- | -------------------------------------------------------------------- |
-| `version`     | The policy schema version                                            |
-| `deny`        | The T2 categories and the title/path patterns that match them        |
-| `allow`       | The path patterns and extensions that make a PR eligible for T0      |
-| `size_gate`   | The global `max_lines` and `max_files` ceilings                      |
-| `tiers`       | The T1 sub-class thresholds                                          |
-| `overrides`   | The keys a folder file may override, and each key's ceiling          |
-| `familiarity` | The author-familiarity bands, a judgment input and never a gate      |
-| `ownership`   | The ownership sources that feed the reviewer's advisory team context |
+| Section           | What it declares                                                          |
+| ----------------- | ------------------------------------------------------------------------- |
+| `version`         | The policy schema version                                                 |
+| `deny`            | The T2 categories and the title/path patterns that match them             |
+| `deny_exceptions` | Optional per-pattern or category path exceptions without replacing `deny` |
+| `allow`           | The path patterns and extensions that make a PR eligible for T0           |
+| `size_gate`       | The global `max_lines` and `max_files` ceilings                           |
+| `tiers`           | The T1 sub-class thresholds                                               |
+| `overrides`       | The keys a folder file may override, and each key's ceiling               |
+| `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
+| `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
 Treat it as historical justification like a commit message, not as a claim about the present.
 
 The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
-The loader hard-fails when the category or one of its required path patterns is missing.
-It checks the pattern sources only, so a policy that keeps the patterns but hollows them out, for example with a blanket `exempt_path_prefixes`, still loads.
-That is one more reason every edit to a policy file is a human-reviewed change.
+The loader hard-fails when the category or one of its required path patterns is missing, and when a repository's file drops a pattern the shipped default declares for it.
+It checks the pattern sources only, so every edit to a policy file stays a human-reviewed change.
 
 The loader rejects unknown top-level keys.
 The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.
 
+`deny_exceptions` maps existing category names to non-empty lists of rules.
+Each rule requires `path_prefixes`, a non-empty list of literal repository-relative directory prefixes ending in `/`.
+Absolute paths, traversal, wildcards, regular expressions, and noncanonical prefixes fail validation.
+Optional `extensions` restricts the rule to a non-empty list of literal dot-prefixed file suffixes.
+Optional `keyword` restricts the exception to an existing literal pattern in `match.any` or `match.paths`; title-only patterns and arbitrary regular expressions are not accepted.
+Without `keyword`, the rule exempts every path pattern in that category within the selected paths.
+Rules combine their selectors with AND, and the rules within a category combine with OR.
+Prefix and extension comparisons ignore case.
+An absent or empty `deny_exceptions` mapping leaves matching unchanged.
+
+The matcher skips only matching patterns on matching files.
+Other keywords in the same category, other categories, and non-exempt files in a mixed PR still deny.
+Rename checks keep both real paths, so an exempt destination does not waive a protected source.
+Title scrutiny remains unchanged.
+When these exceptions lift a denial, classification requires `T1-agent` rather than the allow-list or test-only `T0` route.
+All remaining gates and the reviewer still apply.
+The loader rejects unknown rule fields and categories, malformed selectors, and every exception to `stamphog_policy`.
+A repository file containing only this section keeps the inherited `deny` rules, including future additions.
+A deny exception without `keyword` also suppresses the category's title scrutiny flag when it covers every changed file, so a connector fix that says "stripe" in its title is not flagged.
+See the [repository configuration example](../../README.md#deny-exceptions).
+
 ### `review-guidance.md`
 
-The trusted review-norms prose, injected into the reviewer's system prompt.
+The trusted review-norms prose, injected into the reviewer's system prompt: the repository's `.stamphog/review-guidance.md` when present, which replaces the shipped [`defaults/review-guidance.md`](defaults/review-guidance.md) as a whole, else that default.
 Ordinary markdown.
 Editing it changes the reviewer's behavior directly, so update it deliberately.
 
@@ -348,7 +378,7 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
-A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
+Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
 
 A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
 It makes the category owner-only: the category does not deny a PR whose author is on one of the teams, and denies everyone else's, so stamphog approves those paths only for the team that owns them.

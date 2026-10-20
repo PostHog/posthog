@@ -1,74 +1,31 @@
-import json
 from typing import Any
 
-import pytest
-from unittest import mock
-
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartlead import (
+    SmartleadSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.settings import PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.smartlead import (
     SmartleadResumeConfig,
-    smartlead_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the smartlead module.
-SMARTLEAD_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.smartlead.make_tracked_session"
-)
-FANOUT_REST_RESOURCES_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.source import SmartleadSource
 
 
-def _response(body: Any) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(SmartleadSource(), SmartleadSourceConfig(api_key="key")).run(endpoint, script, **inputs)
 
 
-def _make_manager(resume_state: SmartleadResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return smartlead_source(
-        api_key="key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _json(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 def _accounts(count: int, start: int = 0) -> list[dict[str, Any]]:
@@ -76,140 +33,113 @@ def _accounts(count: int, start: int = 0) -> list[dict[str, Any]]:
 
 
 class TestSmartleadSource:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_offset_pagination_walks_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [_response(_accounts(PAGE_SIZE)), _response(_accounts(1, start=PAGE_SIZE))],
-        )
+    def test_offset_pagination_walks_until_short_page(self) -> None:
+        result = _run("email_accounts", [_json(_accounts(PAGE_SIZE)), _json(_accounts(1, start=PAGE_SIZE))])
 
-        rows = _rows(_source("email_accounts", _make_manager()))
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert len(result.requests) == 2
+        assert result.requests[0].url.startswith("https://server.smartlead.ai/api/v1/email-accounts/")
+        assert result.requests[0].param("offset") == "0"
+        assert result.requests[0].param("limit") == str(PAGE_SIZE)
+        assert result.requests[1].param("offset") == str(PAGE_SIZE)
 
-        assert len(rows) == PAGE_SIZE + 1
-        assert session.send.call_count == 2
-        assert snapshots[0]["url"] == "https://server.smartlead.ai/api/v1/email-accounts/"
-        assert snapshots[0]["params"] == {"offset": 0, "limit": PAGE_SIZE}
-        assert snapshots[1]["params"]["offset"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_campaigns_single_page_never_paginates(self, MockSession) -> None:
+    def test_campaigns_single_page_never_paginates(self) -> None:
         # The campaign list is unpaginated. An offset paginator here would refetch the same full
         # array forever, because a full-length page never triggers the short-page stop.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": i} for i in range(PAGE_SIZE * 2)])])
+        result = _run("campaigns", [_json([{"id": i} for i in range(PAGE_SIZE * 2)])])
 
-        rows = _rows(_source("campaigns", _make_manager()))
+        assert len(result.rows) == PAGE_SIZE * 2
+        assert len(result.requests) == 1
+        assert result.requests[0].path == "/api/v1/campaigns/"
+        assert result.requests[0].param("offset") is None
 
-        assert len(rows) == PAGE_SIZE * 2
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == "https://server.smartlead.ai/api/v1/campaigns/"
-        assert "offset" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_enveloped_body_on_list_endpoint_fails_loud(self, MockSession) -> None:
+    def test_enveloped_body_on_list_endpoint_fails_loud(self) -> None:
         # The docs show an `{ok, data}` envelope for /client/ while the live API historically
         # returns a bare array. Whichever way the API answers, a non-list body must raise
         # instead of silently syncing a garbage row.
-        session = MockSession.return_value
-        _wire(session, [_response({"ok": True, "data": [{"id": 1}]})])
+        result = _run("clients", [_json({"ok": True, "data": [{"id": 1}]})])
 
-        with pytest.raises(ValueError, match="Required a list response body"):
-            _rows(_source("clients", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "Required a list response body" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_accounts(1, start=PAGE_SIZE))])
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _run(
+            "email_accounts",
+            [_json(_accounts(1, start=PAGE_SIZE))],
+            resume_state=SmartleadResumeConfig(next_offset=PAGE_SIZE),
+        )
 
-        rows = _rows(_source("email_accounts", _make_manager(SmartleadResumeConfig(next_offset=PAGE_SIZE))))
-
-        assert [r["id"] for r in rows] == [PAGE_SIZE]
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["offset"] == PAGE_SIZE
+        assert [r["id"] for r in result.rows] == [PAGE_SIZE]
+        assert len(result.requests) == 1
+        assert result.requests[0].param("offset") == str(PAGE_SIZE)
 
 
 class TestSmartleadFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_leads_fan_out_paginates_per_campaign_and_injects_campaign_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_leads_fan_out_paginates_per_campaign_and_injects_campaign_id(self) -> None:
+        result = _run(
+            "campaign_leads",
             [
-                _response([{"id": 11}, {"id": 22}]),
-                _response(
+                _json([{"id": 11}, {"id": 22}]),
+                _json(
                     {"total_leads": str(PAGE_SIZE + 1), "data": [{"campaign_lead_map_id": i} for i in range(PAGE_SIZE)]}
                 ),
-                _response({"total_leads": str(PAGE_SIZE + 1), "data": [{"campaign_lead_map_id": PAGE_SIZE}]}),
-                _response({"total_leads": "1", "data": [{"campaign_lead_map_id": 9000}]}),
+                _json({"total_leads": str(PAGE_SIZE + 1), "data": [{"campaign_lead_map_id": PAGE_SIZE}]}),
+                _json({"total_leads": "1", "data": [{"campaign_lead_map_id": 9000}]}),
             ],
         )
-
-        rows = _rows(_source("campaign_leads", _make_manager()))
 
         # Parent listed once (no pagination), campaign 11 paged twice, campaign 22 once.
-        assert session.send.call_count == 4
-        assert snapshots[0]["url"].endswith("/campaigns/")
-        assert "offset" not in snapshots[0]["params"]
-        assert snapshots[1]["url"].endswith("/campaigns/11/leads")
-        assert snapshots[1]["params"]["offset"] == 0
-        assert snapshots[2]["params"]["offset"] == PAGE_SIZE
-        assert snapshots[3]["url"].endswith("/campaigns/22/leads")
-        assert snapshots[3]["params"]["offset"] == 0
-
-        assert len(rows) == PAGE_SIZE + 2
-        # Lead rows don't carry their campaign id; the fan-out injects it for the composite key.
-        assert rows[0]["campaign_id"] == 11
-        assert rows[-1]["campaign_id"] == 22
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_analytics_object_body_becomes_one_row_per_campaign(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": 11}]),
-                _response({"campaign_name": "Q1", "total_sent": 10}),
-            ],
-        )
-
-        rows = _rows(_source("campaign_analytics", _make_manager()))
-
-        assert rows == [{"campaign_name": "Q1", "total_sent": 10, "campaign_id": 11}]
-
-    @mock.patch(FANOUT_REST_RESOURCES_PATCH)
-    def test_fan_out_resumes_completed_and_current_campaign(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            mock.MagicMock(name="campaigns"),
-            mock.MagicMock(name="campaign_leads"),
+        assert result.paths == [
+            "/api/v1/campaigns/",
+            "/api/v1/campaigns/11/leads",
+            "/api/v1/campaigns/11/leads",
+            "/api/v1/campaigns/22/leads",
         ]
-        mock_rest_api_resources.return_value[0].name = "campaigns"
-        mock_rest_api_resources.return_value[1].name = "campaign_leads"
+        assert result.requests[0].param("offset") is None
+        assert result.params("offset")[1:] == ["0", str(PAGE_SIZE), "0"]
 
-        resume = SmartleadResumeConfig(
-            completed=["/campaigns/11/leads"],
-            current="/campaigns/22/leads",
-            child_state={"offset": PAGE_SIZE},
+        assert len(result.rows) == PAGE_SIZE + 2
+        # Lead rows don't carry their campaign id; the fan-out injects it for the composite key.
+        assert result.rows[0]["campaign_id"] == 11
+        assert result.rows[-1]["campaign_id"] == 22
+
+    def test_analytics_object_body_becomes_one_row_per_campaign(self) -> None:
+        result = _run(
+            "campaign_analytics",
+            [_json([{"id": 11}]), _json({"campaign_name": "Q1", "total_sent": 10})],
         )
-        _source("campaign_leads", _make_manager(resume))
 
-        _, kwargs = mock_rest_api_resources.call_args
-        assert kwargs["initial_paginator_state"] == {
-            "completed": ["/campaigns/11/leads"],
-            "current": "/campaigns/22/leads",
-            "child_state": {"offset": PAGE_SIZE},
-        }
+        assert result.rows == [{"campaign_name": "Q1", "total_sent": 10, "campaign_id": 11}]
+
+    def test_fan_out_resumes_completed_and_current_campaign(self) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/campaigns/"):
+                return _json([{"id": 11}, {"id": 22}])
+            return _json({"total_leads": "1", "data": [{"campaign_lead_map_id": 1}]})
+
+        result = _run(
+            "campaign_leads",
+            script,
+            resume_state=SmartleadResumeConfig(
+                completed=["/campaigns/11/leads"],
+                current="/campaigns/22/leads",
+                child_state={"offset": PAGE_SIZE},
+            ),
+        )
+
+        assert result.paths == ["/api/v1/campaigns/", "/api/v1/campaigns/22/leads"]
+        assert result.params("offset")[1] == str(PAGE_SIZE)
 
 
 class TestValidateCredentials:
-    @mock.patch(SMARTLEAD_SESSION_PATCH)
-    def test_probe_carries_key_in_query_and_never_follows_redirects(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
+    def test_probe_carries_key_in_query_and_never_follows_redirects(self) -> None:
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://attacker.example.com/capture"})
+        with scripted_network(always(redirect)) as network:
+            validate_credentials("key")
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://server.smartlead.ai/api/v1/email-accounts/?api_key=key&offset=0&limit=1"
-        # The key rides in the query string; following a redirect would replay it off-host.
-        assert call.kwargs["allow_redirects"] is False
+        assert [request.origin for request in network.requests_log] == ["https://server.smartlead.ai"]
+        request = network.requests_log[0]
+        assert request.path == "/api/v1/email-accounts/"
+        assert (request.param("api_key"), request.param("offset"), request.param("limit")) == ("key", "0", "1")
         # The tracked session must mask the key in logs and captured samples.
-        assert mock_session.call_args.kwargs["redact_values"] == ("key",)
+        assert network.session_options[0]["redact_values"] == ("key",)

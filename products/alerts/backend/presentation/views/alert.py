@@ -4,7 +4,7 @@ from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.utils import timezone
 
 import pydantic
@@ -108,7 +108,13 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_threshold_change,
     apply_unsnooze,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.models.alert import (
+    METRICS_INSIGHT_QUERY_FILTER,
+    AlertCheck,
+    AlertConfiguration,
+    AlertSubscription,
+    Threshold,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -367,11 +373,6 @@ def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> N
     # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
     if kind == NodeKind.METRICS_QUERY and not _insight_alert_flag_enabled(context, "metrics"):
         raise ValidationError("Metrics insight alerts are not enabled for your account.")
-
-
-# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
-# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
-_METRICS_INSIGHT_QUERY_FILTER = Q(insight__query__kind="MetricsQuery") | Q(insight__query__source__kind="MetricsQuery")
 
 
 def _token_lacks_metrics_scope(request) -> bool:
@@ -1534,7 +1535,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # filter-then-exclude-by-id rather than exclude(Q) — NOT over a JSON path is three-valued,
         # so a plain exclude also drops rows whose query lacks the key entirely.
         if _token_lacks_metrics_scope(self.request):
-            queryset = queryset.exclude(id__in=queryset.filter(_METRICS_INSIGHT_QUERY_FILTER).values("id"))
+            queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
 
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
@@ -1904,5 +1905,5 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # Thresholds embed full alerts (including check values), so they get the same read-side
         # metrics scope gate as the alerts endpoints. Same null-safe filter-then-exclude shape.
         if _token_lacks_metrics_scope(self.request):
-            queryset = queryset.exclude(id__in=queryset.filter(_METRICS_INSIGHT_QUERY_FILTER).values("id"))
+            queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
         return queryset

@@ -12,10 +12,9 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalTeamConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
-    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
@@ -26,7 +25,6 @@ from products.tasks.backend.constants import (
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
-    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -35,14 +33,15 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.process_task.activities import provision_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
     _ensure_subscription_allowed,
     _is_agent_otel_telemetry_enabled,
-    _is_agent_proxy_keep_stream_open_enabled,
     _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
@@ -226,6 +225,28 @@ class TestIsAgentOtelTelemetryEnabled:
 
 
 class TestGetTaskProcessingContextActivity:
+    @pytest.mark.django_db(transaction=True)
+    def test_internal_research_gets_project_and_role_instructions_at_start(
+        self, activity_environment: ActivityEnvironment, test_task: Task
+    ) -> None:
+        test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        test_task.internal = True
+        test_task.save(update_fields=["origin_product", "internal"])
+        AgentInstructionsStore().set_project(test_task.team_id, "Use pnpm.")
+        SignalTeamConfig.objects.update_or_create(
+            team_id=test_task.team_id,
+            defaults={
+                "research_instructions": "Check the product intent.",
+                "implementation_instructions": "Open draft PRs.",
+            },
+        )
+        run = test_task.create_run(extra_state={"ai_stage": "research"})
+        async_to_sync(_run_context)(activity_environment, GetTaskProcessingContextInput(run_id=str(run.id)))
+        run.refresh_from_db()
+        assert "Use pnpm." in run.state["agent_instructions"]
+        assert "Check the product intent." in run.state["agent_instructions"]
+        assert "Open draft PRs." not in run.state["agent_instructions"]
+
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
             team=team,
@@ -241,28 +262,23 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("subscription,is_trial", [(False, False), (True, False), (False, True)])
-    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial):
+    @pytest.mark.parametrize(
+        "subscription,is_trial,resume",
+        [(False, False, False), (True, False, False), (False, True, False), (False, False, True)],
+    )
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial, resume):
         owner = User.objects.create_user(
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
-        private_payload = {"reports": {"synthetic-report": {"summary": "Private observation. " * 20_000}}}
         extra_state: dict[str, object] = {"claude_model_access": "own-subscription"} if subscription else {}
         if is_trial:
             test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
             test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
             test_task.save(update_fields=["origin_product", "origin_key"])
-            extra_state.update({"scout_trial": {"version": 1}, "scout_trial_private": private_payload})
         task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
-        if is_trial:
-            SignalScoutRun.objects.for_team(test_task.team_id).create(
-                team_id=test_task.team_id,
-                task_run=task_run,
-                skill_name="signals-scout-fixture",
-                skill_version=1,
-                metadata={"scout_trial": {"version": 1}},
-            )
+        if resume:
+            task_run.prepare_for_cloud_resume()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         with (
@@ -287,6 +303,10 @@ class TestGetTaskProcessingContextActivity:
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
         assert result.run_id == str(task_run.id)
+        assert result.startup_requested_at == (
+            task_run.queued_at.isoformat() if resume else task_run.state["startup_requested_at"]
+        )
+        assert result.stream_generation is not None
         assert result.team_id == test_task.team_id
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
@@ -295,39 +315,6 @@ class TestGetTaskProcessingContextActivity:
         assert result.agent_otel_telemetry_enabled is (not is_trial)
         assert result.context_layer_enabled is (not is_trial)
         assert result.state is not None
-        assert "scout_trial_private" not in result.state
-        if is_trial:
-            assert result.state["scout_trial"] == {"version": 1}
-            task_run.refresh_from_db()
-            assert task_run.state["scout_trial_private"] == private_payload
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("missing", ["origin", "marker", "version", "bridge"])
-    def test_private_context_requires_matching_server_provenance(
-        self, activity_environment: ActivityEnvironment, test_task: Task, missing: str
-    ) -> None:
-        if missing != "origin":
-            test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
-            test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
-            test_task.save(update_fields=["origin_product", "origin_key"])
-        extra_state = {} if missing == "marker" else {"scout_trial": {"version": 2 if missing == "version" else 1}}
-        task_run = test_task.create_run(extra_state=extra_state)
-        if missing != "bridge":
-            SignalScoutRun.objects.for_team(test_task.team_id).create(
-                team_id=test_task.team_id,
-                task_run=task_run,
-                skill_name="signals-scout-fixture",
-                skill_version=1,
-                metadata={"scout_trial": {"version": 1}},
-            )
-
-        async def execute_context() -> TaskProcessingContext:
-            return await activity_environment.run(
-                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
-            )
-
-        with pytest.raises(TaskInvalidStateError, match="inconsistent private context"):
-            async_to_sync(execute_context)()
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -715,62 +702,35 @@ class TestGetTaskProcessingContextActivity:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.pr_loop_enabled is expected
-        assert result.sandbox_event_ingest_enabled is False
         args, kwargs = feature_enabled_mock.call_args_list[0]
         assert args[0] == "tasks-pr-loop"
         assert kwargs["distinct_id"] == get_actor_distinct_id(test_task.created_by)
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
-        evaluated_flags = [args[0] for args, _kwargs in feature_enabled_mock.call_args_list]
-        assert SANDBOX_EVENT_INGEST_FEATURE_FLAG in evaluated_flags
 
     @pytest.mark.django_db(transaction=True)
-    def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
-        self, activity_environment, test_task
-    ):
-        test_task.runtime = Task.Runtime.PI
-        test_task.save(update_fields=["runtime"])
-        task_run = test_task.create_run()
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
-
-        assert result.sandbox_event_ingest_enabled is True
-        assert result.agent_proxy_keep_stream_open is False
-
-    @pytest.mark.django_db(transaction=True)
-    def test_pi_runtime_respects_persistent_event_streaming_kill_switches(self, activity_environment, test_task):
-        test_task.runtime = Task.Runtime.PI
-        test_task.save(update_fields=["runtime"])
-        task_run = test_task.create_run(
-            extra_state={
-                "sandbox_event_ingest_enabled": False,
-                "agent_proxy_keep_stream_open": False,
-            }
-        )
+    def test_get_task_processing_context_keeps_stamped_event_ingest_off(self, activity_environment, test_task):
+        task_run = test_task.create_run(extra_state={"sandbox_event_ingest_enabled": False})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.sandbox_event_ingest_enabled is False
-        assert result.agent_proxy_keep_stream_open is False
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "flag_value,expected_state",
+        "flag_value,include_live_context,expected_state",
         [
-            (True, "resolved"),
-            (False, []),
-            (None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, None, "resolved"),
+            (False, None, []),
+            (None, None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, False, []),
+            (None, False, []),
         ],
     )
     def test_store_skills_state_follows_the_sandbox_flag(
-        self, activity_environment, test_task, user, flag_value, expected_state
+        self, activity_environment, test_task, user, mocker, flag_value, include_live_context, expected_state
     ):
         LLMSkill.objects.create(
             team=test_task.team,
@@ -781,16 +741,40 @@ class TestGetTaskProcessingContextActivity:
             is_latest=True,
             created_by=user,
         )
-        task_run = test_task.create_run()
+        task_run = test_task.create_run(
+            extra_state={"include_live_context": include_live_context} if include_live_context is not None else {}
+        )
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
-            return_value=flag_value,
+        with (
+            patch(
+                "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
+                return_value=flag_value,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.context_layer_facade.is_context_layer_enabled",
+                return_value=True,
+            ),
         ):
-            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
+        assert result.context_layer_enabled is (include_live_context is not False)
+        if include_live_context is False:
+            assert result.state is not None
+            assert result.state[STORE_SKILLS_STATE_KEY] == []
+        for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+            mocker.patch.object(provision_sandbox, name, return_value={})
+        mocker.patch.object(provision_sandbox, "get_sandbox_jwt_public_key", return_value="public-key")
+        mocker.patch.object(
+            provision_sandbox.context_layer_facade,
+            "sandbox_environment_variables",
+            return_value={"POSTHOG_CONTEXT_LAYER_PATH": "/tmp/workspace/context"},
+        )
+        environment = provision_sandbox._build_environment_variables(result, test_task, "", "fake-token")
+        assert environment.get("POSTHOG_CONTEXT_LAYER_PATH") == (
+            "/tmp/workspace/context" if include_live_context is not False else None
+        )
         stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
         if expected_state == "untouched":
             assert stored == [{"name": "from-last-session"}]
@@ -880,147 +864,19 @@ class TestGetTaskProcessingContextActivity:
             )
 
     @pytest.mark.parametrize(
-        "flag_value, expected",
+        "state, expected",
         [
-            (True, True),
-            (False, False),
-            (None, False),
+            (None, True),
+            ({}, True),
+            ({"sandbox_event_ingest_enabled": True}, True),
+            ({"sandbox_event_ingest_enabled": False}, False),
+            # Permission brokering and Slack approval cards only exist on the relay path;
+            # a Slack run in ingest mode would stall forever on its first gated tool call.
+            ({"interaction_origin": "slack", "sandbox_event_ingest_enabled": True}, False),
         ],
     )
-    def test_sandbox_event_ingest_flag_uses_organization_rollout(self, flag_value, expected):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=flag_value,
-        ) as feature_enabled_mock:
-            assert (
-                _is_sandbox_event_ingest_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                )
-                is expected
-            )
-
-        feature_enabled_mock.assert_called_once_with(
-            SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-            distinct_id="distinct-id",
-            groups={"organization": "organization-id"},
-            group_properties={"organization": {"id": "organization-id"}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-    def test_sandbox_event_ingest_flag_fails_closed(self):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=RuntimeError("flag service failed"),
-        ):
-            assert (
-                _is_sandbox_event_ingest_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                )
-                is False
-            )
-
-    def test_sandbox_event_ingest_state_override_skips_flag_check(self):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as feature_enabled_mock:
-            assert (
-                _is_sandbox_event_ingest_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                    state={"sandbox_event_ingest_enabled": True},
-                )
-                is True
-            )
-
-        feature_enabled_mock.assert_not_called()
-
-    def test_sandbox_event_ingest_disabled_for_slack_runs_regardless_of_override(self):
-        # Permission brokering and Slack approval cards only exist on the relay path;
-        # a Slack run in ingest mode would stall forever on its first gated tool call.
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=True,
-        ) as feature_enabled_mock:
-            assert (
-                _is_sandbox_event_ingest_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                    state={"interaction_origin": "slack", "sandbox_event_ingest_enabled": True},
-                )
-                is False
-            )
-
-        feature_enabled_mock.assert_not_called()
-
-    @pytest.mark.parametrize(
-        "flag_value, expected",
-        [
-            (True, True),
-            (False, False),
-            (None, False),
-        ],
-    )
-    def test_agent_proxy_keep_stream_open_flag_uses_organization_rollout(self, flag_value, expected):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=flag_value,
-        ) as feature_enabled_mock:
-            assert (
-                _is_agent_proxy_keep_stream_open_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                )
-                is expected
-            )
-
-        feature_enabled_mock.assert_called_once_with(
-            AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
-            distinct_id="distinct-id",
-            groups={"organization": "organization-id"},
-            group_properties={"organization": {"id": "organization-id"}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-    def test_agent_proxy_keep_stream_open_flag_fails_closed(self):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=RuntimeError("flag service failed"),
-        ):
-            assert (
-                _is_agent_proxy_keep_stream_open_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                )
-                is False
-            )
-
-    def test_agent_proxy_keep_stream_open_state_override_skips_flag_check(self):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as feature_enabled_mock:
-            assert (
-                _is_agent_proxy_keep_stream_open_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                    state={"agent_proxy_keep_stream_open": True},
-                )
-                is True
-            )
-
-        feature_enabled_mock.assert_not_called()
+    def test_sandbox_event_ingest_defaults_on_and_respects_state(self, state, expected):
+        assert _is_sandbox_event_ingest_enabled(run_id="run-id", state=state) is expected
 
     @pytest.mark.parametrize(
         "kill_switch_value, expected",
@@ -1755,21 +1611,6 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_burstable_sandbox_resources_defaults_true_and_respects_state(self, state, expected):
         assert _is_burstable_sandbox_resources_enabled(run_id="run-id", state=state) is expected
-
-    @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_uses_sandbox_event_ingest_state_override(
-        self, activity_environment, test_task
-    ):
-        task_run = test_task.create_run(extra_state={"sandbox_event_ingest_enabled": True})
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
-
-        assert result.sandbox_event_ingest_enabled is True
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_enables_directory_resume_snapshots(self, activity_environment, test_task):

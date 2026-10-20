@@ -2,7 +2,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -16,10 +18,13 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
+import { MetricsDashboardActions } from './components/MetricsDashboardActions'
 import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { QuillMetricsDashboardActions } from './components/QuillMetricsDashboardActions'
+import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
@@ -44,7 +49,7 @@ export const scene: SceneExport = {
 export function MetricsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={metricsFeaturePreviewGate}>
-            <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            <SceneContent className="@container/metrics-scene h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
                 <MetricsSceneContent />
             </SceneContent>
         </FeaturePreviewSceneGate>
@@ -77,6 +82,7 @@ const MetricsSceneContent = (): JSX.Element => {
     useOnMountEffect(() => {
         primeItems()
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
@@ -91,9 +97,32 @@ const MetricsSceneContent = (): JSX.Element => {
                     type: sceneConfigurations[Scene.Metrics].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
-                        Feedback
-                    </LemonButton>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="@min-[48rem]/metrics-scene:hidden">
+                                <QuillMetricsDashboardActions />
+                            </div>
+                            <Button variant="outline" onClick={onFeedbackClick}>
+                                <IconFeedback />
+                                Feedback
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            {/* In a narrow scene, the tab bar has no space for the import menu. */}
+                            <div className="@min-[48rem]/metrics-scene:hidden">
+                                <MetricsDashboardActions />
+                            </div>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={onFeedbackClick}
+                            >
+                                Feedback
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             <LemonBanner
@@ -119,12 +148,15 @@ const MetricsSceneContent = (): JSX.Element => {
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
+                rightSlot={<MetricsDashboardActions />}
+                rightSlotClassName="hidden @min-[48rem]/metrics-scene:flex"
             />
             <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                 {activeTab === 'overview' && <MetricsOverview />}
                 {activeTab === 'viewer' && <MetricsViewer />}
                 {activeTab === 'sql' && <MetricsSqlEditor />}
             </div>
+            <MetricsDashboardImportModal />
         </>
     )
 }

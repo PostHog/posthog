@@ -66,4 +66,25 @@ describe('compareSignalReports', () => {
         rows.sort(compareSignalReports('created_at', 'desc'))
         expect(rows.map((r) => r.id)).toEqual(['fractional', 'whole-second'])
     })
+    // Non-staff users get lifts without probabilities, and the merged list must keep the server's model order.
+    it('orders a model sort by the lift when the report has no probability', () => {
+        const ranking = {
+            served_key: '',
+            model_name: '',
+            model_version: '',
+            manifest_version: '',
+            scored_at: '2026-06-01T00:00:00Z',
+            scores: {},
+            readable_heads: ['fixed'],
+            stale: false,
+        }
+        const rows = [
+            report('unscored', { ranking: null }),
+            report('low', { ranking: { ...ranking, lifts: { fixed: 0.5 } } }),
+            report('stale-high', { ranking: { ...ranking, lifts: { fixed: 9 }, stale: true } }),
+            report('high', { ranking: { ...ranking, lifts: { fixed: 3 } } }),
+        ]
+        rows.sort(compareSignalReports('ranking_fixed', 'desc'))
+        expect(rows.map((r) => r.id)).toEqual(['high', 'low', 'unscored', 'stale-high'])
+    })
 })

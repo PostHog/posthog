@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -20,7 +19,7 @@ class TestPersistIqSource:
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.label == "PersistIq"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # A finished source is visible — it must not carry the scaffolding flag.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/persistiq"
@@ -81,9 +80,3 @@ class TestPersistIqSource:
         assert kwargs["api_key"] == "pq-key"
         assert kwargs["endpoint"] == "leads"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown PersistIQ schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

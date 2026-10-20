@@ -4,6 +4,7 @@ from requests.exceptions import HTTPError, RequestException
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,6 +56,25 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^TIKTOK_ADS_", "^TIKTOK_PIXEL_ID$", "^NEXT_PUBLIC_TIKTOK_PIXEL_ID$"),
+        script_hosts=("analytics.tiktok.com",),
+        npm=(
+            "tiktok-business-api-sdk-official",
+            "@tiktok-for-business/react-native-sdk",
+            "react-native-tiktok-business-sdk",
+            "tiktok-pixel",
+        ),
+        pypi=("tiktok-business-api-sdk-official",),
+        cocoapods=("TikTokBusinessSDK",),
+        maven=(
+            "io.github.jasonchentt:tiktok-business-api-sdk-official",
+            "com.github.tiktok:tiktok-business-android-sdk",
+        ),
+        pub=("tiktok_events_sdk",),
+        swiftpm=("github.com/tiktok/tiktok-business-ios-sdk",),
+    )
+
     supported_versions = ("v1.3",)
     default_version = "v1.3"
     api_docs_url = "https://business-api.tiktok.com/portal/docs"

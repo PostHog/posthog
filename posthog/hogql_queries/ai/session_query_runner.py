@@ -17,6 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -87,6 +88,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
 
         query = self._build_query()
 
+        # Evaluation reads one session by id, so it skips the full per-team catalog build (see
+        # query_ai_events). Interactive reads keep the full catalog because their request modifiers
+        # can name warehouse tables.
+        database = (
+            Database.create_for_posthog_tables(self.team, modifiers=self.modifiers) if self.for_evaluation else None
+        )
         with self.timings.measure("session_query_ai_events_execute"), tags_context(product=Product.LLM_ANALYTICS):
             tag_queries(ai_query_source="dedicated_table")
             query_result = self.paginator.execute_hogql_query(
@@ -101,6 +108,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=HogQLContext(team_id=self.team.pk, user=self.user, database=database),
             )
 
         if not query_result.results and not self.for_evaluation:

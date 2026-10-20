@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
+    codebase_detection = detect(env=("^SNYK_",), npm=("snyk", "@snyk/protect"), pypi=("pysnyk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,7 +55,7 @@ class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
             name=ExternalDataSourceType.SNYK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Snyk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Snyk account to sync organizations, projects, targets, and vulnerability issues into the PostHog Data warehouse.
 
 Generate an API token from your [Snyk account settings](https://app.snyk.io/account) (or use a service account token from your organization or group settings). The token is sent as `Authorization: token <token>` and can read every organization it has access to.

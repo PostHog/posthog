@@ -28,7 +28,7 @@ import {
     TargetPersonNotFoundError,
     createDefaultSyncMergeMode,
 } from './person-merge-types'
-import { MergePersonsOutcome, MergePersonsResult } from './persons-store'
+import { MergePersonsOutcome, MergePersonsResult, PersonsBackend } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
@@ -54,10 +54,15 @@ describe('PersonMergeService store-owned merges', () => {
     let store: {
         mergePersons: jest.Mock
         fetchForUpdate: jest.Mock
+        backend?: PersonsBackend
     }
     let outputs: { queueMessages: jest.Mock }
 
-    const makeService = (eventName = '$identify', mergeFoldPlan?: MergeFoldPlan) => {
+    const makeService = (
+        eventName = '$identify',
+        mergeFoldPlan?: MergeFoldPlan,
+        identityEmitsMergeWarnings = false
+    ) => {
         const event = {
             event: eventName,
             uuid: 'event-uuid',
@@ -82,7 +87,8 @@ describe('PersonMergeService store-owned merges', () => {
             createDefaultSyncMergeMode(),
             false,
             false,
-            mergeFoldPlan
+            mergeFoldPlan,
+            identityEmitsMergeWarnings
         )
         return new PersonMergeService(context)
     }
@@ -656,6 +662,134 @@ describe('PersonMergeService store-owned merges', () => {
             // The sequential fallback then exhausts its retries on the same
             // claim and drops the merge, which reports success with no person.
             expect(mergeResult.success && mergeResult.person).toBeUndefined()
+        })
+    })
+
+    describe('when the identity service publishes the verdict warnings', () => {
+        const warnedTypes = (): string[] =>
+            outputs.queueMessages.mock.calls
+                .flat(3)
+                .filter((entry: any) => entry?.value)
+                .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+
+        beforeEach(() => {
+            store.backend = 'personhog'
+        })
+
+        it.each(['skipped_already_identified', 'skipped_illegal', 'skipped_race', 'skipped_refused', 'error'])(
+            'a settled %s verdict acks without a consumer-side warning',
+            async (outcome) => {
+                store.mergePersons.mockResolvedValue(result(outcome as MergePersonsOutcome))
+                const service = makeService('$identify', undefined, true)
+
+                const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
+
+                expect(mergeResult.success).toBe(true)
+                expect(warnedTypes()).toEqual([])
+            }
+        )
+
+        it('a settled conflict still counts the drop but leaves the warning to the identity service', async () => {
+            store.mergePersons.mockResolvedValue({
+                survivor: null,
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: true }],
+            })
+            mergeClaimDroppedCounter.reset()
+            const service = makeService('$identify', undefined, true)
+
+            await service.merge('anon-1', 'd1', 1, timestamp)
+
+            expect(warnedTypes()).toEqual([])
+            expect(await counterTotal(mergeClaimDroppedCounter)).toBe(1)
+        })
+
+        it.each([
+            [
+                'an unsettled conflict that outlasts every retry',
+                () =>
+                    store.mergePersons.mockResolvedValue({
+                        survivor: null,
+                        results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+                    }),
+                'merge_race_condition',
+            ],
+            [
+                'a call that fails with no verdict',
+                () =>
+                    store.mergePersons.mockRejectedValue(
+                        new PersonMergeCallFailedError('no verdict', new Error('transport'))
+                    ),
+                'merge_settled_failure',
+            ],
+            [
+                'a raw refusal',
+                () =>
+                    store.mergePersons.mockRejectedValue(
+                        new ConnectError(
+                            'op_id was already used for a different request',
+                            Code.FailedPrecondition,
+                            new Headers({ 'x-semantic-refusal': 'op_id_reused' })
+                        )
+                    ),
+                'merge_settled_failure',
+            ],
+            [
+                'a verdict this build cannot name',
+                () => store.mergePersons.mockResolvedValue(result('unknown')),
+                'merge_settled_failure',
+            ],
+        ])('%s still warns from the consumer', async (_label, arrange, warningType) => {
+            arrange()
+            const service = makeService('$identify', undefined, true)
+
+            await service.handleIdentifyOrAlias()
+
+            expect(warnedTypes()).toContain(warningType)
+        })
+
+        it('an unmergeable id is still refused and warned before any call', async () => {
+            const service = makeService('$identify', undefined, true)
+
+            await service.merge('anon\u0000one', 'd1', 1, timestamp)
+
+            expect(store.mergePersons).not.toHaveBeenCalled()
+            expect(warnedTypes()).toContain('cannot_merge_with_illegal_distinct_id')
+        })
+
+        it('the setting is inert on the postgres backend', async () => {
+            store.backend = 'postgres'
+            store.mergePersons.mockResolvedValue(result('skipped_already_identified'))
+            const service = makeService('$identify', undefined, true)
+
+            await service.merge('anon-1', 'd1', 1, timestamp)
+
+            expect(warnedTypes()).toContain('cannot_merge_already_identified')
+        })
+
+        it('a fold leaves its settled verdicts to the identity service and still counts them', async () => {
+            const before = await counterTotal(mergeSettledFailureCounter)
+            store.mergePersons.mockResolvedValue({
+                survivor,
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'skipped_already_identified' },
+                    { sourceDistinctId: 'anon-2', outcome: 'error' },
+                ],
+            })
+            const plan: MergeFoldPlan = {
+                targetDistinctId: 'd1',
+                pairs: [
+                    { anonDistinctId: 'anon-1', eventUuid: 'event-uuid' },
+                    { anonDistinctId: 'anon-2', eventUuid: 'event-uuid-2' },
+                ],
+                status: 'planned',
+            }
+            const service = makeService('$identify', plan, true)
+
+            await service.handleIdentifyOrAlias()
+
+            expect(plan.status).toBe('executed')
+            expect(warnedTypes()).toEqual([])
+            expect(await counterTotal(mergeSettledFailureCounter)).toBe(before + 1)
         })
     })
 

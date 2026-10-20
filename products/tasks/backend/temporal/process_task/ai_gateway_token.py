@@ -28,7 +28,6 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     _team_credit_refusal,
     _valid_cap,
     desktop_limit_tier,
-    desktop_rollout_enabled,
     posthog_code_plan,
     valid_caps,
 )
@@ -55,7 +54,9 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 # Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
+    "metrics_import": "posthog_ai",
     "onboarding": "onboarding",
+    "account_audit": "account_audit",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
@@ -92,6 +93,7 @@ _SCOUT_STAGE_PREFIX = "scout:"
 MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
+        "account_audit",
         "posthog_code",
         "review_hog",
         "slack_app",
@@ -132,6 +134,9 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
     # reservation; only the server-stamped `internal` flag admits the mintable product.
     if gateway_product == "review_hog" and not internal:
         logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
+    if origin_product == "account_audit" and not internal:
+        logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
@@ -185,15 +190,13 @@ def _posthog_code_team(team_id: int) -> "Team | None":
     return Team.objects.select_related("organization").filter(id=team_id).first()
 
 
-def _posthog_code_refusal(team_id: int, model: str | None, distinct_id: str | None) -> str | None:
-    """The rollout flag is the switch for the product; a free plan's pin has no model an
-    unpinned or paid-model run could fall back to."""
+def _posthog_code_refusal(team_id: int, model: str | None) -> str | None:
+    """A free plan's pin has no model an unpinned or paid-model run could fall back to."""
     team = _posthog_code_team(team_id)
-    # The run's user, so a person-targeted flag moves cloud runs with that person's desktop sessions.
-    if team is None or not desktop_rollout_enabled(team.organization, team, distinct_id, _account_email(distinct_id)):
-        return "not_rolled_out"
+    if team is None:
+        return "team_not_found"
     if posthog_code_plan(team) == "free" and not model_allowed_by_pin(FREE_TIER_MODELS, model):
-        return "model_outside_pin"
+        return "model_outside_free_pin"
     return None
 
 
@@ -232,19 +235,21 @@ def mint_refusal(
     runtime: str | None,
     internal: bool = False,
     prior_slack_run: bool = False,
-    distinct_id: str | None = None,
+    origin_product: str | None = None,
 ) -> str | None:
-    """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    """Why a routed run must not mint."""
+    if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
+        return "no_account_audit_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):
         return "no_slack_provenance"
     if ai_product == POSTHOG_CODE_PRODUCT:
-        refusal = _posthog_code_refusal(team_id, model, distinct_id)
+        refusal = _posthog_code_refusal(team_id, model)
         if refusal:
             return refusal
-    # The Pi harness reads only LLM_GATEWAY_URL.
-    if runtime == "pi":
+    # Pi reaches Go only for posthog_code.
+    elif runtime == "pi":
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):

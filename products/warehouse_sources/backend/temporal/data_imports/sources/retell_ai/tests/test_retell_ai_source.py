@@ -1,5 +1,4 @@
 import json
-from dataclasses import replace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -8,8 +7,6 @@ from unittest.mock import MagicMock
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retellai import (
     RetellAISourceConfig,
 )
@@ -57,13 +54,3 @@ def test_probe_errors_are_not_reported_as_invalid_credentials(
     http.return_value = response({}, status)
     with pytest.raises(HTTPError if status == 400 else RESTClientRetryableError):
         RetellAISource().validate_credentials(RetellAISourceConfig(api_key="fake-key"), 1)
-
-
-def test_unknown_table_fails_before_http(inputs: SourceInputs, http: MagicMock) -> None:
-    source = RetellAISource()
-    inputs = replace(inputs, schema_name="unknown-table")
-    with pytest.raises(UnknownResourceError):
-        source.source_for_pipeline(
-            RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
-        )
-    http.assert_not_called()

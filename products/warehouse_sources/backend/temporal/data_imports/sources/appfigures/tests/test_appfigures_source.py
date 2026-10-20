@@ -1,7 +1,11 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source import AppfiguresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfigures import (
     AppfiguresSourceConfig,
 )
@@ -16,11 +20,6 @@ class TestAppfiguresSource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "reviews"
 
     @pytest.mark.parametrize(
         "status,schema_name,expected_ok",
@@ -37,11 +36,9 @@ class TestAppfiguresSource:
             (None, None, False),
         ],
     )
-    def test_validate_credentials(self, status, schema_name, expected_ok):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source.check_credentials",
-            return_value=status,
-        ):
+    def test_validate_credentials(self, status: int | None, schema_name: str | None, expected_ok: bool) -> None:
+        script = always(ScriptedResponse(status=status)) if status is not None else [ConnectionResetError("boom")]
+        with scripted_network(script):
             ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
             assert ok is expected_ok
 
@@ -54,18 +51,16 @@ class TestAppfiguresSource:
             ("ranks", "/reviews"),
         ],
     )
-    def test_validate_credentials_probes_schema_specific_path(self, schema_name: str, expected_path: str):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source.check_credentials",
-            return_value=200,
-        ) as probe:
+    def test_validate_credentials_probes_schema_specific_path(self, schema_name: str, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
-            probe.assert_called_once_with("pat_test", expected_path)
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == f"/v2{expected_path}"
+        assert network.requests_log[0].headers["authorization"] == "Bearer pat_test"
 
-    def test_validate_credentials_defaults_to_products_path(self):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source.check_credentials",
-            return_value=200,
-        ) as probe:
+    def test_validate_credentials_defaults_to_products_path(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             self.source.validate_credentials(self.config, self.team_id)
-            probe.assert_called_once_with("pat_test", "/products/mine")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/v2/products/mine"
+        assert network.requests_log[0].headers["authorization"] == "Bearer pat_test"

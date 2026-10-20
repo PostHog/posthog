@@ -30,11 +30,11 @@ use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
-    STEP_COMPLETED,
+    abort_op_in_tx, advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx,
+    STEP_ABORTED, STEP_COMPLETED,
 };
 use crate::lifecycle::leader_calls::{
     fence_victims, release_fenced, Fenced, FencedVictim, LeaderCalls,
@@ -153,6 +153,7 @@ pub struct DeleteDriver {
     /// The leaders' partition count, which decides which victims share a
     /// fence call.
     num_partitions: u32,
+    outbox_writes: OutboxWrites,
 }
 
 impl DeleteDriver {
@@ -161,6 +162,7 @@ impl DeleteDriver {
         tables: IdentityTables,
         leader_call_concurrency: usize,
         num_partitions: u32,
+        outbox_writes: OutboxWrites,
     ) -> Self {
         tables.validate().expect("invalid identity table set");
         assert!(num_partitions > 0, "num_partitions must be > 0");
@@ -170,6 +172,7 @@ impl DeleteDriver {
             // Clamped to 1: a zero-width buffered stream never polls.
             leader_call_concurrency: leader_call_concurrency.max(1),
             num_partitions,
+            outbox_writes,
         }
     }
 
@@ -203,7 +206,16 @@ impl OpDriver for DeleteDriver {
             DeleteStep::Started => mark(pools, &self.tables, op).await,
             DeleteStep::Marked => seal(pools, self.leader_calls(), &self.tables, op).await,
             DeleteStep::Sealed => unmap(pools, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pools, self.leader_calls(), &self.tables, op).await,
+            DeleteStep::Unmapped => {
+                complete(
+                    pools,
+                    self.leader_calls(),
+                    &self.tables,
+                    op,
+                    self.outbox_writes,
+                )
+                .await
+            }
         }
     }
 }
@@ -355,12 +367,11 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         // Every requested person was conflicted or missing: nothing was (or
         // will be) mutated, so the op ends here as aborted.
         let outcome = build_outcome(&mut tx, tables, op.op_id, &request.person_ids).await?;
-        let advanced = complete_op_in_tx(
+        let advanced = abort_op_in_tx(
             &mut tx,
             tables,
             op.op_id,
             DeleteStep::Started.as_str(),
-            STEP_ABORTED,
             &outcome,
         )
         .await?;
@@ -687,6 +698,7 @@ async fn complete(
     calls: LeaderCalls<'_>,
     tables: &IdentityTables,
     op: &OpRow,
+    outbox_writes: OutboxWrites,
 ) -> Result<(), SagaError> {
     let request = parse_request(op)?;
 
@@ -724,8 +736,8 @@ async fn complete(
         tables,
         op.op_id,
         DeleteStep::Unmapped.as_str(),
-        STEP_COMPLETED,
         &outcome,
+        outbox_writes,
     )
     .await?
     {

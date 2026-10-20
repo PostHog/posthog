@@ -35,6 +35,8 @@ the user's actual question.
   _Workflow: act on an actionable report_
 - "Dismiss this" / "snooze this report" / "mark this resolved" / "I've fixed this" — see
   _Workflow: resolve, dismiss, or snooze a report_
+- "Get this merged" / "run the suggested prompt on this report" — see
+  _Workflow: run an action on a report_
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -65,6 +67,8 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
 | `inbox-reports-set-state`             | Resolve (`resolved`), dismiss (`suppressed`), or snooze (`potential`) a single report                         |
 | `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)                                                 |
+| `inbox-report-actions-list`           | The report's agent run actions (Get it merged, suggested prompts) and whether each can start now (read-only)  |
+| `inbox-report-actions-run`            | Start one of those actions as a background agent run linked to the report                                     |
 | `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)                                                     |
 | `inbox-source-configs-retrieve`       | Full record for a single source config                                                                        |
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
@@ -74,7 +78,8 @@ The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retr
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
-_Workflow: resolve, dismiss, or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
+_Workflow: resolve, dismiss, or snooze a report_ — `inbox-report-actions-run` (start an agent run
+from a report action), see _Workflow: run an action on a report_ — and `inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
 `-create` / `-update` exist too for standing a source up or replacing it wholesale. Pausing
 processing is not exposed via MCP.
@@ -88,7 +93,8 @@ What each report status means (in roughly the order a triage agent should care a
 - `in_progress` — actively being summarized / judged
 - `candidate` / `potential` — accumulated signals but not yet promoted to a real report
 - `failed` — processing errored
-- `suppressed` — manually hidden; not surfaced by default
+- `suppressed` — out of the inbox; not surfaced by default. A person or agent dismissed it, or a
+  judge held it back before anyone reviewed it. See _Dismissed and held-back reports_ below
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
   so a recurrence starts a fresh report linked back to it. Set automatically when a linked
   implementation PR merges, or directly via `inbox-reports-set-state` (see the workflow below)
@@ -96,6 +102,44 @@ What each report status means (in roughly the order a triage agent should care a
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+
+## Dismissed and held-back reports
+
+A `suppressed` report has one of two origins. The inbox shows each origin in its own view, and
+`inbox-reports-list` accepts the same split through its `view` parameter:
+
+| `view`      | Lists suppressed reports that…                                                                    | `suppression_source`                       |
+| ----------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `dismissed` | a person or agent dismissed, or that were merged into another report, or whose PR closed unmerged | `dismissed`                                |
+| `held_back` | a judge suppressed before anyone reviewed them                                                    | `safety_judge`, `not_actionable`, `system` |
+
+Each suppressed row carries two fields that tell the origins apart:
+
+- `suppression_source` — `null` unless the status is `suppressed`.
+  - `dismissed`: someone chose to remove the report. Read `dismissal_reason` and `dismissal_note`
+    for the reason.
+  - `safety_judge`: the safety judge marked the report unsafe.
+  - `not_actionable`: the actionability judge marked the report not actionable.
+  - `system`: the pipeline suppressed the report for a different reason. An older report that
+    has no dismissal record and no judge verdict also shows this value.
+- `suppression_explanation` — the judge's explanation when the source is `safety_judge` or
+  `not_actionable`. `null` for the other sources, or when the judge gave none.
+
+Only `dismissed` is a human or agent decision. The other sources are judge verdicts that nobody
+has reviewed, and a judge can be wrong. Do not tell the user they hid a held-back report.
+
+Include held-back reports in a review when:
+
+- the user asks what PostHog filtered out, or why an expected report is missing from the inbox
+- the user asks for a full review or audit of the inbox, not only the actionable queue
+- you deduplicate against the full inbox state before you file or merge a report
+
+For a held-back review, call `inbox-reports-list` with `{"view": "held_back"}`. Show the
+`suppression_source` and the `suppression_explanation` for each report, so the user can judge
+the verdict. If the user decides that a report is valid, restore it with `state: "potential"`.
+The report goes back to the status it had before the judge held it back. If the user agrees with the
+verdict, call `state: "suppressed"` with a `dismissal_reason`. The report then moves from
+`held_back` to `dismissed`. See _Workflow: resolve, dismiss, or snooze a report_ for both calls.
 
 ## What "suggested reviewer" means
 
@@ -393,6 +437,65 @@ time asserts work that hasn't landed, and a reviewer looking at the inbox can't 
 Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a
 `NO_REPO` report — see the workflow below.
 
+## Workflow: run an action on a report
+
+A report can offer actions that start an agent run, the same ones the inbox shows as buttons:
+**Get it merged** (`get_it_merged`) fixes CI on the report's open, approved pull request and merges
+it, and each **suggested prompt** (`suggested_prompt`) sends one prompt the report suggests. Use
+these instead of `tasks-create-and-run`: a run started here is linked to the report, so it shows in
+the report's runs, counts toward the report's task limit, and gets the report's code access rules.
+The two tools are rolling out behind a flag, so they can be missing from your tool list. If they
+are, send the person to the report's `_posthogUrl` to press the button.
+
+### Step 1 — List the actions
+
+```json
+posthog:inbox-report-actions-list
+{ "report_id": "<report_uuid>" }
+```
+
+Every action comes back, available or not. Pick one with `available: true`. When an action is not
+available, `disabled_reason` says why (no approved open PR, AI data processing not approved, and so
+on): tell the person rather than trying to run it. `text` is the message the run gets as its first
+request, so show it when the person wants to know what the agent will be asked to do.
+
+### Step 2 — Confirm, then run it
+
+Starting a run creates a task that spends the organization's usage, and Get it merged can merge a
+pull request. Confirm with the person before you run an action they did not ask for by name.
+
+```json
+posthog:inbox-report-actions-run
+{ "report_id": "<report_uuid>", "action": "suggested_prompt", "suggested_prompt_index": 0 }
+```
+
+Pass `suggested_prompt_index` only for `suggested_prompt`, with the value from the list. A `201`
+returns `task_id`, `run_id`, and `task_url`. Each successful call creates a new task, so do not
+retry it. If `run_error` is set, the task exists but its run did not start: report the error and do
+not start a second one.
+
+### Step 3 — Follow the run
+
+The run works in the background. Follow it with `tasks-runs-retrieve` using `task_id` and `run_id`,
+and give the person `task_url`. Nobody can answer questions in a background run, so when the agent
+needs a decision it writes a note to the report's work log. Read new notes with
+`inbox-report-artefacts-list`.
+
+### Errors
+
+Every refusal carries a `code`. Do not retry any of them unchanged.
+
+| Status | `code`                              | What to do                                                                                      |
+| ------ | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 400    | `report_action_unavailable`         | The action is not available now. Tell the person the `detail`.                                  |
+| 403    | `report_action_unavailable`         | The organization has not approved AI data processing. An admin turns it on in settings.         |
+| 403    | `report_action_sandbox_refused`     | A task sandbox cannot start report actions. Ask a person to start it from their own session.    |
+| 409    | `report_action_run_active`          | A merge run is already working on the report. Follow the `task_id` and `run_id` in the body.    |
+| 429    | `signal_report_task_cap`            | The report reached its task limit. Work with the runs it already has.                           |
+| 429    | `throttled`, `usage_limit_exceeded` | A per-user or organization usage limit fired. Wait until it clears.                             |
+| 402    | `self_driving_free_trial`           | The organization is on a Self-driving free trial, which cannot open pull requests.              |
+| 404    | none                                | The report has no suggested prompt at that index. List the actions again and use a fresh index. |
+
 ## Workflow: resolve, dismiss, or snooze a report
 
 Three outcomes, one tool. Pick by what actually happened to the underlying issue:
@@ -536,8 +639,9 @@ inbox-source-configs-partial-update
   asked
 - `priority` and `actionability` are `null` for reports still in `pending_input` or `candidate`
   status; this is expected, not a bug — judgment hasn't run yet
-- `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
-  user wants to see hidden items
+- `suppressed` reports are excluded by default. Pass `view: "dismissed"` for reports someone
+  dismissed, `view: "held_back"` for reports a judge held back, or `status: "suppressed"` for both.
+  Read `suppression_source` before you describe why a report left the inbox
 - The inbox writes exposed via MCP are `inbox-reports-set-state` (resolve / dismiss / snooze one
   report), `inbox-reports-bulk-set-state` (the same for 1–100 reports), `inbox-reports-claim`
   (claim / release / attach a PR), and

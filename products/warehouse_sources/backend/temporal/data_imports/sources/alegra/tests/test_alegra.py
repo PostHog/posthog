@@ -106,3 +106,18 @@ def test_unknown_table_fails_before_network(
     with pytest.raises(UnknownResourceError):
         response_for(config, replace(inputs, schema_name="missing_table"))
     assert sent == []
+
+
+def test_bank_accounts_request_includes_inactive_accounts(
+    config: AlegraSourceConfig,
+    inputs: SourceInputs,
+    http_boundary: Callable[..., list[PreparedRequest]],
+    redis_boundary: dict[str, str],
+) -> None:
+    sent = http_boundary([(200, [{"id": "bank-test", "status": "inactive"}])])
+    assert rows(response_for(config, replace(inputs, schema_name="bank_accounts"))) == [
+        [{"id": "bank-test", "status": "inactive"}]
+    ]
+    request_url = urlsplit(sent[0].url or "")
+    assert request_url.path == "/api/v1/bank-accounts"
+    assert parse_qs(request_url.query)["includeInactive"] == ["true"]

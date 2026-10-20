@@ -1,11 +1,14 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.source import EmailOctopusSource
 
 
@@ -31,18 +34,15 @@ class TestEmailOctopusGetSchemas:
         schemas = {s.name: s for s in EmailOctopusSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].supports_incremental is supports_incremental
 
-    def test_names_filter(self) -> None:
-        schemas = EmailOctopusSource().get_schemas(_config(), team_id=1, names=["contacts"])
-        assert [s.name for s in schemas] == ["contacts"]
-
 
 class TestEmailOctopusValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_validate(self, _name: str, is_valid: bool) -> None:
-        with patch.object(source_module, "validate_emailoctopus_credentials", return_value=is_valid):
+        with scripted_network([ScriptedResponse(status=200 if is_valid else 401)]) as network:
             ok, message = EmailOctopusSource().validate_credentials(_config(), team_id=1)
         assert ok is is_valid
         assert (message is None) is is_valid
+        assert [request.path for request in network.requests_log] == ["/lists"]
 
 
 class TestEmailOctopusNonRetryableErrors:

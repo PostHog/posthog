@@ -34,14 +34,16 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # mean the same shape when the masker version that produced them matches, so a
 # masking change must start a new series rather than merge into the old one.
 #
-# TTL is 42 days (6 weekly samples per time-of-week slot), independent of raw
-# log retention. Nothing caps patterns per series yet, so until something does,
+# TTL, `retention_days`, `ttl_only_drop_parts` and the test-only TTL skip all
+# match logs_volume_buckets, which gives the reasons. The 42-day floor keeps 6
+# weekly samples per time-of-week slot. Nothing caps patterns per series yet, so
 # row count here is bounded only by how many distinct shapes a service emits.
 
 TABLE_NAME = "logs_pattern_buckets"
 
 
 def LOGS_PATTERN_BUCKETS_TABLE_SQL():
+    ttl_clause = "" if settings.TEST else "TTL time_bucket + toIntervalDay(greatest(42, retention_days))"
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
@@ -53,14 +55,15 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `severity_text` LowCardinality(String),
     `pattern_version` UInt8,
     `pattern` String,
+    `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
 PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
-TTL time_bucket + INTERVAL 42 DAY
-SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+{ttl_clause}
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """
 
 
