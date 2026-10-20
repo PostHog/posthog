@@ -356,6 +356,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen

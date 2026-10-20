@@ -684,7 +684,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
                 upsert.next_check_at or django_timezone.now(), django_timezone.now() + _REVIVE_FENCE
             )
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
-            legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
+            legacy_configuration_id=upsert.legacy_configuration_id,
+            defaults=defaults,
+            create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(

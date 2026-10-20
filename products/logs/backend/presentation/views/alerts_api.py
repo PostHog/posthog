@@ -1,6 +1,6 @@
 import os
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
 from uuid import UUID
@@ -127,10 +127,6 @@ DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 _SINGLE_INSTANCE: Final = Grouping()
-GROUPING_NOT_AVAILABLE: Final = (
-    "Grouping isn't available for this alert yet. Set the mode to single, or contact support to turn on "
-    "grouping for this project."
-)
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -779,8 +775,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
         grouping: Grouping | None = validated_data.pop("grouping", None)
-        if grouping is not None and not instance.platform_owned:
-            _refuse_grouping(grouping)
 
         threshold_or_filter_fields = {
             "threshold_count",
@@ -859,17 +853,15 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     instance.clear_next_check()
 
             updated = super().update(instance, validated_data)
-            if updated.platform_owned:
-                try:
-                    on_updated(
-                        team_id=updated.team_id,
-                        alert_id=updated.id,
-                        snooze_changed=snooze_data is not _SENTINEL,
-                        grouping=grouping,
-                    )
-                except InvalidPlatformAlertEdit as error:
-                    raise ValidationError({error.field_name: str(error)}) from error
-            elif enabled_change is True:
+            _write_platform_edit(
+                lambda: on_updated(
+                    team_id=updated.team_id,
+                    alert_id=updated.id,
+                    snooze_changed=snooze_data is not _SENTINEL,
+                    grouping=grouping,
+                )
+            )
+            if not updated.platform_owned and enabled_change is True:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
                 )
@@ -902,31 +894,23 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            if on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now()):
+            # Raised inside the transaction, so a grouping the alert cannot take leaves no alert behind.
+            if _write_platform_edit(
+                lambda: on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now(), grouping=grouping)
+            ):
                 created.refresh_from_db(fields=["owner", "owner_changed_at"])
-                if grouping is not None and grouping != _SINGLE_INSTANCE:
-                    try:
-                        on_updated(
-                            team_id=created.team_id, alert_id=created.id, snooze_changed=False, grouping=grouping
-                        )
-                    except InvalidPlatformAlertEdit as error:
-                        raise ValidationError({error.field_name: str(error)}) from error
-            else:
-                if grouping is not None:
-                    # Raised inside the transaction, so the alert is not created either.
-                    _refuse_grouping(grouping)
-                if created.enabled:
-                    transaction.on_commit(
-                        lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
-                    )
+            elif created.enabled:
+                transaction.on_commit(
+                    lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
+                )
             return created
 
 
-def _refuse_grouping(grouping: Grouping) -> None:
-    # The single-instance default is what the API returns for this alert, so a client that sends back
-    # what it read still saves.
-    if grouping != _SINGLE_INSTANCE:
-        raise ValidationError({"grouping": GROUPING_NOT_AVAILABLE})
+def _write_platform_edit[T](write: Callable[[], T]) -> T:
+    try:
+        return write()
+    except InvalidPlatformAlertEdit as error:
+        raise ValidationError({error.field_name: str(error)}) from error
 
 
 def _validate_filters(filters: dict) -> None:

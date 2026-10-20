@@ -8,7 +8,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Case, F, OuterRef, Prefetch, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
 
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
@@ -138,16 +138,19 @@ def runtime_by_legacy_id(
     if not legacy_configuration_ids:
         return {}
     instances = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"))
-    firing_first = instances.order_by(
-        Case(When(state=PlatformAlertState.FIRING, then=Value(0)), default=Value(1)), "grouping_key"
-    )
-    latest_notified = instances.order_by(F("last_notified_at").desc(nulls_last=True))
+    latest_notified = instances.order_by().values("configuration").annotate(at=Max("last_notified_at")).values("at")
     rows = (
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
         .annotate(
-            instance_state=Subquery(firing_first.values("state")[:1]),
-            instance_last_notified_at=Subquery(latest_notified.values("last_notified_at")[:1]),
+            instance_state=Case(
+                When(
+                    Exists(instances.filter(state=PlatformAlertState.FIRING)),
+                    then=Value(PlatformAlertState.FIRING.value),
+                ),
+                default=Subquery(instances.filter(grouping_key="").values("state")[:1]),
+            ),
+            instance_last_notified_at=Subquery(latest_notified),
         )
         .values_list(
             "legacy_configuration_id",

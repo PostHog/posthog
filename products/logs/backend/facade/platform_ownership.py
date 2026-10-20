@@ -17,18 +17,23 @@ def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
     return LogsAlertConfiguration.objects.filter(team_id=team_id, id=alert_id).first()
 
 
-def on_created(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
-    """Hands a new alert to the platform when its team has begun the cutover. False when the alert
-    stays with logs."""
+def on_created(*, team_id: int, alert_id: UUID, at: datetime, grouping: Grouping | None = None) -> bool:
+    """Hands a new alert to the platform when its team has begun the cutover, with its copy grouped
+    by `grouping`. False when the alert stays with logs.
+
+    Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping. Only an alert the
+    platform owns can take one other than single.
+    """
     alert = _alert(team_id, alert_id)
-    return alert is not None and platform_ownership.on_created(alert, at)
+    return alert is not None and platform_ownership.on_created(alert, at, grouping=grouping)
 
 
 def on_updated(*, team_id: int, alert_id: UUID, snooze_changed: bool, grouping: Grouping | None = None) -> None:
     """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
     A `grouping` of None keeps the copy's own.
 
-    Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit.
+    Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
+    alert cannot take the grouping. Only an alert the platform owns can take one other than single.
     """
     alert = _alert(team_id, alert_id)
     if alert is not None:

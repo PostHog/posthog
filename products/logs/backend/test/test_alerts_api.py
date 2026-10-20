@@ -2495,24 +2495,25 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cut_over", True, status.HTTP_201_CREATED),
-            ("not_cut_over", False, status.HTTP_400_BAD_REQUEST),
+            ("cut_over", True, "severity_text", status.HTTP_201_CREATED),
+            ("not_cut_over", False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("cut_over_unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, expected_status: int) -> None:
+    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
         if cut_over:
             self._owned_by_the_platform()
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
         response = self.client.post(
             self.base_url,
-            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": ["severity_text"]}),
+            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
             format="json",
         )
 
         assert response.status_code == expected_status, response.json()
-        if cut_over:
-            assert self._copy_grouping_keys(response.json()["id"]) == ("severity_text",)
+        if expected_status == status.HTTP_201_CREATED:
+            assert self._copy_grouping_keys(response.json()["id"]) == (key,)
         else:
             assert response.json()["attr"] == "grouping"
             assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
@@ -2541,11 +2542,19 @@ class TestLogsAlertAPI(APIBaseTest):
         if platform_owned:
             assert self._copy_grouping_keys(created["id"]) == ()
 
-    def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self) -> None:
+    @parameterized.expand(
+        [
+            ("as_read", None),
+            ("with_its_own_cap", {"mode": "single", "max_instances": 50}),
+        ]
+    )
+    def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
         created = self._create_via_api()
 
         response = self.client.put(
-            f"{self.base_url}{created['id']}/", self._valid_payload(grouping=created["grouping"]), format="json"
+            f"{self.base_url}{created['id']}/",
+            self._valid_payload(grouping=grouping or created["grouping"]),
+            format="json",
         )
 
         assert created["grouping"] == {
