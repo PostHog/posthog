@@ -2,6 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { router, urlToAction } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -189,6 +190,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
     const showCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const workflowsTab = {
         label: 'Workflows',
@@ -197,6 +199,16 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         link: urls.workflows(),
     }
     const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    const onNewWorkflow = (): void => {
+        void addProductIntent({
+            product_type: ProductKey.WORKFLOWS,
+            intent_context: ProductIntentContext.WORKFLOW_CREATED,
+        })
+        // Open the template chooser on the type the list shows, so a person on the
+        // Messaging tab sees messaging templates first.
+        setTypeFilter(currentTab === 'workflows' ? templateTypeForListType(filters.type) : 'all')
+        startNewWorkflow()
+    }
 
     if (currentTab === 'onboarding') {
         return (
@@ -221,25 +233,20 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
-                                <LemonButton
-                                    data-attr="new-workflow"
-                                    onClick={() => {
-                                        void addProductIntent({
-                                            product_type: ProductKey.WORKFLOWS,
-                                            intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                                        })
-                                        // Open the template chooser on the type the list shows, so a person on the
-                                        // Messaging tab sees messaging templates first.
-                                        setTypeFilter(
-                                            currentTab === 'workflows' ? templateTypeForListType(filters.type) : 'all'
-                                        )
-                                        startNewWorkflow()
-                                    }}
-                                    type="primary"
-                                    size="small"
-                                >
-                                    New workflow
-                                </LemonButton>
+                                {todayRailNav ? (
+                                    <Button data-attr="new-workflow" onClick={onNewWorkflow} variant="primary">
+                                        New workflow
+                                    </Button>
+                                ) : (
+                                    <LemonButton
+                                        data-attr="new-workflow"
+                                        onClick={onNewWorkflow}
+                                        type="primary"
+                                        size="small"
+                                    >
+                                        New workflow
+                                    </LemonButton>
+                                )}
                             </AccessControlAction>
                         )}
                         {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (

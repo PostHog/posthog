@@ -31,7 +31,6 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
     COUNT_TRIGGER_QUERY_WIDTH,
 )
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
     resolve_evaluation_target,
@@ -57,6 +56,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ai_observability.backend.models.evaluation_configs import evaluation_supports_reports
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 if TYPE_CHECKING:
     from posthog.models import Team
