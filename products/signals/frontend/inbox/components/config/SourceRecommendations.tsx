@@ -40,7 +40,9 @@ export function SourceRecommendations(): JSX.Element | null {
                         onClick={openSourceCatalog}
                         data-attr="signal-source-recommendations-browse"
                     >
-                        Browse all {externalSourceCount} sources
+                        <span>
+                            Browse all <span translate="no">{externalSourceCount}</span> sources
+                        </span>
                     </LemonButton>
                     <LemonButton
                         type="tertiary"

@@ -302,6 +302,36 @@ describe('signalSourcesLogic', () => {
         createConfig.mockRestore()
     })
 
+    it.each([
+        { status: 200, reason: 'integration' },
+        { status: 500, reason: 'default' },
+    ])('waits for integrations before recommending sources, with a $status response', async ({ status, reason }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const response = deferred<void>()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/': async () => {
+                    await response.promise
+                    return status === 200
+                        ? [200, { results: [{ id: 1, kind: 'github' }], next: null }]
+                        : [500, { detail: 'Server error' }]
+                },
+            },
+        })
+        integrationsLogic.actions.clearIntegrations()
+        integrationsLogic.actions.loadIntegrations()
+        logic.actions.loadSourceConfigsSuccess([])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: [], next: null, previous: null })
+
+        expect(logic.values.visibleSourceRecommendations).toEqual([])
+
+        response.resolve()
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+        expect(logic.values.visibleSourceRecommendations.find(({ agent }) => agent.source === 'github')).toMatchObject({
+            reason,
+        })
+    })
+
     // The roster shows what runs and the catalog shows the rest, with the recommendations built only
     // once both the configs and the connections are known. A recommendation computed from a half-loaded
     // picture would tell someone to connect a tool they already sync.

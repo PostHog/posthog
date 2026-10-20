@@ -283,6 +283,7 @@ function toggleSourceConfigState(
 export interface signalSourcesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    integrationsLoading: boolean // integrationsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
     sourcesLoadError: boolean // sourcesDataLogic
@@ -754,6 +755,7 @@ export interface signalSourcesLogicMeta {
             ciSignalsConfig: CISignalsConfigApi | null,
             ciSignalsIsFullyEnabled: boolean,
             integrations: IntegrationType[] | null,
+            integrationsLoading: boolean,
             sourceConfigs: SignalSourceConfig[] | null,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             sourcesLoadError: boolean,
@@ -826,7 +828,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             teamLogic,
             ['currentTeam'],
             integrationsLogic,
-            ['integrations'],
+            ['integrations', 'integrationsLoading'],
         ],
         actions: [sourcesDataLogic, ['loadSources']],
     })),
@@ -1287,8 +1289,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             : group.agents.filter((agent) => !agent.flag || featureFlags[agent.flag]),
                 })),
         ],
-        // Empty until both the configs and the connections are in: a recommendation built on a half-loaded
-        // picture would tell someone to connect a tool they already sync.
+        // A recommendation built before configs, connections, and integrations finish loading can
+        // tell someone to connect a tool they already use.
         recommendedSources: [
             (s) => [
                 s.externalAgents,
@@ -1296,6 +1298,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 s.ciSignalsConfig,
                 s.ciSignalsIsFullyEnabled,
                 s.integrations,
+                s.integrationsLoading,
                 s.sourceConfigs,
                 s.dataWarehouseSources,
                 s.sourcesLoadError,
@@ -1310,6 +1313,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 ciConfig: CISignalsConfigApi | null,
                 ciEnabled: boolean,
                 integrations: IntegrationType[] | null,
+                integrationsLoading: boolean,
                 sourceConfigs: SignalSourceConfig[] | null,
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
                 sourcesLoadError: boolean,
@@ -1320,6 +1324,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             ): SourceRecommendation[] => {
                 if (
                     sourceConfigs === null ||
+                    (integrations === null && integrationsLoading) ||
                     (dataWarehouseSources === null && !sourcesLoadError) ||
                     (onboardingState === null && onboardingStateLoading)
                 ) {
