@@ -147,20 +147,6 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     return KillSwitchLevel.OFF
 
 
-def get_hedged_app_queries_enabled() -> bool:
-    return _get_hedged_app_queries_enabled(round(time.time() / 60))
-
-
-@lru_cache(maxsize=1)
-def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
-    except Exception:
-        return False
-
-
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
@@ -569,17 +555,6 @@ def sync_execute(
         **core_settings,
         "log_comment": query_log_tags.to_json(),
     }
-    if workload == Workload.OFFLINE:
-        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-        # these disruptions
-        settings["use_hedged_requests"] = "0"
-    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
-        if kill_switch_level != KillSwitchLevel.OFF:
-            settings["use_hedged_requests"] = "0"
-        else:
-            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
     budgeted_query_info: Optional[Any] = None
 
