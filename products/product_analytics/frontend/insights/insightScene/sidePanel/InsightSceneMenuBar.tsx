@@ -186,7 +186,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showCreateEndpoint =
         isSavedInsight && !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
     const showCreateMetric = isSavedInsight
-    const showAddToNotebook = isSavedInsight
+    // Adding to notebooks is deprecated under the rail redesign; gated here so an emptied menu can disable itself.
+    const showAddToNotebook = isSavedInsight && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const showCreateMenu =
         showCreateEndpoint ||
         showCreateMetric ||

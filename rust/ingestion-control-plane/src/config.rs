@@ -141,6 +141,9 @@ pub struct Config {
     #[envconfig(from = "DEBUG_API_SECRET")]
     pub debug_api_secret: Option<String>,
 
+    #[envconfig(from = "PARITY_MONITOR_URL")]
+    pub parity_monitor_url: Option<String>,
+
     #[envconfig(default = "10000")]
     pub kafka_metadata_timeout_ms: u64,
 
