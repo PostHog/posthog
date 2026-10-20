@@ -2,7 +2,7 @@ import copy
 import json
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
@@ -11,6 +11,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals
+from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
 from products.workflows.backend.facade.enums import WorkflowProposalStatus
@@ -653,12 +654,40 @@ def versions_carrying_change(hog_flow: HogFlow, proposal: WorkflowProposal) -> t
     return carrying or [applied], None
 
 
+# Longer than any window a reviewer reads as "recent", so a typo cannot ask ClickHouse for years of metrics.
+_MAX_ABSOLUTE_WINDOW = timedelta(days=90)
+
+
+@frozen
+class AbsoluteWindow:
+    start: datetime
+    end: datetime
+
+
+def absolute_window(window: object, now: datetime) -> Optional[AbsoluteWindow]:
+    """The bounds of an ISO 8601 interval such as "2026-10-07T22:00:00Z/2026-10-14T22:00:00Z", or None.
+
+    A producer that reads only closed days names them this way, so PostHog must read the same days back."""
+    if not isinstance(window, str) or window.count("/") != 1:
+        return None
+    try:
+        start, end = (datetime.fromisoformat(part) for part in window.split("/"))
+    except ValueError:
+        return None
+    if start.tzinfo is None or end.tzinfo is None:
+        return None
+    if not start < end <= now or end - start > _MAX_ABSOLUTE_WINDOW:
+        return None
+    return AbsoluteWindow(start=start, end=end)
+
+
 def version_outcome(
     *,
     team_id: int,
     hog_flow_id: UUID,
     versions: Sequence[Optional[int]],
     after: datetime,
+    before: Optional[datetime] = None,
     step_id: Optional[str] = None,
     target: str = TARGET_OPEN_METRIC,
 ) -> Optional[dict]:
@@ -674,6 +703,9 @@ def version_outcome(
             app_source_id=f"{hog_flow_id}/{version}",
             breakdown_by="name",
             after=after,
+            # A merged hourly row keeps a sub-second timestamp, so only an exclusive bound keeps the whole last hour.
+            before=before,
+            before_exclusive=True,
             instance_id=step_id or None,
             name=[
                 TARGET_SEND_METRIC,

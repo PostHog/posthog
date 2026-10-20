@@ -13,12 +13,11 @@ import {
     Spinner,
 } from '@posthog/quill'
 
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
-
-import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 
 const ANY_USER = 'any'
 

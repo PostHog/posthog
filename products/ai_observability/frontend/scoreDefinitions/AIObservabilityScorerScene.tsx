@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,6 +18,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { openCreateScorerVersionDialog } from './openCreateScorerVersionDialog'
+import { QuillAIObservabilityScorerActions } from './QuillAIObservabilityScorerActions'
 import { ScoreDefinitionForm } from './ScoreDefinitionForm'
 import { formatKindLabel } from './scoreDefinitionModalUtils'
 import { ScorerLogicProps, scorerLogic } from './scorerLogic'
@@ -49,6 +52,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
         removeOption,
     } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,
         AccessControlLevel.Editor
@@ -83,71 +87,74 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                 description="Define the scores used in manual reviews and offline evaluations."
                 resourceType={{ type: 'llm_evaluations' }}
                 actions={
-                    <div className="flex flex-wrap items-center gap-2">
-                        {!isNew && definition && (
-                            <LemonMenu
-                                items={[
-                                    {
-                                        label: 'Duplicate',
-                                        to: urls.aiObservabilityScorer('new', { duplicate: definition.id }),
-                                        disabledReason: editDisabledReason || (saving ? 'Saving scorer' : undefined),
-                                        'data-attr': 'llma-scorer-duplicate',
-                                    },
-                                    {
-                                        label: 'Create new version',
-                                        disabledReason:
-                                            editDisabledReason ||
-                                            (saving
-                                                ? 'Saving scorer'
-                                                : hasChanges
-                                                  ? 'Save your changes first'
-                                                  : undefined),
-                                        onClick: () =>
-                                            LemonDialog.open({
-                                                title: 'Create a new scorer version?',
-                                                content: `Version ${definition.current_version + 1} will keep the current configuration. Use this when your external evaluator changes.`,
-                                                primaryButton: { children: 'Create version', onClick: createVersion },
-                                                secondaryButton: { children: 'Cancel' },
-                                            }),
-                                        'data-attr': 'llma-scorer-new-version',
-                                    },
-                                    {
-                                        label: definition.archived ? 'Unarchive' : 'Archive',
-                                        status: definition.archived ? 'default' : 'danger',
-                                        disabledReason:
-                                            editDisabledReason ||
-                                            (saving
-                                                ? 'Saving scorer'
-                                                : hasChanges
-                                                  ? 'Save your changes first'
-                                                  : undefined),
-                                        onClick: toggleArchive,
-                                        'data-attr': 'llma-scorer-archive-toggle',
-                                    },
-                                ]}
+                    todayRailNav ? (
+                        <QuillAIObservabilityScorerActions {...props} />
+                    ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {!isNew && definition && (
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Duplicate',
+                                            to: urls.aiObservabilityScorer('new', { duplicate: definition.id }),
+                                            disabledReason:
+                                                editDisabledReason || (saving ? 'Saving scorer' : undefined),
+                                            'data-attr': 'llma-scorer-duplicate',
+                                        },
+                                        {
+                                            label: 'Create new version',
+                                            disabledReason:
+                                                editDisabledReason ||
+                                                (saving
+                                                    ? 'Saving scorer'
+                                                    : hasChanges
+                                                      ? 'Save your changes first'
+                                                      : undefined),
+                                            onClick: () =>
+                                                openCreateScorerVersionDialog({
+                                                    currentVersion: definition.current_version,
+                                                    createVersion,
+                                                }),
+                                            'data-attr': 'llma-scorer-new-version',
+                                        },
+                                        {
+                                            label: definition.archived ? 'Unarchive' : 'Archive',
+                                            status: definition.archived ? 'default' : 'danger',
+                                            disabledReason:
+                                                editDisabledReason ||
+                                                (saving
+                                                    ? 'Saving scorer'
+                                                    : hasChanges
+                                                      ? 'Save your changes first'
+                                                      : undefined),
+                                            onClick: toggleArchive,
+                                            'data-attr': 'llma-scorer-archive-toggle',
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton icon={<IconEllipsis />} aria-label="Scorer actions" type="secondary" />
+                                </LemonMenu>
+                            )}
+                            <LemonButton
+                                to={urls.aiObservabilityScorers()}
+                                type="secondary"
+                                disabledReason={saving ? 'Saving scorer' : undefined}
+                                data-attr="llma-scorer-cancel"
                             >
-                                <LemonButton icon={<IconEllipsis />} aria-label="Scorer actions" type="secondary" />
-                            </LemonMenu>
-                        )}
-                        <LemonButton
-                            to={urls.aiObservabilityScorers()}
-                            type="secondary"
-                            disabledReason={saving ? 'Saving scorer' : undefined}
-                            data-attr="llma-scorer-cancel"
-                        >
-                            {hasChanges || isNew ? 'Cancel' : 'Back to scorers'}
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            form="scorer-form"
-                            loading={saving}
-                            disabledReason={editDisabledReason || (!hasChanges ? 'No unsaved changes' : undefined)}
-                            data-attr="llma-scorer-save"
-                        >
-                            {isNew ? 'Create scorer' : 'Save changes'}
-                        </LemonButton>
-                    </div>
+                                {hasChanges || isNew ? 'Cancel' : 'Back to scorers'}
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                form="scorer-form"
+                                loading={saving}
+                                disabledReason={editDisabledReason || (!hasChanges ? 'No unsaved changes' : undefined)}
+                                data-attr="llma-scorer-save"
+                            >
+                                {isNew ? 'Create scorer' : 'Save changes'}
+                            </LemonButton>
+                        </div>
+                    )
                 }
             />
             <form

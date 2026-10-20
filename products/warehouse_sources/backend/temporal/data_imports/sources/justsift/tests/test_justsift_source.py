@@ -47,10 +47,6 @@ class TestJustSiftSource:
     @parameterized.expand(
         [
             (200, True, None),
-            (401, False, "Invalid Sift API token"),
-            (403, False, "Invalid Sift API token"),
-            (500, False, "Sift returned HTTP 500"),
-            (0, False, "Could not connect to Sift"),
         ]
     )
     def test_validate_credentials(

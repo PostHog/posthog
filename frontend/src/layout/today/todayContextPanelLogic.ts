@@ -1,4 +1,5 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -11,12 +12,33 @@ import { SidePanelTab } from '~/types'
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 import { ConversationTicket, SidePanelViewState } from 'products/conversations/frontend/types'
 
+import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
 
 export interface TodayContextPanelOffset {
     x: number
     y: number
 }
+
+/**
+ * Where the PostHog AI button sits along the bottom edge of the scene. The user drags it between these, like the
+ * toolbar. The top edge is left out because the scene header and its actions sit there. The values double as the
+ * floating card's alignment to the button.
+ */
+export type TodayLauncherAlign = 'start' | 'center' | 'end'
+
+const LAUNCHER_HIDDEN_HINT_MS = 6000
+
+/** Matches the floating card, so docking keeps the panel's width. The dock silhouette uses it too. */
+export const TODAY_SIDE_PANEL_DEFAULT_WIDTH = 340
+
+/** The floating card as it was before a reload. The docked panel restores itself from the URL's `#panel` hash. */
+interface TodayFloatingSession {
+    tab: SidePanelTab
+    offset: TodayContextPanelOffset
+}
+
+const FLOATING_SESSION_KEY = 'today-context-panel-floating'
 
 /** How close to the right edge of the window a dragged panel must be released to dock. */
 export const TODAY_CONTEXT_PANEL_DOCK_EDGE = 64
@@ -47,8 +69,13 @@ export interface todayContextPanelLogicValues {
     floatingActiveTab: SidePanelTab
     floatingOffset: TodayContextPanelOffset
     floatingOpen: boolean
+    floatingSession: TodayFloatingSession | null
     floatingTab: SidePanelTab
     fullScreenUrl: string | null
+    launcherAlign: TodayLauncherAlign
+    launcherHidden: boolean
+    launcherHiddenByUser: boolean
+    launcherHintVisible: boolean
     panelTabs: SidePanelTab[]
 }
 
@@ -70,6 +97,12 @@ export interface todayContextPanelLogicActions {
     dock: () => {
         value: true
     }
+    hideLauncher: () => {
+        value: true
+    }
+    hideLauncherHint: () => {
+        value: true
+    }
     openFullScreen: () => {
         value: true
     }
@@ -85,6 +118,12 @@ export interface todayContextPanelLogicActions {
     setFloatingTab: (tab: SidePanelTab) => {
         tab: SidePanelTab
     }
+    setLauncherAlign: (align: TodayLauncherAlign) => {
+        align: TodayLauncherAlign
+    }
+    showLauncherHint: () => {
+        value: true
+    }
     togglePanelTab: (tab: SidePanelTab) => {
         tab: SidePanelTab
     }
@@ -97,6 +136,17 @@ export interface todayContextPanelLogicActions {
 export interface todayContextPanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         docked: (sidePanelOpen: boolean) => boolean
+        floatingSession: (
+            floatingOpen: boolean,
+            floatingActiveTab: SidePanelTab,
+            floatingOffset: TodayContextPanelOffset
+        ) => TodayFloatingSession | null
+        launcherHidden: (
+            docked: boolean,
+            launcherHiddenByUser: boolean,
+            floatingOpen: boolean,
+            panelTabs: SidePanelTab[]
+        ) => boolean
         panelTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
         floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
         canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
@@ -145,11 +195,20 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         setFloatingTab: (tab: SidePanelTab) => ({ tab }),
         setFloatingOffset: (offset: TodayContextPanelOffset) => ({ offset }),
         setDockHint: (dockHint: boolean) => ({ dockHint }),
+        setLauncherAlign: (align: TodayLauncherAlign) => ({ align }),
+        hideLauncher: true,
+        showLauncherHint: true,
+        hideLauncherHint: true,
         togglePanelTab: (tab: SidePanelTab) => ({ tab }),
         dock: true,
         undock: true,
         close: true,
         openFullScreen: true,
+    }),
+    // A reload opens the card where it was, as state rather than an action, so it doesn't count as the user opening it.
+    defaults(() => {
+        const saved = readSessionValue<TodayFloatingSession>(projectSessionKey(FLOATING_SESSION_KEY))
+        return saved ? { floatingOpen: true, floatingTab: saved.tab, floatingOffset: saved.offset } : {}
     }),
     reducers({
         floatingOpen: [
@@ -173,6 +232,30 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 setFloatingOffset: (_, { offset }) => offset,
             },
         ],
+        launcherAlign: [
+            'end' as TodayLauncherAlign,
+            { persist: true },
+            {
+                setLauncherAlign: (_, { align }) => align,
+            },
+        ],
+        launcherHiddenByUser: [
+            false,
+            { persist: true },
+            {
+                hideLauncher: () => true,
+                // The card closes back into the floating button, so closing it brings the button back.
+                setFloatingOpen: (state, { open }) => (open ? state : false),
+            },
+        ],
+        launcherHintVisible: [
+            false,
+            {
+                showLauncherHint: () => true,
+                hideLauncherHint: () => false,
+                togglePanelTab: () => false,
+            },
+        ],
         dockHint: [
             false,
             {
@@ -184,6 +267,28 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
     }),
     selectors({
         docked: [(s) => [s.sidePanelOpen], (sidePanelOpen: boolean): boolean => sidePanelOpen],
+        floatingSession: [
+            (s) => [s.floatingOpen, s.floatingActiveTab, s.floatingOffset],
+            (
+                floatingOpen: boolean,
+                floatingActiveTab: SidePanelTab,
+                floatingOffset: TodayContextPanelOffset
+            ): TodayFloatingSession | null =>
+                floatingOpen ? { tab: floatingActiveTab, offset: floatingOffset } : null,
+        ],
+        /**
+         * The button sinks away while docked and where the scene has no PostHog AI. The open card hangs off it, so it
+         * shows for as long as the card is open, even after the user dismissed it.
+         */
+        launcherHidden: [
+            (s) => [s.docked, s.launcherHiddenByUser, s.floatingOpen, s.panelTabs],
+            (
+                docked: boolean,
+                launcherHiddenByUser: boolean,
+                floatingOpen: boolean,
+                panelTabs: SidePanelTab[]
+            ): boolean => docked || (launcherHiddenByUser && !floatingOpen) || !panelTabs.includes(SidePanelTab.Max),
+        ],
         panelTabs: [
             (s) => [s.enabledTabs],
             // PostHog AI goes last, and only where the scene offers it. Canvas scenes bring their own chat.
@@ -244,7 +349,22 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             },
         ],
     }),
+    subscriptions({
+        floatingSession: (session: TodayFloatingSession | null) =>
+            writeSessionValue(projectSessionKey(FLOATING_SESSION_KEY), session),
+    }),
     listeners(({ actions, values }) => ({
+        setLauncherAlign: ({ align }) => {
+            posthog.capture('today ai button moved', { align })
+        },
+        hideLauncher: () => {
+            posthog.capture('today ai button hidden')
+            actions.showLauncherHint()
+        },
+        showLauncherHint: async (_, breakpoint) => {
+            await breakpoint(LAUNCHER_HIDDEN_HINT_MS)
+            actions.hideLauncherHint()
+        },
         setFloatingOpen: ({ open }) => {
             // pinned: analytics event names
             posthog.capture(open ? 'today context panel opened' : 'today context panel closed', {
