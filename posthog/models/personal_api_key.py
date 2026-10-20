@@ -19,11 +19,11 @@ if TYPE_CHECKING:
 HashMode = tuple[EncryptionModeType, Optional[int]]
 
 CURRENT_PERSONAL_API_KEY_MODE: HashMode = ("sha256", None)  # Moved to simple hashing in 2024-02
-LEGACY_PERSONAL_API_KEY_MODES: tuple[HashMode, ...] = (
+PERSONAL_API_KEY_MODES_TO_TRY: tuple[HashMode, ...] = (
+    CURRENT_PERSONAL_API_KEY_MODE,
     ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
     ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
 )
-PERSONAL_API_KEY_MODES_TO_TRY: tuple[HashMode, ...] = (CURRENT_PERSONAL_API_KEY_MODE, *LEGACY_PERSONAL_API_KEY_MODES)
 
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
