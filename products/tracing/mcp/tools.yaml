@@ -216,7 +216,6 @@ tools:
         description_file: ./prompts/query-apm-spans.md
         ui_app: trace-span-list
         feature_flag: tracing
-        reads_ingested_data: traces
         response:
             include:
                 - results

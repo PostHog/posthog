@@ -32,7 +32,6 @@ import {
     buildNoDataInstallNotice,
     githubConnectUrl,
     MCP_NO_DATA_INSTALL_NOTICE_FLAG,
-    noticeCoversIngestedData,
     type NoDataNoticeMode,
     prependNoDataNotice,
     resolveNoDataNoticeMode,
@@ -781,11 +780,7 @@ export class ToolExecutor {
         state: ResolvedState
     ): Promise<{ mode: NoDataNoticeMode; text: string } | undefined> {
         const ingestedData = getToolIngestedData(toolName)
-        if (
-            !ingestedData ||
-            !noticeCoversIngestedData(ingestedData) ||
-            !state.allTools.some((tool) => tool.name === toolName)
-        ) {
+        if (!ingestedData || !state.allTools.some((tool) => tool.name === toolName)) {
             return undefined
         }
         const mode = resolveNoDataNoticeMode({
