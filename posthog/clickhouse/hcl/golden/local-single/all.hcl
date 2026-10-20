@@ -12019,6 +12019,11 @@ SQL
       type        = "bloom_filter"
       granularity = 1
     }
+    index "minmax_sharded_events_inserted_at" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
     index "minmax_$group_0" {
       expr        = "`$group_0`"
       type        = "minmax"

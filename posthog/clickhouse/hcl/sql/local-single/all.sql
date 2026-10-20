@@ -2105,6 +2105,7 @@ CREATE TABLE posthog.sharded_events (
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
   INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1,
+  INDEX minmax_sharded_events_inserted_at inserted_at TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_0 `$group_0` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_1 `$group_1` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_2 `$group_2` TYPE minmax GRANULARITY 1,

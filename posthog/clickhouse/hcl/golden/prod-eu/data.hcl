@@ -6022,6 +6022,11 @@ database "posthog" {
       type        = "bloom_filter"
       granularity = 1
     }
+    index "minmax_sharded_events_inserted_at" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
     index "minmax_mat_metadata_backend" {
       expr        = "mat_metadata_backend"
       type        = "minmax"

@@ -1367,7 +1367,8 @@ CREATE TABLE posthog.sharded_events (
   INDEX bloom_filter_$ai_experiment_id `mat_$ai_experiment_id` TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
   INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
-  INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1
+  INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1,
+  INDEX minmax_sharded_events_inserted_at inserted_at TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/reshard3/{shard}/posthog.sharded_events', '{replica}', _timestamp) ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) SAMPLE BY cityHash64(distinct_id) SETTINGS index_granularity = 8192, max_avg_part_size_for_too_many_parts = 0;
 CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
