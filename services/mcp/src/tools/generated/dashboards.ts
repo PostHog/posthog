@@ -576,6 +576,9 @@ const DashboardUpdateSchema = () => {
         .extend(DashboardsPartialUpdateBody.shape)
         .extend({
             id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
+            tiles: DashboardsPartialUpdateBody.shape['tiles'].describe(
+                "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. To change a widget tile's config, name, or description, use dashboard-widgets-batch-update."
+            ),
             restriction_level: DashboardsPartialUpdateBody.shape['restriction_level'].describe(
                 'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
             ),

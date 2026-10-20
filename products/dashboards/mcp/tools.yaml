@@ -456,10 +456,9 @@ tools:
             whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and
             overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set
             `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
-            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same
-            `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus
-            the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer
-            dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the
+            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. This tool
+            does not change a widget tile's own settings (`config`, `name`, `description`): use
+            dashboard-widgets-batch-update for that. To group tiles, give each tile in the
             group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title,
             which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the
             best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to
@@ -478,9 +477,15 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+            - tiles.*.widget
         param_overrides:
             id:
                 cast: string-int
+            tiles:
+                description: >
+                    Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set
+                    its grid position and size. To change a widget tile's config, name, or description, use
+                    dashboard-widgets-batch-update.
             restriction_level:
                 description: >
                     Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
