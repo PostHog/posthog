@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Retry the failed and cancelled jobs of a pull request's newest Depot CI run.
 
-.depot/workflows/retry-on-comment.yml runs this for a `/retry` comment. `depot ci retry --failed`
+.depot/workflows/retry-on-comment.yml runs this for a `/depot retry` comment. `depot ci retry --failed`
 works while the rest of the run is still going, and it also reruns the jobs downstream of each
 retried job, so the gate reports the new result. GitHub's Re-run button on a Depot check sends its
 request only to Depot's own GitHub App, which does not act on it.

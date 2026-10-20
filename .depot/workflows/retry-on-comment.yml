@@ -1,4 +1,4 @@
-# A `/retry` comment on a pull request retries the failed and cancelled jobs of its newest Depot CI
+# A `/depot retry` comment on a pull request retries the failed and cancelled jobs of its newest Depot CI
 # run, without waiting for the rest of the run and without a push that reruns every workflow.
 #
 # Depot CI runs issue_comment workflows from the default branch, so pull request code never runs here.
@@ -14,7 +14,7 @@ jobs:
         # The repository is public, so only organization members and collaborators can start a retry.
         if: >
             github.event.issue.pull_request
-            && startsWith(github.event.comment.body, '/retry')
+            && startsWith(github.event.comment.body, '/depot retry')
             && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
