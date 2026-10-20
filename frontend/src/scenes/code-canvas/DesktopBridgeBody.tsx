@@ -1,7 +1,11 @@
 import { IconLaptop } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+
+import { desktopBridgeDescription, openInDesktop } from './desktopBridge'
+import { QuillDesktopBridgeBody } from './QuillDesktopBridgeBody'
 
 export interface DesktopBridgeBodyProps {
     /** What the interstitial is opening, e.g. "This canvas", "This task". Starts the explanatory sentence. */
@@ -18,29 +22,18 @@ export interface DesktopBridgeBodyProps {
  * an "open in browser" button when the item also has a web view, and a download link for visitors without the app.
  */
 export function DesktopBridgeBody({ subject, deepLink, webUrl }: DesktopBridgeBodyProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillDesktopBridgeBody subject={subject} deepLink={deepLink} webUrl={webUrl} />
+    }
     return (
         <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
             <IconLaptop className="text-5xl shrink-0" />
             <h2 className="text-xl font-semibold m-0">Opening in PostHog Desktop…</h2>
-            {webUrl ? (
-                <p className="text-muted mb-0">
-                    {subject} should open in the PostHog Desktop app if it's installed. You can also open it in your
-                    browser.
-                </p>
-            ) : (
-                <p className="text-muted mb-0">
-                    {subject} lives in the PostHog Desktop app. If it's installed, it should open automatically. If it
-                    didn't, use the button below, or download the app.
-                </p>
-            )}
+            <p className="text-muted mb-0">{desktopBridgeDescription(subject, !!webUrl)}</p>
             <div className="flex flex-wrap justify-center gap-2">
                 {deepLink && (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            window.location.href = deepLink
-                        }}
-                    >
+                    <LemonButton type="primary" onClick={() => openInDesktop(deepLink)}>
                         Open in desktop app
                     </LemonButton>
                 )}
