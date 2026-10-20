@@ -54,5 +54,9 @@ type Story = StoryObj<typeof DestinationRecentSends>
 
 export const BothPaths: Story = {}
 export const Empty: Story = { args: { sends: [] } }
-export const Loading: Story = { args: { sends: null, loading: true } }
+export const Loading: Story = {
+    args: { sends: null, loading: true },
+    // The table never finishes loading here, so the snapshot cannot wait for the loader to go.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const Failed: Story = { args: { sends: null, error: true } }

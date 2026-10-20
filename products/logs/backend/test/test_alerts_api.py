@@ -3448,10 +3448,13 @@ class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
 
         self._log("alert_destination", firing, "cfg", now - timedelta(minutes=10), "ERROR", "Webhook returned 500")
         self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "DEBUG", "Executing function")
+        retrying = "HTTP fetch failed on attempt 1 with status code 503. Retrying."
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "ERROR", retrying)
         self._log("hog_function", firing, "inv-1", now - timedelta(minutes=29), "INFO", "Function completed in 12ms.")
         self._log("hog_function", resolved, "inv-2", now - timedelta(minutes=20), "ERROR", "Error executing function")
-        # Still running, so neither sent nor failed yet.
+        # Still retrying, so neither sent nor failed yet.
         self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "DEBUG", "Executing function")
+        self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "ERROR", retrying)
         self._log("alert_destination", other_alerts_function, "cfg", now - timedelta(minutes=1), "INFO", "Sent")
 
         response = self.client.get(

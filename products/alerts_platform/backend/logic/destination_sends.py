@@ -1,8 +1,10 @@
 """What was sent to a destination lately, read from the log lines both delivery paths write.
 
 A native send writes one line per message (`delivery/telemetry.py`). A HogFunction send writes
-several per invocation, so an invocation is one send: failed when any line is an error, sent when
-the function completed, and left out while it is neither, because it is still running.
+several per invocation, so an invocation is one send. It is sent once the function completed, and
+failed on an error that no retry follows. A failed fetch that retries logs an error ending in
+"Retrying." under the same invocation, so such a line is not an outcome. An invocation with
+neither is still running and is left out.
 """
 
 from collections.abc import Collection
@@ -20,6 +22,7 @@ from products.alerts_platform.backend.facade.enums import DeliveryPath
 
 _HOG_FUNCTION_LOG_SOURCE: Final = "hog_function"
 _HOG_FUNCTION_COMPLETED_PREFIX: Final = "Function completed"
+_HOG_FUNCTION_RETRY_SUFFIX: Final = "Retrying."
 
 _SENDS_SQL: Final = """
 SELECT destination_id, sent_at, path, failed, error
@@ -35,15 +38,15 @@ FROM (
     UNION ALL
 
     SELECT log_source_id AS destination_id, min(timestamp) AS sent_at, %(hog_function_path)s AS path,
-        countIf(upper(level) = 'ERROR') > 0 AS failed,
-        argMinIf(message, timestamp, upper(level) = 'ERROR') AS error
+        countIf(startsWith(message, %(completed_prefix)s)) = 0 AS failed,
+        argMaxIf(message, timestamp, upper(level) = 'ERROR' AND NOT endsWith(message, %(retry_suffix)s)) AS error
     FROM log_entries
     WHERE team_id = %(team_id)s
       AND log_source = %(hog_function_source)s
       AND log_source_id IN %(destination_ids)s
       AND timestamp > %(after)s
     GROUP BY log_source_id, instance_id
-    HAVING failed OR countIf(startsWith(message, %(completed_prefix)s)) > 0
+    HAVING NOT failed OR countIf(upper(level) = 'ERROR' AND NOT endsWith(message, %(retry_suffix)s)) > 0
 )
 ORDER BY sent_at DESC
 LIMIT %(limit)s
@@ -69,6 +72,7 @@ def recent_destination_sends(
             "hog_function_source": _HOG_FUNCTION_LOG_SOURCE,
             "hog_function_path": DeliveryPath.HOG_FUNCTION.value,
             "completed_prefix": _HOG_FUNCTION_COMPLETED_PREFIX,
+            "retry_suffix": _HOG_FUNCTION_RETRY_SUFFIX,
         },
     )
     return tuple(
