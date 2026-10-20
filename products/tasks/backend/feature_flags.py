@@ -9,7 +9,6 @@ from posthog.utils import get_instance_region
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
@@ -24,9 +23,6 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
-
-NATIVE_STEERING_SIGNALS_FEATURE_FLAG = "tasks-native-steering-signals"
-NATIVE_STEERING_SIGNALS_DISTINCT_ID = "tasks-native-steering-signals"
 
 DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
 WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID = "tasks-workflow-dispatch-shadow"
@@ -120,42 +116,6 @@ def is_dev_stack_image_bake_enabled() -> bool:
         return False
 
 
-def is_native_steering_signals_enabled() -> bool:
-    if settings.DEBUG:
-        return True
-
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                NATIVE_STEERING_SIGNALS_FEATURE_FLAG,
-                distinct_id=NATIVE_STEERING_SIGNALS_DISTINCT_ID,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("native_steering_signals_feature_flag_check_failed")
-        return False
-
-
-def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -> bool:
-    """Org-gated rollout of agent-run OTel telemetry; fail-closed when evaluation fails."""
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent_otel_telemetry_flag_check_failed")
-        return False
-
-
 def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
     """Whether this user may run the Pi harness in the cloud; fail-closed when evaluation fails.
 
@@ -184,7 +144,7 @@ def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str
 
     Fail-closed on purpose. Only a model the catalog gives an `access_flag` reaches an evaluation at all,
     so an evaluation outage withholds a preview model from everyone rather than opening it to
-    everyone — the opposite trade to the telemetry flags above, because this one decides spend.
+    everyone, because this flag decides spend.
     """
     flag_key = get_required_model_flag(model)
     if flag_key is None:
@@ -213,11 +173,7 @@ def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str
 
 
 def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:
-    """Per-run telemetry decision, read from the flag value stamped into run state at dispatch.
-
-    DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where the
-    telemetry env settings / mirror settings are themselves the opt-in.
-    """
+    """DEBUG skips the stamp because in local dev the telemetry and mirror settings are the opt-in."""
     if settings.DEBUG:
         return True
     return (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY) is True
