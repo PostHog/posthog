@@ -21,7 +21,13 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
+import {
+    EmailService,
+    formatMailbox,
+    parseAddressList,
+    sanitizeEmailSubject,
+    teamEmailCapBuckets,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
@@ -54,6 +60,24 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('formatMailbox', () => {
+    it.each([
+        ['no name', undefined, 'a@example.com'],
+        ['an empty name', '  ', 'a@example.com'],
+        ['a plain name', 'Dry Run', '"Dry Run" <a@example.com>'],
+        ['an apostrophe and ampersand', "O'Brien & Co", `"O'Brien & Co" <a@example.com>`],
+        ['a double quote', 'The "Real" Dry', '"The \\"Real\\" Dry" <a@example.com>'],
+        ['a backslash', 'Dry\\Run', '"Dry\\\\Run" <a@example.com>'],
+        [
+            'a line break that would start a header',
+            'Dry\r\nBcc: x@example.com',
+            '"DryBcc: x@example.com" <a@example.com>',
+        ],
+    ])('formats %s', (_name, name, expected) => {
+        expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
 })
 
