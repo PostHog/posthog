@@ -355,7 +355,8 @@ class ErrorTrackingIssueTrendSerializer(serializers.Serializer):
         choices=contracts.IssueTrendDirection.choices,
         help_text=(
             "Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means "
-            f"a change of at least {TREND_CHANGE_FRACTION:.0%}. 'new' means first_seen is in the second half. "
+            f"a change of at least {TREND_CHANGE_FRACTION:.0%}. 'new' means the issue first occurred in the second half, "
+            "counting merged fingerprints. "
             "'stable' means a smaller change."
         ),
     )

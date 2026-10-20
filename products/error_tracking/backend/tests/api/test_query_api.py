@@ -83,34 +83,37 @@ def test_build_sparkline_accepts_float_values() -> None:
     assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
 
 
+OLD_FIRST_SEEN = datetime(2026, 4, 1, tzinfo=UTC)
+
+
 @parameterized.expand(
     [
-        ("increasing", [2, 2, 5, 5], "2026-04-01T00:00:00+00:00", {"direction": "increasing", "change_percent": 150}),
-        ("decreasing", [5, 5, 2, 2], "2026-04-01T00:00:00+00:00", {"direction": "decreasing", "change_percent": -60}),
-        ("small change is stable", [4, 4, 5, 4], "2026-04-01T00:00:00+00:00", {"direction": "stable"}),
+        ("increasing", [2, 2, 5, 5], OLD_FIRST_SEEN, {"direction": "increasing", "change_percent": 150}),
+        ("decreasing", [5, 5, 2, 2], OLD_FIRST_SEEN, {"direction": "decreasing", "change_percent": -60}),
+        ("small change is stable", [4, 4, 5, 4], OLD_FIRST_SEEN, {"direction": "stable"}),
         (
             "20% drop is stable",
             [3, 2, 2, 2],
-            "2026-04-01T00:00:00+00:00",
+            OLD_FIRST_SEEN,
             {"direction": "stable", "change_percent": -20},
         ),
         (
             "25% drop is decreasing",
             [2, 2, 1, 2],
-            "2026-04-01T00:00:00+00:00",
+            OLD_FIRST_SEEN,
             {"direction": "decreasing", "change_percent": -25},
         ),
-        ("first seen in the current half", [0, 0, 1, 3], "2026-04-23T06:00:00+00:00", {"direction": "new"}),
-        ("quiet before the current half", [0, 0, 1, 3], "2026-04-01T00:00:00+00:00", {"direction": "increasing"}),
-        ("odd bucket count leaves the middle out", [1, 9, 1], "2026-04-01T00:00:00+00:00", {"direction": "stable"}),
+        ("first seen in the current half", [0, 0, 1, 3], datetime(2026, 4, 23, 6, tzinfo=UTC), {"direction": "new"}),
+        ("quiet before the current half", [0, 0, 1, 3], OLD_FIRST_SEEN, {"direction": "increasing"}),
+        ("odd bucket count leaves the middle out", [1, 9, 1], OLD_FIRST_SEEN, {"direction": "stable"}),
     ]
 )
-def test_build_trend(_name: str, values: list[int], first_seen: str, expected: dict[str, object]) -> None:
+def test_build_trend(_name: str, values: list[int], first_seen: datetime, expected: dict[str, object]) -> None:
     start = datetime(2026, 4, 21, tzinfo=UTC)
     buckets = [
         {"label": (start + timedelta(days=index)).isoformat(), "value": value} for index, value in enumerate(values)
     ]
-    trend = build_trend({"first_seen": first_seen, "aggregations": {"volume_buckets": buckets}})
+    trend = build_trend({"aggregations": {"volume_buckets": buckets}}, first_seen)
     assert trend is not None
     assert {key: trend.get(key) for key in expected} == expected
 
@@ -615,7 +618,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_impact_top_frame_and_releases(self) -> None:
-        first_seen = datetime(2026, 4, 10, 12, tzinfo=UTC)
+        # In the current trend half, so only the merged fingerprint keeps trend from reading new.
+        first_seen = datetime(2026, 4, 24, 6, tzinfo=UTC)
         merged_first_seen = datetime(2026, 4, 1, 8, tzinfo=UTC)
         issue = ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
         for fingerprint, fingerprint_first_seen in [
@@ -709,7 +713,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         }
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
-        assert data["first_seen"] == "2026-04-10T12:00:00Z"
+        assert data["first_seen"] == "2026-04-24T06:00:00Z"
         assert data["trend"] == {
             "direction": "increasing",
             "current_occurrences": 1,

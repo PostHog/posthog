@@ -41367,7 +41367,7 @@ export namespace Schemas {
     } as const;
 
     export interface ErrorTrackingIssueTrend {
-      /** Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means a change of at least 25%. 'new' means first_seen is in the second half. 'stable' means a smaller change.
+      /** Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means a change of at least 25%. 'new' means the issue first occurred in the second half, counting merged fingerprints. 'stable' means a smaller change.
        *
        * * `new` - New
        * * `increasing` - Increasing

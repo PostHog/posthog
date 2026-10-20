@@ -699,7 +699,7 @@ def trend_direction(previous: int, current: int, first_seen: object, current_fro
     return IssueTrendDirection.STABLE
 
 
-def build_trend(issue: dict[str, object]) -> dict[str, object] | None:
+def build_trend(issue: dict[str, object], first_seen: datetime | None) -> dict[str, object] | None:
     buckets = volume_bucket_records(issue)
     half = len(buckets) // 2
     if half == 0:
@@ -711,7 +711,7 @@ def build_trend(issue: dict[str, object]) -> dict[str, object] | None:
     current_from = current_buckets[0].get("label")
     return compact_dict(
         {
-            "direction": trend_direction(previous, current, issue.get("first_seen"), current_from).value,
+            "direction": trend_direction(previous, current, first_seen, current_from).value,
             "current_occurrences": current,
             "previous_occurrences": previous,
             "change_percent": round((current - previous) / previous * 100) if previous else None,

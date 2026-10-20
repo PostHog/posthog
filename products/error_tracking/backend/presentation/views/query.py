@@ -235,7 +235,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "latest_release": extract_release(event_properties),
                 "first_release": extract_release(first_event_properties),
                 "impact": build_impact(issue),
-                "trend": build_trend(issue),
+                "trend": build_trend(issue, issue_basics.first_seen),
                 "sparkline": build_sparkline(issue) if include_sparkline else None,
             }
         )
