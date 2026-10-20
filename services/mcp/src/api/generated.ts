@@ -24603,22 +24603,6 @@ export namespace Schemas {
       has_voted: boolean;
     }
 
-    /**
-     * * `none` - none
-     * * `previous_period` - previous_period
-     * * `previous_day` - previous_day
-     * * `previous_week` - previous_week
-     */
-    export type CompareEnum = typeof CompareEnum[keyof typeof CompareEnum];
-
-
-    export const CompareEnum = {
-      None: 'none',
-      PreviousPeriod: 'previous_period',
-      PreviousDay: 'previous_day',
-      PreviousWeek: 'previous_week',
-    } as const;
-
     export interface CompareItem {
       label: string;
       value: string;
@@ -36301,16 +36285,6 @@ export namespace Schemas {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
     }
-
-    /**
-     * * `onset` - onset
-     */
-    export type DetectEnum = typeof DetectEnum[keyof typeof DetectEnum];
-
-
-    export const DetectEnum = {
-      Onset: 'onset',
-    } as const;
 
     /**
      * * `Desktop` - Desktop
@@ -64865,6 +64839,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week
+     */
+    export type LogsCompareModeEnum = typeof LogsCompareModeEnum[keyof typeof LogsCompareModeEnum];
+
+
+    export const LogsCompareModeEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
+    /**
+     * * `onset` - Onset
+     */
+    export type LogsDetectModeEnum = typeof LogsDetectModeEnum[keyof typeof LogsDetectModeEnum];
+
+
+    export const LogsDetectModeEnum = {
+      Onset: 'onset',
+    } as const;
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -65546,6 +65546,42 @@ export namespace Schemas {
       /** One entry per (namespace, environment, severity) series, ordered by observed volume descending. */
       series: LogsSeriesBandSeries[];
     }
+
+    /**
+     * * `ok` - Ok
+     * * `degraded` - Degraded
+     * * `regressed` - Regressed
+     * * `improved` - Improved
+     * * `recovered` - Recovered
+     * * `new` - New
+     * * `silent` - Silent
+     */
+    export type LogsServiceStatusEnum = typeof LogsServiceStatusEnum[keyof typeof LogsServiceStatusEnum];
+
+
+    export const LogsServiceStatusEnum = {
+      Ok: 'ok',
+      Degraded: 'degraded',
+      Regressed: 'regressed',
+      Improved: 'improved',
+      Recovered: 'recovered',
+      New: 'new',
+      Silent: 'silent',
+    } as const;
+
+    /**
+     * * `rollup` - Rollup
+     * * `rollup+raw` - Rollup Raw
+     * * `raw` - Raw
+     */
+    export type LogsServicesSourceEnum = typeof LogsServicesSourceEnum[keyof typeof LogsServicesSourceEnum];
+
+
+    export const LogsServicesSourceEnum = {
+      Rollup: 'rollup',
+      RollupRaw: 'rollup+raw',
+      Raw: 'raw',
+    } as const;
 
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
@@ -117629,8 +117665,8 @@ export namespace Schemas {
       filterGroup?: _LogPropertyFilter[];
       /** "onset" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.
        *
-       * * `onset` - onset */
-      detect?: DetectEnum | null;
+       * * `onset` - Onset */
+      detect?: LogsDetectModeEnum | null;
     }
 
     export interface _LogsCountRangesOnset {
@@ -117647,12 +117683,8 @@ export namespace Schemas {
       baseline_per_min: number;
       /** Logs per minute in the peak bucket. */
       peak_per_min: number;
-      /** low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets.
-       *
-       * * `high` - high
-       * * `medium` - medium
-       * * `low` - low */
-      confidence: ConfidenceTierEnum;
+      /** high, medium or low. low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets. */
+      confidence: string;
     }
 
     export interface _LogsCountRangesRequest {
@@ -117787,7 +117819,7 @@ export namespace Schemas {
       /** Number of matching logs in this group at severity "error" or "fatal". */
       error_count: number;
       /** ISO 8601 timestamp of the earliest matching log in this group. */
-      first_seen: string;
+      first_seen?: string;
       /** ISO 8601 timestamp of the most recent matching log in this group. */
       last_seen: string;
     }
@@ -118077,28 +118109,6 @@ export namespace Schemas {
       summary_string: string;
     }
 
-    /**
-     * * `ok` - ok
-     * * `degraded` - degraded
-     * * `regressed` - regressed
-     * * `improved` - improved
-     * * `recovered` - recovered
-     * * `new` - new
-     * * `silent` - silent
-     */
-    export type _LogsServiceAggregateStatusEnum = typeof _LogsServiceAggregateStatusEnum[keyof typeof _LogsServiceAggregateStatusEnum];
-
-
-    export const _LogsServiceAggregateStatusEnum = {
-      Ok: 'ok',
-      Degraded: 'degraded',
-      Regressed: 'regressed',
-      Improved: 'improved',
-      Recovered: 'recovered',
-      New: 'new',
-      Silent: 'silent',
-    } as const;
-
     export interface _LogsServiceSeverityBreakdown {
       debug: number;
       info: number;
@@ -118111,38 +118121,38 @@ export namespace Schemas {
       service_name: string;
       /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
        *
-       * * `ok` - ok
-       * * `degraded` - degraded
-       * * `regressed` - regressed
-       * * `improved` - improved
-       * * `recovered` - recovered
-       * * `new` - new
-       * * `silent` - silent */
-      status: _LogsServiceAggregateStatusEnum;
+       * * `ok` - Ok
+       * * `degraded` - Degraded
+       * * `regressed` - Regressed
+       * * `improved` - Improved
+       * * `recovered` - Recovered
+       * * `new` - New
+       * * `silent` - Silent */
+      status?: LogsServiceStatusEnum;
       /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
-      reason: string;
+      reason?: string;
       /** Error rate in percent, rounded to 1 decimal. */
-      error_rate_pct: number;
+      error_rate_pct?: number;
       /**
          * Logs in the baseline. Null without one.
          * @nullable
          */
-      baseline_log_count: number | null;
+      baseline_log_count?: number | null;
       /**
          * Error rate change against the baseline, in percentage points.
          * @nullable
          */
-      error_rate_delta_pp: number | null;
+      error_rate_delta_pp?: number | null;
       /**
          * Log volume change against the baseline, in percent.
          * @nullable
          */
-      log_count_change_pct: number | null;
+      log_count_change_pct?: number | null;
       /**
          * Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.
          * @nullable
          */
-      last_seen: string | null;
+      last_seen?: string | null;
       /** Total log entries from this service in the window. */
       log_count: number;
       /** Count of logs at severity "error" or "fatal". */
@@ -118180,11 +118190,11 @@ export namespace Schemas {
       environment?: string;
       /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
        *
-       * * `none` - none
-       * * `previous_period` - previous_period
-       * * `previous_day` - previous_day
-       * * `previous_week` - previous_week */
-      compare?: CompareEnum;
+       * * `none` - None
+       * * `previous_period` - Previous Period
+       * * `previous_day` - Previous Day
+       * * `previous_week` - Previous Week */
+      compare?: LogsCompareModeEnum;
     }
 
     export interface _LogsServicesRequest {
@@ -118212,9 +118222,9 @@ export namespace Schemas {
       /** Combined volume share (percent) of the top services by log_count. */
       top_services_volume_share_pct: number;
       /** Service rows per status. */
-      status_counts: _LogsServicesSummaryStatusCounts;
+      status_counts?: _LogsServicesSummaryStatusCounts;
       /** True when more services matched than `services` holds. */
-      truncated: boolean;
+      truncated?: boolean;
     }
 
     /**
@@ -118236,20 +118246,6 @@ export namespace Schemas {
       timezone: string;
     }
 
-    /**
-     * * `rollup` - rollup
-     * * `rollup+raw` - rollup+raw
-     * * `raw` - raw
-     */
-    export type _LogsServicesResponseSourceEnum = typeof _LogsServicesResponseSourceEnum[keyof typeof _LogsServicesResponseSourceEnum];
-
-
-    export const _LogsServicesResponseSourceEnum = {
-      Rollup: 'rollup',
-      RollupRaw: 'rollup+raw',
-      Raw: 'raw',
-    } as const;
-
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
       services: _LogsServiceAggregate[];
@@ -118260,15 +118256,15 @@ export namespace Schemas {
       /** Roll-up stats for the Services tab header. */
       summary?: _LogsServicesSummary;
       /** Absolute UTC bounds of the window and the baseline. */
-      window: _LogsWindow;
+      window?: _LogsWindow;
       /** rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.
        *
-       * * `rollup` - rollup
-       * * `rollup+raw` - rollup+raw
-       * * `raw` - raw */
-      source: _LogsServicesResponseSourceEnum;
+       * * `rollup` - Rollup
+       * * `rollup+raw` - Rollup Raw
+       * * `raw` - Raw */
+      source?: LogsServicesSourceEnum;
       /** Prefilled follow-up calls for problem services. */
-      next: _LogsNextStep[];
+      next?: _LogsNextStep[];
     }
 
     export interface _LogsSparklineBody {

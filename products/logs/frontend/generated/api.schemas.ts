@@ -1666,11 +1666,11 @@ export interface _LogsCountResponseApi {
 }
 
 /**
- * * `onset` - onset
+ * * `onset` - Onset
  */
-export type DetectEnumApi = (typeof DetectEnumApi)[keyof typeof DetectEnumApi]
+export type LogsDetectModeEnumApi = (typeof LogsDetectModeEnumApi)[keyof typeof LogsDetectModeEnumApi]
 
-export const DetectEnumApi = {
+export const LogsDetectModeEnumApi = {
     Onset: 'onset',
 } as const
 
@@ -1693,8 +1693,8 @@ export interface _LogsCountRangesBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** "onset" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.
      *
-     * * `onset` - onset */
-    detect?: DetectEnumApi | null
+     * * `onset` - Onset */
+    detect?: LogsDetectModeEnumApi | null
 }
 
 export interface _LogsCountRangesRequestApi {
@@ -1711,19 +1711,6 @@ export interface _LogsCountRangeBucketApi {
     count: number
 }
 
-/**
- * * `high` - high
- * * `medium` - medium
- * * `low` - low
- */
-export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
-
-export const ConfidenceTierEnumApi = {
-    High: 'high',
-    Medium: 'medium',
-    Low: 'low',
-} as const
-
 export interface _LogsCountRangesOnsetApi {
     /** When the spike starts, ISO 8601 UTC, from the finer second pass. */
     start: string
@@ -1738,12 +1725,8 @@ export interface _LogsCountRangesOnsetApi {
     baseline_per_min: number
     /** Logs per minute in the peak bucket. */
     peak_per_min: number
-    /** low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets.
-     *
-     * * `high` - high
-     * * `medium` - medium
-     * * `low` - low */
-    confidence: ConfidenceTierEnumApi
+    /** high, medium or low. low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets. */
+    confidence: string
 }
 
 export interface _LogsCountRangesResponseApi {
@@ -1921,7 +1904,7 @@ export interface _LogsGroupByGroupApi {
     /** Number of matching logs in this group at severity "error" or "fatal". */
     error_count: number
     /** ISO 8601 timestamp of the earliest matching log in this group. */
-    first_seen: string
+    first_seen?: string
     /** ISO 8601 timestamp of the most recent matching log in this group. */
     last_seen: string
 }
@@ -2817,14 +2800,14 @@ export interface LogsSamplingRuleReorderApi {
 }
 
 /**
- * * `none` - none
- * * `previous_period` - previous_period
- * * `previous_day` - previous_day
- * * `previous_week` - previous_week
+ * * `none` - None
+ * * `previous_period` - Previous Period
+ * * `previous_day` - Previous Day
+ * * `previous_week` - Previous Week
  */
-export type CompareEnumApi = (typeof CompareEnumApi)[keyof typeof CompareEnumApi]
+export type LogsCompareModeEnumApi = (typeof LogsCompareModeEnumApi)[keyof typeof LogsCompareModeEnumApi]
 
-export const CompareEnumApi = {
+export const LogsCompareModeEnumApi = {
     None: 'none',
     PreviousPeriod: 'previous_period',
     PreviousDay: 'previous_day',
@@ -2854,11 +2837,11 @@ export interface _LogsServicesBodyApi {
     environment?: string
     /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
      *
-     * * `none` - none
-     * * `previous_period` - previous_period
-     * * `previous_day` - previous_day
-     * * `previous_week` - previous_week */
-    compare?: CompareEnumApi
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week */
+    compare?: LogsCompareModeEnumApi
 }
 
 export interface _LogsServicesRequestApi {
@@ -2869,18 +2852,17 @@ export interface _LogsServicesRequestApi {
 }
 
 /**
- * * `ok` - ok
- * * `degraded` - degraded
- * * `regressed` - regressed
- * * `improved` - improved
- * * `recovered` - recovered
- * * `new` - new
- * * `silent` - silent
+ * * `ok` - Ok
+ * * `degraded` - Degraded
+ * * `regressed` - Regressed
+ * * `improved` - Improved
+ * * `recovered` - Recovered
+ * * `new` - New
+ * * `silent` - Silent
  */
-export type _LogsServiceAggregateStatusEnumApi =
-    (typeof _LogsServiceAggregateStatusEnumApi)[keyof typeof _LogsServiceAggregateStatusEnumApi]
+export type LogsServiceStatusEnumApi = (typeof LogsServiceStatusEnumApi)[keyof typeof LogsServiceStatusEnumApi]
 
-export const _LogsServiceAggregateStatusEnumApi = {
+export const LogsServiceStatusEnumApi = {
     Ok: 'ok',
     Degraded: 'degraded',
     Regressed: 'regressed',
@@ -2908,38 +2890,38 @@ export interface _LogsServiceAggregateApi {
     service_name: string
     /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
      *
-     * * `ok` - ok
-     * * `degraded` - degraded
-     * * `regressed` - regressed
-     * * `improved` - improved
-     * * `recovered` - recovered
-     * * `new` - new
-     * * `silent` - silent */
-    status: _LogsServiceAggregateStatusEnumApi
+     * * `ok` - Ok
+     * * `degraded` - Degraded
+     * * `regressed` - Regressed
+     * * `improved` - Improved
+     * * `recovered` - Recovered
+     * * `new` - New
+     * * `silent` - Silent */
+    status?: LogsServiceStatusEnumApi
     /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
-    reason: string
+    reason?: string
     /** Error rate in percent, rounded to 1 decimal. */
-    error_rate_pct: number
+    error_rate_pct?: number
     /**
      * Logs in the baseline. Null without one.
      * @nullable
      */
-    baseline_log_count: number | null
+    baseline_log_count?: number | null
     /**
      * Error rate change against the baseline, in percentage points.
      * @nullable
      */
-    error_rate_delta_pp: number | null
+    error_rate_delta_pp?: number | null
     /**
      * Log volume change against the baseline, in percent.
      * @nullable
      */
-    log_count_change_pct: number | null
+    log_count_change_pct?: number | null
     /**
      * Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.
      * @nullable
      */
-    last_seen: string | null
+    last_seen?: string | null
     /** Total log entries from this service in the window. */
     log_count: number
     /** Count of logs at severity "error" or "fatal". */
@@ -2972,9 +2954,9 @@ export interface _LogsServicesSummaryApi {
     /** Combined volume share (percent) of the top services by log_count. */
     top_services_volume_share_pct: number
     /** Service rows per status. */
-    status_counts: _LogsServicesSummaryApiStatusCounts
+    status_counts?: _LogsServicesSummaryApiStatusCounts
     /** True when more services matched than `services` holds. */
-    truncated: boolean
+    truncated?: boolean
 }
 
 /**
@@ -2997,14 +2979,13 @@ export interface _LogsWindowApi {
 }
 
 /**
- * * `rollup` - rollup
- * * `rollup+raw` - rollup+raw
- * * `raw` - raw
+ * * `rollup` - Rollup
+ * * `rollup+raw` - Rollup Raw
+ * * `raw` - Raw
  */
-export type _LogsServicesResponseSourceEnumApi =
-    (typeof _LogsServicesResponseSourceEnumApi)[keyof typeof _LogsServicesResponseSourceEnumApi]
+export type LogsServicesSourceEnumApi = (typeof LogsServicesSourceEnumApi)[keyof typeof LogsServicesSourceEnumApi]
 
-export const _LogsServicesResponseSourceEnumApi = {
+export const LogsServicesSourceEnumApi = {
     Rollup: 'rollup',
     RollupRaw: 'rollup+raw',
     Raw: 'raw',
@@ -3034,15 +3015,15 @@ export interface _LogsServicesResponseApi {
     /** Roll-up stats for the Services tab header. */
     summary?: _LogsServicesSummaryApi
     /** Absolute UTC bounds of the window and the baseline. */
-    window: _LogsWindowApi
+    window?: _LogsWindowApi
     /** rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.
      *
-     * * `rollup` - rollup
-     * * `rollup+raw` - rollup+raw
-     * * `raw` - raw */
-    source: _LogsServicesResponseSourceEnumApi
+     * * `rollup` - Rollup
+     * * `rollup+raw` - Rollup Raw
+     * * `raw` - Raw */
+    source?: LogsServicesSourceEnumApi
     /** Prefilled follow-up calls for problem services. */
-    next: _LogsNextStepApi[]
+    next?: _LogsNextStepApi[]
 }
 
 /**

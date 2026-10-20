@@ -800,10 +800,10 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Property filters applied before bucketing. Same shape as `query-logs`.'),
             detect: zod
-                .union([zod.enum(['onset']).describe('\* `onset` - onset'), zod.null()])
+                .union([zod.enum(['onset']).describe('\* `onset` - Onset'), zod.null()])
                 .optional()
                 .describe(
-                    '\"onset\" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.\n\n\* `onset` - onset'
+                    '\"onset\" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.\n\n\* `onset` - Onset'
                 ),
         })
         .describe('The bucketed-count query to execute.'),
@@ -2205,11 +2205,11 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
             compare: zod
                 .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
                 .describe(
-                    '\* `none` - none\n\* `previous_period` - previous_period\n\* `previous_day` - previous_day\n\* `previous_week` - previous_week'
+                    '\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
                 )
                 .default(logsServicesCreateBodyQueryOneCompareDefault)
                 .describe(
-                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - none\n\* `previous_period` - previous_period\n\* `previous_day` - previous_day\n\* `previous_week` - previous_week'
+                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
                 ),
         })
         .describe('The services aggregation query to execute.'),

@@ -14,6 +14,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.logs.backend.agent_window import utc_iso, window_echo
@@ -188,7 +190,35 @@ DEGRADED_ERROR_RATE_PCT = 5.0
 CHANGE_MIN_DELTA_PP = 1.0
 CHANGE_MIN_RATIO = 2.0
 SILENT_MIN_BASELINE_LOGS = 10
-SERVICE_STATUSES = ("ok", "degraded", "regressed", "improved", "recovered", "new", "silent")
+
+
+class LogsCompareMode(LabeledStrEnum):
+    NONE = "none"
+    PREVIOUS_PERIOD = "previous_period"
+    PREVIOUS_DAY = "previous_day"
+    PREVIOUS_WEEK = "previous_week"
+
+
+COMPARE_MODES = LogsCompareMode.values
+
+
+class LogsServiceStatus(LabeledStrEnum):
+    OK = "ok"
+    DEGRADED = "degraded"
+    REGRESSED = "regressed"
+    IMPROVED = "improved"
+    RECOVERED = "recovered"
+    NEW = "new"
+    SILENT = "silent"
+
+
+class LogsServicesSource(LabeledStrEnum):
+    ROLLUP = "rollup"
+    ROLLUP_RAW = "rollup+raw"
+    RAW = "raw"
+
+
+SERVICE_STATUSES = LogsServiceStatus.values
 ROLLUP_BUCKET_SECONDS = 300
 ROLLUP_RETENTION = dt.timedelta(days=42)
 
@@ -200,24 +230,39 @@ def _error_rate_pct(counts: dict | None) -> float:
     return 100.0 * counts["error_count"] / counts["log_count"] if counts and counts["log_count"] else 0.0
 
 
-def classify_service(current: dict | None, baseline: dict | None, compared: bool) -> tuple[str, str]:
+@frozen
+class ServiceVerdict:
+    status: str
+    reason: str
+
+
+@frozen
+class _WindowCounts:
+    counts: dict[str, dict]
+    total_services: int
+    source: str
+
+
+def classify_service(current: dict | None, baseline: dict | None, compared: bool) -> ServiceVerdict:
     log_count = current["log_count"] if current else 0
     rate = _error_rate_pct(current)
     base_count = baseline["log_count"] if baseline else 0
     if compared and not base_count:
-        return "new", f"no logs in baseline, {log_count} now"
+        return ServiceVerdict(status="new", reason=f"no logs in baseline, {log_count} now")
     if compared and not log_count:
-        return "silent", f"no logs in window (baseline {base_count})"
+        return ServiceVerdict(status="silent", reason=f"no logs in window (baseline {base_count})")
     if compared and min(log_count, base_count) >= MIN_LOGS_FOR_RATE:
         base_rate = _error_rate_pct(baseline)
         change = f"error rate {base_rate:.1f}% → {rate:.1f}%"
         if rate - base_rate >= CHANGE_MIN_DELTA_PP and rate >= CHANGE_MIN_RATIO * base_rate:
-            return "regressed", change
+            return ServiceVerdict(status="regressed", reason=change)
         if base_rate - rate >= CHANGE_MIN_DELTA_PP and base_rate >= CHANGE_MIN_RATIO * rate:
-            return ("recovered" if base_rate >= DEGRADED_ERROR_RATE_PCT > rate else "improved"), change
+            return ServiceVerdict(
+                status="recovered" if base_rate >= DEGRADED_ERROR_RATE_PCT > rate else "improved", reason=change
+            )
     if log_count >= MIN_LOGS_FOR_RATE and rate >= DEGRADED_ERROR_RATE_PCT:
-        return "degraded", f"error rate {rate:.1f}%"
-    return "ok", f"error rate {rate:.1f}%"
+        return ServiceVerdict(status="degraded", reason=f"error rate {rate:.1f}%")
+    return ServiceVerdict(status="ok", reason=f"error rate {rate:.1f}%")
 
 
 def _floor_to_bucket(value: dt.datetime) -> dt.datetime:
@@ -268,7 +313,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             bounds = baseline_bounds(self.compare, self.query_date_range.date_from(), self.query_date_range.date_to())
             if bounds is None:
                 return None
-            date_range = DateRange(date_from=bounds[0].isoformat(), date_to=bounds[1].isoformat(), explicitDate=True)
+            date_range = DateRange(
+                date_from=bounds.date_from.isoformat(), date_to=bounds.date_to.isoformat(), explicitDate=True
+            )
         return ServicesQueryRunner(
             team=self.team,
             query=self.query.model_copy(update={"dateRange": date_range}),
@@ -300,17 +347,18 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             return False
         return self.query_date_range.date_from() >= dt.datetime.now(dt.UTC) - ROLLUP_RETENTION
 
-    def _window_counts(self) -> tuple[dict[str, dict], int, str]:
+    def _window_counts(self) -> _WindowCounts:
         date_from, date_to = self.query_date_range.date_from(), self.query_date_range.date_to()
         start = _floor_to_bucket(date_from)
         start = start if start == date_from else start + dt.timedelta(seconds=ROLLUP_BUCKET_SECONDS)
         end = _floor_to_bucket(date_to)
         if start >= end or not self._use_rollup():
-            return (*_counts_by_service(self._execute(self._aggregates_query())), "raw")
+            counts, total = _counts_by_service(self._execute(self._aggregates_query()))
+            return _WindowCounts(counts=counts, total_services=total, source="raw")
         counts, total = _counts_by_service(self._execute(self._rollup_query(start, end)))
         edges = [(lower, upper) for lower, upper in ((date_from, start), (end, date_to)) if lower < upper]
         if not edges:
-            return counts, total, "rollup"
+            return _WindowCounts(counts=counts, total_services=total, source="rollup")
         edge_counts, edge_total = _counts_by_service(self._execute(self._aggregates_query(edges)))
         for name, edge in edge_counts.items():
             merged = counts.setdefault(name, {**edge, **dict.fromkeys(_COUNT_COLUMNS, 0)})
@@ -318,7 +366,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 merged[column] += edge[column]
             merged["last_seen"] = max(merged["last_seen"], edge["last_seen"])
         ordered = dict(sorted(counts.items(), key=lambda item: -item[1]["log_count"])[:SERVICES_LIMIT])
-        return ordered, max(total, edge_total, len(counts)), "rollup+raw"
+        return _WindowCounts(counts=ordered, total_services=max(total, edge_total, len(counts)), source="rollup+raw")
 
     def _calculate(self) -> LogsQueryResponse:
         baseline_runner = self._baseline_runner
@@ -326,8 +374,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             baseline_future = (
                 pool.submit(contextvars.copy_context().run, baseline_runner._window_counts) if baseline_runner else None
             )
-            current, total_services, source = self._window_counts()
-            baseline = baseline_future.result()[0] if baseline_future else None
+            window = self._window_counts()
+            current, total_services, source = window.counts, window.total_services, window.source
+            baseline = baseline_future.result().counts if baseline_future else None
 
         # Sparklines cover only the top services by volume; callers wanting
         # trends for other rows re-request with `serviceNames` scoped to the
@@ -376,7 +425,8 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                         "summary_string": _sampling_rule_summary(rule),
                     }
                 )
-            status, reason = classify_service(counts, base, baseline is not None)
+            verdict = classify_service(counts, base, baseline is not None)
+            status, reason = verdict.status, verdict.reason
             last_seen = counts["last_seen"] or silent_last_seen.get(name)
             base_count = base["log_count"] if base else None
             if status == "silent" and last_seen:

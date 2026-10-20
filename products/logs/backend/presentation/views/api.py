@@ -44,13 +44,13 @@ from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.logs.backend.column_expressions import canonical_key
-from products.logs.backend.compare_windows import COMPARE_MODES
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
     DETECT_MODES,
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
+    LogsDetectMode,
 )
 from products.logs.backend.group_by_query_runner import (
     DEFAULT_GROUP_LIMIT,
@@ -79,7 +79,13 @@ from products.logs.backend.presentation.views.metric_rules_api import LogsMetric
 from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
-from products.logs.backend.services_query_runner import SERVICE_STATUSES, ServicesQueryRunner
+from products.logs.backend.services_query_runner import (
+    COMPARE_MODES,
+    LogsCompareMode,
+    LogsServicesSource,
+    LogsServiceStatus,
+    ServicesQueryRunner,
+)
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
 __all__ = [
@@ -638,7 +644,7 @@ class _LogsCountRangesBodySerializer(serializers.Serializer):
         help_text="Property filters applied before bucketing. Same shape as `query-logs`.",
     )
     detect = serializers.ChoiceField(
-        choices=list(DETECT_MODES),
+        choices=LogsDetectMode.choices,
         required=False,
         allow_null=True,
         help_text=(
@@ -668,9 +674,8 @@ class _LogsCountRangesOnsetSerializer(serializers.Serializer):
     peak_at = serializers.CharField(help_text="Start of the bucket with the most logs in the spike.")
     baseline_per_min = serializers.FloatField(help_text="Expected logs per minute before the spike.")
     peak_per_min = serializers.FloatField(help_text="Logs per minute in the peak bucket.")
-    confidence = serializers.ChoiceField(
-        choices=["high", "medium", "low"],
-        help_text="low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets.",
+    confidence = serializers.CharField(
+        help_text="high, medium or low. low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets.",
     )
 
 
@@ -734,7 +739,7 @@ class _LogsServicesBodySerializer(serializers.Serializer):
         ),
     )
     compare = serializers.ChoiceField(
-        choices=list(COMPARE_MODES),
+        choices=LogsCompareMode.choices,
         default="none",
         help_text=(
             "Baseline window for per-service status: the window just before, the same window a day or a week "
@@ -858,22 +863,28 @@ class _LogsServiceAggregateSerializer(serializers.Serializer):
         help_text='Service name, or "(no value)" / "(no service)" placeholder for unset entries.',
     )
     status = serializers.ChoiceField(
-        choices=list(SERVICE_STATUSES),
+        required=False,
+        choices=LogsServiceStatus.choices,
         help_text=(
             "ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), "
             "recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window)."
         ),
     )
-    reason = serializers.CharField(help_text='Short reason for the status, e.g. "error rate 0.4% → 3.1%".')
-    error_rate_pct = serializers.FloatField(help_text="Error rate in percent, rounded to 1 decimal.")
-    baseline_log_count = serializers.IntegerField(allow_null=True, help_text="Logs in the baseline. Null without one.")
+    reason = serializers.CharField(
+        required=False, help_text='Short reason for the status, e.g. "error rate 0.4% → 3.1%".'
+    )
+    error_rate_pct = serializers.FloatField(required=False, help_text="Error rate in percent, rounded to 1 decimal.")
+    baseline_log_count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Logs in the baseline. Null without one."
+    )
     error_rate_delta_pp = serializers.FloatField(
-        allow_null=True, help_text="Error rate change against the baseline, in percentage points."
+        required=False, allow_null=True, help_text="Error rate change against the baseline, in percentage points."
     )
     log_count_change_pct = serializers.FloatField(
-        allow_null=True, help_text="Log volume change against the baseline, in percent."
+        required=False, allow_null=True, help_text="Log volume change against the baseline, in percent."
     )
     last_seen = serializers.CharField(
+        required=False,
         allow_null=True,
         help_text="Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.",
     )
@@ -912,8 +923,12 @@ class _LogsServicesSummarySerializer(serializers.Serializer):
     top_services_volume_share_pct = serializers.FloatField(
         help_text="Combined volume share (percent) of the top services by log_count.",
     )
-    status_counts = serializers.DictField(child=serializers.IntegerField(), help_text="Service rows per status.")
-    truncated = serializers.BooleanField(help_text="True when more services matched than `services` holds.")
+    status_counts = serializers.DictField(
+        required=False, child=serializers.IntegerField(), help_text="Service rows per status."
+    )
+    truncated = serializers.BooleanField(
+        required=False, help_text="True when more services matched than `services` holds."
+    )
 
 
 class _LogsWindowSerializer(serializers.Serializer):
@@ -955,12 +970,15 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Roll-up stats for the Services tab header.",
     )
-    window = _LogsWindowSerializer(help_text="Absolute UTC bounds of the window and the baseline.")
+    window = _LogsWindowSerializer(required=False, help_text="Absolute UTC bounds of the window and the baseline.")
     source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=["rollup", "rollup+raw", "raw"],
+        required=False,
+        choices=LogsServicesSource.choices,
         help_text="rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.",
     )
-    next = _LogsNextStepSerializer(many=True, help_text="Prefilled follow-up calls for problem services.")
+    next = _LogsNextStepSerializer(
+        required=False, many=True, help_text="Prefilled follow-up calls for problem services."
+    )
 
 
 class _LogsPatternsBodySerializer(serializers.Serializer):
@@ -1392,7 +1410,9 @@ class _LogsGroupByGroupSerializer(serializers.Serializer):
     error_count = serializers.IntegerField(
         help_text='Number of matching logs in this group at severity "error" or "fatal".',
     )
-    first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest matching log in this group.")
+    first_seen = serializers.CharField(
+        required=False, help_text="ISO 8601 timestamp of the earliest matching log in this group."
+    )
     last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the most recent matching log in this group.")
 
 

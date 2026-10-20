@@ -9,6 +9,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.logs.backend.agent_window import utc_iso
@@ -21,7 +23,22 @@ from products.logs.backend.onset_detection import find_onset
 
 DEFAULT_TARGET_BUCKETS = 10
 MAX_TARGET_BUCKETS = 100
-DETECT_MODES = ("onset",)
+
+
+class LogsDetectMode(LabeledStrEnum):
+    ONSET = "onset"
+
+
+DETECT_MODES = LogsDetectMode.values
+
+
+@frozen
+class _Grid:
+    starts: list[dt.datetime]
+    counts: list[int]
+    step: dt.timedelta
+
+
 ONSET_FINE_TARGET_BUCKETS = 24
 ONSET_HIGH_CONFIDENCE_BASELINE = 12
 
@@ -92,7 +109,7 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
         return ranges
 
-    def _dense_grid(self, ranges: list[dict]) -> tuple[list[dt.datetime], list[int], dt.timedelta]:
+    def _dense_grid(self, ranges: list[dict]) -> _Grid:
         unit_seconds = 1 if self.query_date_range.interval_name == "second" else 60
         step = dt.timedelta(seconds=self.query_date_range.interval_count * unit_seconds)
         date_from, date_to = self.query_date_range.date_from(), self.query_date_range.date_to()
@@ -103,10 +120,11 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         while cursor < date_to:
             starts.append(cursor)
             cursor += step
-        return starts, [counts.get(utc_iso(start), 0) for start in starts], step
+        return _Grid(starts=starts, counts=[counts.get(utc_iso(start), 0) for start in starts], step=step)
 
     def _onset(self, ranges: list[dict]) -> dict | None:
-        starts, counts, step = self._dense_grid(ranges)
+        grid = self._dense_grid(ranges)
+        starts, counts, step = grid.starts, grid.counts, grid.step
         partial = {0} if starts and starts[0] < self.query_date_range.date_from() else set()
         onset = find_onset(counts, partial)
         if onset is None:
@@ -134,7 +152,8 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             target_buckets=ONSET_FINE_TARGET_BUCKETS,
             limit_context=self.limit_context,
         )
-        starts, counts, _ = fine._dense_grid(fine._ranges())
+        grid = fine._dense_grid(fine._ranges())
+        starts, counts = grid.starts, grid.counts
         onset = find_onset(counts)
         return starts[onset.index] if onset is not None else None
 
