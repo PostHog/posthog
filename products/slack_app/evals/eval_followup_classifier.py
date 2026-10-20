@@ -26,6 +26,7 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal.activities import classifiers
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import FOLLOWUP_KEY, FollowupRoutingMatch, NoUnaskedWake
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -239,6 +240,11 @@ async def eval_followup_classifier(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="slack-app-followup-classifier",
+        offline_suite=offline_suite(
+            "slack_app/eval_followup_classifier::eval_followup_classifier",
+            metrics=["followup_routing", "no_unasked_wake"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*DIRECTED_CASES, *CHATTER_CASES],
         scorers=[FollowupRoutingMatch(), NoUnaskedWake()],
         task=task,
