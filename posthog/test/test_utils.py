@@ -1121,6 +1121,25 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "unknown_keys",
+                {"date_from": "-7d", "display": "ActionsLineGraph"},
+                "Unknown key(s) in filters_override: display.",
+            ),
+            ("not_an_object", ["date_from"], "filters_override must be a JSON object."),
+            ("invalid_value", {"interval": "fortnight"}, "Invalid value in filters_override at 'interval'"),
+        ]
+    )
+    def test_filters_override_rejects_invalid_filters(self, _name, override, expected_detail):
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            filters_override_requested_by_client(request, None)
+
+        assert expected_detail in str(exc_info.value.detail["filters_override"])
+
+    @parameterized.expand(
+        [
             ("access_token_auth",),
             ("password_protected_auth",),
         ]

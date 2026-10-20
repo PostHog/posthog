@@ -1322,9 +1322,17 @@ export class ApiClient {
                     return retrieveById()
                 }
 
+                // A 404 keeps a wrong or stale short_id out of the internal error bucket and error tracking.
                 return {
                     success: false,
-                    error: new Error(`No insight found with short_id: ${insightId}`),
+                    error: new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '',
+                        url: `${this.baseUrl}/api/projects/${projectId}/insights/?short_id=${insightId}`,
+                        method: 'GET',
+                        message: `No insight found with short_id: ${insightId} in project ${projectId}. Use insights-list to find the insight. If the insight is in a different project, use switch-project.`,
+                    }),
                 }
             },
 
