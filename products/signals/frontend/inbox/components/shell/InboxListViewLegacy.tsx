@@ -9,7 +9,7 @@ import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { InboxTabKey, SignalRun } from '../../types'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ScoutsRosterLegacy } from '../config/scouts/ScoutsRosterLegacy'
-import { InboxWelcome } from '../onboarding/InboxWelcome'
+import { InboxOnboardingEntry } from '../onboarding/InboxOnboardingEntry'
 import { ArchivedTab } from '../tabs/ArchivedTab'
 import { NotActionableTab } from '../tabs/NotActionableTab'
 import { PullRequestsTab } from '../tabs/PullRequestsTab'
@@ -129,7 +129,7 @@ export function InboxListViewLegacy(): JSX.Element {
                             <CardSkeleton count={4} variant="cards" />
                         </div>
                     ) : onboarding ? (
-                        <InboxWelcome />
+                        <InboxOnboardingEntry />
                     ) : (
                         <ActiveTabBody
                             tab={effectiveTab}

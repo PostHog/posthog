@@ -149,5 +149,5 @@ class HitpaySource(ResumableSource[HitpaySourceConfig, HitpayResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

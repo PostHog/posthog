@@ -56,12 +56,18 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         design: zod
                             .object({
                                 counters: zod
@@ -158,12 +164,18 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         design: zod
                             .object({
                                 counters: zod

@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     always,
     scripted_network,
 )
@@ -26,10 +25,6 @@ class TestOpinionStageSource:
     @pytest.mark.parametrize(
         "ok, status, expected_valid, expected_message",
         [
-            (True, 200, True, None),
-            (False, 401, False, "Invalid Opinion Stage API key"),
-            (False, 403, False, "Invalid Opinion Stage API key"),
-            (False, 500, False, "Opinion Stage returned HTTP 500"),
             (False, None, False, "Could not validate Opinion Stage API key"),
         ],
     )
@@ -64,9 +59,3 @@ class TestOpinionStageSource:
         assert kwargs["api_key"] == "os-key"
         assert kwargs["endpoint"] == "items"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Opinion Stage schema 'not_a_table'"

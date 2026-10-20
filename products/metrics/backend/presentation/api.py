@@ -17,14 +17,20 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.exceptions import ParseError, PermissionDenied, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
+
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -32,6 +38,7 @@ from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
+    check_metric_variable_regex,
     get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
@@ -39,6 +46,7 @@ from products.metrics.backend.facade.api import (
     list_metric_event_samples,
     list_metric_names,
     list_metric_picker_names,
+    list_metric_variable_options,
     run_metric_query,
     team_has_metrics,
 )
@@ -637,6 +645,13 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
     )
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit values to. Omit to list values across all metrics.",
+    )
     value = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -689,6 +704,111 @@ class _MetricAttributeValueSerializer(serializers.Serializer):
 class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
     results = _MetricAttributeValueSerializer(
         many=True, help_text="Observed values for the requested key, most frequent first."
+    )
+
+
+class MetricVariableSource(models.TextChoices):
+    CUSTOM = "custom", "custom"
+    PROMQL = "promql", "promql"
+    SQL = "sql", "sql"
+    TEXTBOX = "textbox", "textbox"
+
+
+class _MetricVariableSelectionSerializer(serializers.Serializer):
+    name = serializers.RegexField(
+        r"^[A-Za-z_][A-Za-z0-9_]*$",
+        max_length=128,
+        help_text="Variable name. Queries refer to it as `$name`.",
+    )
+    values = serializers.ListField(
+        child=serializers.CharField(max_length=1024, allow_blank=True, trim_whitespace=False),
+        max_length=1000,
+        help_text="The selected values. When `all` is true, the options that All stands for.",
+    )
+    all = serializers.BooleanField(required=False, default=False, help_text="True when the variable is set to All.")
+    allValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        trim_whitespace=False,
+        help_text="The text that All puts in a PromQL query. `.*` when it is empty.",
+    )
+
+
+class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=MetricVariableSource.choices,
+        help_text="Where the options come from: a static list, a PromQL query, a SQL query, or free text.",
+    )
+    query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=10_000,
+        help_text=(
+            "The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. "
+            "PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) "
+            "and query_result(expr). SQL returns the options in its first column."
+        ),
+    )
+    customValues = serializers.ListField(
+        child=serializers.CharField(max_length=1024, allow_blank=True, trim_whitespace=False),
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=1000,
+        help_text="The options when `source` is `custom`.",
+    )
+    regex = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        trim_whitespace=False,
+        help_text=(
+            "A regex that filters the options of a query, as `pattern` or `/pattern/flags`. "
+            "With a capture group, each option is its first group. An invalid regex is rejected before any query runs."
+        ),
+    )
+    variables = _MetricVariableSelectionSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="The current selection of the other dashboard variables that the query can refer to.",
+    )
+    dateFrom = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=64,
+        help_text=(
+            "Start of the window that options come from, as in a dashboard date filter: "
+            "ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago."
+        ),
+    )
+    dateTo = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=64,
+        help_text="End of the window that options come from, in the same format as dateFrom. Defaults to now.",
+    )
+
+    def validate_regex(self, value: str | None) -> str | None:
+        try:
+            check_metric_variable_regex(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
+
+
+class _MetricVariableOptionsResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=serializers.CharField(), help_text="The options of the variable, at most 1,000."
     )
 
 
@@ -988,7 +1108,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def attribute_values(self, request: Request, *args, **kwargs) -> Response:
         """Observed values for one metric attribute key, most frequent first.
-        Backs the filter bar's value autocomplete."""
+        Backs the filter bar's value autocomplete. `metricName` limits choices
+        to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeValuesParamsSerializer(data=request.query_params)
@@ -998,11 +1119,75 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_attribute_values(
                 team=self.team,
                 key=params.validated_data["key"],
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["value"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
             )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_MetricVariableOptionsRequestSerializer,
+        responses={200: _MetricVariableOptionsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def variable_options(self, request: Request, *args, **kwargs) -> Response:
+        """The options of one dashboard variable, for the variable selects on dashboards."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        body = _MetricVariableOptionsRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        # PromQL goes to Snuffle, which has its own gate, as the PromQL insights and the Prometheus API do.
+        if data["source"] == MetricVariableSource.PROMQL and not posthog_feature_flag_enabled(
+            SNUFFLE_API_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("PromQL variable queries are not enabled for this project.")
+        # API keys are budgeted as on /query, so SQL options debit the reads they make.
+        if get_query_tag_value("access_method") == "personal_api_key":
+            tag_queries(api_queries_budgeted=True)
+            if api_queries_budget_enforcement_enabled(self.team):
+                budget = get_api_queries_budget_status(self.team)
+                if budget is not None and budget.remaining_bytes <= 0:
+                    raise Throttled(
+                        wait=budget.retry_after_seconds,
+                        detail="ClickHouse query byte budget exhausted. Try again later.",
+                    )
+        variables = [
+            MetricsDashboardVariable(
+                name=selection["name"],
+                source=MetricsDashboardVariableSource.CUSTOM,
+                includeAll=selection["all"],
+                allValue=selection["allValue"],
+                current=MetricsDashboardVariableSelection(values=selection["values"], all=selection["all"]),
+            )
+            for selection in data["variables"]
+        ]
+        try:
+            results = list_metric_variable_options(
+                team=self.team,
+                source=MetricsDashboardVariableSource(data["source"]),
+                query=data["query"],
+                custom_values=data["customValues"],
+                regex=data["regex"],
+                variables=variables,
+                date_from=data["dateFrom"],
+                date_to=data["dateTo"],
+            )
+        except ConcurrencyLimitExceeded as exc:
+            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
         except ValueError as exc:
             raise ParseError(str(exc))
 

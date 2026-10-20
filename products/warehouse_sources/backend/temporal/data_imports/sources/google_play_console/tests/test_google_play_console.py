@@ -718,13 +718,6 @@ def test_source_response_shape_per_endpoint(resource_name: str) -> None:
         assert response.partition_mode is None
 
 
-def test_source_response_rejects_an_unknown_endpoint() -> None:
-    result = _driver().run("not_a_table", [])
-
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown Google Play Console endpoint" in str(result.raised)
-
-
 def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(

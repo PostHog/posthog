@@ -32,6 +32,7 @@
         "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
-        "react": "*"
+        "react": "*",
+        "react-window": "*"
     }
 }

@@ -103,12 +103,15 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     FLAG_LIVE_AFTER_END = "flag_live_after_end"
     FLAG_LIVE_BEFORE_LAUNCH = "flag_live_before_launch"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     NO_METRIC = "no_metric"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
+    BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
+    RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
 
 
 class HealthExposureInputsStatus(LabeledStrEnum):
@@ -133,6 +136,13 @@ class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
     # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
     # request's scan was still running and did not answer in time.
     UNKNOWN = "unknown"
+
+
+class ExperimentHealthFlagChangeKind(LabeledStrEnum):
+    SPLIT = "split"
+    # A setting that decides the variant draw: the key, the group type, the bucketing identifier or persistence.
+    BUCKETING = "bucketing"
+    RELEASE_CONDITIONS = "release_conditions", "Release-condition"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):

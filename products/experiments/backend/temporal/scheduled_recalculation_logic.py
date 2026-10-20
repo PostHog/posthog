@@ -4,7 +4,8 @@ Pure synchronous functions, no Temporal imports, so every rule is testable on it
 workflow's activities in `scheduled_recalculation_activities` are thin wrappers over these.
 """
 
-from datetime import datetime, timedelta
+import json
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Final
 
 from django.db.models import Prefetch, Q, QuerySet
@@ -14,6 +15,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
+from posthog.redis import get_client
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
@@ -41,6 +43,15 @@ MIN_EXPERIMENT_AGE = timedelta(hours=12)
 
 MIN_TOTAL_EXPOSURES = 50
 
+# After this many consecutive checks below MIN_TOTAL_EXPOSURES, the exposure query runs only once
+# per EXPOSURE_BACKOFF_INTERVAL. Without it, an experiment that stays below the floor costs one
+# ClickHouse query at every scheduled hour of its team.
+EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS = 3
+EXPOSURE_BACKOFF_INTERVAL = timedelta(days=7)
+# Longer than the interval, so the count survives until the next check renews it.
+EXPOSURE_BACKOFF_TTL = timedelta(days=14)
+EXPOSURE_BACKOFF_KEY_PREFIX = "experiments:exposure_backoff:v1"
+
 # A run finished inside this window already left fresh enough data on the page.
 MIN_TIME_SINCE_LAST_RECALCULATION = timedelta(hours=1)
 
@@ -50,6 +61,7 @@ SKIP_ACTIVE_RUN: Final = "active_run_exists"
 SKIP_RECENT_RUN: Final = "recent_run_exists"
 SKIP_ZERO_ROLLOUT: Final = "zero_rollout"
 SKIP_NO_METRICS: Final = "no_metrics"
+SKIP_EXPOSURE_BACKOFF: Final = "exposure_backoff"
 
 
 @frozen
@@ -71,6 +83,12 @@ class ScheduledRecalculationDiscovery:
 class SkipDecision:
     reason: str
     detail: dict[str, str | int | float | None]
+
+
+@frozen
+class ExposureBackoffState:
+    consecutive_insufficient_checks: int
+    checked_at: datetime
 
 
 @frozen
@@ -109,8 +127,8 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     every team. An activity may read a clock; a workflow body may not.
 
     Skips, before any exposure query, every experiment that `_discovery_skip` rejects: a flag that
-    can serve nobody, no metric that the recalculation would compute, an active run, or a recent
-    run. The query count does not grow with the number of candidates.
+    can serve nobody, no metric that the recalculation would compute, an active run, a recent run,
+    or an exposure back-off. The query count does not grow with the number of candidates.
 
     An exposure-frozen experiment stays eligible, because its metric events keep arriving.
     """
@@ -162,12 +180,15 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     )
     active_runs = _active_run_skips(enabled_ids)
     recent_runs = _recent_run_skips(enabled_ids)
+    exposure_backoffs = _exposure_backoff_skips(enabled_ids)
 
     candidates: list[ScheduledRecalculationCandidate] = []
     skips: list[DiscoverySkip] = []
     for experiment in experiments:
         try:
-            decision = _discovery_skip(experiment, active_runs=active_runs, recent_runs=recent_runs)
+            decision = _discovery_skip(
+                experiment, active_runs=active_runs, recent_runs=recent_runs, exposure_backoffs=exposure_backoffs
+            )
         except Exception:
             # One malformed flag or metric must not stop discovery for every team in this hour. The
             # experiment stays a candidate, and the exposure gate decides.
@@ -195,13 +216,14 @@ def _discovery_skip(
     *,
     active_runs: dict[int, SkipDecision],
     recent_runs: dict[int, SkipDecision],
+    exposure_backoffs: dict[int, SkipDecision],
 ) -> SkipDecision | None:
     if not _flag_can_serve_anyone(experiment.feature_flag):
         return SkipDecision(reason=SKIP_ZERO_ROLLOUT, detail={})
     # The same rule the recalculation discovery applies, so a run started here never completes empty.
     if not get_metrics_for_calculation(experiment):
         return SkipDecision(reason=SKIP_NO_METRICS, detail={})
-    return active_runs.get(experiment.id) or recent_runs.get(experiment.id)
+    return active_runs.get(experiment.id) or recent_runs.get(experiment.id) or exposure_backoffs.get(experiment.id)
 
 
 def _flag_can_serve_anyone(flag: "FeatureFlag") -> bool:
@@ -283,6 +305,79 @@ def _recent_run_skips(experiment_ids: list[int]) -> dict[int, SkipDecision]:
         if completed_at is not None:
             skips.setdefault(experiment_id, _recent_run_skip(str(recalculation_id), completed_at))
     return skips
+
+
+def _exposure_backoff_key(experiment_id: int) -> str:
+    return f"{EXPOSURE_BACKOFF_KEY_PREFIX}:{experiment_id}"
+
+
+def _parse_exposure_backoff_state(raw: bytes | str | None) -> ExposureBackoffState | None:
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+        return ExposureBackoffState(
+            consecutive_insufficient_checks=int(data["count"]),
+            checked_at=datetime.fromtimestamp(float(data["checked_at"]), tz=UTC),
+        )
+    # OverflowError and OSError come from a timestamp outside the range that datetime accepts.
+    except (ValueError, TypeError, KeyError, OverflowError, OSError):
+        return None
+
+
+def _exposure_backoff_skips(experiment_ids: list[int]) -> dict[int, SkipDecision]:
+    """The experiments in an exposure back-off, read in one MGET across teams.
+
+    Fails open: a Redis error or an unreadable value leaves the experiment a candidate, so the
+    exposure gate decides as it would without the back-off.
+    """
+    if not experiment_ids:
+        return {}
+    try:
+        values = get_client().mget([_exposure_backoff_key(experiment_id) for experiment_id in experiment_ids])
+    except Exception:
+        logger.warning("scheduled_recalculation_exposure_backoff_read_failed", exc_info=True)
+        return {}
+
+    now = timezone.now()
+    skips: dict[int, SkipDecision] = {}
+    for experiment_id, raw in zip(experiment_ids, values, strict=True):
+        state = _parse_exposure_backoff_state(raw)
+        if state is None or state.consecutive_insufficient_checks < EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS:
+            continue
+        since_last_check = now - state.checked_at
+        if since_last_check >= EXPOSURE_BACKOFF_INTERVAL:
+            continue
+        skips[experiment_id] = SkipDecision(
+            reason=SKIP_EXPOSURE_BACKOFF,
+            detail={
+                "consecutive_insufficient_checks": state.consecutive_insufficient_checks,
+                "days_since_last_check": round(since_last_check / timedelta(days=1), 1),
+            },
+        )
+    return skips
+
+
+def record_exposure_check(experiment_id: int, total_exposures: int) -> None:
+    """Count one more consecutive check below MIN_TOTAL_EXPOSURES, or clear the count at or above it.
+
+    Every write renews the TTL. A Redis error only logs: losing a count costs at most a few extra
+    exposure queries, while a raised error would skip the experiment.
+    """
+    key = _exposure_backoff_key(experiment_id)
+    try:
+        client = get_client()
+        if total_exposures >= MIN_TOTAL_EXPOSURES:
+            client.delete(key)
+            return
+        previous = _parse_exposure_backoff_state(client.get(key))
+        count = (previous.consecutive_insufficient_checks if previous else 0) + 1
+        value = json.dumps({"count": count, "checked_at": timezone.now().timestamp()})
+        client.set(key, value, ex=EXPOSURE_BACKOFF_TTL)
+    except Exception:
+        logger.warning(
+            "scheduled_recalculation_exposure_backoff_write_failed", experiment_id=experiment_id, exc_info=True
+        )
 
 
 def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecision | None:

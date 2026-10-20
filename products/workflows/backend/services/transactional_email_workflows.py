@@ -100,7 +100,6 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
 
 
 def _verified_sender(team_id: int, requested_id: int | None) -> int:
-    # A fresh read: Team.workflows_config is memoized for the whole process.
     sender_id = requested_id or (
         TeamWorkflowsConfig.objects.filter(team_id=team_id)
         .values_list("default_email_integration_id", flat=True)

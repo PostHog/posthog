@@ -1,8 +1,16 @@
-from unittest.mock import MagicMock, patch
+import time_machine
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.egress.limiter.policies import Priority
+from posthog.models import Integration, Organization, Team
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration
+from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
@@ -10,7 +18,9 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
 )
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.models import Task
+from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
     GitHubCredentialSource,
@@ -20,6 +30,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_github_credential_source,
+    get_github_token,
     get_imported_mcp_server_configs,
     get_models_for_runtime_adapter,
     get_relayed_mcp_server_names,
@@ -28,6 +39,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_supported_reasoning_efforts,
     get_task_run_actor_user,
     get_task_run_credential_user,
+    get_user_github_integration,
     get_user_mcp_server_configs,
     is_bot_authorship_fallback,
     is_caller_token_run,
@@ -900,6 +912,112 @@ class TestGetGithubToken(TestCase):
         else:
             mint.assert_called_once_with(None, repositories=expected_mint_repositories)
 
+    @parameterized.expand(
+        [
+            ("mixed_public_and_installed", ["api", "web"], 200, {"id": 9, "private": False}, ["web"]),
+            ("public_only", ["api"], 200, {"id": 9, "private": False}, []),
+            ("renamed_private", ["api"], 200, {"id": 2, "private": True}, ["new-api"]),
+            ("renamed_public_installed", ["api"], 200, {"id": 2, "private": False}, ["new-api"]),
+            ("deduplicates_renamed_repo", ["api", "new-api"], 200, {"id": 2, "private": True}, ["new-api"]),
+            ("installed_only", ["web"], 200, {}, ["web"]),
+            ("private_outside_installation", ["api"], 200, {"id": 9, "private": True}, None),
+            ("private_transferred", ["api"], 200, {"id": 7, "private": True}, None),
+            ("internal_not_public", ["api"], 200, {"id": 9, "private": False, "visibility": "internal"}, None),
+            ("missing_visibility", ["api"], 200, {"id": 9}, None),
+            ("not_found", ["api"], 404, {}, None),
+            ("upstream_error", ["api"], 503, {}, None),
+        ]
+    )
+    @override_settings(
+        TASKS_REDIS_URL="",
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    )
+    def test_recovers_scoped_mint_using_repository_identity_and_visibility(
+        self,
+        _name: str,
+        names: list[str],
+        probe_status: int,
+        metadata: dict,
+        expected_names: list[str] | None,
+    ) -> None:
+        get_tasks_cache().clear()
+        organization = Organization.objects.create(name="repository-access")
+        team = Team.objects.create(organization=organization, name="repository-access")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "acme"}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+        installed = [
+            {"id": 1, "name": "web", "full_name": "acme/web"},
+            {"id": 2, "name": "new-api", "full_name": "acme/new-api"},
+            {"id": 7, "name": "api", "full_name": "another-owner/api"},
+        ]
+        responses = [MagicMock(status_code=200, json=lambda: {"repositories": installed})]
+        if "api" in names:
+            responses.append(MagicMock(status_code=probe_status, json=lambda: metadata))
+        with (
+            time_machine.travel("2026-01-01", tick=False) as clock,
+            patch.object(
+                GitHubIntegration,
+                "mint_scoped_installation_token",
+                side_effect=[GitHubIntegrationError("repository scope rejected", status_code=422), "ghs_scoped"],
+            ) as mint,
+            patch.object(GitHubIntegration, "api_request", side_effect=responses) as request,
+        ):
+            repositories = [f"acme/{name}" for name in names]
+            if expected_names is None:
+                expected_error = GitHubIntegrationError if probe_status >= 500 else CredentialUnavailableError
+                with self.assertRaises(expected_error) as raised:
+                    get_github_token(integration.id, repositories)
+                if isinstance(raised.exception, GitHubIntegrationError):
+                    assert raised.exception.status_code == probe_status
+                else:
+                    assert "acme/api" in str(raised.exception)
+                    assert "installation settings" in str(raised.exception)
+            else:
+                token = get_github_token(integration.id, repositories)
+                assert token == ("ghs_scoped" if expected_names else None)
+                assert get_github_token(integration.id, repositories) == token
+                if not expected_names:
+                    clock.shift(299)
+                    assert get_github_token(integration.id, repositories) is None
+                    clock.shift(2)
+                    assert get_github_token(integration.id, repositories) == "ghs_scoped"
+
+        expected_calls = [call(None, repositories=sorted(names))]
+        if expected_names:
+            expected_calls.append(call(None, repositories=expected_names))
+        elif expected_names == []:
+            expected_calls.append(call(None, repositories=sorted(names)))
+        assert mint.call_args_list == expected_calls
+        assert request.call_count == (2 if "api" in names else 1)
+        integration.refresh_from_db()
+        assert integration.repository_cache == installed
+
+    @parameterized.expand([(401,), (403,), (500,)])
+    def test_non_scope_mint_failures_do_not_probe_repositories(self, status_code: int) -> None:
+        get_tasks_cache().clear()
+        organization = Organization.objects.create(name="repository-access")
+        team = Team.objects.create(organization=organization, name="repository-access")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "acme"}},
+        )
+        error = GitHubIntegrationError("mint failed", status_code=status_code)
+        with (
+            patch.object(GitHubIntegration, "mint_scoped_installation_token", side_effect=error),
+            patch.object(GitHubIntegration, "api_request") as request,
+            self.assertRaises(GitHubIntegrationError) as raised,
+        ):
+            get_github_token(integration.id, ["acme/api"])
+        assert raised.exception is error
+        request.assert_not_called()
+
 
 class TestSlackTaskRunActorUser(TestCase):
     def test_credential_user_grandfathers_legacy_runs_without_actor_state(self) -> None:
@@ -955,6 +1073,33 @@ class TestSlackTaskRunActorUser(TestCase):
         state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id}
 
         assert get_task_run_credential_user(task, state) == creator
+
+
+class TestGetUserGithubIntegration(TestCase):
+    def test_a_flagged_install_is_skipped_for_a_healthy_one(self) -> None:
+        user = User.objects.create(email="two-installs@example.com")
+        flagged = UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111"},
+            sensitive_config={"user_access_token": "gho_a", "user_refresh_token": "ghr_a"},
+        )
+        UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="222",
+            config={"installation_id": "222"},
+            sensitive_config={"user_access_token": "gho_b", "user_refresh_token": "ghr_b"},
+        )
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._mark_needs_reauthorization(
+            "refresh rejected by GitHub: bad_refresh_token"
+        )
+
+        resolved = get_user_github_integration(user)
+
+        assert resolved is not None
+        assert resolved.integration.integration_id == "222"
 
 
 class TestGetSandboxGitHubToken(SimpleTestCase):

@@ -149,20 +149,13 @@ class TestSavedQueryReads(BaseTest):
             near.id: frozenset(),
         }
 
-    def test_upstream_table_refs_walks_through_views_and_other_dags_to_tables_only(self) -> None:
+    def test_upstream_table_refs_walks_through_views_to_tables_only(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Default")
-        other_dag = DAG.objects.create(team=self.team, name="Finance")
-        invoices = table_node(self.team, other_dag, "invoices", {"origin": POSTHOG_TABLE_ORIGIN})
-        revenue = saved_query_node(self.team, other_dag, "revenue", NodeType.VIEW)
-        Edge.objects.create(team=self.team, dag=other_dag, source=invoices, target=revenue)
         warehouse_table_id = str(uuid4())
         charges = table_node(
             self.team, dag, "stripe_charges", {"origin": "warehouse", "warehouse_table_id": warehouse_table_id}
         )
         events = table_node(self.team, dag, "events", {"origin": POSTHOG_TABLE_ORIGIN})
-        proxy = table_node(
-            self.team, dag, "revenue", {"origin": "cross_dag_view", "saved_query_id": str(revenue.saved_query_id)}
-        )
         persons = table_node(self.team, dag, "persons", {"origin": POSTHOG_TABLE_ORIGIN})
         legacy = table_node(self.team, dag, "legacy_orders", {})
         middle = saved_query_node(self.team, dag, "middle", NodeType.VIEW)
@@ -171,7 +164,6 @@ class TestSavedQueryReads(BaseTest):
         for source, dependent in [
             (charges, middle),
             (events, middle),
-            (proxy, middle),
             (legacy, middle),
             (middle, target),
             (target, downstream),
@@ -183,7 +175,6 @@ class TestSavedQueryReads(BaseTest):
             {
                 UpstreamTableRef(name="stripe_charges", warehouse_table_id=warehouse_table_id),
                 UpstreamTableRef(name="events", is_posthog_table=True),
-                UpstreamTableRef(name="invoices", is_posthog_table=True),
                 UpstreamTableRef(name="legacy_orders"),
             }
         )

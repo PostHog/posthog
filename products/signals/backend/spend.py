@@ -12,6 +12,7 @@ from django.utils import timezone
 import structlog
 from asgiref.sync import async_to_sync
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 
@@ -41,7 +42,9 @@ def signal_id_for(*, team_id: int, source_product: str, source_type: str, idempo
     )
 
 
-def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
+def report_triggering_signal(
+    *, team_id: int, report_id: str, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
+) -> str | None:
     with transaction.atomic():
         report = (
             SignalReport.objects.filter(team_id=team_id, id=report_id).only("triggering_signal_id", "team_id").first()
@@ -55,7 +58,7 @@ def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
         fetch_signals_for_report_sync,  # noqa: PLC0415 — keeps HogQL off Django startup
     )
 
-    signals = fetch_signals_for_report_sync(report.team, report_id, newest=1)
+    signals = fetch_signals_for_report_sync(report.team, report_id, newest=1, ch_user=ch_user)
     if not signals:
         return None
     with transaction.atomic():

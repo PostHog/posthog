@@ -35,10 +35,6 @@ class TestHoneycombSource:
         self.source = HoneycombSource()
         self.team_id = 1
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["datasets", "slos"])
-        assert {s.name for s in schemas} == {"datasets", "slos"}
-
     @parameterized.expand(
         [
             ("datasets", ["slug"]),

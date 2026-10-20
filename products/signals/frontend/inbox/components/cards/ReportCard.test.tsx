@@ -423,7 +423,7 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_fixed', '2.7x fix'],
+        ['with the impact column', true, 'ranking_fixed', 'Very likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
@@ -461,7 +461,7 @@ describe('ReportCard', () => {
         cleanup()
         enableRedesign()
         const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
-        expect(screen.getByText('Not scored')).toBeInTheDocument()
+        expect(screen.getByText('Not scored yet')).toBeInTheDocument()
 
         const stale = makeReport('r-2', {
             ranking: {
@@ -477,11 +477,11 @@ describe('ReportCard', () => {
             },
         })
         rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
-        expect(screen.getByText('Edited since scored')).toBeInTheDocument()
-        expect(screen.queryByText('2.7x fix')).not.toBeInTheDocument()
+        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+        expect(screen.queryByText('Very likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
-        expect(screen.queryByText('Not scored')).not.toBeInTheDocument()
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
     })
 
     it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {

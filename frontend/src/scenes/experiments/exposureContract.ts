@@ -38,6 +38,17 @@ export function resolvedExposureEvent(
     return experiment.resolved_exposure_event || fallbackEvent
 }
 
+/**
+ * Whether the experiment's analysis excludes test accounts. Mirrors the backend's
+ * `resolve_filter_test_accounts`: criteria without the key mean the default, not an opt-out. An
+ * experiment stored before creation set the key has none, and so does one whose criteria an
+ * update replaced without it. A surface that reads absence as false counts different people than
+ * the results do.
+ */
+export function resolveFilterTestAccounts(exposureCriteria: ExperimentExposureCriteria | null | undefined): boolean {
+    return exposureCriteria?.filterTestAccounts ?? true
+}
+
 export function exposureEventLabel(event: string): string {
     return event === EXPERIMENT_EXPOSURE_EVENT ? 'Experiment exposure' : 'Feature flag is called'
 }

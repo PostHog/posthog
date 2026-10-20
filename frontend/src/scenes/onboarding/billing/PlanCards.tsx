@@ -10,11 +10,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
 import { type BillingFeatureType, type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
@@ -67,7 +67,6 @@ export function formatDataRetentionFeature(feature?: BillingFeatureType): string
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { billing } = useValues(billingLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
-    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
