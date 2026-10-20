@@ -47,10 +47,6 @@ class VariableComparedToPlaceholderExprError(MaterializationNotSupportedError):
     """
 
 
-class VariableNotComparedToColumnError(MaterializationNotSupportedError):
-    """Raised when a variable appears in WHERE inside an expression rather than as one side of a comparison."""
-
-
 def inject_series_index(query_ast: ast.SelectQuery | ast.SelectSetQuery) -> None:
     """Add a __series_index literal column to each sub-query in a UNION ALL.
 
@@ -361,12 +357,12 @@ def _materializable_variable(
     variables_dict: dict[str, Any],
 ) -> tuple[Optional[MaterializableVariable], Optional[str]]:
     """Build one variable's materialization info, or the reason it can't be materialized."""
-    all_usages, reason = _variable_usages(ast_node, placeholder)
+    all_usages, seen_unmatched, reason = _variable_usages(ast_node, placeholder)
     if reason is not None:
         return None, reason
 
     cte_names = {cte for cte, _ in all_usages}
-    reason = _usage_rejection(all_usages) or _context_rejection(cte_names)
+    reason = _usage_rejection(all_usages, seen_unmatched) or _context_rejection(cte_names)
     if reason is not None:
         return None, reason
 
@@ -401,37 +397,44 @@ def _materializable_variable(
 
 def _variable_usages(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
-) -> tuple[list[tuple[Optional[str], VariableUsageInWhere]], Optional[str]]:
-    """Every WHERE usage of one variable, or the reason its usage can't be read."""
+) -> tuple[list[tuple[Optional[str], VariableUsageInWhere]], bool, Optional[str]]:
+    """Every WHERE usage of one variable, whether it also appears in WHERE outside a supported comparison,
+    or the reason its usage can't be read."""
     try:
-        return find_all_variable_usages(ast_node, placeholder), None
+        usages, seen_unmatched = find_all_variable_usages(ast_node, placeholder)
+        return usages, seen_unmatched, None
     except VariableInHavingClauseError:
-        return [], "Variable used in HAVING clause are not supported for materialization."
+        return [], False, "Variable used in HAVING clause are not supported for materialization."
     except VariableComparedToPlaceholderExprError:
         return (
             [],
+            False,
             "Variable compared against an expression containing another variable is not supported for materialization",
-        )
-    except VariableNotComparedToColumnError:
-        return (
-            [],
-            "Variable must be compared directly to a column, for example column = {variables.name}. "
-            "Using a variable inside another function or expression in WHERE is not supported for materialization.",
         )
     except ValueError as e:
         capture_exception(e)
-        return [], "Invalid variable usage in WHERE clause."
+        return [], False, "Invalid variable usage in WHERE clause."
 
 
-def _usage_rejection(all_usages: list[tuple[Optional[str], VariableUsageInWhere]]) -> Optional[str]:
+def _usage_rejection(
+    all_usages: list[tuple[Optional[str], VariableUsageInWhere]], seen_unmatched: bool
+) -> Optional[str]:
     """Reasons a variable's WHERE usages can't collapse into one materialized key column."""
-    if not all_usages:
-        return "Variable not used in WHERE clause"
-
     # A variable nested in an OR can't be lifted into a single materialized key column:
     # removing its predicate (as the transform does) would change the result set.
     if any(usage.in_or for _, usage in all_usages):
         return "Variables in OR conditions are not supported for materialization"
+
+    # The transform removes the whole predicate and filters `column <op> value` at read time,
+    # so any other use of the variable would be silently dropped.
+    if seen_unmatched:
+        return (
+            "Variable must be compared directly to a column, for example column = {variables.name}. "
+            "Using a variable inside another function or expression in WHERE is not supported for materialization."
+        )
+
+    if not all_usages:
+        return "Variable not used in WHERE clause"
 
     # A variable compared against more than one column has no single bucket key to
     # materialize on (the transform would silently keep only the first usage).
@@ -1085,18 +1088,17 @@ def find_variable_in_where(
 
 def find_all_variable_usages(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
-) -> list[tuple[Optional[str], VariableUsageInWhere]]:
+) -> tuple[list[tuple[Optional[str], VariableUsageInWhere]], bool]:
     """Find all usages of a variable in WHERE clauses, including inside CTEs.
 
-    Returns list of (cte_name, usage) tuples. cte_name is None for top-level query.
+    Returns list of (cte_name, usage) tuples, where cte_name is None for the top-level query,
+    and whether the variable also appears in WHERE outside a supported comparison.
     """
     if not isinstance(ast_node, ast.SelectQuery):
-        return []
+        return [], False
     finder = VariableInWhereFinder(placeholder)
     finder.visit(ast_node)
-    if finder.seen_unmatched_in_where:
-        raise VariableNotComparedToColumnError()
-    return finder.all_results
+    return finder.all_results, finder.seen_unmatched_in_where
 
 
 class VariableInWhereFinder(TraversingVisitor):
@@ -1168,6 +1170,14 @@ class VariableInWhereFinder(TraversingVisitor):
                 self.seen_unmatched_in_where = True
             return
 
+        if isinstance(field_side, ast.Call) and _contains_placeholder(field_side):
+            raise VariableComparedToPlaceholderExprError()
+
+        # Only single-argument wrappers can be reapplied to the value at read time.
+        if not self._is_wrapped_target(variable_side):
+            self.seen_unmatched_in_where = True
+            return
+
         wrapper_fns = self._extract_wrapper_fns(variable_side)
 
         if isinstance(field_side, ast.Field):
@@ -1185,8 +1195,6 @@ class VariableInWhereFinder(TraversingVisitor):
                 )
             )
         elif isinstance(field_side, ast.Call):
-            if _contains_placeholder(field_side):
-                raise VariableComparedToPlaceholderExprError()
             column_chain = self._extract_column_chain_from_call(field_side)
             self.all_results.append(
                 (
@@ -1205,6 +1213,12 @@ class VariableInWhereFinder(TraversingVisitor):
     def visit_placeholder(self, node: ast.Placeholder):
         if self.in_where and node.chain == self.target.chain:
             self.seen_unmatched_in_where = True
+
+    def _is_wrapped_target(self, node: Optional[ast.Expr]) -> bool:
+        """Whether the node is the target placeholder, optionally inside single-argument calls."""
+        while isinstance(node, ast.Call) and len(node.args) == 1:
+            node = node.args[0]
+        return isinstance(node, ast.Placeholder) and node.chain == self.target.chain
 
     def _contains_target_placeholder(self, node: ast.Expr) -> bool:
         """Check if an expression is or contains the target placeholder (e.g. inside toDate(...))."""

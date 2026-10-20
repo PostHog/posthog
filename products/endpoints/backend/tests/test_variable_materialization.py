@@ -256,6 +256,11 @@ class TestVariableAnalysis(APIBaseTest):
                 "must be compared directly to a column",
             ),
             (
+                "multi_arg_value_function",
+                "SELECT count() FROM events WHERE toFloat(properties.price) = greatest({variables.x}, 1)",
+                "must be compared directly to a column",
+            ),
+            (
                 "constant_operand",
                 "SELECT count() FROM events WHERE 'fixed' = {variables.x}",
                 "must be compared directly to a column",
