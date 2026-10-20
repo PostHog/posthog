@@ -19,7 +19,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.event_usage import groups
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.signals.backend.emission._prompts import COMMON_ACTIONABILITY_PROMPT_NAMES
 from products.signals.backend.emission.registry import (
@@ -199,7 +199,7 @@ def build_emitter_outputs(
 async def _create_message(
     client: AsyncAnthropic, *, team_id: int, messages: list[MessageParam], extra_headers: dict[str, str]
 ) -> Message:
-    trial = await database_sync_to_async(requires_trial_accounting)(team_id)
+    trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id)
     if trial:
         client = client.with_options(max_retries=0)
     return await accounted_message(

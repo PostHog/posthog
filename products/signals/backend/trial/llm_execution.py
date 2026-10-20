@@ -18,6 +18,12 @@ class TrialLLMExecution:
             return None
         team = Team.objects.select_related("organization").get(id=team_id)
         policy = TrialPolicy(team)
+        parent = context_funding(team)
+        grant = policy.active_grant()
+        if parent is None and grant is None:
+            return None
+        if parent is not None and parent.grant_id is None:
+            return None
         research_context = True
         task_context = task_trial_context.get()
         if task_context and task_context[0] == team_id:
@@ -25,10 +31,6 @@ class TrialLLMExecution:
             if run is None or run.is_terminal:
                 raise TrialRefused("operation_finished")
             research_context = run.state.get("self_driving_funding", {}).get("stage") == "research"
-        parent = context_funding(team)
-        grant = policy.grant()
-        if parent is None and grant is None:
-            return None
         paid_authorized = False
         if parent is None and grant is not None and grant.exhausted_at:
             paid_authorized = paid_trial_continuation_authorized(team)

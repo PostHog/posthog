@@ -17,7 +17,7 @@ from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.ml_inference.backend.facade import api as decision_api
@@ -313,7 +313,7 @@ async def run_model_decision(
 ) -> T:
     if team_id is None:
         return await traditional(None)
-    if await database_sync_to_async(requires_trial_accounting)(team_id):
+    if await database_sync_to_async_pool(requires_trial_accounting)(team_id):
         return await traditional(None)
     mode = mode_override or await model_mode(team_id)
     if mode == "traditional-only":

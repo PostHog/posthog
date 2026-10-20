@@ -161,11 +161,11 @@ async def call_llm(
     properties: Mapping[str, str] | None = None,
     signal_id: str | None = None,
 ) -> T:
-    from posthog.sync import database_sync_to_async
+    from posthog.sync import database_sync_to_async_pool
 
     from products.signals.backend.trial.reports import requires_trial_accounting
 
-    trial = team_id is not None and await database_sync_to_async(requires_trial_accounting)(team_id)
+    trial = team_id is not None and await database_sync_to_async_pool(requires_trial_accounting)(team_id)
     if trial:
         ai_product = "signals"
     model = model or MATCHING_MODEL

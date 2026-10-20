@@ -25,7 +25,7 @@ from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -740,7 +740,7 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        if input.stage != "summary_entry":
+        if input.stage != "summary_entry" and await database_sync_to_async(TrialPolicy(team).enabled)():
             parent = await database_sync_to_async(active_report_pass)(team, input.report_id)
             if parent is not None and parent.grant_id is not None:
                 finishing = await database_sync_to_async(research_pass_started)(team.id, parent)
@@ -842,15 +842,20 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     it won't immediately re-promote — it must accumulate 3 new signals beyond the current count
     before the promotion gate passes again.
     """
+    team = None
+    operation_key = ""
+    paid_authorized = False
     if input.trial_policy_version:
         from products.signals.backend.trial.reports import (
             prepare_report_pass,  # noqa: PLC0415 -- avoids eager workflow imports
+            report_pass_paid_authorized,
         )
 
         team = await Team.objects.select_related("organization").aget(id=input.team_id)
         info = temporalio.activity.info()
-        await database_sync_to_async(prepare_report_pass)(
-            team=team, report_id=input.report_id, operation_key=f"report-pass:{info.workflow_run_id}:{info.activity_id}"
+        operation_key = f"report-pass:{info.workflow_run_id}:{info.activity_id}"
+        paid_authorized = await database_sync_to_async_pool(report_pass_paid_authorized)(
+            team=team, report_id=input.report_id, operation_key=operation_key
         )
     try:
 
@@ -859,6 +864,10 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
+            if team is not None:
+                prepare_report_pass(
+                    team=team, report_id=input.report_id, operation_key=operation_key, paid_authorized=paid_authorized
+                )
             if report.triggering_signal_id:
                 begin_report_spend(
                     team_id=input.team_id, report_id=input.report_id, signal_id=str(report.triggering_signal_id)

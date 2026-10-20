@@ -18,7 +18,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.spend import record_llm_spend
@@ -127,7 +127,7 @@ async def generate_with_spend(
     trial = None
     token = None
     try:
-        trial = await database_sync_to_async(TrialLLMExecution.prepare)(team_id=team_id, gateway=gateway)
+        trial = await database_sync_to_async_pool(TrialLLMExecution.prepare)(team_id=team_id, gateway=gateway)
         source_id = f"generation:{uuid4()}" if trial else None
         trial_grant_id = str(trial.funding.grant_id) if trial else None
         signal_id = signal_id or (str(uuid4()) if trial else None)
