@@ -104,7 +104,7 @@ The `installing-posthog-from-chat` skill walks an agent from connecting GitHub t
 
 Both endpoints accept browser sessions and OAuth access tokens, not personal API keys.
 Start needs `task:write` and status needs `task:read`.
-Both return `404` unless cloud execution is enabled and the `wizard-mcp-install` feature flag is on for the user and organization.
+Both return `404` unless cloud execution is enabled.
 Start uses the same per-user admission limits as browser-started cloud runs, and checks the AI gateway access rules with the caller's IP.
 
 ## Cloud execution
