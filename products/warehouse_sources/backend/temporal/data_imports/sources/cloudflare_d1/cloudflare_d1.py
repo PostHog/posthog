@@ -28,6 +28,7 @@ PERMISSION_MESSAGE = (
     "Your Cloudflare API token can't read this D1 database. Give it D1 read permission, then reconnect."
 )
 NOT_FOUND_MESSAGE = "Cloudflare couldn't find that D1 database. Check the account ID and database ID, then reconnect."
+UNREACHABLE_MESSAGE = "Couldn't reach Cloudflare to verify the token. Try again in a moment."
 INVALID_ID_MESSAGE = "Enter the account ID and database ID as shown in the Cloudflare dashboard, without a URL."
 
 # Account and database ids are hex or UUID strings; anything else can't be part of the API path.

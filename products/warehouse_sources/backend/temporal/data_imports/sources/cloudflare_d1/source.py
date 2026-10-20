@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     INVALID_TOKEN_MESSAGE,
     NOT_FOUND_MESSAGE,
     PERMISSION_MESSAGE,
+    UNREACHABLE_MESSAGE,
     D1Client,
     D1QueryError,
     D1ResumeConfig,
@@ -116,7 +117,12 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
             client = D1Client(config.api_token, config.account_id, config.database_id)
         except ValueError as error:
             return False, str(error)
-        response = client.get_database()
+        try:
+            response = client.get_database()
+        except RequestException:
+            # The probe runs while a person creates the source, so an unreachable API has to be a
+            # message they can act on, not an error the API answers with a generic failure.
+            return False, UNREACHABLE_MESSAGE
         if response.status_code == 200:
             return True, None
         if response.status_code == 401:
@@ -125,7 +131,7 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
             return False, PERMISSION_MESSAGE
         if response.status_code == 404:
             return False, NOT_FOUND_MESSAGE
-        return False, "Couldn't reach Cloudflare to verify the token. Try again in a moment."
+        return False, UNREACHABLE_MESSAGE
 
     def get_schemas(
         self,

@@ -5,10 +5,13 @@ from typing import Any
 
 import pytest
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_d1.cloudflare_d1 import (
     INVALID_ID_MESSAGE,
     INVALID_TOKEN_MESSAGE,
     NOT_FOUND_MESSAGE,
+    UNREACHABLE_MESSAGE,
     D1QueryError,
     D1ResumeConfig,
 )
@@ -305,6 +308,13 @@ def test_validate_credentials_maps_cloudflare_answers(status: int, body: dict[st
 
     assert (valid, message) == (expected is None, expected)
     assert network.requests_log[0].path == "/client/v4/accounts/0123456789abcdef/d1/database/db-00000000"
+
+
+def test_validate_credentials_reports_an_unreachable_api_instead_of_raising() -> None:
+    # The API calls the probe while a person creates the source, so a raised error would show them a
+    # generic failure instead of what went wrong.
+    with scripted_network(always(requests.ConnectionError("connection refused"))):
+        assert CloudflareD1Source().validate_credentials(CONFIG, team_id=1) == (False, UNREACHABLE_MESSAGE)
 
 
 def test_an_id_that_could_change_the_api_path_is_refused_without_a_request() -> None:
