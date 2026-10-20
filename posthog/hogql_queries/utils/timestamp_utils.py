@@ -31,7 +31,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.event.new_events_schema import get_events_route, get_new_events_cluster_host
+from posthog.models.event.new_events_schema import get_events_route, get_new_events_cluster_host, use_new_events_schema
 from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
@@ -136,14 +136,16 @@ def _get_earliest_timestamp_cache_key(
             raise ValueError(f"Unsupported node type: {type(node)}")
 
 
-def _events_route_cache_key(cache_key: str) -> str:
+def _events_route_cache_key(team: Team, cache_key: str) -> str:
     # Each events table and cluster holds its own copy of the events, so one route's result must not answer another.
     # The route goes in front, because legacy keys end in event names and table names that a suffix could collide with.
     route = get_events_route()
-    if route is None or not (route.useNewEventsSchema or route.useNewEventsCluster):
+    native_table = use_new_events_schema(team.pk, route)
+    native_cluster = bool(route and route.useNewEventsCluster)
+    if not (native_table or native_cluster):
         return cache_key
-    native_host = get_new_events_cluster_host() if route.useNewEventsCluster else None
-    return f"events_route:{bool(route.useNewEventsSchema)}:{native_host}:{cache_key}"
+    native_host = get_new_events_cluster_host() if native_cluster else None
+    return f"events_route:{native_table}:{native_host}:{cache_key}"
 
 
 def _coerce_to_datetime(value: Any, tz: tzinfo) -> datetime:
@@ -208,7 +210,7 @@ def _get_earliest_timestamp_from_node(
     """
     # The cache is team-wide (keyed by team + node, not user): the value is table metadata, and row
     # access is still enforced on the insight's main query, so per-user entries aren't worth the misses.
-    cache_key = _events_route_cache_key(_get_earliest_timestamp_cache_key(team, node))
+    cache_key = _events_route_cache_key(team, _get_earliest_timestamp_cache_key(team, node))
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
         # Coerce on read too: entries cached before the coercion fix shipped hold a raw
@@ -288,7 +290,7 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
     legacy raw-SQL earliest-timestamp helper: floored at 2015-01-01, falling back to
     now - DEFAULT_EARLIEST_TIME_DELTA when the team has no events.
     """
-    cache_key = _events_route_cache_key(f"earliest_timestamp_unfiltered_{team.pk}")
+    cache_key = _events_route_cache_key(team, f"earliest_timestamp_unfiltered_{team.pk}")
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
         return _coerce_to_datetime(cached_result, team.timezone_info)
