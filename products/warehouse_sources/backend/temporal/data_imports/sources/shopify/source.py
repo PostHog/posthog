@@ -1,3 +1,4 @@
+import functools
 from datetime import date
 from typing import Optional, cast
 
@@ -11,6 +12,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -27,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.bulk import SHOPIFY_BULK_FILE_SHAPE_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
     CREATED_AT,
     SHOPIFY_API_VERSION_2025_10,
@@ -60,6 +64,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     validate_credentials as validate_shopify_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+WAREHOUSE_SHOPIFY_BULK_EXPORT_FLAG = "warehouse-shopify-bulk-export"
+
+
+def _is_bulk_export_enabled(team_id: int, schema_id: str) -> bool:
+    schema = ExternalDataSchema.objects.filter(team_id=team_id, id=schema_id).select_related("source").first()
+    return schema is not None and is_schema_flag_enabled(schema, WAREHOUSE_SHOPIFY_BULK_EXPORT_FLAG)
 
 
 @SourceRegistry.register
@@ -258,6 +269,8 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # address. Retrying cannot recover; the user must correct the store id, the same fix
             # as the token endpoint's 404 above.
             SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH: SHOPIFY_STORE_NOT_FOUND_ERROR,
+            # The bulk result file does not change between attempts, so a retry fails the same way.
+            SHOPIFY_BULK_FILE_SHAPE_ERROR: None,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -456,4 +469,5 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             row_filters=inputs.row_filters,
+            use_bulk_export=functools.partial(_is_bulk_export_enabled, inputs.team_id, inputs.schema_id),
         )

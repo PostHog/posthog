@@ -5,7 +5,7 @@ from .queries.catalogs import CATALOGS_QUERY
 from .queries.collections import COLLECTIONS_QUERY
 from .queries.customers import CUSTOMERS_QUERY
 from .queries.discount_nodes import DISCOUNT_NODES_QUERY
-from .queries.orders import ORDERS_QUERY, build_orders_query
+from .queries.orders import ORDERS_BULK_CONNECTIONS, ORDERS_QUERY, build_orders_bulk_query, build_orders_query
 from .queries.products import PRODUCTS_QUERY
 from .utils import ShopifyGraphQLObject
 
@@ -19,6 +19,8 @@ SHOPIFY_API_VERSION_2025_10 = "2025-10"
 SHOPIFY_API_VERSION_2026_07 = "2026-07"
 SHOPIFY_API_URL = "https://{}.myshopify.com/admin/api/{}/graphql.json"
 SHOPIFY_DEFAULT_PAGE_SIZE = 100
+# The versions that have the `bulkOperation(id:)` query the bulk export polls. It was added in 2026-01.
+SHOPIFY_BULK_EXPORT_API_VERSIONS = frozenset({SHOPIFY_API_VERSION_2026_07})
 
 SHOPIFY_ACCESS_TOKEN_CHECK = "{ shop { id } }"
 
@@ -98,6 +100,8 @@ SHOPIFY_GRAPHQL_OBJECTS = {
         query=ORDERS_QUERY,
         permissions_query="{ orders(first: 1) { nodes { id } } }",
         protected_query_builder=build_orders_query,
+        bulk_query_builder=build_orders_bulk_query,
+        bulk_connections=ORDERS_BULK_CONNECTIONS,
     ),
     PRODUCTS: ShopifyGraphQLObject(
         name=PRODUCTS,
