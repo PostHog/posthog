@@ -358,9 +358,29 @@ def ship_variant(
     return update_flag(flag, {"filters": new_filters}, team=team, user=user, request=request)
 
 
-def find_flag_by_key(*, team_id: int, key: str) -> FeatureFlag | None:
-    """The team's live (not soft-deleted) flag with this key, or None."""
-    return FeatureFlag.objects.filter(team_id=team_id, key=key, deleted=False).first()
+class FlagNotFound(Exception):
+    pass
+
+
+class FlagEditDenied(Exception):
+    pass
+
+
+def set_flag_active_by_key(*, team_id: int, user_id: int, key: str, active: bool) -> int:
+    """Flip the active state of the team's live flag with this key, as ``user_id``. Returns the flag id.
+
+    Checks the user's editor access to the flag first, as the feature flag API does, then goes
+    through ``set_flag_active`` and its approval gate. Raises ``FlagNotFound``, ``FlagEditDenied``,
+    ``ApprovalRequired``, ``PolicyConflict``, or a DRF ``ValidationError``.
+    """
+    flag = FeatureFlag.objects.filter(team_id=team_id, key=key, deleted=False).first()
+    if flag is None:
+        raise FlagNotFound
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    if not user_can_edit_flag(flag, team=team, user=user):
+        raise FlagEditDenied
+    return set_flag_active(flag, active, team=team, user=user).id
 
 
 def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
