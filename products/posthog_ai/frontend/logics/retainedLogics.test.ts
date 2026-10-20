@@ -2,7 +2,7 @@ import { actions, kea, key, path, props, reducers } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
-import { retainMountedLogic } from './retainedLogics'
+import { findRetainedLogicKey, retainMountedLogic } from './retainedLogics'
 
 const counterLogic = kea([
     props({} as { id: string }),
@@ -33,5 +33,7 @@ describe('retainMountedLogic', () => {
         expect(counterLogic.findMounted({ id: 'b' })).toBeNull()
         expect(counterLogic.findMounted({ id: 'a' })?.values.count).toBe(1)
         expect(counterLogic.findMounted({ id: 'c' })).not.toBeNull()
+        expect(findRetainedLogicKey('test', (logic) => logic.values.count === 1)).toBe('a')
+        expect(findRetainedLogicKey('test', (logic) => logic.values.count === 2)).toBeNull()
     })
 })
