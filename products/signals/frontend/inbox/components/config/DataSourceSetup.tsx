@@ -18,15 +18,17 @@ export function DataSourceSetup({
     onComplete,
     onCancel,
     completing = false,
+    oauthRedirectUrl,
 }: {
     source: WarehouseBackedSource
     onComplete: () => void
     onCancel?: () => void
     completing?: boolean
+    oauthRedirectUrl?: string
 }): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { load } = useActions(availableSourcesLogic)
-    const { dwSourceType, requiredTables } = WAREHOUSE_SOURCE_SETUP[source]
+    const { dwSourceType, requiredTables, requiredTableSyncType } = WAREHOUSE_SOURCE_SETUP[source]
 
     const sourceConfig = availableSources
         ? Object.values(availableSources).find((s: SourceConfigResponseApi) => s.name === dwSourceType)
@@ -59,7 +61,9 @@ export function DataSourceSetup({
             props={{
                 availableSources,
                 requiredTables,
+                requiredTableSyncType,
                 onComplete,
+                oauthRedirectUrl,
             }}
         >
             <DataSourceSetupForm sourceConfig={sourceConfig} onCancel={onCancel} completing={completing} />

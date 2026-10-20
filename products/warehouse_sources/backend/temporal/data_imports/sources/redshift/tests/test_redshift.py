@@ -1243,6 +1243,27 @@ class TestBuildPipeline:
         impl.build_pipeline(_make_config(), _make_inputs(), chunk_size_override=4242)
         mocked_chunk_size.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "input_overrides,expected",
+        [
+            pytest.param(
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "id",
+                    "incremental_field_type": IncrementalFieldType.Integer,
+                },
+                True,
+                id="incremental",
+            ),
+            pytest.param({}, False, id="full_refresh"),
+        ],
+    )
+    def test_claims_ascending_order_only_for_an_incremental_run(
+        self, build_pipeline_mocks: Any, input_overrides: dict[str, Any], expected: bool
+    ) -> None:
+        response = RedshiftImplementation().build_pipeline(_make_config(), _make_inputs(**input_overrides))
+        assert response.sort_mode == ("asc" if expected else None)
+
 
 # ---------------------------------------------------------------------------
 # Connection lifecycle

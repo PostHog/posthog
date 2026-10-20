@@ -76,7 +76,7 @@ In Marketo, open **Admin → Web Services** for your Munchkin account ID, then *
 Leads and activities come through Marketo's Bulk Extract API, so the first sync backfills from the start date you set below.""",
             iconPath="/static/services/marketo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/marketo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["adobe marketo", "marketo engage"],
             fields=cast(
                 list[FieldType],
