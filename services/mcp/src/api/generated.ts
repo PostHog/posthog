@@ -11228,30 +11228,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
-
-
-    export const RestrictionLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
-     * * `21` - Can view dashboard
-     * * `37` - Can edit dashboard
-     */
-    export type PrivilegeLevelEnum = typeof PrivilegeLevelEnum[keyof typeof PrivilegeLevelEnum];
-
-
-    export const PrivilegeLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
      * Warnings attached to the query response that produced an insight's results.
      */
     export type _InsightResultWarnings = (DataWarehouseSyncWarning | AccessControlFilterWarning)[];
@@ -11375,8 +11351,6 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       readonly is_sample: boolean;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -28009,19 +27983,11 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: unknown[];
-      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
-      readonly access_control_version: string;
       /** @nullable */
       last_refresh?: string | null;
       /** @nullable */
@@ -28108,19 +28074,11 @@ export namespace Schemas {
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
       tags?: unknown[];
-      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      readonly restriction_level: RestrictionLevelEnum;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
-      readonly access_control_version: string;
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
@@ -28611,142 +28569,6 @@ export namespace Schemas {
       error: string | null;
     }
 
-    export type DashboardWriteOpenApiFilters = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type DashboardWriteOpenApiVariables = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type DashboardWriteOpenApiPersistedFilters = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
-
-    /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
-     * @nullable
-     */
-    export type DashboardWriteOpenApiGroupTitles = {[key: string]: string} | null;
-
-    export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
-
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface DashboardWriteOpenApi {
-      readonly id: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      description?: string;
-      pinned?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_accessed_at: string | null;
-      /** @nullable */
-      readonly last_viewed_at: string | null;
-      /**
-         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
-         * @nullable
-         */
-      readonly folder: string | null;
-      /**
-         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
-         * @nullable
-         */
-      readonly file_system_id: string | null;
-      /**
-         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
-         * @nullable
-         */
-      readonly file_system_path: string | null;
-      readonly is_shared: boolean;
-      deleted?: boolean;
-      readonly creation_mode: DashboardCreationModeEnum;
-      readonly filters: DashboardWriteOpenApiFilters;
-      /** @nullable */
-      readonly variables: DashboardWriteOpenApiVariables;
-      /**
-         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
-         * @nullable
-         */
-      breakdown_colors?: BreakdownColorConfig[] | null;
-      /**
-         * ID of the color theme used for chart visualizations.
-         * @nullable
-         */
-      data_color_theme_id?: number | null;
-      tags?: unknown[];
-      /**
-         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-         * @minimum 21
-         * @maximum 21
-         */
-      restriction_level?: number;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      readonly access_control_version: string;
-      /** @nullable */
-      last_refresh?: string | null;
-      /** @nullable */
-      readonly persisted_filters: DashboardWriteOpenApiPersistedFilters;
-      /** @nullable */
-      readonly persisted_variables: DashboardWriteOpenApiPersistedVariables;
-      readonly team_id: number;
-      /**
-         * List of quick filter IDs associated with this dashboard
-         * @nullable
-         */
-      quick_filter_ids?: string[] | null;
-      /** Dashboard display settings. */
-      readonly customization: DashboardCustomization;
-      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
-       *
-       * * `tight` - tight
-       * * `condensed` - condensed
-       * * `standard` - standard
-       * * `relaxed` - relaxed
-       * * `wide` - wide */
-      grid_spacing?: TileSpacingEnum;
-      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
-       *
-       * * `vertical` - vertical
-       * * `horizontal` - horizontal
-       * * `stable` - stable */
-      layout_compaction?: LayoutCompactionEnum;
-      /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
-         * @nullable
-         */
-      group_titles?: DashboardWriteOpenApiGroupTitles;
-      /** @nullable */
-      readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
-      /** Template key to create the dashboard from a predefined template. */
-      use_template?: string;
-      /**
-         * ID of an existing dashboard to duplicate.
-         * @nullable
-         */
-      use_dashboard?: number | null;
-      /** When deleting, also delete insights that are only on this dashboard. */
-      delete_insights?: boolean;
-      _create_in_folder?: string;
-    }
-
     export interface DataCatalogCertification {
       readonly id: string;
       /**
@@ -28910,6 +28732,136 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       names: string[];
+    }
+
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type DataCatalogMetricCreateDefinition = { [key: string]: unknown } | null;
+
+    /**
+     * Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name.
+     */
+    export interface DataCatalogMetricCreate {
+      readonly id: string;
+      /**
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /**
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * @maxLength 300
+         */
+      description: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: DataCatalogMetricCreateDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by: UserBasic | null;
+      /**
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
+         * @nullable
+         */
+      source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Replace the fields of the live metric that already holds this name. When false, a taken name returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an approved metric with a changed name, description, unit, or definition resets it to 'proposed'. */
+      overwrite?: boolean;
+    }
+
+    /**
+     * The live metric that holds the name a create was sent with.
+     */
+    export interface DataCatalogMetricNameConflictExisting {
+      /** Name of the existing metric. */
+      name: string;
+      /** Lifecycle state of the existing metric: 'proposed' or 'approved'. */
+      status: string;
+    }
+
+    export interface DataCatalogMetricNameConflictExtra {
+      /** The metric that holds the name. Send overwrite true to replace it. */
+      existing_metric: DataCatalogMetricNameConflictExisting;
+    }
+
+    /**
+     * The 409 body of a create whose name a live metric already holds.
+     */
+    export interface DataCatalogMetricNameConflict {
+      /** Error class the API attaches to every error body. */
+      type: string;
+      /** Always 'metric_name_taken'. */
+      code: string;
+      /** Human-readable reason, safe to show as is. */
+      detail: string;
+      /**
+         * Always null: the conflict is not tied to one field.
+         * @nullable
+         */
+      attr: string | null;
+      /** Absent when the existing metric is hidden from the caller because it reads a table they cannot access. */
+      extra?: DataCatalogMetricNameConflictExtra;
     }
 
     /**
@@ -83608,8 +83560,6 @@ export namespace Schemas {
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;
       readonly is_sample?: boolean;
-      readonly effective_restriction_level?: RestrictionLevelEnum;
-      readonly effective_privilege_level?: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -84639,12 +84589,6 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: string[];
-      /**
-         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-         * @minimum 21
-         * @maximum 21
-         */
-      restriction_level?: number;
       /**
          * List of quick filter IDs associated with this dashboard.
          * @nullable
@@ -89076,6 +89020,35 @@ export namespace Schemas {
          * @nullable
          */
       error_code?: string | null;
+    }
+
+    export interface PatchedWorkflowSendingRules {
+      /** The project these sending rules belong to. */
+      readonly project_id?: number;
+      /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+      expected_project_id?: number;
+      /**
+         * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      marketing_frequency_cap_max_messages?: number | null;
+      /**
+         * The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      marketing_frequency_cap_window_days?: number | null;
+      /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
+       *
+       * * `off` - Off
+       * * `opt_out` - Opt Out
+       * * `opt_in` - Opt In */
+      email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
+      capture_workflows_engagement_events?: boolean;
     }
 
     export interface PathCleaningPreviewExample {
@@ -97822,6 +97795,7 @@ export namespace Schemas {
 
     /**
      * * `get_it_merged` - Get it merged
+     * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
@@ -97829,6 +97803,7 @@ export namespace Schemas {
 
     export const ReportTaskActionKindEnum = {
       GetItMerged: 'get_it_merged',
+      MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
     } as const;
 
@@ -103791,9 +103766,10 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
+       * * `make_it_green` - Make it green
        * * `suggested_prompt` - Suggested prompt */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
@@ -103832,6 +103808,7 @@ export namespace Schemas {
       /** The action to run. Use a value from the actions list.
        *
        * * `get_it_merged` - Get it merged
+       * * `make_it_green` - Make it green
        * * `suggested_prompt` - Suggested prompt */
       action: ReportTaskActionKindEnum;
       /**
@@ -117244,6 +117221,35 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowSendingRules {
+      /** The project these sending rules belong to. */
+      readonly project_id: number;
+      /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+      expected_project_id?: number;
+      /**
+         * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      marketing_frequency_cap_max_messages?: number | null;
+      /**
+         * The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      marketing_frequency_cap_window_days?: number | null;
+      /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
+       *
+       * * `off` - Off
+       * * `opt_out` - Opt Out
+       * * `opt_in` - Opt In */
+      email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
+      capture_workflows_engagement_events?: boolean;
     }
 
     export interface WorkflowSetupStep {
