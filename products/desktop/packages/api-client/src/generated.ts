@@ -4354,6 +4354,7 @@ export namespace Schemas {
     };
     export type HogQLQueryResponse = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -4520,7 +4521,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -4588,7 +4588,6 @@ export namespace Schemas {
         | "create_early_access_feature"
         | "update_feature_stage"
         | "use_posthog_ai"
-        | "use_posthog_code"
         | "use_posthog_mcp"
         | "use_posthog_in_slack";
     export type BIAggregation =
@@ -6886,6 +6885,7 @@ export namespace Schemas {
     };
     export type Response3 = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -11662,6 +11662,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -12043,6 +12044,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -13059,6 +13061,7 @@ export namespace Schemas {
         | "LambdaLabs"
         | "LangSmith"
         | "Linode"
+        | "Listmonk"
         | "LlamaCloud"
         | "Mem0"
         | "Metriport"
@@ -13440,6 +13443,7 @@ export namespace Schemas {
         | "LoopReturns"
         | "Mastodon"
         | "Meetup"
+        | "Megaphone"
         | "Memberful"
         | "MercadoPago"
         | "Meteostat"
@@ -14464,6 +14468,7 @@ export namespace Schemas {
          * * `LambdaLabs` - LambdaLabs
          * * `LangSmith` - LangSmith
          * * `Linode` - Linode
+         * * `Listmonk` - Listmonk
          * * `LlamaCloud` - LlamaCloud
          * * `Mem0` - Mem0
          * * `Metriport` - Metriport
@@ -14845,6 +14850,7 @@ export namespace Schemas {
          * * `LoopReturns` - LoopReturns
          * * `Mastodon` - Mastodon
          * * `Meetup` - Meetup
+         * * `Megaphone` - Megaphone
          * * `Memberful` - Memberful
          * * `MercadoPago` - MercadoPago
          * * `Meteostat` - Meteostat

@@ -14,6 +14,7 @@ import {
     IconPlug,
     IconSparkles,
     IconStar,
+    IconToggle,
     IconTrending,
     IconWarning,
 } from '@posthog/icons'
@@ -40,6 +41,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
     data_quality_check_failure: { Icon: IconWarning, color: 'text-danger' },
     workflow_suggestion: { Icon: IconSparkles, color: 'text-primary' },
+    feature_flag_failure: { Icon: IconToggle, color: 'text-danger' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

@@ -15,13 +15,21 @@ export const ANALYTICS_FEED_PAGE_SIZE = 50
 export interface AnalyticsFeedQuery {
     type: AnalyticsTypeFilter
     search: string
-    /** Creators' uuids; empty means anyone. The file system cannot filter on it, so the rows are narrowed on the client. */
+    /** Creators' uuids; empty means anyone. The file system cannot filter on a uuid, so the rows are narrowed on the client. */
     createdBy: string[]
+    /** True when the only creator is the current person, so the file system narrows the rows itself with `user:me`. */
+    createdByMe: boolean
     /** Tag names a row must all carry. Like the creator, narrowed on the client. */
     tags: string[]
 }
 
-export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = { type: 'all', search: '', createdBy: [], tags: [] }
+export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = {
+    type: 'all',
+    search: '',
+    createdBy: [],
+    createdByMe: false,
+    tags: [],
+}
 
 export interface AnalyticsSourcePage {
     items: AnalyticsItem[]
@@ -86,9 +94,11 @@ export async function fetchAnalyticsSourcePage(
     offset: number
 ): Promise<AnalyticsSourcePage> {
     const limit = ANALYTICS_FEED_PAGE_SIZE
+    // Without the server filter, a person's rows hide among everyone else's and each page brings few of them.
+    const search = [query.createdByMe ? 'user:me' : '', query.search.trim()].filter(Boolean).join(' ')
     const result = await api.fileSystem.list({
         ...fileSystemTypeParams(type),
-        search: query.search.trim() || undefined,
+        search: search || undefined,
         orderBy: '-created_at',
         includeTags: true,
         limit,
