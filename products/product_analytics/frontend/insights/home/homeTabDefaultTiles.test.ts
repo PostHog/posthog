@@ -18,6 +18,7 @@ import {
     getHomeTabAudienceOptions,
     getHomeTabBreakdownOptions,
     getHomeTabChartOptions,
+    getHomeTabDashboardTemplate,
     getHomeTabExploreUrl,
     getHomeTabInterval,
     getHomeTabStatQueries,
@@ -285,5 +286,39 @@ describe('homeTabDefaultTiles', () => {
         expect(editorQuery.embedded).toBeUndefined()
         expect(editorQuery.source).toEqual(JSON.parse(JSON.stringify(chart!.query.source)))
         expect(editorQuery.source.dateRange).toEqual(dateRange)
+    })
+
+    it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
+        const { tiles } = getHomeTabDashboardTemplate()
+
+        expect(tiles.map((tile) => tile.type === 'INSIGHT' && tile.name)).toEqual([
+            'Active users',
+            'Sessions',
+            'First-time users',
+            'Session duration',
+            'Daily active users',
+            'Top pages',
+            'Top screens',
+            'Top events',
+            'New user retention',
+            'Active users by country',
+            'Sessions by device',
+        ])
+        const cells = new Set<string>()
+        for (const tile of tiles) {
+            expect(tile.type === 'INSIGHT' && tile.query).toMatchObject({ kind: NodeKind.InsightVizNode })
+            expect(tile.type === 'INSIGHT' && tile.query).not.toHaveProperty('embedded')
+            const { x, y, w, h } = tile.layouts!.sm!
+            expect(x + w).toBeLessThanOrEqual(12)
+            for (let column = x; column < x + w; column++) {
+                for (let row = y; row < y + h; row++) {
+                    expect(cells.has(`${column},${row}`)).toBe(false)
+                    cells.add(`${column},${row}`)
+                }
+            }
+        }
+        expect(tiles[3].type === 'INSIGHT' && tiles[3].query).toMatchObject({
+            source: { trendsFilter: { aggregationAxisFormat: 'duration' } },
+        })
     })
 })

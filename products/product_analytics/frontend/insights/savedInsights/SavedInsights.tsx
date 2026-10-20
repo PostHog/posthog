@@ -61,6 +61,7 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsi
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { HomeDashboardStarterModal } from 'products/product_analytics/frontend/insights/home/HomeDashboardStarterModal'
 import { HomeTab } from 'products/product_analytics/frontend/insights/home/HomeTab'
+import { getHomeTabDashboardTemplate } from 'products/product_analytics/frontend/insights/home/homeTabDefaultTiles'
 import { NewInsightButton } from 'products/product_analytics/frontend/insights/newInsightMenu/NewInsightMenu'
 import { NewInsightShortcuts } from 'products/product_analytics/frontend/insights/newInsightMenu/newInsightsMenu'
 import { ProductAnalyticsNotifications } from 'products/product_analytics/frontend/notifications/ProductAnalyticsNotifications'
@@ -113,7 +114,8 @@ export function SavedInsights(): JSX.Element {
         showStarterOptions,
     } = useActions(dashboardChoiceLogic)
     const { isLoading: dashboardCreationLoading } = useValues(newDashboardLogic)
-    const { addDashboard, setAsHomeTabDashboardAfterCreation, showNewDashboardModal } = useActions(newDashboardLogic)
+    const { addDashboard, createDashboardFromTemplate, setAsHomeTabDashboardAfterCreation, showNewDashboardModal } =
+        useActions(newDashboardLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { tab } = filters
@@ -348,6 +350,15 @@ export function SavedInsights(): JSX.Element {
         })
     }
 
+    const copyPostHogHome = (): void => {
+        if (dashboardCreationLoading) {
+            return
+        }
+        closeSceneDashboardChoiceModal()
+        setAsHomeTabDashboardAfterCreation(true)
+        createDashboardFromTemplate(getHomeTabDashboardTemplate(), [], false, 'product_analytics_home_copy')
+    }
+
     const openHomeDashboardTemplates = (): void => {
         closeSceneDashboardChoiceModal()
         setAsHomeTabDashboardAfterCreation(true)
@@ -505,6 +516,7 @@ export function SavedInsights(): JSX.Element {
                     <HomeDashboardStarterModal
                         isOpen={homeDashboardModalOpen && dashboardChoiceView === 'starter'}
                         onClose={closeSceneDashboardChoiceModal}
+                        onCopyPostHogHome={copyPostHogHome}
                         onTalkToAI={createHomeDashboardWithAI}
                         onStartFromTemplate={openHomeDashboardTemplates}
                         onChooseExisting={showDashboardPicker}

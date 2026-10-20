@@ -1,9 +1,10 @@
-import { IconChevronRight, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
+import { IconChevronRight, IconCopy, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 export interface HomeDashboardStarterModalProps {
     isOpen: boolean
     onClose: () => void
+    onCopyPostHogHome: () => void
     onTalkToAI: () => void
     onStartFromTemplate: () => void
     onChooseExisting: () => void
@@ -17,6 +18,7 @@ export interface HomeDashboardStarterModalProps {
 export function HomeDashboardStarterModal({
     isOpen,
     onClose,
+    onCopyPostHogHome,
     onTalkToAI,
     onStartFromTemplate,
     onChooseExisting,
@@ -28,6 +30,15 @@ export function HomeDashboardStarterModal({
 }: HomeDashboardStarterModalProps): JSX.Element {
     const creationDisabledReason = creatingWithAI ? 'Creating your dashboard…' : undefined
     const choices = [
+        {
+            title: 'Copy PostHog Home',
+            description: 'Start with the PostHog Home charts, then edit, add, or remove them.',
+            icon: <IconCopy />,
+            onClick: onCopyPostHogHome,
+            dataAttr: 'home-dashboard-copy-posthog-home',
+            loading: false,
+            disabledReason: creationDisabledReason,
+        },
         {
             title: 'Talk to PostHog AI',
             description: 'Describe what you want to track and let PostHog AI build it.',

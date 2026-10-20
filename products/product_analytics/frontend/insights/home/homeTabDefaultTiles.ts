@@ -18,6 +18,8 @@ import {
 import {
     BaseMathType,
     ChartDisplayType,
+    DashboardTemplateStoredInsightTile,
+    DashboardTemplateType,
     FilterLogicalOperator,
     IntervalType,
     PropertyMathType,
@@ -28,7 +30,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import type { HomeTabMetricKey } from './homeTabDefaultLogic'
+import { HOME_TAB_DEFAULT_DATE_RANGE, type HomeTabMetricKey } from './homeTabDefaultLogic'
 
 /** A single-number stat shown in the compact tile row at the top of the Home tab. */
 export interface HomeTabStatQuery {
@@ -471,4 +473,85 @@ export function getHomeTabBreakdownOptions(dateRange: DateRange): HomeTabChartOp
 export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string {
     const insightQuery: HomeTabChartOption['query'] = { ...query, embedded: undefined }
     return urls.insightNew({ query: insightQuery })
+}
+
+interface HomeTabDashboardTile {
+    name: string
+    description: string
+    source: TrendsQuery | RetentionQuery
+    w: number
+    h: number
+}
+
+/** PostHog Home as a dashboard template, so a copy keeps the Home charts and the user can edit them. */
+export function getHomeTabDashboardTemplate(): DashboardTemplateType {
+    const dateRange = HOME_TAB_DEFAULT_DATE_RANGE
+    const compare = true
+    const charts = new Map(
+        [
+            ...getHomeTabChartOptions(dateRange, compare),
+            ...getHomeTabBreakdownOptions(dateRange),
+            ...getHomeTabAudienceOptions(dateRange),
+        ].map((option) => [option.key, option])
+    )
+    const chartTile = (key: string, w: number, h: number): HomeTabDashboardTile => {
+        const chart = charts.get(key)
+        if (!chart) {
+            throw new Error(`Home chart ${key} does not exist`)
+        }
+        return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
+    }
+    const statTiles = getHomeTabStatQueries(dateRange, compare)
+        .filter((stat) => stat.key !== 'daily_active_users')
+        .map(
+            (stat): HomeTabDashboardTile => ({
+                name: stat.title,
+                description: '',
+                source:
+                    stat.kind === 'duration_s'
+                        ? {
+                              ...stat.query,
+                              trendsFilter: { ...stat.query.trendsFilter, aggregationAxisFormat: 'duration' },
+                          }
+                        : stat.query,
+                w: 3,
+                h: 3,
+            })
+        )
+    const rows: HomeTabDashboardTile[][] = [
+        statTiles,
+        [chartTile('daily_active_users', 12, 5)],
+        [chartTile('top_pages', 6, 5), chartTile('top_screens', 6, 5)],
+        [chartTile('top_events', 6, 5), chartTile('retention', 6, 5)],
+        [chartTile('users_by_country', 8, 6), chartTile('sessions_by_device', 4, 6)],
+    ]
+
+    const tiles: DashboardTemplateStoredInsightTile[] = []
+    let y = 0
+    let stackedY = 0
+    for (const row of rows) {
+        let x = 0
+        for (const { name, description, source, w, h } of row) {
+            tiles.push({
+                type: 'INSIGHT',
+                name,
+                description,
+                query: { kind: NodeKind.InsightVizNode, source },
+                layouts: { sm: { x, y, w, h }, xs: { x: 0, y: stackedY, w: 1, h } },
+            })
+            x += w
+            stackedY += h
+        }
+        y += Math.max(...row.map(({ h }) => h))
+    }
+
+    return {
+        id: 'product-analytics-home',
+        template_name: 'My product analytics Home',
+        dashboard_description: 'A copy of PostHog Home. You can edit, add, or remove tiles.',
+        dashboard_filters: {},
+        tiles,
+        variables: [],
+        tags: [],
+    }
 }
