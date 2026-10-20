@@ -127,7 +127,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             )
 
         if self.is_session_aggregation:
-            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
+            return SessionStrategy(
+                team=self.team, query=self.query, paginator=self.paginator, user=self.user, modifiers=self.modifiers
+            )
 
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 
