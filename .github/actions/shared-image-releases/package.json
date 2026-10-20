@@ -18,7 +18,7 @@
     "main": "dist/index.js",
     "scripts": {
         "build": "tsc",
-        "pack": "ncc build src/main.ts -o dist",
+        "pack": "ncc build src/main.ts -o dist --minify",
         "test": "jest"
     },
     "dependencies": {
