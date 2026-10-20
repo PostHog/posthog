@@ -137,7 +137,11 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(response["latest_run"]["status"], "failed")
         self.assertIn("Could not start", response["latest_run"]["error"])
         enqueue.assert_not_called()
-        with patch(QUEUE) as enqueue, self.captureOnCommitCallbacks(execute=True):
+        with (
+            time_machine.travel(timezone.now() + timedelta(seconds=1), tick=False),
+            patch(QUEUE) as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             retry = self.client.post(self.base + "/start", {"refresh": True}).json()
         self.assertNotEqual(retry["latest_run"]["id"], response["latest_run"]["id"])
         self.assertEqual(retry["latest_run"]["status"], "pending")

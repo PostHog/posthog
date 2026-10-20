@@ -137,10 +137,12 @@ class TestRecommendationCardsRunner(SimpleTestCase):
         transport.assert_not_called()
 
     def test_dry_run_exercises_all_cases_without_claiming_model_quality(self) -> None:
-        report = run_card_evaluation(recommendation_card_cases())
+        cases = recommendation_card_cases()
+        report = run_card_evaluation(cases)
 
         assert report["status"] == "dry_run_passed"
-        assert report["completed_trials"] == 9
+        assert report["completed_trials"] == len(cases)
+        assert [trial["case"] for trial in report["trials"]] == [case.name for case in cases]
         assert report["contract_passed"] is None
         assert report["semantic_review_status"] == "not_applicable"
         assert {trial["response_model"] for trial in report["trials"]} == {"synthetic-transport-response"}
