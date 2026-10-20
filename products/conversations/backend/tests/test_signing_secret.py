@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -38,6 +39,45 @@ class TestSigningSecret(BaseTest):
         # A legacy rotation opens the same grace window as an independent one.
         self.assertEqual(row.previous_secret, existing_token)
         self.assertEqual(row.previous_secret_rotated_at is not None, existing_token is not None)
+
+    def test_legacy_rotation_clears_grace_for_a_stale_mirror(self):
+        # A stale mirror holds a retired key; promoting it into the grace copy would
+        # resurrect a credential the staleness guard already excluded.
+        self.team.secret_api_token = "phs_current_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team,
+            defaults={
+                "secret": "a_retired_secret",
+                "previous_secret": "an_even_older_secret",
+                "previous_secret_rotated_at": timezone.now(),
+            },
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.secret, self.team.secret_api_token)
+        self.assertIsNone(row.previous_secret)
+        self.assertIsNone(row.previous_secret_rotated_at)
+
+    def test_backup_deletion_revokes_the_grace_copy(self):
+        # Deleting the legacy backup is an explicit revocation; the same credential must
+        # not keep verifying through the signing secret's grace copy.
+        self.team.secret_api_token = "phs_current_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team, defaults={"secret": "phs_current_token"}
+        )
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.previous_secret, "phs_current_token")
+
+        self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        row.refresh_from_db()
+        self.assertIsNone(row.previous_secret)
+        self.assertIsNone(row.previous_secret_rotated_at)
 
     def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
         # A legacy rotation syncing over an independent secret silently breaks verification.

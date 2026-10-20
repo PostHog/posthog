@@ -15,7 +15,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.signals import secret_api_token_rotated
+from posthog.models.signals import secret_api_token_backup_deleted, secret_api_token_rotated
 
 from .ai.human_outcome import maybe_record_human_outcome
 from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
@@ -621,9 +621,27 @@ def sync_signing_secret_on_rotation(sender, team, **kwargs):
     if created or row.rotated_independently:
         return
     # Mirror the rotation's grace semantics: the replaced secret keeps verifying for
-    # the grace window, matching rotations made via the conversations endpoint.
-    if row.secret and row.secret != team.secret_api_token:
+    # the grace window, matching rotations made via the conversations endpoint. Only
+    # the just-retired primary (now in the backup column) qualifies; a stale mirror
+    # holds a retired key the staleness guard excluded, and granting it grace would
+    # resurrect it, so its grace copy is cleared instead.
+    if row.secret and row.secret == team.secret_api_token_backup:
         row.previous_secret = row.secret
         row.previous_secret_rotated_at = timezone.now()
+    else:
+        row.previous_secret = None
+        row.previous_secret_rotated_at = None
     row.secret = team.secret_api_token
     row.save(update_fields=["secret", "previous_secret", "previous_secret_rotated_at"])
+
+
+@receiver(secret_api_token_backup_deleted)
+def revoke_signing_secret_grace_on_backup_deletion(sender, team, deleted_token, **kwargs):
+    """Deleting the legacy backup is an explicit revocation: the same credential must not
+    keep verifying through the signing secret's grace copy. Runs inside the deletion's
+    transaction (Team.delete_secret_token_backup_and_save)."""
+    row = SigningSecret.objects.for_team(team.id).select_for_update().first()
+    if row and row.previous_secret == deleted_token:
+        row.previous_secret = None
+        row.previous_secret_rotated_at = None
+        row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])

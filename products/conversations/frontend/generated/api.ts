@@ -109,6 +109,23 @@ export const conversationsSigningSecretRetrieve = async (
     })
 }
 
+export const getConversationsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/signing_secret/expire_previous/`
+}
+
+/**
+ * End the rotation grace window now: the previous secret stops verifying immediately. Use it when the replaced secret may be compromised, or once every server runs the new one.
+ */
+export const conversationsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SigningSecretApi> => {
+    return apiMutator<SigningSecretApi>(getConversationsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getConversationsSigningSecretRotateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/signing_secret/rotate/`
 }

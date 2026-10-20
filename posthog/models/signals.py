@@ -19,6 +19,11 @@ model_activity_signal = Signal()
 # receiver rolls the rotation back. Work outside the database belongs in on_commit.
 secret_api_token_rotated = Signal()
 
+# Sent by Team.delete_secret_token_backup_and_save inside the deletion's transaction,
+# with `deleted_token`. Deleting the backup is an explicit revocation, so dependent
+# stores must drop any copy of that credential (e.g. the signing secret's grace copy).
+secret_api_token_backup_deleted = Signal()
+
 
 def mutable_receiver(*args, **kwargs):
     """

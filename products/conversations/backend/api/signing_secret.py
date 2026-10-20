@@ -93,17 +93,36 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def rotate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # One transaction: a credential change without its audit row must not commit.
         with transaction.atomic():
-            # Locked read: two concurrent rotations must not both capture the same
-            # previous secret and lose one of the new values.
-            old_row = SigningSecret.objects.for_team(self.team_id).select_for_update().first()
-            defaults: dict[str, Any] = {"secret": generate_random_token(), "rotated_independently": True}
-            if old_row:
-                defaults["previous_secret"] = old_row.secret
-                defaults["previous_secret_rotated_at"] = timezone.now()
-            row, _ = SigningSecret.objects.for_team(self.team_id).update_or_create(
-                team_id=self.team_id,
-                defaults=defaults,
+            # Locked get_or_create: two concurrent requests must serialize, or the loser
+            # overwrites the winner's secret right after it was shown to the winner.
+            # The loser then sees the winner's row and treats it as a rotation, so the
+            # winner's secret survives through the grace window.
+            row, created = (
+                SigningSecret.objects.for_team(self.team_id)
+                .select_for_update()
+                .get_or_create(
+                    team_id=self.team_id,
+                    defaults={"secret": generate_random_token(), "rotated_independently": True},
+                )
             )
+            old_secret = None if created else row.secret
+            if not created:
+                # Grace only for a secret that was a trusted verification candidate.
+                # A stale mirror holds a retired key the staleness guard excluded;
+                # granting it grace would resurrect a revoked credential.
+                has_legacy = bool(self.team.secret_api_token or self.team.secret_api_token_backup)
+                old_secret_trusted = (
+                    row.rotated_independently or not has_legacy or row.secret == self.team.secret_api_token
+                )
+                if old_secret_trusted:
+                    row.previous_secret = row.secret
+                    row.previous_secret_rotated_at = timezone.now()
+                else:
+                    row.previous_secret = None
+                    row.previous_secret_rotated_at = None
+                row.secret = generate_random_token()
+                row.rotated_independently = True
+                row.save()
             log_activity(
                 organization_id=self.team.organization_id,
                 team_id=self.team_id,
@@ -117,13 +136,51 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     changes=[
                         Change(
                             type="Team",
-                            action="created" if old_row is None else "changed",
+                            action="created" if created else "changed",
                             field="conversations_signing_secret",
-                            before=mask_key_value(old_row.secret) if old_row else None,
+                            before=mask_key_value(old_secret) if old_secret else None,
                             after=mask_key_value(row.secret),
                         )
                     ],
                 ),
             )
+        serializer = SigningSecretSerializer(_serializer_payload(row))
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses=SigningSecretSerializer,
+        description="End the rotation grace window now: the previous secret stops verifying immediately. Use it when the replaced secret may be compromised, or once every server runs the new one.",
+    )
+    @action(methods=["POST"], detail=False)
+    def expire_previous(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        with transaction.atomic():
+            row = SigningSecret.objects.for_team(self.team_id).select_for_update().first()
+            if row and row.previous_secret:
+                expired = row.previous_secret
+                row.previous_secret = None
+                row.previous_secret_rotated_at = None
+                row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
+                log_activity(
+                    organization_id=self.team.organization_id,
+                    team_id=self.team_id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated(request),
+                    scope="Team",
+                    item_id=self.team_id,
+                    activity="updated",
+                    detail=Detail(
+                        name=str(self.team.name),
+                        changes=[
+                            Change(
+                                type="Team",
+                                action="deleted",
+                                field="conversations_signing_secret_previous",
+                                before=mask_key_value(expired),
+                                after=None,
+                            )
+                        ],
+                    ),
+                )
         serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)
