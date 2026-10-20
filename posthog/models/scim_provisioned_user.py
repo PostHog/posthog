@@ -123,6 +123,7 @@ class SCIMProvisionedUser(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "ee_scimprovisioneduser"
         constraints = [
             models.UniqueConstraint(
                 fields=["user", "organization_domain"],
