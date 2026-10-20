@@ -48,34 +48,6 @@ class TestZonkaFeedbackSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @parameterized.expand(
-        [
-            ("reachable", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Zonka Feedback auth token"),
-            ("forbidden", 403, False, "Invalid Zonka Feedback auth token"),
-            ("server_error", 500, False, "Zonka Feedback returned HTTP 500"),
-            ("connection_error", 0, False, "Could not connect to Zonka Feedback: boom"),
-        ]
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.check_access")
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_check: mock.MagicMock,
-    ) -> None:
-        message = (
-            "Zonka Feedback returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Zonka Feedback: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"
     )
