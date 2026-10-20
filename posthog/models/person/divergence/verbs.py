@@ -369,7 +369,7 @@ def _bury_mapping(row: dict[str, Any], context: VerbContext) -> None:
         context.action(row, "skipped_changed")
         return
     ch = observe.ch_mapping_states(team_id, [distinct_id]).get(distinct_id)
-    if ch is None or ch.visible_rows == 0 or ch.winner_deleted or ch.winner_version < current.version:
+    if ch is None or ch.visible_rows == 0 or ch.winner_deleted:
         context.action(row, "skipped_not_divergent")
         return
     target = max(int(current.version), ch.max_version + 1)
