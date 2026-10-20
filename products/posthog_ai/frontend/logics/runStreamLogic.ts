@@ -2768,6 +2768,7 @@ export interface runStreamLogicMeta {
             currentRunStatus: RunStatus | null,
             sseStatus: RunSseStatus,
             runOpening: boolean,
+            logBootstrapLoading: boolean,
             arg: boolean | undefined
         ) => 'idle' | 'provisioning' | 'thinking'
         showThinkingIndicator: (
