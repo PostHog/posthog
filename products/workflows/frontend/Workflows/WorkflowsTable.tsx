@@ -26,6 +26,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -131,6 +132,9 @@ export function WorkflowsTable(): JSX.Element {
         selectedArchivedWorkflowIds,
         allArchivedSelected,
         selectedArchivedCount,
+        localWorkflowTags,
+        savingTagsWorkflowIds,
+        tags: allTags,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
@@ -153,6 +157,9 @@ export function WorkflowsTable(): JSX.Element {
         toggleArchivedWorkflowSelection,
         selectAllArchivedWorkflows,
         clearArchivedWorkflowSelection,
+        updateWorkflowTags,
+        setTagsFilter,
+        loadTagsIfNeeded,
     } = useActions(logic)
 
     useOnMountEffect(() => {
@@ -162,6 +169,7 @@ export function WorkflowsTable(): JSX.Element {
             id: 'new',
         })
         newWorkflowLogic?.unmount()
+        loadTagsIfNeeded()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
         // when the component re-mounts
@@ -169,6 +177,12 @@ export function WorkflowsTable(): JSX.Element {
     })
 
     const isArchived = filters.status === 'archived'
+
+    const filterByTag = (tag: string): void => {
+        if (!filters.tags.includes(tag)) {
+            setTagsFilter([...filters.tags, tag], 'tag_click')
+        }
+    }
 
     const columns: LemonTableColumns<HogFlow> = [
         ...(isArchived
@@ -201,7 +215,7 @@ export function WorkflowsTable(): JSX.Element {
             render: (_, item) => {
                 const stepMatches = findMatchingWorkflowSteps(item, filters.search)
                 return (
-                    <>
+                    <div className="min-w-48">
                         {item.status === 'archived' ? (
                             <Tooltip title="Restore this workflow to make changes">
                                 <span className="font-semibold text-sm text-muted">{item.name}</span>
@@ -239,20 +253,37 @@ export function WorkflowsTable(): JSX.Element {
                                 truncateDescription
                             />
                         )}
-                        {!!item.tags?.length && (
-                            <ObjectTags
-                                className="mt-1"
-                                tags={item.tags}
-                                staticOnly
-                                onTagClick={(tag) => {
-                                    if (!filters.tags.includes(tag)) {
-                                        setFilters({ tags: [...filters.tags, tag] })
-                                    }
-                                }}
-                            />
-                        )}
                         {stepMatches.length > 0 && <WorkflowStepMatches workflow={item} matches={stepMatches} />}
-                    </>
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, item) => {
+                const tags = localWorkflowTags[item.id] ?? item.tags ?? []
+                const canEdit =
+                    item.status !== 'archived' &&
+                    (!item.user_access_level ||
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Workflow,
+                            item.user_access_level,
+                            AccessControlLevel.Editor
+                        ))
+                if (!canEdit) {
+                    return <ObjectTags tags={tags} staticOnly onTagClick={filterByTag} />
+                }
+                return (
+                    <ObjectTags
+                        tags={tags}
+                        onChange={(newTags) => updateWorkflowTags(item, newTags)}
+                        saving={savingTagsWorkflowIds.has(item.id)}
+                        tagsAvailable={allTags.filter((tag) => !tags.includes(tag))}
+                        onTagClick={filterByTag}
+                        maxVisibleTags={3}
+                        data-attr="workflow-list-tags"
+                    />
                 )
             },
         },
@@ -488,7 +519,7 @@ export function WorkflowsTable(): JSX.Element {
                             size="small"
                             defaultLabel="Any tags"
                             value={filters.tags}
-                            onChange={(tags) => setFilters({ tags })}
+                            onChange={(tags) => setTagsFilter(tags, 'filter')}
                         />
                     </div>
                 </div>
