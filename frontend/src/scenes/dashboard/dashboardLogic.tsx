@@ -917,26 +917,6 @@ export interface dashboardLogicActions {
         editing: DashboardEditing | null
         source: DashboardEventSource
     }
-    setDashboardEditingFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    setDashboardEditingSuccess: (
-        dashboard: DashboardType | null,
-        payload?: {
-            editing: DashboardEditing | null
-            source: DashboardEventSource
-        }
-    ) => {
-        dashboard: DashboardType | null
-        payload?: {
-            editing: DashboardEditing | null
-            source: DashboardEventSource
-        }
-    }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -1402,7 +1382,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
@@ -1958,25 +1938,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: [...(values.tiles || []), tile],
                         } as DashboardType
                     }
-                },
-                setDashboardEditing: async ({ editing, source }) => {
-                    if (
-                        editing === null &&
-                        source === DashboardEventSource.DashboardHeaderDiscardChanges &&
-                        values.dashboard?.tiles
-                    ) {
-                        // layout changes were discarded so need to reset to original state
-                        // (as a new object — selectors only recompute when the reference changes)
-                        return {
-                            ...values.dashboard,
-                            tiles: values.dashboard.tiles.map((tile) => ({
-                                ...tile,
-                                layouts: values.dashboardLayouts?.[tile.id],
-                            })),
-                        }
-                    }
-
-                    return values.dashboard
                 },
                 duplicateTile: async ({ tile }) => {
                     try {
@@ -4879,7 +4840,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             exitFilterEditModeWhenSaved(values, actions)
         },
         saveLayoutChanges: () => {
-            actions.saveEditModeChanges('layout')
+            if (values.hasUnsavedLayoutChanges) {
+                actions.saveEditModeChanges('layout')
+            }
             actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
@@ -4894,7 +4857,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.cancelLayoutEdit()
         },
         saveLayout: () => {
-            actions.saveEditModeChanges('layout')
+            if (values.hasUnsavedLayoutChanges) {
+                actions.saveEditModeChanges('layout')
+            }
             actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
@@ -5012,6 +4977,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         setDashboardEditing: async ({ editing, source }) => {
+            if (
+                editing === null &&
+                source === DashboardEventSource.DashboardHeaderDiscardChanges &&
+                values.dashboard?.tiles
+            ) {
+                actions.applyDashboardUpdate(
+                    {
+                        ...values.dashboard,
+                        tiles: values.dashboard.tiles.map((tile) => ({
+                            ...tile,
+                            layouts: values.dashboardLayouts[tile.id],
+                        })),
+                    },
+                    values.dashboardLayouts
+                )
+            }
             if (editing?.layout && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')

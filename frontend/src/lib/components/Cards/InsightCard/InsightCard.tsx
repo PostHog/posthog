@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -32,7 +32,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizDefinitelyRendersToCanvas, queryVizRendersToCanvas } from '~/queries/utils'
+import { queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -84,36 +84,6 @@ const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
-function ResizeDeferredViz({ deferred, children }: { deferred: boolean; children: React.ReactNode }): JSX.Element {
-    const outerRef = useRef<HTMLDivElement>(null)
-    const innerRef = useRef<HTMLDivElement>(null)
-
-    useLayoutEffect(() => {
-        const outer = outerRef.current
-        const inner = innerRef.current
-        if (!deferred || !outer || !inner) {
-            return
-        }
-
-        const rect = outer.getBoundingClientRect()
-        inner.style.width = `${rect.width}px`
-        inner.style.height = `${rect.height}px`
-
-        return () => {
-            inner.style.width = ''
-            inner.style.height = ''
-        }
-    }, [deferred])
-
-    return (
-        <div ref={outerRef} className={clsx('InsightCard__viz', deferred && 'InsightCard__viz--resizing')}>
-            <div ref={innerRef} className="InsightCard__vizInner">
-                {children}
-            </div>
-        </div>
-    )
-}
-
 type AlertModalState = {
     alertId?: AlertType['id']
     defaultToAnomalyDetection?: boolean
@@ -142,8 +112,6 @@ export interface InsightCardProps extends Resizeable {
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
     refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
-    /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
-    isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
@@ -166,6 +134,8 @@ export interface InsightCardProps extends Resizeable {
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    keepMountedDuringInteraction?: boolean
+    onOverlayVisibilityChange?: (visible: boolean) => void
     /** Dashboard filters to override the ones in the insight */
     filtersOverride?: DashboardFilter
     /** Dashboard variables to override the ones in the insight */
@@ -212,7 +182,6 @@ function InsightCardInternal(
         highlighted,
         refreshAfterDisplayOptionsChange,
         showResizeHandles,
-        isResizing,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -230,6 +199,8 @@ function InsightCardInternal(
         placement,
         loadPriority,
         doNotLoad,
+        keepMountedDuringInteraction,
+        onOverlayVisibilityChange,
         filtersOverride,
         variablesOverride,
         children,
@@ -250,8 +221,6 @@ function InsightCardInternal(
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
 
-    const rendersToCanvas = queryVizRendersToCanvas(insight.query)
-
     /**
      * Hidden canvas visualizations are unmounted to release their backing stores and reduce the risk of context loss.
      * When the page is hidden, DOM and SVG visualizations stay mounted to preserve state such as table scroll position.
@@ -260,7 +229,7 @@ function InsightCardInternal(
     const shouldRenderViz = shouldRenderInsightCardViz({
         isStorybook: IS_STORYBOOK,
         placement,
-        inView,
+        inView: inView || !!keepMountedDuringInteraction,
         isPageVisible,
         query: insight.query,
     })
@@ -332,7 +301,11 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const [compactInfoVisible, setCompactInfoVisible] = useState(false)
     const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
+    useEffect(() => {
+        onOverlayVisibilityChange?.(areDetailsShown || compactInfoVisible || alertModal !== null)
+    }, [areDetailsShown, compactInfoVisible, alertModal, onOverlayVisibilityChange])
     const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
     const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
@@ -414,7 +387,7 @@ function InsightCardInternal(
         return null
     })()
 
-    // Keep the Query element stable so resize state does not remount the chart.
+    // Keep the Query element stable so grid updates do not remount the chart.
     const vizInner = useMemo(() => {
         if (BlockingEmptyState) {
             return BlockingEmptyState
@@ -435,9 +408,10 @@ function InsightCardInternal(
         )
     }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
 
-    // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
-        <ResizeDeferredViz deferred={!!isResizing && rendersToCanvas}>{vizInner}</ResizeDeferredViz>
+        <div className="InsightCard__viz">
+            <div className="InsightCard__vizInner">{vizInner}</div>
+        </div>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />
     )
@@ -484,6 +458,7 @@ function InsightCardInternal(
                         copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}
+                        onInfoVisibilityChange={setCompactInfoVisible}
                         showEditingControls={showEditingControls}
                         showDetailsControls={showDetailsControls}
                         moreButtons={moreButtons}

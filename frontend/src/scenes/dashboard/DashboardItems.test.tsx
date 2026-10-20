@@ -116,6 +116,19 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
     },
 }))
 
+jest.mock('products/dashboards/frontend/components/DashboardInsightTile', () => ({
+    DashboardInsightTile: (props: Record<string, unknown>) => {
+        const { InsightCard } = jest.requireMock('lib/components/Cards/InsightCard')
+        return <InsightCard {...props} />
+    },
+}))
+
+jest.mock('products/dashboards/frontend/components/DashboardGridBackground', () => ({
+    DashboardGridBackground: ({ rowHeight, margin }: { rowHeight: number; margin: [number, number] }) => (
+        <div data-attr="grid-background" data-row-height={String(rowHeight)} data-margin={margin.join(',')} />
+    ),
+}))
+
 jest.mock('products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem', () => ({
     DashboardTextItem: ({ tile, showResizeHandles }: { tile: { id: number }; showResizeHandles: boolean }) => (
         <div
@@ -575,12 +588,7 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
-        expect(mockInsightCard).toHaveBeenCalledWith(
-            expect.objectContaining({
-                refresh: expect.any(Function),
-                queryId: 'failed-query-id',
-            })
-        )
+        expect(mockInsightCard).toHaveBeenCalledWith(expect.objectContaining({ queryId: 'failed-query-id' }))
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'

@@ -59,10 +59,6 @@
         min-height: var(--insight-viz-min-height);
     }
 
-    &--resizing {
-        overflow: hidden;
-    }
-
     // The Metric display bleeds its sparkline to the card edges (negative margins plus a
     // few-pixel downward shift so the line rests on the edge), so its content sits a hair
     // taller than the box. Clip it — otherwise `overflow: auto` shows a permanent vertical
@@ -78,9 +74,4 @@
     flex-direction: column;
     width: 100%;
     min-height: 0;
-
-    .InsightCard__viz--resizing & {
-        flex: none;
-        pointer-events: none;
-    }
 }
