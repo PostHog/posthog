@@ -166,7 +166,7 @@ export interface insightDataChecksLogicActions {
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType>
+        payload?: Partial<TeamType> | undefined
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
