@@ -43,17 +43,20 @@ export function BIToolbar(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
             {!config.querySnapshot && (
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    active={fieldsPaneOpen}
-                    onClick={toggleFieldsPane}
-                    aria-pressed={fieldsPaneOpen}
-                    tooltip={fieldsPaneOpen ? 'Hide data panel' : 'Show data panel'}
-                    data-attr="bi-editor-toggle-fields"
-                >
-                    Data
-                </LemonButton>
+                <>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        active={fieldsPaneOpen}
+                        onClick={toggleFieldsPane}
+                        aria-pressed={fieldsPaneOpen}
+                        tooltip={fieldsPaneOpen ? 'Hide fields panel' : 'Show fields panel'}
+                        data-attr="bi-editor-toggle-fields"
+                    >
+                        Fields
+                    </LemonButton>
+                    <LemonDivider vertical />
+                </>
             )}
             <LemonButton
                 size="xsmall"

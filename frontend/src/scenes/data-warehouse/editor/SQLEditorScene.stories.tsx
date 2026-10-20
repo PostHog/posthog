@@ -659,9 +659,9 @@ export const BIEmptyWorksheet: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
-        await userEvent.click(canvas.getByRole('button', { name: 'Hide data panel' }))
+        await userEvent.click(canvas.getByRole('button', { name: 'Hide fields panel' }))
         expect(canvas.queryByText('Select a table to list its fields.')).not.toBeInTheDocument()
-        await userEvent.click(canvas.getByRole('button', { name: /^Data$/ }))
+        await userEvent.click(canvas.getByRole('button', { name: /^Fields$/ }))
         await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
     },
 }
