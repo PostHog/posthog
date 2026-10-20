@@ -505,6 +505,29 @@ class PipelineV3(Generic[ResumableData]):
         """
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
 
+    async def _first_batch_restores_table(self, should_resume: bool) -> bool:
+        """Whether the loader restores the table to undo an unfinished append run before this attempt loads.
+
+        The restore undoes a pre-write compaction too, so the compaction is wasted work that also makes the
+        restore commit larger. A pre-write vacuum can delete files that the restore needs, once they were
+        removed longer ago than `VACUUM_RETENTION`, and a failed restore leaves the unfinished run's rows in
+        the table. The post-load pass of a run that completes maintains the table instead.
+        """
+        if should_resume or self._run_uuid is None or self._pg_producer.sync_type != "append":
+            return False
+        # Deferred: the `load` package imports the load processor, which imports the facade that imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (  # noqa: PLC0415
+            UnfinishedAppendRuns,
+        )
+
+        append_runs = UnfinishedAppendRuns(self._schema, self._delta_table_ref)
+        try:
+            return await database_sync_to_async_pool(append_runs.restores_before_first_batch)(self._run_uuid)
+        except Exception:
+            # Pre-write maintenance never fails an attempt, so a failed read must not either.
+            await self._logger.awarning("V3 Pipeline: Could not check for a pending append restore", exc_info=True)
+            return False
+
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
@@ -750,7 +773,7 @@ class PipelineV3(Generic[ResumableData]):
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
-            if not is_fresh_sync:
+            if not is_fresh_sync and not await self._first_batch_restores_table(should_resume):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
