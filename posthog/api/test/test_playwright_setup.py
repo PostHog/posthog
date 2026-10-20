@@ -4,7 +4,10 @@ from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.instance_setting import override_instance_config
 
 
 class TestPlaywrightSetup(APIBaseTest):
@@ -64,6 +67,22 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertEqual(api_key.label, "Test API Key")
         self.assertIn("*", api_key.scopes)  # Should have full access
         self.assertTrue(result["personal_api_key"].startswith("phx_"))
+
+    @override_settings(TEST=True)
+    def test_organization_with_team_pins_the_production_person_on_events_mode(self):
+        # The instance setting is off here on purpose: Playwright CI leaves PERSON_ON_EVENTS_V2_ENABLED
+        # unset and runs with DEBUG off, so the fixture team has to carry the mode in its own modifiers.
+        # Without it the team falls back to the legacy joined mode, which turns
+        # person_on_events_querying_enabled false and hides every person-on-events surface from specs.
+        with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
+            response = self.client.post(
+                "/api/setup_test/organization_with_team/", {"no_demo_data": True}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            team = Team.objects.get(id=response.json()["result"]["team_id"])
+            self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+            self.assertTrue(team.person_on_events_querying_enabled)
 
     @override_settings(DEBUG=True)
     def test_endpoint_allowed_in_debug_mode(self):

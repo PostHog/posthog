@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
@@ -225,6 +227,17 @@ def create_organization_with_team(
         update_fields.append("is_staff")
     user.save(update_fields=update_fields)
 
+    # Pin the person-on-events mode almost every production project runs on, so a spec
+    # exercises the same query path and the same person-on-events UI wherever it runs.
+    # Without this the mode follows the environment: Playwright CI leaves the
+    # PERSON_ON_EVENTS_* variables unset and runs with DEBUG off, so it falls back to the
+    # legacy joined mode, while the local e2e stack sets PERSON_ON_EVENTS_OVERRIDE.
+    team.modifiers = {
+        **(team.modifiers or {}),
+        "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value,
+    }
+    team_update_fields = ["modifiers"]
+
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
         team.onboarding_tasks = {
@@ -246,7 +259,9 @@ def create_organization_with_team(
             "create_experiment": "completed",
             "launch_experiment": "completed",
         }
-        team.save()
+        team_update_fields.append("onboarding_tasks")
+
+    team.save(update_fields=team_update_fields)
 
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
