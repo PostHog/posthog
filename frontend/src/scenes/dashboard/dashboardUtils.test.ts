@@ -24,6 +24,7 @@ import {
 
 import {
     combineSavedAndUrlFilters,
+    createTaskLimiter,
     dashboardSearchParamsFromOverrides,
     dashboardTemplateForExport,
     dashboardToSaveableTemplate,
@@ -116,6 +117,42 @@ describe('searchParamsWithUrlFilters', () => {
         const searchParams = searchParamsWithUrlFilters({}, { properties: [] }, { properties: propertyFilter })
 
         expect(parseURLFilters(searchParams)).toEqual({ properties: [] })
+    })
+})
+
+describe('createTaskLimiter', () => {
+    it('keeps batches started at different times under one shared limit', async () => {
+        const limit = createTaskLimiter(2)
+        let running = 0
+        let maxRunning = 0
+        const releases: (() => void)[] = []
+        const task = (): Promise<void> => {
+            running++
+            maxRunning = Math.max(maxRunning, running)
+            return new Promise<void>((resolve) =>
+                releases.push(() => {
+                    running--
+                    resolve()
+                })
+            )
+        }
+        const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+        const firstBatch = [task, task, task].map((t) => limit(t))
+        await flush()
+        releases.shift()!()
+        const secondBatch = [task, task].map((t) => limit(t))
+        await flush()
+        expect(running).toBe(2)
+
+        while (releases.length > 0) {
+            releases.shift()!()
+            await flush()
+        }
+        await Promise.all([...firstBatch, ...secondBatch])
+
+        expect(maxRunning).toBe(2)
+        expect(running).toBe(0)
     })
 })
 

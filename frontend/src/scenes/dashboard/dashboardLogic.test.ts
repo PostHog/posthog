@@ -1532,49 +1532,65 @@ describe('dashboardLogic', () => {
             ])
         })
 
-        it('saving while tiles load persists unsaved pins but neither materializes nor prunes auto colors', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+        it.each([
+            {
+                name: 'while tiles load',
+                holdTileBack: (tile: DashboardTile): void =>
+                    logic.actions.setRefreshStatus(tile.insight!.short_id, true),
+            },
+            {
+                name: 'while a closed group waits to load',
+                holdTileBack: (tile: DashboardTile): void => logic.actions.deferTileRefresh([tile.id], false),
+            },
+        ])(
+            'saving $name persists unsaved pins but neither materializes nor prunes auto colors',
+            async ({ holdTileBack }) => {
+                await expectLogic(logic).toFinishAllListeners()
 
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
-            })
-
-            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
-            await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight({
-                    ...tileInsight,
-                    dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                    result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: { kind: NodeKind.TrendsQuery, series: [] },
-                    } as InsightVizNode<TrendsQuery>,
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                    [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
                 })
-                logic.actions.setBreakdownColorConfig({
-                    breakdownValue: 'pinned',
-                    breakdownType: 'event',
-                    colorToken: 'preset-5',
-                })
-            }).toFinishAllListeners()
 
-            // hold a tile in a loading state, so the visible breakdown values are incomplete
-            logic.actions.setRefreshStatus(tileInsight.short_id, true)
-            expect(logic.values.itemsLoading).toBe(true)
+                const tile = logic.values.dashboard!.tiles.find((t) => !!t.insight)!
+                const tileInsight = tile.insight!
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardInsight({
+                        ...tileInsight,
+                        dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                        result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: { kind: NodeKind.TrendsQuery, series: [] },
+                        } as InsightVizNode<TrendsQuery>,
+                    })
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'pinned',
+                        breakdownType: 'event',
+                        colorToken: 'preset-5',
+                    })
+                }).toFinishAllListeners()
 
-            jest.spyOn(api, 'update')
+                // hold a tile back, so the visible breakdown values are incomplete
+                holdTileBack(tile)
+                expect(logic.values.breakdownValuesIncomplete).toBe(true)
 
-            await expectLogic(logic, () => {
-                logic.actions.saveDashboardColorChanges()
-            }).toFinishAllListeners()
+                jest.spyOn(api, 'update')
 
-            expect(api.update).toHaveBeenCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
-                expect.objectContaining({
-                    // only the pin — no auto entry materialized from the partially loaded tiles
-                    breakdown_colors: [expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' })],
-                })
-            )
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.saveDashboardColorChanges()
+                }).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledWith(
+                    `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
+                    expect.objectContaining({
+                        // only the pin — no auto entry materialized from the partially loaded tiles
+                        breakdown_colors: [
+                            expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' }),
+                        ],
+                    })
+                )
+            }
+        )
 
         it('keeps shared auto colors when a failed refresh leaves a tile without results', async () => {
             await expectLogic(logic).toFinishAllListeners()
@@ -3674,6 +3690,163 @@ describe('dashboardLogic', () => {
                         },
                     })
             })
+
+            it('waits to refresh a collapsed group until a viewer points at it, then opens it without loading again', async () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                })
+                const dashboard = dashboards[5]
+                const openInsight = dashboard.tiles[0].insight!
+                const groupedTile = dashboard.tiles[1]
+                const groupedInsight = groupedTile.insight!
+                groupedTile.group_key = 'plans'
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => [
+                            200,
+                            { ...dashboard, customization: { groups: { plans: { collapsed: true } } } },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                }).toFinishAllListeners()
+                await expectLogic(logic).toMatchValues({
+                    collapsedTileGroupKeys: ['plans'],
+                    deferredTileRefresh: expect.objectContaining({ tileIds: [groupedTile.id], forceRefresh: true }),
+                    refreshStatus: {
+                        [openInsight.short_id]: expect.objectContaining({ refreshed: true }),
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.preloadTileGroup('plans')
+                })
+                    .toDispatchActions([
+                        logic.actionCreators.setRefreshStatuses([groupedInsight.short_id], false, true),
+                        logic.actionCreators.setRefreshStatus(groupedInsight.short_id),
+                    ])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        deferredTileRefresh: expect.objectContaining({ tileIds: [], forceRefresh: true }),
+                        refreshStatus: {
+                            [openInsight.short_id]: expect.objectContaining({ refreshed: true }),
+                            [groupedInsight.short_id]: expect.objectContaining({ refreshed: true }),
+                        },
+                        refreshMetrics: { completed: 2, total: 2 },
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.toggleTileGroup('plans')
+                })
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['setRefreshStatuses'])
+                await expectLogic(logic).toMatchValues({
+                    collapsedTileGroupKeys: [],
+                    tileGroupChoices: expect.objectContaining({ 5: { plans: false } }),
+                })
+            })
+
+            it('does not load the closed groups of a refresh the viewer cancelled', async () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                })
+                const dashboard = dashboards[5]
+                dashboard.tiles[1].group_key = 'plans'
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => [
+                            200,
+                            { ...dashboard, customization: { groups: { plans: { collapsed: true } } } },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                    logic.actions.cancelDashboardRefresh()
+                }).toFinishAllListeners()
+                const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.preloadTileGroup('plans')
+                    }).toFinishAllListeners()
+                    expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
+            it('previews new filters with every group closed, cancels the old group loads, then loads with the new filters', async () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                })
+                const dashboard = dashboards[5]
+                for (const tile of dashboard.tiles) {
+                    tile.group_key = 'growth'
+                }
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => [
+                            200,
+                            { ...dashboard, customization: { groups: { growth: { collapsed: true } } } },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                }).toFinishAllListeners()
+                const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+                const staleSignals: AbortSignal[] = []
+                const pendingUntilAborted = (
+                    ...args: Parameters<typeof dashboardUtils.getInsightWithRetry>
+                ): Promise<never> =>
+                    new Promise<never>((_, reject) => {
+                        const signal = args[5]!.signal!
+                        staleSignals.push(signal)
+                        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                    })
+                try {
+                    getInsightWithRetrySpy
+                        .mockImplementationOnce(pendingUntilAborted)
+                        .mockImplementationOnce(pendingUntilAborted)
+                    logic.actions.preloadTileGroup('growth')
+                    await expectLogic(logic).toDispatchActions(['setRefreshStatuses'])
+                    expect(staleSignals).toHaveLength(2)
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setDates('-7d', null)
+                        logic.actions.previewDashboardChanges()
+                    }).toFinishAllListeners()
+                    expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(2)
+                    expect(staleSignals.map((signal) => signal.aborted)).toEqual([true, true])
+                    expect(logic.values.previewedDashboardSettings?.filters).toEqual(
+                        expect.objectContaining({ date_from: '-7d' })
+                    )
+
+                    await expectLogic(logic, () => {
+                        logic.actions.preloadTileGroup('growth')
+                    }).toFinishAllListeners()
+                    const groupLoads = getInsightWithRetrySpy.mock.calls.slice(2)
+                    expect(groupLoads).toHaveLength(2)
+                    for (const call of groupLoads) {
+                        expect(call[5]?.signal?.aborted).toBe(false)
+                        expect(call[6]).toEqual(expect.objectContaining({ date_from: '-7d' }))
+                    }
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
         })
 
         describe('page visibility', () => {
@@ -4807,6 +4980,8 @@ describe('dashboardLogic', () => {
         }
 
         beforeEach(() => {
+            // Open and closed groups persist in local storage, which would carry one test's toggles into the next.
+            localStorage.clear()
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
                 [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
@@ -4875,6 +5050,172 @@ describe('dashboardLogic', () => {
                 results: [],
                 hasMore: false,
             })
+        })
+
+        it.each([
+            {
+                name: 'points at it during a refresh, then opens it',
+                duringRefresh: (): void => logic.actions.preloadTileGroup('ops'),
+                afterRefresh: (): void => logic.actions.toggleTileGroup('ops'),
+            },
+            {
+                name: 'opens it during a refresh',
+                duringRefresh: (): void => logic.actions.toggleTileGroup('ops'),
+                afterRefresh: (): void => {},
+            },
+        ])('loads a closed widget group once when a viewer $name', async ({ duringRefresh, afterRefresh }) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.DASHBOARD_WIDGETS, FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
+                {
+                    [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                }
+            )
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [
+                        200,
+                        {
+                            ...dashboards[5],
+                            tiles: [...dashboards[5].tiles, { ...WIDGET_TILE, group_key: 'ops' }],
+                            customization: { groups: { ops: { collapsed: true } } },
+                        },
+                    ],
+                },
+            })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            fetchRunWidgetsMock.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerDashboardRefresh()
+                duringRefresh()
+            }).toFinishAllListeners()
+            await expectLogic(logic, afterRefresh).toFinishAllListeners()
+
+            expect(logic.values.collapsedTileGroupKeys).toEqual([])
+            expect(
+                fetchRunWidgetsMock.mock.calls.filter(([, , tileIds]) => tileIds.includes(WIDGET_TILE.id))
+            ).toHaveLength(1)
+        })
+
+        it('requests a failing widget once per refresh', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            fetchRunWidgetsMock.mockClear()
+            fetchRunWidgetsMock.mockRejectedValue(new Error('run_widgets failed'))
+            let releaseInsights = (): void => {}
+            const insightsHeld = new Promise<void>((resolve) => {
+                releaseInsights = resolve
+            })
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async () => {
+                    await insightsHeld
+                    return null
+                })
+            try {
+                logic.actions.triggerDashboardRefresh()
+                await expectLogic(logic).toDispatchActions([
+                    logic.actionCreators.setWidgetRefreshStatuses(
+                        [WIDGET_TILE.id],
+                        false,
+                        DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE
+                    ),
+                ])
+                releaseInsights()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+            }
+        })
+
+        it('loads a widget group closed while the first insights load once it opens again', async () => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.DASHBOARD_WIDGETS, FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
+                {
+                    [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                }
+            )
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [
+                        200,
+                        { ...dashboards[5], tiles: [...dashboards[5].tiles, { ...WIDGET_TILE, group_key: 'ops' }] },
+                    ],
+                },
+            })
+            let releaseInsights = (): void => {}
+            const insightsHeld = new Promise<void>((resolve) => {
+                releaseInsights = resolve
+            })
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async () => {
+                    await insightsHeld
+                    return null
+                })
+            try {
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['setRefreshStatuses'])
+                logic.actions.toggleTileGroup('ops')
+                releaseInsights()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.toggleTileGroup('ops')
+                }).toFinishAllListeners()
+                expect(fetchRunWidgetsMock.mock.calls.map(([, , tileIds]) => tileIds)).toEqual([[WIDGET_TILE.id]])
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+            }
+        })
+
+        it('keeps widget loads abortable when every insight sits in a closed group', async () => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.DASHBOARD_WIDGETS, FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
+                {
+                    [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                }
+            )
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [
+                        200,
+                        {
+                            ...dashboards[5],
+                            tiles: [
+                                ...dashboards[5].tiles.map((tile) => ({ ...tile, group_key: 'plans' })),
+                                WIDGET_TILE,
+                            ],
+                            customization: { groups: { plans: { collapsed: true } } },
+                        },
+                    ],
+                },
+            })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            fetchRunWidgetsMock.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerDashboardRefresh()
+            }).toFinishAllListeners()
+            const widgetLoadOptions = fetchRunWidgetsMock.mock.calls.at(-1)?.[3]
+            logic.actions.abortAnyRunningQuery()
+
+            expect(widgetLoadOptions?.signal?.aborted).toBe(true)
         })
 
         it('does not fetch run_widgets on public placement', async () => {
