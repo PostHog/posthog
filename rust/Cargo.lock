@@ -6396,6 +6396,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
+ "common-kafka",
  "common-metrics",
  "common-types",
  "dashmap 6.1.0",
@@ -9129,6 +9130,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "clap",
+ "common-kafka",
  "common-metrics",
  "futures",
  "hdrhistogram",
@@ -9156,6 +9158,7 @@ dependencies = [
 name = "personhog-writer"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
  "chrono",
@@ -9170,12 +9173,14 @@ dependencies = [
  "lifecycle",
  "metrics",
  "personhog-common",
+ "personhog-coordination",
  "personhog-proto",
  "prost 0.13.5",
  "rdkafka",
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",

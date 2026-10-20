@@ -7,9 +7,6 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -242,8 +239,10 @@ def test_credential_probe_and_error_mapping(status: int) -> None:
     config = SurvicateSourceConfig(api_key="fake-api-key")
     with scripted_network(always(response)) as network:
         if status in (429, 500):
-            with pytest.raises(RESTClientRetryableError):
-                source.validate_credentials(config, 1)
+            assert source.validate_credentials(config, 1) == (
+                False,
+                "Couldn't reach Survicate to check your credentials. Try again in a few minutes.",
+            )
         elif status == 404:
             with pytest.raises(HTTPError):
                 source.validate_credentials(config, 1)
