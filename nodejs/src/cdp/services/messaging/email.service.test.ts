@@ -21,7 +21,13 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
+import {
+    EmailService,
+    formatMailbox,
+    parseAddressList,
+    sanitizeEmailSubject,
+    teamEmailCapBuckets,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
@@ -54,6 +60,24 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('formatMailbox', () => {
+    it.each([
+        ['no name', undefined, 'a@example.com'],
+        ['an empty name', '  ', 'a@example.com'],
+        ['a plain name', 'Dry Run', '"Dry Run" <a@example.com>'],
+        ['an apostrophe and ampersand', "O'Brien & Co", `"O'Brien & Co" <a@example.com>`],
+        ['a double quote', 'The "Real" Dry', '"The \\"Real\\" Dry" <a@example.com>'],
+        ['a backslash', 'Dry\\Run', '"Dry\\\\Run" <a@example.com>'],
+        [
+            'a line break that would start a header',
+            'Dry\r\nBcc: x@example.com',
+            '"DryBcc: x@example.com" <a@example.com>',
+        ],
+    ])('formats %s', (_name, name, expected) => {
+        expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
 })
 
@@ -1083,6 +1107,28 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
+        })
+
+        // A person without an email property renders an empty `to`. Counting that as email_failed
+        // lets one project's data trip the platform send failure rate alert.
+        it.each([
+            ['an empty string', ''],
+            ['only whitespace', '   '],
+            ['no value', undefined],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: email as string, name: 'Test User' },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
+            expect(result.skipped).toBe(true)
+            expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
         })
 
         describe('SES tenant attribution', () => {

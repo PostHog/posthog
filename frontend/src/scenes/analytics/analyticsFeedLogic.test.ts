@@ -34,10 +34,12 @@ const entry = (
 
 describe('analyticsFeedLogic', () => {
     let requests: string[]
+    let searches: (string | null)[]
 
     beforeEach(() => {
         resetAnalyticsFeedSnapshot()
         requests = []
+        searches = []
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [],
@@ -50,6 +52,7 @@ describe('analyticsFeedLogic', () => {
                     const type = params.get('type') ?? params.get('type__startswith') ?? ''
                     const offset = params.get('offset') ?? '0'
                     requests.push(`${type}:${offset}:${params.get('order_by')}`)
+                    searches.push(params.get('search'))
                     if (type === 'canvas') {
                         return { results: [entry('canvas', 'c7', 'Growth/C', at(7), GRACE)], users: USERS, next: null }
                     }
@@ -135,15 +138,19 @@ describe('analyticsFeedLogic', () => {
         ])
     })
 
-    it('narrows rows to a creator on the client, since the file system cannot', async () => {
+    it.each([
+        ['another person, on the client alone', false, null],
+        ['the current person, on the server too', true, 'user:me'],
+    ])('narrows rows to %s', async (_, createdByMe, search) => {
         const logic = analyticsFeedLogic()
         logic.mount()
-        const byAda: AnalyticsFeedQuery = { ...ALL, createdBy: ['u-ada'] }
+        const byAda: AnalyticsFeedQuery = { ...ALL, createdBy: ['u-ada'], createdByMe }
 
         await expectLogic(logic, () => logic.actions.ensureFeed(byAda, 100)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.ensureFeed(byAda, 100)).toFinishAllListeners()
 
         expect(feed(logic, byAda)).toEqual(['dashboard:10', 'notebook:n9', 'insight:i5', 'dashboard:3', 'notebook:n1'])
+        expect(new Set(searches)).toEqual(new Set([search]))
     })
 
     it('keeps the loaded list after a remount, so a revisit shows rows at once', async () => {

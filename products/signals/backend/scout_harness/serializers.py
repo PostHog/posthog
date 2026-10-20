@@ -1071,6 +1071,14 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "asked for past the limit."
         ),
     )
+    skill_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Return only the entries this writer created, matched against `created_by_skill` "
+            "(a scout skill name or a `pipeline:*` identity). Omit to return entries from every writer."
+        ),
+    )
     date_from = serializers.DateTimeField(
         required=False,
         help_text="ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",

@@ -11,8 +11,10 @@ import {
     LemonSelect,
     LemonTextArea,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
@@ -33,6 +35,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     const isNew = id === 'new'
     const keyInputId = useId()
     const descriptionInputId = useId()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <div className="flex flex-col gap-4" data-attr="feature-flag-rules-v2-editor">
@@ -40,26 +43,51 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                 name={draft.key || 'New rules v2 flag'}
                 resourceType={{ type: !isNew && featureFlag.active ? 'feature_flag' : 'feature_flag_off' }}
                 actions={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            data-attr="cancel-rules-v2-flag"
-                            onClick={() => (isNew ? router.actions.push(urls.featureFlags()) : editFeatureFlag(false))}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            data-attr="save-rules-v2-flag"
-                            loading={saving}
-                            disabledReason={saveDisabledReason}
-                            onClick={saveRulesV2Flag}
-                        >
-                            Save
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <Button
+                                variant="outline"
+                                data-attr="cancel-rules-v2-flag"
+                                onClick={() =>
+                                    isNew ? router.actions.push(urls.featureFlags()) : editFeatureFlag(false)
+                                }
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="primary"
+                                data-attr="save-rules-v2-flag"
+                                loading={saving}
+                                disabledReason={saveDisabledReason}
+                                onClick={saveRulesV2Flag}
+                            >
+                                Save
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                data-attr="cancel-rules-v2-flag"
+                                onClick={() =>
+                                    isNew ? router.actions.push(urls.featureFlags()) : editFeatureFlag(false)
+                                }
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                data-attr="save-rules-v2-flag"
+                                loading={saving}
+                                disabledReason={saveDisabledReason}
+                                onClick={saveRulesV2Flag}
+                            >
+                                Save
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             <SceneContent>
