@@ -124,6 +124,22 @@ def _run_captured(options: HarnessOptions, transcript: RunTranscript, dashboard:
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_args(argv)
+    if options.comparison_models:
+        from .comparison import ModelComparison  # noqa: PLC0415 — keep comparison orchestration off normal startup
+
+        transcript = RunTranscript.create()
+        try:
+            with transcript.capture(verbose=options.verbose):
+                _configure_logging(transcript, verbose=options.verbose)
+                try:
+                    return ModelComparison(options).run()
+                except OSError as error:
+                    write_console(f"error: Model comparison failed: {error}\n", stream=sys.stderr)
+                    return USAGE_ERROR_EXIT_CODE
+                finally:
+                    logging.shutdown()
+        finally:
+            transcript.finish()
     if options.list_only:
         _configure_logging()
         return _run(options)
