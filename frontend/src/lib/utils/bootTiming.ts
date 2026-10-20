@@ -100,6 +100,7 @@ export interface SceneRenderedMark {
     /** Holds the mark while a Suspense fallback stands in for the scene's lazy content. Returns the release. */
     holdUntilContent: () => () => void
     sceneCommitted: () => void
+    sceneUncommitted: () => void
 }
 
 /**
@@ -111,7 +112,11 @@ export function createSceneRenderedMark(): SceneRenderedMark {
     let holds = 0
     const markIfReady = (): void => {
         if (committed && holds === 0) {
-            markBootPhase('scene_rendered')
+            queueMicrotask(() => {
+                if (committed && holds === 0) {
+                    markBootPhase('scene_rendered')
+                }
+            })
         }
     }
     return {
@@ -129,6 +134,9 @@ export function createSceneRenderedMark(): SceneRenderedMark {
         sceneCommitted: () => {
             committed = true
             markIfReady()
+        },
+        sceneUncommitted: () => {
+            committed = false
         },
     }
 }

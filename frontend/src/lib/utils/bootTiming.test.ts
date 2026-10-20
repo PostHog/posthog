@@ -96,6 +96,47 @@ describe('bootTiming', () => {
         }
     )
 
+    it('does not mark a scene that unmounts before lazy content appears', async () => {
+        markAt(50, 'entry')
+        const sceneRendered = createSceneRenderedMark()
+        const release = sceneRendered.holdUntilContent()
+        sceneRendered.sceneCommitted()
+        release()
+        sceneRendered.sceneUncommitted()
+        await flushSend()
+
+        expect(capture).not.toHaveBeenCalled()
+    })
+
+    it('marks after the lazy content commit completes', async () => {
+        markAt(50, 'entry')
+        const sceneRendered = createSceneRenderedMark()
+        const release = sceneRendered.holdUntilContent()
+        sceneRendered.sceneCommitted()
+        now = 1100
+        release()
+        now = 1110
+        await flushSend()
+
+        expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining({ scene_rendered_ms: 1110 }))
+    })
+
+    it('waits if lazy content starts loading after the scene commit', async () => {
+        markAt(50, 'entry')
+        const sceneRendered = createSceneRenderedMark()
+        sceneRendered.sceneCommitted()
+        const release = sceneRendered.holdUntilContent()
+        await Promise.resolve()
+
+        expect(capture).not.toHaveBeenCalled()
+
+        now = 1200
+        release()
+        await flushSend()
+
+        expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining({ scene_rendered_ms: 1200 }))
+    })
+
     it.each([
         { distinctId: IN_SAMPLE_ID, sends: true },
         { distinctId: OUT_OF_SAMPLE_ID, sends: false },

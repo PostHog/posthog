@@ -59,7 +59,10 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
     // For a logged-in user this sits inside the AuthenticatedShell Suspense boundary, so it runs when the scene
     // commits, not when the shell fallback does. A scene behind ProductEmptyStateGate can still commit the
     // gate's fallback first. A scene whose own Suspense shows a SceneContentFallback marks when its content commits.
-    useLayoutEffect(() => sceneRendered.sceneCommitted(), [sceneRendered])
+    useLayoutEffect(() => {
+        sceneRendered.sceneCommitted()
+        return () => sceneRendered.sceneUncommitted()
+    }, [sceneRendered])
     return (
         // `className="contents"` is load-bearing: the wrapper must take a DOM
         // node so the ref has something to attach to (we need an element to
