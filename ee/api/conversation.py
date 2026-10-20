@@ -95,15 +95,6 @@ class MessageMinimalSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=10000)
 
 
-RETIRED_UI_CONTEXT_FIELDS = frozenset({"voice_mode"})
-
-
-def _drop_retired_ui_context_fields(ui_context: object) -> object:
-    if not isinstance(ui_context, dict):
-        return ui_context
-    return {key: value for key, value in ui_context.items() if key not in RETIRED_UI_CONTEXT_FIELDS}
-
-
 def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
     """Large spend histories can exceed Temporal's 2MB payload limit."""
     if billing_context.spend_history and len(billing_context.spend_history) > threshold:
@@ -131,8 +122,8 @@ class MessageSerializer(MessageMinimalSerializer):
 
     def validate(self, attrs):
         data = attrs
-        if "ui_context" in data:
-            data["ui_context"] = _drop_retired_ui_context_fields(data["ui_context"])
+        if isinstance(data.get("ui_context"), dict):
+            data["ui_context"].pop("voice_mode", None)
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
@@ -177,8 +168,8 @@ class QueueMessageSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         data = attrs
-        if "ui_context" in data:
-            data["ui_context"] = _drop_retired_ui_context_fields(data["ui_context"])
+        if isinstance(data.get("ui_context"), dict):
+            data["ui_context"].pop("voice_mode", None)
         try:
             HumanMessage.model_validate(
                 {
