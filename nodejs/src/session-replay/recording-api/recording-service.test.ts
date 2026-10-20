@@ -1,11 +1,14 @@
 import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
+import sodium from 'libsodium-wrappers'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import snappy from 'snappy'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import * as envUtils from '~/common/utils/env-utils'
+import { SodiumRecordingDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
@@ -744,6 +747,86 @@ describe('RecordingService', () => {
             ])
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
             expect(mockPostgres.query).toHaveBeenCalled()
+        })
+    })
+
+    describe('encryptBlocks', () => {
+        const plaintextKey = Buffer.alloc(32, 7)
+        const ciphertextKey = {
+            plaintextKey,
+            encryptedKey: Buffer.from('wrapped'),
+            sessionState: 'ciphertext' as const,
+        }
+        const cleartextKey = {
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'cleartext' as const,
+        }
+
+        beforeAll(async () => {
+            await sodium.ready
+        })
+
+        beforeEach(() => {
+            jest.spyOn(envUtils, 'isCloud').mockReturnValue(true)
+            mockKeyStore.generateKey.mockResolvedValue(ciphertextKey)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        const mockRecordingExists = (exists: boolean): void => {
+            mockClickhouse.query.mockResolvedValue({
+                json: jest.fn().mockResolvedValue(exists ? [{ '1': 1 }] : []),
+            } as any)
+        }
+
+        it.each([
+            ['an existing key', ciphertextKey, false],
+            ['no key and no recording yet', cleartextKey, false],
+        ])('encrypts with %s so the decryptor can read it back', async (_, existingKey, recordingExists) => {
+            mockKeyStore.getKey.mockResolvedValue(existingKey)
+            mockRecordingExists(recordingExists)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block-a'), Buffer.from('b')], 365)
+
+            expect(result.ok).toBe(true)
+            const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
+            const decrypted = (result as { blocks: Buffer[] }).blocks.map(
+                (b) => decryptor.decryptBlockWithKey('session-1', 1, b, ciphertextKey).data
+            )
+            expect(decrypted).toEqual([Buffer.from('block-a'), Buffer.from('b')])
+            expect(mockKeyStore.generateKey).toHaveBeenCalledWith('session-1', 1, 365)
+        })
+
+        it('refuses to mint a key over a recording that predates encryption', async () => {
+            mockKeyStore.getKey.mockResolvedValue(cleartextKey)
+            mockRecordingExists(true)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({ ok: false, error: 'cleartext_recording' })
+            expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
+        })
+
+        it('returns deleted when the session key was shredded', async () => {
+            mockKeyStore.getKey.mockResolvedValue({ ...cleartextKey, sessionState: 'deleted', deletedAt: 1700000000 })
+            mockKeyStore.generateKey.mockResolvedValue({
+                ...cleartextKey,
+                sessionState: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
         })
     })
 })

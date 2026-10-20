@@ -16,10 +16,16 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
-import { createRecordingApiAuthMiddleware } from './auth'
+import { RecordingApiOp, createRecordingApiAuthMiddleware } from './auth'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'
-import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
+import {
+    DeleteRecordingsBodySchema,
+    EncryptBlocksBodySchema,
+    GetBlockQuerySchema,
+    RecordingParamsSchema,
+    TeamParamsSchema,
+} from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
@@ -188,7 +194,9 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
-        const auth = (op: 'read' | 'delete') =>
+        const encryptPath = '/api/projects/:team_id/recordings/:session_id/encrypt'
+
+        const auth = (op: RecordingApiOp) =>
             createRecordingApiAuthMiddleware({
                 jwtSecret: this.config.RECORDING_API_JWT_SECRET,
                 legacySecret: this.config.INTERNAL_API_SECRET,
@@ -197,17 +205,25 @@ export class RecordingApi {
             })
         const readAuth = auth('read')
         const deleteAuth = auth('delete')
+        const writeAuth = auth('write')
 
         // Mounted on the whole '/api/projects' prefix, matching what the shared-secret middleware
         // exempts, rather than on the recording routes alone. Anything under the prefix that this
         // router does not handle then still needs a valid token and gets a 401, so a route added
         // later cannot ship unauthenticated. op comes from the method: GET reads, anything mutating
-        // gets the stricter delete scope. Registered before the routes so it runs first.
-        router.use('/api/projects', (req, res, next) => (req.method === 'GET' ? readAuth : deleteAuth)(req, res, next))
+        // gets the stricter delete scope, except encrypt, which needs its own write scope. Registered before
+        // the routes so it runs first.
+        router.use('/api/projects', (req, res, next) => {
+            if (req.method === 'GET') {
+                return readAuth(req, res, next)
+            }
+            return (/\/recordings\/[^/]+\/encrypt\/?$/.test(req.path) ? writeAuth : deleteAuth)(req, res, next)
+        })
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
+        router.post(encryptPath, asyncHandler(this.encryptBlocks))
 
         return router
     }
@@ -310,6 +326,58 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to list blocks' })
+        }
+    }
+
+    private encryptBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
+        const paramsResult = RecordingParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+
+        const bodyResult = EncryptBlocksBodySchema.safeParse(req.body)
+        if (!bodyResult.success) {
+            res.status(400).json({ error: bodyResult.error.issues[0].message })
+            return
+        }
+
+        if (!this.recordingService) {
+            res.status(503).json({ error: 'Service not initialized' })
+            return
+        }
+
+        const { team_id: teamId, session_id: sessionId } = paramsResult.data
+        const { blocks, retention_days: retentionDays } = bodyResult.data
+
+        try {
+            const result = await this.recordingService.encryptBlocks(
+                sessionId,
+                teamId,
+                blocks.map((b) => Buffer.from(b, 'base64')),
+                retentionDays
+            )
+            if (!result.ok && result.error === 'cleartext_recording') {
+                res.status(409).json({ error: 'cleartext_recording' })
+                return
+            }
+            if (!result.ok) {
+                res.status(410).json({
+                    error: 'recording_deleted',
+                    deleted_at: result.deletedAt,
+                    deleted_by: result.deletedBy,
+                })
+                return
+            }
+            res.json({ blocks: result.blocks.map((b) => b.toString('base64')) })
+        } catch (error) {
+            logger.error('[RecordingApi] Error encrypting blocks', {
+                error: serializeError(error),
+                teamId,
+                sessionId,
+            })
+            captureException(error)
+            res.status(500).json({ error: 'Failed to encrypt blocks' })
         }
     }
 

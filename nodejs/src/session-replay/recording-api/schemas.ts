@@ -39,6 +39,19 @@ export const DeleteRecordingsBodySchema = z.object({
     deleted_by: z.string().min(1, 'Missing deleted_by').max(254),
 })
 
+const MAX_ENCRYPT_BLOCKS = 100
+// The 30d..5y range of ValidRetentionPeriods.
+const MAX_RETENTION_DAYS = 5 * 365
+
+export const EncryptBlocksBodySchema = z.object({
+    // Base64 of each compressed plaintext block, encrypted in order.
+    blocks: z
+        .array(z.base64('Invalid block encoding'))
+        .min(1, 'blocks must not be empty')
+        .max(MAX_ENCRYPT_BLOCKS, `Too many blocks (max ${MAX_ENCRYPT_BLOCKS})`),
+    retention_days: z.number().int().min(1).max(MAX_RETENTION_DAYS),
+})
+
 // Static schema for getBlock query params (validates structure only)
 export const GetBlockQuerySchema = z
     .object({
