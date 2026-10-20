@@ -2021,6 +2021,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return False
         return True
 
+    _TRIAL_RUN_EVENT_TYPES = frozenset({"started", "failed", "usage"})
+
+    def _is_trial_agent_callback(self, payload: object) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if payload.get("kind") != "run_event":
+            return True
+        event = payload.get("event")
+        if not isinstance(event, dict):
+            return False
+        event_type = event.get("type")
+        return isinstance(event_type, str) and event_type in self._TRIAL_RUN_EVENT_TYPES
+
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
         if self.action not in {
             "agent_callback",
@@ -2037,7 +2050,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "task:read" in scopes
             and "scout_experiment_internal:read" in scopes
             and (
-                self.action in {"agent_callback", "append_log", "set_summary"}
+                self.action in {"append_log", "set_summary"}
+                or self.action == "agent_callback"
+                and self._is_trial_agent_callback(request.data)
                 or self.action in {"update", "partial_update"}
                 and self._is_trial_lifecycle_update(request.data)
             )
@@ -2815,21 +2830,23 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="Side effect dispatched or skipped",
             ),
             400: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Invalid budget steer or process kill"
+                response=TaskRunErrorResponseSerializer,
+                description="Invalid budget steer, process kill or structured output",
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="Caller is not this run's sandbox, or the agent-proxy sends this run's callbacks",
             ),
             404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The run has already ended"),
             503: OpenApiResponse(
                 response=AgentProxyCallbackResponseSerializer, description="Dispatch failed; retry the callback"
             ),
         },
         summary="Send an agent callback",
         description="Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, "
-        "budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks "
-        "the agent sends instead of the agent-proxy.",
+        "budget steer, process kill or run event. Only the run's sandbox may call this. Except for run events, "
+        "only for a run whose callbacks the agent sends instead of the agent-proxy.",
     )
     @action(detail=True, methods=["post"], url_path="agent_callback")
     def agent_callback(self, request, pk=None, **kwargs):

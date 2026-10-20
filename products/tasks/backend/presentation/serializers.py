@@ -4,7 +4,7 @@ import base64
 import logging
 import binascii
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from django.conf import settings
 from django.db import models
@@ -56,7 +56,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
-from products.tasks.backend.facade.enums import TaskChannelWriteType
+from products.tasks.backend.facade.enums import AgentCallbackRequestKind, TaskChannelWriteType
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -5066,19 +5066,65 @@ class AgentProxyProcessKilledSerializer(serializers.Serializer):
     memory_limit_bytes = serializers.IntegerField(min_value=0, help_text="Sandbox memory limit, in bytes.")
 
 
+class TaskRunEventSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=tasks_facade.TASK_RUN_EVENT_TYPES,
+        help_text="What happened in the run. Decides which other fields are accepted.",
+    )
+    agent_version = serializers.CharField(
+        required=False, max_length=255, help_text="Version of the agent server that reported the event."
+    )
+    benjamin_version = serializers.CharField(
+        required=False, max_length=255, help_text="Upstream Benjamin commit the agent server runs, when enabled."
+    )
+    error_type = serializers.ChoiceField(
+        choices=tasks_facade.TASK_RUN_EVENT_ERROR_TYPES,
+        required=False,
+        help_text="Classified failure cause, for `failed` events. The server builds the error message from it.",
+    )
+    cause = serializers.CharField(
+        required=False, help_text="What went wrong, for `failed` events. Secrets must already be redacted."
+    )
+    branch = serializers.CharField(required=False, max_length=255, help_text="Git branch the run is working on.")
+    pr_url = serializers.CharField(required=False, max_length=2048, help_text="GitHub pull request the run opened.")
+    output = serializers.DictField(
+        required=False,
+        help_text="Structured output, validated against the task's json_schema if one is set.",
+    )
+    token_usage = serializers.DictField(required=False, help_text="Cumulative token usage for the run.")
+    budget_guard = serializers.DictField(required=False, help_text="Latest budget guard snapshot for the run.")
+
+    FIELDS_BY_TYPE: ClassVar[dict[str, tuple[frozenset[str], frozenset[str]]]] = {
+        "started": (frozenset({"agent_version"}), frozenset({"benjamin_version"})),
+        "failed": (frozenset({"error_type", "cause"}), frozenset({"agent_version"})),
+        "branch_changed": (frozenset({"branch"}), frozenset()),
+        "pr_detected": (frozenset({"pr_url"}), frozenset({"branch"})),
+        "structured_output": (frozenset({"output"}), frozenset()),
+        "usage": (frozenset(), frozenset({"token_usage", "budget_guard"})),
+    }
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        required, optional = self.FIELDS_BY_TYPE[attrs["type"]]
+        fields = set(attrs) - {"type"}
+        if missing := sorted(required - fields):
+            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
+        if unexpected := sorted(fields - required - optional):
+            raise serializers.ValidationError(dict.fromkeys(unexpected, f"Not accepted for `{attrs['type']}` events."))
+        if attrs["type"] == "usage" and not fields:
+            raise serializers.ValidationError("A usage event needs token_usage or budget_guard.")
+        return attrs
+
+    def validate_pr_url(self, value: str) -> str:
+        if tasks_facade.canonical_github_pull_request_url(value) is None:
+            raise serializers.ValidationError("Must be a GitHub pull request URL.")
+        return value
+
+
 class AgentCallbackRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=[
-            "heartbeat",
-            "awaiting_input",
-            "turn_failed",
-            "command_dispatched",
-            "agent_activity",
-            "budget_steer",
-            "process_killed",
-        ],
+        choices=AgentCallbackRequestKind.choices,
         help_text=(
-            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
+            "Side effect to dispatch. 'run_event' reports a change to the run itself, described by `event`. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
             "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
             "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
@@ -5087,6 +5133,8 @@ class AgentCallbackRequestSerializer(serializers.Serializer):
         ),
     )
     agent_active = serializers.BooleanField(
+        required=False,
+        default=False,
         help_text=(
             "Whether the agent is currently active (true) or idle (false). "
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
@@ -5137,6 +5185,12 @@ class AgentCallbackRequestSerializer(serializers.Serializer):
     process_killed = AgentProxyProcessKilledSerializer(
         required=False, help_text="The kill the sandbox memory watchdog reported. Required for 'process_killed'."
     )
+    event = TaskRunEventSerializer(required=False, help_text="The run change. Required for 'run_event'.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if (attrs["kind"] == "run_event") != ("event" in attrs):
+            raise serializers.ValidationError({"event": "Required for 'run_event' and only accepted there."})
+        return attrs
 
 
 class AgentProxyCallbackRequestSerializer(AgentCallbackRequestSerializer):
@@ -5156,6 +5210,12 @@ class AgentProxyCallbackRequestSerializer(AgentCallbackRequestSerializer):
         min_value=1,
         help_text="Numeric team (project) ID. Must match the JWT claim.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if attrs["kind"] == "run_event":
+            raise serializers.ValidationError({"kind": "Only the run's agent reports run events."})
+        return attrs
 
 
 class AgentProxyCallbackResponseSerializer(serializers.Serializer):

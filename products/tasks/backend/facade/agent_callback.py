@@ -1,6 +1,7 @@
 from typing import Any
 
 from products.tasks.backend.agent_proxy_callback import AgentProxyCallbackDispatcher, CallbackOutcome, CallbackRequest
+from products.tasks.backend.facade import api as tasks_api
 from products.tasks.backend.feature_flags import run_agent_sends_callbacks
 from products.tasks.backend.logic.services.connection_token import SandboxEventIngestTokenPayload
 from products.tasks.backend.models import TaskRun
@@ -16,6 +17,8 @@ TURN_CLAIM_DELIVERED = "delivered"
 def dispatch_agent_callback(
     *, run_id: str, task_id: str, team_id: int, body: dict[str, Any], data: dict[str, Any]
 ) -> CallbackOutcome:
+    if data["kind"] == "run_event":
+        return report_run_event(run_id=run_id, task_id=task_id, team_id=team_id, event=dict(data["event"]))
     state = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).values_list("state", flat=True).first()
     if not run_agent_sends_callbacks(state):
         return CallbackOutcome(status=403, error="The agent-proxy sends the callbacks for this run")
@@ -45,3 +48,21 @@ def _turn_dedupe_key(run_id: str, data: dict[str, Any]) -> str | None:
     if data["kind"] not in SEQUENCED_TURN_KINDS or sequence is None:
         return None
     return f"tasks:agent_callback:{run_id}:{data['kind']}:{sequence}"
+
+
+def report_run_event(*, run_id: str, task_id: str, team_id: int, event: dict[str, Any]) -> CallbackOutcome:
+    if event["type"] == "structured_output":
+        error = tasks_api.validate_set_output(run_id, task_id, team_id, output=event["output"])
+        if error is not None:
+            return CallbackOutcome(status=400, error=error)
+        if tasks_api.set_task_run_output(run_id, task_id, team_id, output=event["output"]) is None:
+            return CallbackOutcome(status=404, error="Task run not found")
+        return CallbackOutcome(dispatched=True)
+    match tasks_api.report_task_run_event(run_id, task_id, team_id, event=event):
+        case "not_found":
+            return CallbackOutcome(status=404, error="Task run not found")
+        case "run_ended":
+            return CallbackOutcome(status=409, error="The run has already ended")
+        case "signal_failed":
+            return CallbackOutcome(status=503, error="The run's workflow could not be signalled")
+    return CallbackOutcome(dispatched=True)
