@@ -1046,7 +1046,7 @@ export function createMarketingTile(
         )
         let totalValueExpr = conversionValueExpr
         let totalCostExpr = `SUM(${costExpr})`
-        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+        if (conversionValueExpr !== '0') {
             const perRowValue =
                 tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
                     ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
@@ -1066,9 +1066,7 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
-            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
-            : `SUM(${costExpr})`
+        const totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
         const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }

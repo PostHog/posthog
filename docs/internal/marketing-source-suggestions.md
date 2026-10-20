@@ -304,7 +304,7 @@ Cards preserve period comparisons, currency formatting, and missing-value labels
 
 Ad performance cards include time-series sparklines for advertising metrics, including platform-reported conversions.
 Select an advertising metric card to update the existing trend chart while keeping the date range, interval, and source filters.
-CPC, CTR, reported ROAS, and cost per reported conversion use ratios of bucket totals; undefined ratios leave gaps rather than zeroes.
+CPC, CTR, reported ROAS, and cost per reported conversion use ratios of bucket totals in both sparklines and the main trend, with monetary values converted to the project currency; undefined ratios leave gaps rather than zeroes.
 Attributed PostHog conversion goals retain their summary cards without sparklines or selection.
 
 Advertising metrics appear first, followed by attributed conversion goals and their cost per conversion.

@@ -1,4 +1,5 @@
 import type { ExternalTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { externalAdsCostTile } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingCostTile'
 
 import { MarketingAnalyticsColumnsSchemaNames, NodeKind, SourceMap } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, PropertyFilterType, PropertyOperator, TrendResult } from '~/types'
@@ -106,6 +107,27 @@ describe('Ad performance sparklines', () => {
             expect((query.series[3] as { math_hogql: string }).math_hogql).not.toContain('convertCurrency')
         }
     })
+
+    it.each([
+        [
+            'cost_per_reported_conversion',
+            MarketingAnalyticsColumnsSchemaNames.Cost,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
+        ],
+        [
+            'roas',
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+            MarketingAnalyticsColumnsSchemaNames.Cost,
+        ],
+    ] as const)(
+        'keeps the external %s trend in the same currency as its sparkline',
+        (metric, numerator, denominator) => {
+            const top = externalAdsCostTile(table, 'USD', numerator)?.math_hogql
+            const bottom = externalAdsCostTile(table, 'USD', denominator)?.math_hogql
+            expect(externalAdsCostTile(table, 'USD', metric)?.math_hogql).toBe(`(${top}) / nullIf(${bottom}, 0)`)
+            expect(externalAdsCostTile(table, 'USD', metric)?.math_hogql).toContain("convertCurrency('EUR', 'USD'")
+        }
+    )
 
     it('does not request data when there are no supported sources', () => {
         expect(
