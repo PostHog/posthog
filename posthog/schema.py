@@ -33880,7 +33880,6 @@ class MaxUIContext(BaseModel):
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
     notebooks: list[MaxNotebookContext] | None = None
-    voice_mode: bool | None = None
 
 
 class QueryRequest(BaseModel):
