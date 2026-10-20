@@ -6675,7 +6675,8 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
+    ``"already_active"`` (400), ``"task_run_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400),
+    ``"invalid_origin"`` (400),
     ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
@@ -6738,6 +6739,8 @@ def resume_task_run_in_cloud(
         )
         if is_cloud_active:
             return "already_active", None, None
+        if task.has_live_cloud_run():
+            return "task_run_active", None, None
 
         if get_pr_authorship_mode(run.task, run.state) == PrAuthorshipMode.USER:
             pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(

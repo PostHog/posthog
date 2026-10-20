@@ -811,7 +811,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
-    def _has_live_cloud_run(self) -> bool:
+    def has_live_cloud_run(self) -> bool:
         live_run_states = self.runs.filter(
             team_id=self.team_id,
             environment=TaskRun.Environment.CLOUD,
@@ -865,7 +865,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if (
                 effective_environment == TaskRun.Environment.CLOUD
                 and scheduled_at is None
-                and task._has_live_cloud_run()
+                and task.has_live_cloud_run()
             ):
                 raise TaskRunAlreadyLiveError(
                     "This task already has a cloud run in progress. Wait for it to finish or cancel it first."

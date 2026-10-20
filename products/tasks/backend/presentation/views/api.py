@@ -4205,6 +4205,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "task_run_active":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This task already has a cloud run in progress"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if outcome == "not_cloud":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Only cloud runs can be resumed in cloud"}).data,
