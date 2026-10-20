@@ -5,7 +5,7 @@ backend readers identify series by the rules the frontend uses, without the lega
 Queries, rows and series nodes are JSON-shaped, as stored on an insight or dumped from a schema model.
 """
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from products.actions.backend.models.action import Action
@@ -46,7 +46,7 @@ def get_result_series(query: Mapping[str, Any], result: Mapping[str, Any]) -> Ma
     """The query series node the row reports. None on a formula row, and on a row whose series the query does not hold."""
     index = get_result_series_index(query, result)
     series = query.get("series")
-    if index is None or not isinstance(series, Sequence) or not 0 <= index < len(series):
+    if index is None or not isinstance(series, list) or not 0 <= index < len(series):
         return None
     node = series[index]
     return node if isinstance(node, Mapping) else None
@@ -103,7 +103,11 @@ def get_series_custom_name(node: Mapping[str, Any], action_names: Mapping[int, s
 
 
 def _series_nodes(query: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
-    for node in query.get("series") or []:
+    # Actors queries hold the index of one series in `series`, not a list of nodes.
+    series = query.get("series")
+    if not isinstance(series, list):
+        return
+    for node in series:
         if isinstance(node, Mapping):
             yield node
             yield from (member for member in node.get("nodes") or [] if isinstance(member, Mapping))
