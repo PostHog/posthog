@@ -1753,7 +1753,87 @@ export const BICatalogSnapshot: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
-        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
         await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
+    },
+}
+
+export const BISourcePreviewLargeSample: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters!.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        if (query.query.startsWith('SELECT *')) {
+                            const limit = Number(query.query.match(/LIMIT (\d+)/)?.[1] ?? 1000)
+                            return {
+                                columns: [
+                                    'row_number',
+                                    'description',
+                                    ...Array.from({ length: 8 }, (_, index) => `quantity_${index + 1}`),
+                                ],
+                                types: [
+                                    ['row_number', 'Int64'],
+                                    ['description', 'String'],
+                                    ...Array.from({ length: 8 }, (_, index) => [`quantity_${index + 1}`, 'Int64']),
+                                ],
+                                results: Array.from({ length: limit }, (_, index) => [
+                                    index + 1,
+                                    `Example source row ${index + 1}`,
+                                    ...Array.from({ length: 8 }, (_, column) => (index + column) % 17),
+                                ]),
+                                hasMore: false,
+                            }
+                        }
+                        return {
+                            columns: [
+                                ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                                ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ],
+                            types: ['DateTime', 'String', 'Float64'],
+                            results: [['2026-06-01', 'purchase', 120]],
+                            hasMore: false,
+                        }
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const openPreview = await canvas.findByText('View source data', {}, { timeout: 15000 })
+        await waitFor(() => expect(openPreview.closest('button')).toHaveAttribute('aria-disabled', 'false'), {
+            timeout: 15000,
+        })
+        await userEvent.click(openPreview)
+        const body = within(canvasElement.ownerDocument.body)
+        await body.findByText('Example source row 1', {}, { timeout: 15000 })
+        const table = canvasElement.ownerDocument.querySelector<HTMLElement>('[data-attr="bi-source-preview-table"]')!
+        expect(table.querySelectorAll('tbody tr[data-row-key]').length).toBeLessThan(50)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollTop = scroll.scrollHeight
+        await body.findByText('Example source row 500')
+        await userEvent.click(within(table).getByLabelText('Next page'))
+        await body.findByText('Example source row 501')
+        expect(scroll.scrollTop).toBe(0)
+        expect(table.querySelectorAll('tbody tr[data-row-key]').length).toBeLessThan(50)
+        scroll.scrollTop = scroll.scrollHeight
+        await body.findByText('Example source row 1000')
+        await userEvent.click(within(table).getByLabelText('Previous page'))
+        await body.findByText('Example source row 1')
     },
 }

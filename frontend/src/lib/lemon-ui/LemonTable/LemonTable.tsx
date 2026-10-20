@@ -1,5 +1,6 @@
 import './LemonTable.scss'
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -129,6 +130,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
+    /** Requires a bounded scroll container. Expandable rows use the normal rendering path. */
+    virtualized?: boolean
     /**
      * Whether the header row stays visible while the page scrolls. The header pins to the scene's scroll
      * container from the `@2xl/main-content` breakpoint up, the same as `SceneStickyBar`. Set the
@@ -192,6 +195,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     maxHeaderWidth,
     hideScrollbar,
     allowContentScroll = false,
+    virtualized = false,
     stickyHeader = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
@@ -302,6 +306,37 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }, [dataSource, currentSorting, baseColumns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
+    const virtualizeRows = virtualized && allowContentScroll && !expandable
+    const scrollMargin = tableRef.current?.tHead?.offsetHeight ?? 0
+    const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
+        count: paginationState.dataSourcePage.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => 36,
+        overscan: 5,
+        enabled: virtualizeRows,
+        scrollMargin,
+    })
+    const virtualRows = rowVirtualizer.getVirtualItems()
+    const rowIndexes = virtualizeRows
+        ? virtualRows.map((row) => row.index)
+        : paginationState.dataSourcePage.map((_, index) => index)
+    const paddingTop = virtualRows.length ? Math.max(0, virtualRows[0].start - scrollMargin) : 0
+    const paddingBottom = virtualRows.length
+        ? Math.max(0, rowVirtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1].end - scrollMargin))
+        : 0
+
+    useEffect(() => {
+        if (virtualizeRows) {
+            rowVirtualizer.scrollToOffset(0)
+        }
+    }, [
+        virtualizeRows,
+        rowVirtualizer,
+        dataSource,
+        paginationState.currentPage,
+        currentSorting?.columnKey,
+        currentSorting?.order,
+    ])
 
     const resolveRowKey = useMemo<(record: T) => K>(() => {
         if (bulkSelection?.getKey) {
@@ -779,8 +814,17 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                 </thead>
                             )}
                             <tbody>
+                                {virtualizeRows && paddingTop > 0 && (
+                                    <tr aria-hidden style={{ border: 0 }}>
+                                        <td
+                                            colSpan={headerLoaderColSpan}
+                                            style={{ height: paddingTop, padding: 0, border: 0 }}
+                                        />
+                                    </tr>
+                                )}
                                 {paginationState.dataSourcePage.length ? (
-                                    paginationState.dataSourcePage.map((record, rowIndex) => {
+                                    rowIndexes.map((rowIndex) => {
+                                        const record = paginationState.dataSourcePage[rowIndex]
                                         const rowKeyDetermined = rowKey
                                             ? typeof rowKey === 'function'
                                                 ? rowKey(record, rowIndex)
@@ -807,7 +851,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 rowRibbonColorDetermined={rowRibbonColorDetermined}
                                                 rowStatusDetermined={rowStatusDetermined}
                                                 columnGroups={columnGroups}
-                                                onRow={onRow}
+                                                onRow={
+                                                    virtualizeRows
+                                                        ? (record, index) => ({
+                                                              ...onRow?.(record, index),
+                                                              ref: rowVirtualizer.measureElement,
+                                                              'data-index': rowIndex,
+                                                          })
+                                                        : onRow
+                                                }
                                                 expandable={expandable}
                                                 rowCount={paginationState.dataSourcePage.length}
                                                 firstColumnSticky={firstColumnSticky}
@@ -846,6 +898,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                 ) : (
                                     <tr className="LemonTable__empty-state">
                                         <td colSpan={headerLoaderColSpan}>{emptyState || `No ${nouns[1]}`}</td>
+                                    </tr>
+                                )}
+                                {virtualizeRows && paddingBottom > 0 && (
+                                    <tr aria-hidden style={{ border: 0 }}>
+                                        <td
+                                            colSpan={headerLoaderColSpan}
+                                            style={{ height: paddingBottom, padding: 0, border: 0 }}
+                                        />
                                     </tr>
                                 )}
                             </tbody>

@@ -26,7 +26,12 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
                 <span className="mr-1">Catalog details</span>
                 <TableCertificationTag certification={table.certification} />
             </summary>
-            <div className="flex flex-col gap-2 py-2">
+            <div
+                className="flex max-h-48 flex-col gap-2 overflow-y-auto overscroll-contain py-2"
+                role="region"
+                aria-label="Catalog details"
+                tabIndex={0}
+            >
                 {description && <p className="m-0 break-words text-secondary">{description}</p>}
                 {table.certification?.notes && <p className="m-0 break-words">{table.certification.notes}</p>}
                 <LemonButton
