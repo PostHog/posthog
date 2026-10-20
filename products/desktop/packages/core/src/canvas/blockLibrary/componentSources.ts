@@ -1,11 +1,10 @@
 const METRIC = `import { Card, CardContent } from "@posthog/quill";
-import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import { Sparkline, useChartTheme } from "@posthog/quill-charts";
 import {
   sqlNode,
   type BlockProps,
   BlockDescription,
   BlockState,
-  CHART_COLORS,
   ChangeBadge,
   QueryButton,
   blockRoot,
@@ -32,6 +31,7 @@ type MetricProps = BlockProps & {
 export function Metric(props: MetricProps) {
   const { title, event = "$pageview", math = "total", compare = true, followFilters = true, sql, format = "number", description } = props;
   const filters = useCanvasFilters();
+  const theme = useChartTheme();
   const shared = { interval: filters.interval, ...filterFields(filters, followFilters) };
   const query = sql
     ? sqlNode(sql, filters, followFilters)
@@ -50,7 +50,7 @@ export function Metric(props: MetricProps) {
   const total = sql ? Number(rows[0]?.[0] ?? Number.NaN) : Number(current?.aggregated_value ?? current?.count ?? Number.NaN);
   const before = sql ? Number(rows[0]?.[1] ?? Number.NaN) : Number(previous?.aggregated_value ?? previous?.count ?? Number.NaN);
   const change = compare && Number.isFinite(before) && before !== 0 ? ((total - before) / Math.abs(before)) * 100 : null;
-  const points = (spark.data?.results?.[0]?.data ?? []).map((point: number, index: number) => ({ index, value: Number(point) }));
+  const points: number[] = (spark.data?.results?.[0]?.data ?? []).map(Number);
   return (
     <Card {...blockRoot("Metric", props)} className="shrink-0 group relative flex min-w-0 flex-col">
       <QueryButton className="absolute top-3 right-3 rounded-md bg-card" query={query} hogql={value?.data?.hogql} />
@@ -64,12 +64,8 @@ export function Metric(props: MetricProps) {
           </div>
           <div className="text-xs text-muted-foreground">{scopeLabel(filters, followFilters)}</div>
           {points.length > 1 ? (
-            <div className="mt-auto h-12 pt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={points} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-                  <Area type="monotone" dataKey="value" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.12} strokeWidth={1.5} isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="mt-auto pt-2">
+              <Sparkline data={points} theme={theme} fillOpacity={0.12} height={40} />
             </div>
           ) : null}
         </BlockState>
@@ -80,13 +76,12 @@ export function Metric(props: MetricProps) {
 `;
 
 const TREND = `import { Card, CardContent, CardHeader, CardTitle } from "@posthog/quill";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TimeSeriesBarChart, TimeSeriesLineChart, useChartTheme } from "@posthog/quill-charts";
 import {
   BlockDescription,
   sqlNode,
   type BlockProps,
   BlockState,
-  CHART_COLORS,
   QueryButton,
   blockRoot,
   breakdownLabel,
@@ -113,11 +108,10 @@ type TrendProps = BlockProps & {
   followFilters?: boolean;
 };
 
-const CHARTS = { line: LineChart, bar: BarChart, area: AreaChart };
-
 export function Trend(props: TrendProps) {
   const { title, events = ["$pageview"], math = "total", display = "line", breakdown, followFilters = true, sql } = props;
   const filters = useCanvasFilters();
+  const theme = useChartTheme();
   const query = sql
     ? sqlNode(sql, filters, followFilters)
     : {
@@ -152,18 +146,22 @@ export function Trend(props: TrendProps) {
     if (seriesIndex < baseColumns.length) return Number(sqlRows[index]?.[seriesIndex + 1] ?? 0);
     return Number(previousByDay?.get(day.slice(0, 10))?.[seriesIndex - baseColumns.length + 1] ?? 0);
   };
-  const rows = days.map((day, index) => {
-    const row: Record<string, number | string> = { day };
-    names.forEach((_, seriesIndex) => {
-      row["s" + seriesIndex] = sql ? sqlValue(day, index, seriesIndex) : Number(series[seriesIndex]?.data?.[index] ?? 0);
-    });
-    return row;
-  });
   const colorAt = (index: number) => {
-    if (sql) return CHART_COLORS[(comparing ? index % Math.max(1, baseColumns.length) : index) % CHART_COLORS.length];
-    return CHART_COLORS[(filters.compare ? index % Math.max(1, names.length / 2) : index) % CHART_COLORS.length];
+    if (sql) return theme.colors[(comparing ? index % Math.max(1, baseColumns.length) : index) % theme.colors.length];
+    return theme.colors[(filters.compare ? index % Math.max(1, names.length / 2) : index) % theme.colors.length];
   };
-  const Chart = CHARTS[display] ?? LineChart;
+  const chartSeries = names.map((name, seriesIndex) => ({
+    key: "s" + seriesIndex,
+    label: name,
+    color: colorAt(seriesIndex) + (previousAt(seriesIndex) ? "80" : ""),
+    data: days.map((day, index) => (sql ? sqlValue(day, index, seriesIndex) : Number(series[seriesIndex]?.data?.[index] ?? 0))),
+    ...(previousAt(seriesIndex) ? { stroke: { pattern: [4, 4] }, overlay: true } : display === "area" ? { fill: { opacity: 0.15 } } : {}),
+  }));
+  const chartConfig = {
+    xAxis: { interval: filters.interval, tickFormatter: formatDay },
+    yAxis: { tickFormatter: formatNumber },
+    tooltip: { labelFormatter: formatDay, valueFormatter: formatNumber },
+  };
   return (
     <Card {...blockRoot("Trend", props)} className="shrink-0 group min-w-0">
       <CardHeader className="flex flex-row items-start justify-between gap-2">
@@ -188,25 +186,13 @@ export function Trend(props: TrendProps) {
         <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
-        <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={220}>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <Chart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
-                <CartesianGrid stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-                <XAxis dataKey="day" tickFormatter={formatDay} tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} minTickGap={24} />
-                <YAxis tickFormatter={formatNumber} tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} width={48} />
-                <Tooltip labelFormatter={formatDay} formatter={(value: number) => formatNumber(value)} />
-                {names.map((_, index) => {
-                  const color = colorAt(index);
-                  const key = "s" + index;
-                  const dash = previousAt(index) ? "4 4" : undefined;
-                  const faded = previousAt(index) ? 0.5 : 1;
-                  if (display === "bar") return <Bar key={key} dataKey={key} name={names[index]} fill={color} fillOpacity={faded} stackId={breakdown ? "stack" : undefined} radius={[3, 3, 0, 0]} isAnimationActive={false} />;
-                  if (display === "area") return <Area key={key} dataKey={key} name={names[index]} type="monotone" stroke={color} strokeOpacity={faded} strokeDasharray={dash} fill={color} fillOpacity={previousAt(index) ? 0 : 0.15} strokeWidth={2} isAnimationActive={false} />;
-                  return <Line key={key} dataKey={key} name={names[index]} type="monotone" stroke={color} strokeOpacity={faded} strokeDasharray={dash} strokeWidth={2} dot={false} isAnimationActive={false} />;
-                })}
-              </Chart>
-            </ResponsiveContainer>
+        <BlockState loading={result.loading} error={result.error} empty={days.length === 0} height={220}>
+          <div className="flex h-56 flex-col">
+            {display === "bar" ? (
+              <TimeSeriesBarChart series={chartSeries} labels={days} theme={theme} config={{ ...chartConfig, barLayout: breakdown ? "stacked" : "grouped" }} />
+            ) : (
+              <TimeSeriesLineChart series={chartSeries} labels={days} theme={theme} config={chartConfig} />
+            )}
           </div>
         </BlockState>
       </CardContent>
@@ -1021,12 +1007,11 @@ export function Callout(props: CalloutProps) {
 `;
 
 const INSIGHT = `import { Card, CardContent, CardHeader, CardTitle } from "@posthog/quill";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TimeSeriesBarChart, TimeSeriesLineChart, useChartTheme } from "@posthog/quill-charts";
 import {
   type BlockProps,
   BlockDescription,
   BlockState,
-  CHART_COLORS,
   RetentionGrid,
   blockRoot,
   breakdownLabel,
@@ -1054,6 +1039,7 @@ function seriesName(row: any, index: number): string {
 }
 
 function TrendsBody({ rows, display }: { rows: any[]; display: string }) {
+  const theme = useChartTheme();
   if (display === "BoldNumber") {
     const total = Number(rows[0]?.aggregated_value ?? rows[0]?.count ?? Number.NaN);
     return <div className="py-4 text-4xl font-semibold tracking-tight tabular-nums">{formatNumber(total)}</div>;
@@ -1074,31 +1060,25 @@ function TrendsBody({ rows, display }: { rows: any[]; display: string }) {
     );
   }
   const days: string[] = rows[0]?.days ?? rows[0]?.labels ?? [];
-  const data = days.map((day, index) => {
-    const point: Record<string, number | string> = { day };
-    rows.forEach((row, seriesIndex) => {
-      point["s" + seriesIndex] = Number(row.data?.[index] ?? 0);
-    });
-    return point;
-  });
-  const Chart = BAR_DISPLAYS.has(display) ? BarChart : display === "ActionsAreaGraph" ? AreaChart : LineChart;
+  const series = rows.map((row, index) => ({
+    key: "s" + index,
+    label: seriesName(row, index),
+    color: theme.colors[index % theme.colors.length],
+    data: days.map((_, dayIndex) => Number(row.data?.[dayIndex] ?? 0)),
+    ...(row.compare_label === "previous" ? { stroke: { pattern: [4, 4] }, overlay: true } : display === "ActionsAreaGraph" ? { fill: { opacity: 0.15 } } : {}),
+  }));
+  const config = {
+    xAxis: { tickFormatter: formatDay },
+    yAxis: { tickFormatter: formatNumber },
+    tooltip: { labelFormatter: formatDay, valueFormatter: formatNumber },
+  };
   return (
-    <div className="h-56">
-      <ResponsiveContainer width="100%" height="100%">
-        <Chart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
-          <CartesianGrid stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-          <XAxis dataKey="day" tickFormatter={formatDay} tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} minTickGap={24} />
-          <YAxis tickFormatter={formatNumber} tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} width={48} />
-          <Tooltip labelFormatter={formatDay} formatter={(value: number) => formatNumber(value)} />
-          {rows.map((row, index) => {
-            const color = CHART_COLORS[index % CHART_COLORS.length];
-            const key = "s" + index;
-            if (Chart === BarChart) return <Bar key={key} dataKey={key} name={seriesName(row, index)} fill={color} radius={[3, 3, 0, 0]} isAnimationActive={false} />;
-            if (Chart === AreaChart) return <Area key={key} dataKey={key} name={seriesName(row, index)} type="monotone" stroke={color} fill={color} fillOpacity={0.15} strokeWidth={2} isAnimationActive={false} />;
-            return <Line key={key} dataKey={key} name={seriesName(row, index)} type="monotone" stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />;
-          })}
-        </Chart>
-      </ResponsiveContainer>
+    <div className="flex h-56 flex-col">
+      {BAR_DISPLAYS.has(display) ? (
+        <TimeSeriesBarChart series={series} labels={days} theme={theme} config={{ ...config, barLayout: "grouped" }} />
+      ) : (
+        <TimeSeriesLineChart series={series} labels={days} theme={theme} config={config} />
+      )}
     </div>
   );
 }
