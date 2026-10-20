@@ -95,6 +95,8 @@ CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL = Counter(
 # deltalite real-write path (phase 2). `outcome` is one of:
 #   written    - deltalite performed the incremental merge and committed
 #   fallback   - deltalite was enabled but failed (or refused), so the delta-rs MERGE ran instead
+#   fallback_refused - deltalite failed and the largest touched partition is above the base budget, so
+#                      the batch raised for a retry instead of running the delta-rs MERGE
 DELTALITE_WRITE_TOTAL = Counter(
     "warehouse_load_deltalite_write_total",
     "Incremental merges routed to deltalite's real write path, by outcome",

@@ -109,8 +109,9 @@ def split_budget_bytes(schema: ExternalDataSchema) -> int:
 
     Which engine writes is decided per batch: the delta-rs MERGE runs on a batch that deltalite
     fails, and nothing records that per table. So a keyed-merge table still gets a budget, sized for
-    that fallback (`merge_target_partition_bytes`), rather than none. A fallback that runs out of
-    memory below it records OOMs, and the OOM-history trigger splits the table from those.
+    that fallback (`merge_target_partition_bytes`), rather than none. The writer refuses the
+    fallback on a partition above the base budget (`target_partition_bytes`) and retries the batch,
+    so the larger cap cannot lead to an oversized delta-rs MERGE.
     """
     if schema.sync_type in KEYED_MERGE_SYNC_TYPES:
         return merge_target_partition_bytes()
