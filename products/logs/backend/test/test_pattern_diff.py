@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 
 from products.logs.backend.log_patterns import pattern_fingerprint
 from products.logs.backend.pattern_diff import (
@@ -251,8 +252,6 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
 
 class TestStoredPatternKeys(TestCase):
     def test_groups_sharing_a_stored_member_compare_as_one_pattern(self) -> None:
-        # Stored groups are Drain-merged per window, so one window can render "Retry <*> timed out"
-        # while the other keeps the single member verbatim. The exact members are the identity.
         current = [
             {
                 **_pattern("Retry <*> timed out", count=100),
@@ -411,7 +410,6 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
             )
             for i in range(3)
         ]
-        # Older history, inside the 14-day first-seen lookback but outside both windows.
         archive_history = [self._log("Archive job run_old queued", day=12, stored="Archive job <ID> queued")]
         rows = retry + archive_current + archive_baseline + archive_history
         self._insert(rows)
@@ -455,6 +453,18 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
         assert archive["first_seen_ever"] == "2026-06-12T12:00:00Z"
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_the_version_check_shares_the_runner_time_budget(self) -> None:
+        self._seed_stored(stamp_baseline=False)
+        clock = iter([0.0, 0.0] + [1000.0] * 100)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("products.logs.backend.patterns_query_runner.monotonic", side_effect=lambda: next(clock)),
+            self.assertRaises(ClickHouseQueryTimeOut),
+        ):
+            run_patterns_diff(self.team, self._query(), None)
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_partial_coverage_falls_back_to_body_mining_in_both_windows(self) -> None:
         self._seed_stored(stamp_baseline=False)
 
@@ -471,7 +481,6 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
         assert results["source"] == "body_mining"
         assert results["sampled"] is True
         assert results["current"]["source"] == results["baseline"]["source"] == "body_mining"
-        # Mixing vocabularies would read the archive line as new + gone; one vocabulary keeps it one pattern.
         assert sorted(e["classification"] for e in results["entries"]) == ["new", "unchanged"]
         assert all(e["first_seen_ever"] is None for e in results["entries"])
         assert any("first_seen_ever" in note for note in results["notes"])
