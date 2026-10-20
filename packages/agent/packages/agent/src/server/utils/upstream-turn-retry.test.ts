@@ -24,9 +24,10 @@ describe("upstreamTurnRetryDelayMs", () => {
   it.each([
     [0, 12_300, 0, 12_300],
     [0, 1_000, 0.5, 7_500],
-    [3, 150_000, 0.999999, 150_000],
+    [3, 150_000, 0.999999, 120_000],
+    [0, 2_147_483_000, 0, 120_000],
   ])(
-    "honors the retry hint floor for retry %i",
+    "bounds the retry hint floor for retry %i",
     (retries, hint, random, expected) => {
       expect(
         upstreamTurnRetryDelayMs(

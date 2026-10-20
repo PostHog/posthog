@@ -2487,13 +2487,21 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     it.each([
-      ["API Error: Connection error.", 5_000],
-      ["Rate limit reached for test-model. Please try again in 120s.", 120_000],
+      ["a connection error", "API Error: Connection error."],
+      [
+        "a rate limit",
+        "Rate limit reached for test-model. Please try again in 120s.",
+      ],
+      [
+        "a rate limit with an oversized hint",
+        "Rate limit reached for test-model. Please try again in 2147483s.",
+      ],
     ])(
-      "stops retrying %s when the user cancels during the retry delay",
-      async (message, delay) => {
+      "interrupts the retry wait for %s when the user cancels",
+      async (_name, message) => {
         vi.useFakeTimers();
         try {
+          const initialTimerCount = vi.getTimerCount();
           const prompt = vi.fn().mockRejectedValueOnce(new Error(message));
           const testServer = createRetryTestServer(prompt);
           const resultPromise = testServer.runRetryWrappedTurn(() =>
@@ -2502,19 +2510,59 @@ describe("AgentServer HTTP Mode", () => {
               prompt: [{ type: "text", text: "do the task" }],
             }),
           );
-          await Promise.resolve();
+          await vi.advanceTimersByTimeAsync(0);
           await testServer.executeCommand("cancel", {});
-          await vi.advanceTimersByTimeAsync(delay);
 
           await expect(resultPromise).resolves.toEqual({
             stopReason: "cancelled",
           });
           expect(prompt).toHaveBeenCalledOnce();
+          expect(vi.getTimerCount()).toBe(initialTimerCount);
         } finally {
           vi.useRealTimers();
         }
       },
     );
+
+    it("allows a later turn to retry after canceling a retry wait", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(
+            new RequestError(-32603, "Rate limit reached", {
+              classification: "upstream_rate_limited",
+              retryAfterMs: 120_000,
+              usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            }),
+          )
+          .mockRejectedValueOnce(new Error("API Error: Connection error."))
+          .mockResolvedValueOnce({ stopReason: "end_turn" });
+        const testServer = createRetryTestServer(prompt);
+        const request = {
+          sessionId: "acp-1",
+          prompt: [{ type: "text" as const, text: "do the task" }],
+        };
+        const cancelled = testServer.runRetryWrappedTurn(() =>
+          testServer.promptWithUpstreamRetry(request),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        await testServer.executeCommand("cancel", {});
+        await expect(cancelled).resolves.toMatchObject({
+          stopReason: "cancelled",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        });
+
+        const resumed = testServer.runRetryWrappedTurn(() =>
+          testServer.promptWithUpstreamRetry(request),
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(resumed).resolves.toEqual({ stopReason: "end_turn" });
+        expect(prompt).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     it("does not dispatch a startup prompt after an earlier cancellation", async () => {
       const prompt = vi.fn();
@@ -2561,8 +2609,8 @@ describe("AgentServer HTTP Mode", () => {
         const assertion = expect(resultPromise).rejects.toThrow(
           "Agent session changed before the turn could be retried",
         );
-        await Promise.resolve();
-        await testServer.executeCommand("cancel", {});
+        await vi.advanceTimersByTimeAsync(0);
+        const cancellation = testServer.executeCommand("cancel", {});
         testServer.session = {
           ...testServer.session,
           acpSessionId: "acp-2",
@@ -2572,7 +2620,7 @@ describe("AgentServer HTTP Mode", () => {
             prompt: vi.fn(),
           },
         };
-        await vi.advanceTimersByTimeAsync(5_000);
+        await cancellation;
 
         await assertion;
         expect(prompt).toHaveBeenCalledOnce();
