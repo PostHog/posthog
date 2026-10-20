@@ -1,7 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -44,13 +43,6 @@ describe('liveEventsLogic', () => {
         flagsLogic?.unmount()
         streamSpy.mockRestore()
     })
-
-    function setRichFiltersFlag(enabled: boolean): void {
-        flagsLogic.actions.setFeatureFlags(
-            enabled ? [FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS] : [],
-            enabled ? { [FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]: true } : {}
-        )
-    }
 
     function lastStreamUrl(): URL {
         const calls = streamSpy.mock.calls
@@ -97,57 +89,12 @@ describe('liveEventsLogic', () => {
                 properties: [eventFilter('$browser', PropertyOperator.Exact, ['Chrome', 'Firefox'])],
                 expectedProperty: ['$browser=Chrome', '$browser=Firefox'],
             },
-        ])('with the flag off, $label', ({ properties, expectedProperty }) => {
-            setRichFiltersFlag(false)
+        ])('$label', ({ properties, expectedProperty }) => {
             logic.actions.setFilters({ properties })
 
             const url = lastStreamUrl()
             expect(url.searchParams.getAll('property')).toEqual(expectedProperty)
             expect(url.searchParams.has('properties')).toBe(false)
-        })
-
-        it.each([
-            {
-                label: 'emits a single JSON properties param',
-                properties: [
-                    eventFilter('$current_url', PropertyOperator.IContains, 'checkout'),
-                    eventFilter('$browser', PropertyOperator.Exact, ['Chrome', 'Firefox']),
-                    eventFilter('amount', PropertyOperator.GreaterThan, 100),
-                    eventFilter('$referrer', PropertyOperator.IsSet),
-                ],
-                expectedProperties: [
-                    { key: '$current_url', operator: 'icontains', value: 'checkout' },
-                    { key: '$browser', operator: 'exact', value: ['Chrome', 'Firefox'] },
-                    { key: 'amount', operator: 'gt', value: 100 },
-                    { key: '$referrer', operator: 'is_set' },
-                ],
-            },
-            {
-                label: 'skips null values, empty arrays, and unsupported operators',
-                properties: [
-                    eventFilter('$current_url', PropertyOperator.Exact, null),
-                    eventFilter('$browser', PropertyOperator.Exact, []),
-                    eventFilter('$pathname', PropertyOperator.Between, '5'),
-                    eventFilter('$os', PropertyOperator.IContains, 'mac'),
-                ],
-                expectedProperties: [{ key: '$os', operator: 'icontains', value: 'mac' }],
-            },
-            {
-                label: 'omits the properties param entirely when nothing is eligible',
-                properties: [eventFilter('$current_url', PropertyOperator.Exact, null)],
-                expectedProperties: null,
-            },
-        ])('with the flag on, $label', ({ properties, expectedProperties }) => {
-            setRichFiltersFlag(true)
-            logic.actions.setFilters({ properties })
-
-            const url = lastStreamUrl()
-            expect(url.searchParams.has('property')).toBe(false)
-            if (expectedProperties === null) {
-                expect(url.searchParams.has('properties')).toBe(false)
-            } else {
-                expect(JSON.parse(url.searchParams.get('properties')!)).toEqual(expectedProperties)
-            }
         })
     })
 })
