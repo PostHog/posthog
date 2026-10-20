@@ -50,12 +50,6 @@ class TestResendSource:
         assert len(matched) == 1
         assert matched[0] is not None and expected_word in matched[0]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["emails"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "emails"
-
     def test_validate_credentials_api_key_success(self):
         with scripted_network([ScriptedResponse(json={"data": []})]) as network:
             is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)

@@ -77,14 +77,6 @@ class TestHelpScoutSource:
         assert schemas[endpoint].supports_incremental is False
         assert schemas[endpoint].incremental_fields == []
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["mailboxes"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "mailboxes"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"

@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
@@ -68,9 +67,3 @@ class TestHumanitixSource:
         assert kwargs["api_key"] == "hmtx-key"
         assert kwargs["endpoint"] == "events"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Humanitix schema 'not_a_table'" in str(result.raised)

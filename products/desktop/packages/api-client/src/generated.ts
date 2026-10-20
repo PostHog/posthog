@@ -4354,6 +4354,7 @@ export namespace Schemas {
     };
     export type HogQLQueryResponse = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -4520,7 +4521,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -4588,7 +4588,6 @@ export namespace Schemas {
         | "create_early_access_feature"
         | "update_feature_stage"
         | "use_posthog_ai"
-        | "use_posthog_code"
         | "use_posthog_mcp"
         | "use_posthog_in_slack";
     export type BIAggregation =
@@ -6886,6 +6885,7 @@ export namespace Schemas {
     };
     export type Response3 = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -9946,6 +9946,7 @@ export namespace Schemas {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -9953,6 +9954,7 @@ export namespace Schemas {
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9960,13 +9962,15 @@ export namespace Schemas {
         | "flag_live_after_end"
         | "flag_live_before_launch"
         | "bias_risk_multiple_excluded"
+        | "multiple_variants_share"
         | "no_metric"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
-        | "bucketing_changed_mid_run";
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10004,6 +10008,7 @@ export namespace Schemas {
          * * `flag_live_after_end` - Flag Live After End
          * * `flag_live_before_launch` - Flag Live Before Launch
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
@@ -10011,6 +10016,7 @@ export namespace Schemas {
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10385,7 +10391,8 @@ export namespace Schemas {
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
-        | "bias_risk_multiple_excluded";
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -10970,6 +10977,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -11061,6 +11069,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -11131,6 +11140,7 @@ export namespace Schemas {
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11657,6 +11667,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -12038,6 +12049,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -12257,6 +12269,7 @@ export namespace Schemas {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -12323,6 +12336,9 @@ export namespace Schemas {
      * * `Creem` - Creem
      * * `Leantime` - Leantime
      * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12363,6 +12379,7 @@ export namespace Schemas {
         | "Attio"
         | "SnapchatAds"
         | "Linear"
+        | "LiteLLM"
         | "Intercom"
         | "Amplitude"
         | "Mixpanel"
@@ -12454,6 +12471,7 @@ export namespace Schemas {
         | "Plaid"
         | "SurveyMonkey"
         | "Eventbrite"
+        | "Everflow"
         | "RingCentral"
         | "Twilio"
         | "Freshsales"
@@ -12524,6 +12542,7 @@ export namespace Schemas {
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
         | "Plane"
+        | "Scarf"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -13050,6 +13069,7 @@ export namespace Schemas {
         | "LambdaLabs"
         | "LangSmith"
         | "Linode"
+        | "Listmonk"
         | "LlamaCloud"
         | "Mem0"
         | "Metriport"
@@ -13431,6 +13451,7 @@ export namespace Schemas {
         | "LoopReturns"
         | "Mastodon"
         | "Meetup"
+        | "Megaphone"
         | "Memberful"
         | "MercadoPago"
         | "Meteostat"
@@ -13650,6 +13671,7 @@ export namespace Schemas {
         | "SimonData"
         | "CommissionJunction"
         | "Liveblocks"
+        | "Livestorm"
         | "NationBuilder"
         | "Tana"
         | "Zenchef"
@@ -13715,7 +13737,10 @@ export namespace Schemas {
         | "Airship"
         | "Creem"
         | "Leantime"
-        | "Testomatio";
+        | "Testomatio"
+        | "GoogleAdMob"
+        | "Klar"
+        | "ConectoCRM";
     /**
      * * `web` - web
      * * `api` - api
@@ -13764,6 +13789,7 @@ export namespace Schemas {
          * * `Attio` - Attio
          * * `SnapchatAds` - SnapchatAds
          * * `Linear` - Linear
+         * * `LiteLLM` - LiteLLM
          * * `Intercom` - Intercom
          * * `Amplitude` - Amplitude
          * * `Mixpanel` - Mixpanel
@@ -13855,6 +13881,7 @@ export namespace Schemas {
          * * `Plaid` - Plaid
          * * `SurveyMonkey` - SurveyMonkey
          * * `Eventbrite` - Eventbrite
+         * * `Everflow` - Everflow
          * * `RingCentral` - RingCentral
          * * `Twilio` - Twilio
          * * `Freshsales` - Freshsales
@@ -13925,6 +13952,7 @@ export namespace Schemas {
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
          * * `Plane` - Plane
+         * * `Scarf` - Scarf
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob
@@ -14451,6 +14479,7 @@ export namespace Schemas {
          * * `LambdaLabs` - LambdaLabs
          * * `LangSmith` - LangSmith
          * * `Linode` - Linode
+         * * `Listmonk` - Listmonk
          * * `LlamaCloud` - LlamaCloud
          * * `Mem0` - Mem0
          * * `Metriport` - Metriport
@@ -14832,6 +14861,7 @@ export namespace Schemas {
          * * `LoopReturns` - LoopReturns
          * * `Mastodon` - Mastodon
          * * `Meetup` - Meetup
+         * * `Megaphone` - Megaphone
          * * `Memberful` - Memberful
          * * `MercadoPago` - MercadoPago
          * * `Meteostat` - Meteostat
@@ -15051,6 +15081,7 @@ export namespace Schemas {
          * * `SimonData` - SimonData
          * * `CommissionJunction` - CommissionJunction
          * * `Liveblocks` - Liveblocks
+         * * `Livestorm` - Livestorm
          * * `NationBuilder` - NationBuilder
          * * `Tana` - Tana
          * * `Zenchef` - Zenchef
@@ -15117,6 +15148,9 @@ export namespace Schemas {
          * * `Creem` - Creem
          * * `Leantime` - Leantime
          * * `Testomatio` - Testomatio
+         * * `GoogleAdMob` - GoogleAdMob
+         * * `Klar` - Klar
+         * * `ConectoCRM` - ConectoCRM
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -20002,6 +20036,13 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         name?: string | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        logo_media_id?: (string | null) | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *

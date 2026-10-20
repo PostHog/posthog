@@ -839,7 +839,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
             null as GitHubAvailableInstallationsResponseApi | null,
             {
                 invalidateGithubSuggestions: () => null,
-                loadGithubAvailableInstallations: () => null,
                 setGithubDiscovery: (_, { response }) => response,
             },
         ],

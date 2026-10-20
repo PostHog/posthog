@@ -1107,6 +1107,17 @@ export interface HogFlowBatchJobCancelResponseApi {
     done: boolean
 }
 
+export interface HogFlowConvertedToBroadcastApi {
+    /** Id of the workflow that is now a broadcast. */
+    readonly id: string
+    /** The product that now owns the workflow. Always `broadcasts`.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi
+}
+
 /**
  * * `update_action` - update_action
  * * `add_action` - add_action
@@ -1340,7 +1351,7 @@ export const WorkflowProposalStatusEnumApi = {
 export type WorkflowProposalApiContent = { [key: string]: unknown }
 
 /**
- * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+ * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
  */
 export type WorkflowProposalApiEvidence = { [key: string]: unknown }
 
@@ -1352,7 +1363,7 @@ export interface WorkflowProposalApi {
     readonly rationale: string
     /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
     readonly content: WorkflowProposalApiContent
-    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
     readonly evidence: WorkflowProposalApiEvidence
     /**
      * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -1798,6 +1809,29 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface BroadcastConversionCandidateApi {
+    /** Workflow id. */
+    readonly id: string
+    /** Workflow name. Empty when unnamed. */
+    readonly name: string
+    /** Workflow status.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    readonly status: HogFlowStateEnumApi
+}
+
+/**
+ * Workflows that only send one email to a batch audience and can move to broadcasts.
+ */
+export interface BroadcastConversionCandidatesApi {
+    /** True when more workflows can move than `results` lists. */
+    readonly has_more: boolean
+    /** The most recently updated candidates, at most 100. */
+    readonly results: readonly BroadcastConversionCandidateApi[]
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */
@@ -2148,6 +2182,48 @@ export interface BlastRadiusRequestApi {
     sends_email?: boolean
 }
 
+/**
+ * * `ready` - Ready
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `needs_attention` - Needs attention
+ */
+export type RealtimeAudienceCohortStateEnumApi =
+    (typeof RealtimeAudienceCohortStateEnumApi)[keyof typeof RealtimeAudienceCohortStateEnumApi]
+
+export const RealtimeAudienceCohortStateEnumApi = {
+    Ready: 'ready',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    NeedsAttention: 'needs_attention',
+} as const
+
+export interface RealtimeCohortStatusApi {
+    /** The realtime cohort the audience sends to. */
+    id: number
+    /** The cohort's name. */
+    name: string
+    /** 'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `needs_attention` - Needs attention */
+    state: RealtimeAudienceCohortStateEnumApi
+    /**
+     * How far the calculation has come, while the cohort is not ready.
+     * @nullable
+     */
+    percent_complete: number | null
+}
+
+export interface RealtimeCohortRefApi {
+    /** ID of the realtime cohort. */
+    id: number
+    /** Name of the realtime cohort. */
+    name: string
+}
+
 export interface BlastRadiusApi {
     /** Number of users matching the filters */
     affected: number
@@ -2161,6 +2237,10 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+    /** Set when the audience is one realtime cohort. 'affected' is then the cohort's last calculated size, and a batch run waits until the cohort is ready. */
+    realtime_cohort?: RealtimeCohortStatusApi | null
+    /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
+    realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
 }
 
 export interface DataSuggestionBuildRequestApi {

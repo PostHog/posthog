@@ -18,6 +18,7 @@ export type ExperimentHealthFindingCode =
     | 'flag_live_after_end'
     | 'flag_live_before_launch'
     | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
     | 'srm'
     | 'zero_exposures'
     | 'no_metric'
@@ -25,6 +26,7 @@ export type ExperimentHealthFindingCode =
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'
     | 'bucketing_changed_mid_run'
+    | 'release_conditions_changed_mid_run'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode

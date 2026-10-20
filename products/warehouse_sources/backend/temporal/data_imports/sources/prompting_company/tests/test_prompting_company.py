@@ -7,7 +7,6 @@ import time_machine
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
@@ -199,10 +198,3 @@ def test_sync_auth_errors_are_terminal(config: PromptingCompanySourceConfig, sta
     assert isinstance(result.raised, HTTPError)
     assert len(result.requests) == 1
     assert any(pattern in str(result.raised) for pattern in PromptingCompanySource().get_non_retryable_errors())
-
-
-def test_unknown_table_fails_before_request(config: PromptingCompanySourceConfig) -> None:
-    result = run(config, "unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

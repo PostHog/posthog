@@ -5,10 +5,12 @@ from posthog.exceptions_capture import capture_exception
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
+from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.no_metric import no_metric
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm
@@ -22,6 +24,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     flag_history_not_readable,
     split_changed_mid_run,
     bucketing_changed_mid_run,
+    release_conditions_changed_mid_run,
     flag_variants_mismatch,
     forced_variant_release_condition,
     no_metric,
@@ -29,7 +32,12 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
 # is cached for a day, and a flag edit would not clear their findings.
-EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (zero_exposures, srm, bias_risk_multiple_excluded)
+EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
+    zero_exposures,
+    srm,
+    bias_risk_multiple_excluded,
+    multiple_variants_share,
+)
 
 
 def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> list[ExperimentHealthFinding]:

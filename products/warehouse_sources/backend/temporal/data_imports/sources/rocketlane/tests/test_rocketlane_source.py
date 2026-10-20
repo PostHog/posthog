@@ -25,11 +25,6 @@ class TestRocketlaneSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tasks"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "tasks"
-
     @parameterized.expand(
         [
             (
@@ -95,9 +90,3 @@ class TestRocketlaneSource:
         assert result.paths == ["/api/1.0/projects"]
         # The resume manager reaches the extraction: the first request carries the saved token.
         assert result.requests[0].param("pageToken") == "t2"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Rocketlane schema 'not_a_table'" in str(result.raised)

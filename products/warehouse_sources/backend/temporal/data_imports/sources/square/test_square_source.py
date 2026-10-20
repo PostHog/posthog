@@ -12,11 +12,6 @@ class TestSquareSource:
         self.team_id = 123
         self.config = SquareSourceConfig(access_token="EAAA-test", environment="production")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["payments"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "payments"
-
     @pytest.mark.parametrize(
         "mock_return, schema_name, api_version, expected_valid, expected_has_message, expected_version",
         [

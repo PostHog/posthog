@@ -53,6 +53,8 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 _PATCH_ID_MODEL_ROUTER = "slack-app-model-router-v1"
 # Histories recorded without this marker replay `_prework_in_sequence`.
 _PATCH_ID_PARALLEL_PREWORK = "slack-app-parallel-prework-v1"
+# Histories recorded without this marker offer the picker after a usage-limited discovery.
+_PATCH_ID_REPO_SELECTION_USAGE_LIMIT = "slack-app-repo-selection-usage-limit-v1"
 
 
 @workflow.defn(name="slack-app-mention-processing")
@@ -168,6 +170,9 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                         repository = outcome.repository
                     elif outcome.status == "no_match":
                         repository = None
+                    elif workflow.patched(_PATCH_ID_REPO_SELECTION_USAGE_LIMIT) and outcome.usage_limited:
+                        # The activity told the thread the team is out of credits. A picked repo would fail the same way.
+                        return
                     else:
                         # Agent crashed/timed out/hallucinated — italicize its reason
                         # above the picker guidance so the user sees why.

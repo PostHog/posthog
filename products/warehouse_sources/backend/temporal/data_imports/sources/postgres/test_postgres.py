@@ -1644,6 +1644,27 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'pg_stat_statements must be loaded via "shared_preload_libraries"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'ObjectNotInPrerequisiteState: pg_stat_statements must be loaded via "shared_preload_libraries"',
+        ],
+    )
+    def test_pg_stat_statements_not_loaded_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"pg_stat_statements not loaded error should be non-retryable: {error_msg}"
+
+    def test_pg_stat_statements_not_loaded_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'pg_stat_statements must be loaded via "shared_preload_libraries"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "pg_stat_statements not loaded error should surface an actionable message"
+        assert "shared_preload_libraries" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) — a view/trigger
             # function refreshing a materialized view during our read-only SELECT.
             'cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction\nCONTEXT:  SQL statement "REFRESH MATERIALIZED VIEW CONCURRENTLY analyticssnapshot"',
@@ -1711,6 +1732,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Unsupported interval-unit error should surface an actionable message"
         assert "interval" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "division by zero",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "DivisionByZero: division by zero",
+        ],
+    )
+    def test_division_by_zero_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Division-by-zero error should be non-retryable: {error_msg}"
+
+    def test_division_by_zero_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "division by zero"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Division-by-zero error should surface an actionable message"
+        assert "divides by" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2555,6 +2597,14 @@ class TestIsConnectionDroppedError:
                 "safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: connection "
                 'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
                 "failed: server closed the connection unexpectedly"
+            ),
+            # A TCP proxy fronting the actual backend (a public endpoint over a private-network
+            # database) reports a failed connect to its own upstream as a bare FATAL error. The
+            # proxy itself answered; the backend behind it was momentarily unreachable. Transient —
+            # the reconnect must catch it rather than letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  failed to connect to upstream 10.0.0.2:5432"
             ),
         ],
     )

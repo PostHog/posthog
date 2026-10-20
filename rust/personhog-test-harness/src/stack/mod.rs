@@ -35,6 +35,12 @@ const ROUTER_METRICS_BASE_PORT: u16 = 24154;
 const LEADER_METRICS_BASE_PORT: u16 = 24160;
 /// Above the leader range, which grows with every scale-up.
 const PUBLISHER_METRICS_BASE_PORT: u16 = 24200;
+/// Above the publishers, whose count is a flag.
+const MONITOR_PORT: u16 = 24300;
+/// Short, because a fixture's run ends with a wait for the last entries to
+/// settle; long enough to cover the publisher drain on a loaded CI runner.
+const MONITOR_GRACE_SECONDS: u64 = 15;
+const MONITOR_IDLE_PARTITION_SECONDS: u64 = 3;
 const MAX_ROUTERS: u32 = 4;
 /// Partitions of the two per-run publish topics. More than one, so the
 /// keyed merge events spread the way they do in production.
@@ -76,11 +82,18 @@ pub struct StackConfig {
     /// identity service writes, to two per-run topics. Needs
     /// `spawn_identity`: nothing else writes the outbox.
     pub publish: Option<PublishConfig>,
+    /// Also spawn the parity monitor against the publish topics; needs `publish`.
+    pub monitor: Option<MonitorConfig>,
 }
 
 pub struct PublishConfig {
     pub publishers: u32,
     pub rows_per_pass: i64,
+}
+
+pub struct MonitorConfig {
+    pub node_distinct_ids_topic: String,
+    pub node_merge_events_topic: String,
 }
 
 #[derive(Clone)]
@@ -124,6 +137,7 @@ pub struct Stack {
     /// router's URL, which proxies identity RPCs to it.
     pub identity_url: Option<String>,
     publish_topics: Option<PublishTopics>,
+    pub monitor_url: Option<String>,
     pub log_dir: PathBuf,
 }
 
@@ -163,6 +177,9 @@ impl Stack {
         if config.publish.is_some() && !config.spawn_identity {
             bail!("publishing needs the identity service: nothing else writes the outbox");
         }
+        if config.monitor.is_some() && config.publish.is_none() {
+            bail!("the parity monitor needs the publish topics: pass --publish");
+        }
 
         let run_id = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let topic = format!("personhog_test_harness_{run_id}");
@@ -182,13 +199,21 @@ impl Stack {
         if config.publish.is_some() {
             binaries.push("personhog-publisher");
         }
+        if config.monitor.is_some() {
+            binaries.push("personhog-parity-monitor");
+        }
         for bin in &binaries {
             let path = config.bin_dir.join(bin);
             if !path.exists() {
                 bail!(
                     "{} not found — build the stack first:\n  cargo build -p personhog-replica \
-                     -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity",
-                    path.display()
+                     -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity{}",
+                    path.display(),
+                    if config.monitor.is_some() {
+                        " -p personhog-parity-monitor"
+                    } else {
+                        ""
+                    }
                 );
             }
         }
@@ -399,6 +424,43 @@ impl Stack {
             None
         };
 
+        let monitor_url = match (&config.monitor, &publish_topics) {
+            (Some(monitor), Some(topics)) => {
+                infra.push(ServiceProcess::spawn(
+                    "parity-monitor",
+                    &config.bin_dir.join("personhog-parity-monitor"),
+                    &[
+                        ("NODE_KAFKA_HOSTS", config.kafka_hosts.clone()),
+                        (
+                            "NODE_DISTINCT_ID_TOPIC",
+                            monitor.node_distinct_ids_topic.clone(),
+                        ),
+                        (
+                            "NODE_MERGE_EVENTS_TOPIC",
+                            monitor.node_merge_events_topic.clone(),
+                        ),
+                        ("PERSONHOG_KAFKA_HOSTS", config.kafka_hosts.clone()),
+                        ("PERSONHOG_DISTINCT_ID_TOPIC", topics.distinct_ids.clone()),
+                        ("PERSONHOG_MERGE_EVENTS_TOPIC", topics.merge_events.clone()),
+                        ("PARITY_GRACE_SECONDS", MONITOR_GRACE_SECONDS.to_string()),
+                        (
+                            "PARITY_IDLE_PARTITION_SECONDS",
+                            MONITOR_IDLE_PARTITION_SECONDS.to_string(),
+                        ),
+                        // The readers assign before the ready line, so no
+                        // counterpart predates them and every entry is judged.
+                        ("PARITY_WARMUP_SECONDS", "0".to_string()),
+                        ("PARITY_SWEEP_INTERVAL_MS", "500".to_string()),
+                        ("BIND_HOST", "127.0.0.1".to_string()),
+                        ("BIND_PORT", MONITOR_PORT.to_string()),
+                    ],
+                    &log_dir,
+                )?);
+                Some(format!("http://127.0.0.1:{MONITOR_PORT}"))
+            }
+            _ => None,
+        };
+
         let mut stack = Self {
             config,
             infra,
@@ -412,6 +474,7 @@ impl Stack {
             router_url,
             identity_url,
             publish_topics,
+            monitor_url,
             log_dir,
         };
 
@@ -865,6 +928,15 @@ impl Stack {
             wait_tcp(
                 &format!("127.0.0.1:{IDENTITY_GRPC_PORT}"),
                 Duration::from_secs(10),
+            )
+            .await?;
+        }
+        if self.monitor_url.is_some() {
+            // The monitor binds after it assigned every partition at the end
+            // of the log, so a listening port means no later row is missed.
+            wait_tcp(
+                &format!("127.0.0.1:{MONITOR_PORT}"),
+                Duration::from_secs(30),
             )
             .await?;
         }
