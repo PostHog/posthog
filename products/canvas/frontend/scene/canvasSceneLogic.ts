@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -32,6 +33,7 @@ import { Breadcrumb, SidePanelTab, UserType } from '~/types'
 import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { CANVAS_EVENTS, CanvasSurface, captureCanvasAction } from '../canvasAnalytics'
+import { spaceLinksEnabled as computeSpaceLinksEnabled } from '../canvasScenesEnabled'
 import {
     CanvasGenerationTask,
     CanvasSpace,
@@ -169,6 +171,7 @@ export interface canvasSceneLogicValues {
     startHandoff: CanvasStartHandoff | null // canvasNewLogic
     blocksCanvasId: string | null // canvasSidePanelLogic
     currentProjectId: number | null // projectLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     user: UserType | null // userLogic
@@ -205,6 +208,7 @@ export interface canvasSceneLogicValues {
     sidePanelAvailable: boolean
     sidePanelContext: SidePanelSceneContext
     space: CanvasSpace | null
+    spaceLinksEnabled: boolean
     spaceLoading: boolean
     view: CanvasViewResponseApi | null
     viewLoading: boolean
@@ -456,7 +460,13 @@ export interface canvasSceneLogicMeta {
             isGenerating: boolean,
             buildStatus: CanvasBuildStatus
         ) => boolean
-        breadcrumbs: (canvas: CanvasApi | null, space: CanvasSpace | null, arg: string) => Breadcrumb[]
+        spaceLinksEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        breadcrumbs: (
+            canvas: CanvasApi | null,
+            space: CanvasSpace | null,
+            spaceLinksEnabled: boolean,
+            arg: string
+        ) => Breadcrumb[]
     }
 }
 
@@ -476,6 +486,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         values: [
             projectLogic,
             ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
             canvasNewLogic,
             ['startHandoff'],
             sidePanelStateLogic,
@@ -854,11 +866,26 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             (view: CanvasViewResponseApi | null, isGenerating: boolean, buildStatus: CanvasBuildStatus): boolean =>
                 !!view && (isGenerating || buildStatus === 'building'),
         ],
+        spaceLinksEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => computeSpaceLinksEnabled(featureFlags),
+        ],
         breadcrumbs: [
-            (s) => [s.canvas, s.space, (_, props: CanvasSceneLogicProps) => props.id],
-            (canvas: CanvasApi | null, space: CanvasSpace | null, id: string): Breadcrumb[] => [
+            (s) => [s.canvas, s.space, s.spaceLinksEnabled, (_, props: CanvasSceneLogicProps) => props.id],
+            (
+                canvas: CanvasApi | null,
+                space: CanvasSpace | null,
+                spaceLinksEnabled: boolean,
+                id: string
+            ): Breadcrumb[] => [
                 ...(space
-                    ? [{ key: 'canvas-space', name: canvasSpaceLabel(space), path: urls.taskSpace(space.id) }]
+                    ? [
+                          {
+                              key: 'canvas-space',
+                              name: canvasSpaceLabel(space),
+                              ...(spaceLinksEnabled ? { path: urls.taskSpace(space.id) } : {}),
+                          },
+                      ]
                     : []),
                 { key: ['CanvasDetail', id], name: canvas?.name ?? 'Canvas' },
             ],
@@ -1148,7 +1175,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 surface: 'web_canvas_scene',
                 onRestore: () => router.actions.push(urls.canvasDetail(canvas.id)),
             })
-            router.actions.push(urls.taskSpace(canvas.channel))
+            router.actions.push(values.spaceLinksEnabled ? urls.taskSpace(canvas.channel) : urls.views())
         },
         generateCanvas: async ({ instruction, fromSuggestion, surface }) => {
             const canvas = values.canvas
