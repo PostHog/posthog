@@ -35,6 +35,9 @@ class TestSigningSecret(BaseTest):
         row = SigningSecret.objects.for_team(self.team.id).get()
         self.assertEqual(row.secret, self.team.secret_api_token)
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).count(), 1)
+        # A legacy rotation opens the same grace window as an independent one.
+        self.assertEqual(row.previous_secret, existing_token)
+        self.assertEqual(row.previous_secret_rotated_at is not None, existing_token is not None)
 
     def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
         # A legacy rotation syncing over an independent secret silently breaks verification.

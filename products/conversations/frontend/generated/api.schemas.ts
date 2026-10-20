@@ -51,6 +51,11 @@ export interface SigningSecretApi {
      * @nullable
      */
     readonly updated_at: string | null
+    /**
+     * Until when the previous secret keeps verifying after a rotation, or null when no grace window is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
 }
 
 /**

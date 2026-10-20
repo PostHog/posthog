@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db import transaction
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -35,6 +36,19 @@ class SigningSecretSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When the secret last changed, or null when no secret exists yet.",
     )
+    previous_secret_valid_until = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Until when the previous secret keeps verifying after a rotation, or null when no grace window is active.",
+    )
+
+
+def _serializer_payload(row: SigningSecret | None) -> dict[str, Any]:
+    return {
+        "secret": row.secret if row else None,
+        "updated_at": row.updated_at if row else None,
+        "previous_secret_valid_until": row.previous_secret_valid_until if row and row.previous_secret_active else None,
+    }
 
 
 class _SessionOnlyPermission(BasePermission):
@@ -67,24 +81,28 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         row = SigningSecret.objects.for_team(self.team_id).first()
-        serializer = SigningSecretSerializer(
-            {"secret": row.secret if row else None, "updated_at": row.updated_at if row else None}
-        )
+        serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)
 
     @extend_schema(
         request=None,
         responses=SigningSecretSerializer,
-        description="Generate a new signing secret. Identity hashes signed with the previous secret stop verifying immediately.",
+        description="Generate a new signing secret. The previous secret keeps verifying identity hashes for 48 hours, then expires.",
     )
     @action(methods=["POST"], detail=False)
     def rotate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        old_row = SigningSecret.objects.for_team(self.team_id).first()
         # One transaction: a credential change without its audit row must not commit.
         with transaction.atomic():
+            # Locked read: two concurrent rotations must not both capture the same
+            # previous secret and lose one of the new values.
+            old_row = SigningSecret.objects.for_team(self.team_id).select_for_update().first()
+            defaults: dict[str, Any] = {"secret": generate_random_token(), "rotated_independently": True}
+            if old_row:
+                defaults["previous_secret"] = old_row.secret
+                defaults["previous_secret_rotated_at"] = timezone.now()
             row, _ = SigningSecret.objects.for_team(self.team_id).update_or_create(
                 team_id=self.team_id,
-                defaults={"secret": generate_random_token(), "rotated_independently": True},
+                defaults=defaults,
             )
             log_activity(
                 organization_id=self.team.organization_id,
@@ -107,5 +125,5 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     ],
                 ),
             )
-        serializer = SigningSecretSerializer({"secret": row.secret, "updated_at": row.updated_at})
+        serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)

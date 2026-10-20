@@ -114,7 +114,7 @@ export const getConversationsSigningSecretRotateCreateUrl = (projectId: string) 
 }
 
 /**
- * Generate a new signing secret. Identity hashes signed with the previous secret stop verifying immediately.
+ * Generate a new signing secret. The previous secret keeps verifying identity hashes for 48 hours, then expires.
  */
 export const conversationsSigningSecretRotateCreate = async (
     projectId: string,

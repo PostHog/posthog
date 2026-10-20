@@ -4,6 +4,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,11 +19,13 @@ export function IdentityVerificationSecretSection(): JSX.Element {
     const { isTeamTokenResetAvailable } = useValues(teamLogic)
 
     const secret = signingSecret?.secret ?? null
+    // Null once the window lapses: the API only reports an active grace window.
+    const previousSecretValidUntil = signingSecret?.previous_secret_valid_until ?? null
 
     const openRotateDialog = (): void => {
         const verb = secret ? 'Rotate' : 'Generate'
         const description = secret
-            ? 'This generates a new secret right away. Identity hashes signed with the current secret stop verifying immediately, so update your server-side code with the new secret as soon as you rotate.'
+            ? 'This generates a new secret right away. The current secret keeps verifying for 48 hours so you can update your server-side code, then it expires.'
             : 'This generates a secret for verifying the identity of users in the support widget.'
 
         LemonDialog.open({
@@ -75,11 +78,16 @@ export function IdentityVerificationSecretSection(): JSX.Element {
                                 'No secret yet. Generate one with the button on the right to enable identity verification.'}
                         </CodeSnippet>
 
-                        {secret ? (
-                            <LemonBanner type="warning" className="my-2">
-                                Rotating this secret invalidates identity hashes signed with the current one
-                                immediately. Rotate if it has been compromised or as part of your regular rotation
-                                policy, and update your server-side code right after.
+                        {previousSecretValidUntil ? (
+                            <LemonBanner type="info" className="my-2">
+                                The previous secret keeps verifying until{' '}
+                                <TZLabel time={previousSecretValidUntil} formatDate="MMM D, YYYY" formatTime="h:mm A" />
+                                . Update your server-side code with the new secret before then.
+                            </LemonBanner>
+                        ) : secret ? (
+                            <LemonBanner type="info" className="my-2">
+                                Rotating this secret starts a 48-hour grace window: the previous secret keeps verifying
+                                until the window ends, then expires. Update your server-side code within that window.
                             </LemonBanner>
                         ) : (
                             <LemonBanner type="info" className="my-2">

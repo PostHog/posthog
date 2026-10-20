@@ -6,6 +6,7 @@ from django.db.models import F
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -619,5 +620,10 @@ def sync_signing_secret_on_rotation(sender, team, **kwargs):
     )
     if created or row.rotated_independently:
         return
+    # Mirror the rotation's grace semantics: the replaced secret keeps verifying for
+    # the grace window, matching rotations made via the conversations endpoint.
+    if row.secret and row.secret != team.secret_api_token:
+        row.previous_secret = row.secret
+        row.previous_secret_rotated_at = timezone.now()
     row.secret = team.secret_api_token
-    row.save(update_fields=["secret"])
+    row.save(update_fields=["secret", "previous_secret", "previous_secret_rotated_at"])

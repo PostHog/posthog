@@ -32,7 +32,7 @@ class TestSigningSecretAPI(APIBaseTest):
     def test_get_without_a_row_returns_null(self):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"secret": None, "updated_at": None}
+        assert response.json() == {"secret": None, "updated_at": None, "previous_secret_valid_until": None}
 
     def test_rotate_mints_an_independent_secret_and_leaves_the_legacy_token_alone(self):
         self._make_admin()
@@ -47,6 +47,9 @@ class TestSigningSecretAPI(APIBaseTest):
         assert response.json()["secret"] == row.secret
         assert row.secret != "phs_legacy_token"
         assert row.rotated_independently is True
+        assert row.previous_secret == "phs_legacy_token"
+        assert row.previous_secret_rotated_at is not None
+        assert response.json()["previous_secret_valid_until"] is not None
         self.team.refresh_from_db()
         assert self.team.secret_api_token == "phs_legacy_token"
 

@@ -1,1 +1,1 @@
-0077_signingsecret_rotated_independently
+0078_signingsecret_previous_secret_and_more
