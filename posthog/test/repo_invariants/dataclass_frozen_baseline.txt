@@ -1050,8 +1050,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/snowplow/snowplow.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/snyk/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/snyk/snyk.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/solarwinds_service_desk/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/solarwinds_service_desk/solarwinds_service_desk.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonar_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonar_cloud/sonar_cloud.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonarqube/settings.py
