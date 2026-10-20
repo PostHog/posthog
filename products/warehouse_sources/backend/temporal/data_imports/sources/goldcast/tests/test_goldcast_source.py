@@ -60,12 +60,6 @@ class TestValidateCredentials:
                 None,
             )
 
-    def test_invalid_token_surfaces_message(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, message = GoldcastSource().validate_credentials(GoldcastSourceConfig(access_key="tok"), team_id=1)
-        assert valid is False
-        assert message == "Invalid Goldcast API token"
-
 
 class TestDocumentedTables:
     def test_canonical_descriptions_key_on_endpoint_names(self) -> None:

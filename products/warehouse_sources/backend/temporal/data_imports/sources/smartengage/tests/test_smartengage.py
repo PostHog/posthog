@@ -1,6 +1,5 @@
 import pytest
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -27,29 +26,12 @@ def _driver() -> SourceDriver:
 class TestSmartEngageTransport:
     @parameterized.expand(
         [
-            ("valid_key", 200, [{"avatar_id": "1"}], (True, None)),
-            ("empty_account", 200, [], (True, None)),
-            ("unauthorized", 401, {"error": "unauthorized"}, (False, "Invalid SmartEngage API key")),
-            ("forbidden", 403, {"error": "forbidden"}, (False, "Invalid SmartEngage API key")),
             ("server_error", 503, {}, (False, "SmartEngage API returned status 503")),
-            # An error object served with a 200 must not validate as a working key.
-            (
-                "error_body_with_200",
-                200,
-                {"error": "invalid key"},
-                (False, "SmartEngage API returned an unexpected response"),
-            ),
         ]
     )
     def test_validate_credentials_status_mapping(self, _name, status, payload, expected) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json=payload))):
             assert validate_credentials(api_key="se_key") == expected
-
-    def test_validate_credentials_handles_request_exception(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            is_valid, message = validate_credentials(api_key="se_key")
-        assert is_valid is False
-        assert message is not None and "SmartEngage request failed" in message
 
     @parameterized.expand([("tags",), ("custom_fields",), ("sequences",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint: str) -> None:

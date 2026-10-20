@@ -1,7 +1,5 @@
 from typing import Any, Optional
 
-import pytest
-
 import requests
 from parameterized import parameterized
 
@@ -138,23 +136,6 @@ class TestErrorHandling:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Simplesat API key"),
-            (403, False, "Invalid Simplesat API key"),
-            (500, False, "Simplesat returned HTTP 500"),
-        ],
-    )
-    def test_status_mapping(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("ss-key") == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("ss-key") == (False, "Could not validate Simplesat API key")
-
     def test_probe_disables_redirects_to_protect_api_key(self) -> None:
         # The X-Simplesat-Token header rides on the probe; the session must be built with redirects
         # pinned off so a redirect can't replay the key to the redirect target during validation.

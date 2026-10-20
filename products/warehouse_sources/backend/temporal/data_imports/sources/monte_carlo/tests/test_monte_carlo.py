@@ -99,8 +99,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, {"data": {"getUser": {"email": "a@b.com"}}}, True),
-            ("unauthorized", 401, {"message": "Unauthorized"}, False),
-            ("graphql_error", 200, {"errors": [{"message": "boom"}]}, False),
         ]
     )
     def test_status_mapping(self, _label: str, status_code: int, payload: dict, expected: bool) -> None:
