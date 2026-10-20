@@ -97,6 +97,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
     INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL,
+    LOADED_PREFIX_PROMOTION_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
@@ -874,6 +875,78 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         )
 
 
+def _promote_loaded_prefixes(
+    signals: list[ExportSignalMessage], finals: list[ExportSignalMessage], schema: ExternalDataSchema
+) -> None:
+    """Move the watermark over the loaded prefix of each run in this write that does not complete here.
+
+    A run that completes here promotes its full staged cursor in its completion instead. A failed
+    promotion only leaves the watermark lower, so it never fails the batch, which already landed.
+    """
+    if not settings.DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED:
+        return
+    completed = {signal.run_uuid for signal in finals}
+    signals_by_run: dict[str, list[ExportSignalMessage]] = {}
+    for signal in signals:
+        if signal.sync_type == "incremental" and signal.cdc_write_mode is None and not signal.is_first_ever_sync:
+            signals_by_run.setdefault(signal.run_uuid, []).append(signal)
+    for run_uuid, run_signals in signals_by_run.items():
+        if run_uuid in completed:
+            continue
+        try:
+            outcome = _promote_loaded_prefix(run_signals, schema)
+        except Exception as e:
+            outcome = "error"
+            capture_exception(e)
+            logger.warning(
+                "loaded_prefix_promotion_failed",
+                team_id=run_signals[0].team_id,
+                external_data_schema_id=run_signals[0].schema_id,
+                run_uuid=run_uuid,
+                exc_info=True,
+            )
+        if outcome is not None:
+            LOADED_PREFIX_PROMOTION_TOTAL.labels(outcome=outcome).inc()
+
+
+def _promote_loaded_prefix(run_signals: list[ExportSignalMessage], schema: ExternalDataSchema) -> str | None:
+    """Promote the watermark that the last batch of this write recorded, when every earlier batch is loaded.
+
+    Returns the metric outcome, or None for a batch that recorded no watermark.
+    """
+    head = run_signals[0]
+    prefix = BatchQueue.get_loaded_prefix_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=head.team_id,
+        schema_id=head.schema_id,
+        run_uuid=head.run_uuid,
+        first_batch_index=min(signal.batch_index for signal in run_signals),
+        last_batch_index=max(signal.batch_index for signal in run_signals),
+    )
+    cursor = prefix.cursor
+    if not isinstance(cursor, dict):
+        return None
+    field, value, job_rows_synced = cursor.get("field"), cursor.get("value"), cursor.get("job_rows_synced")
+    if not isinstance(field, str) or value is None or not isinstance(job_rows_synced, int):
+        return None
+    if not prefix.is_complete:
+        return "incomplete"
+    moved = schema.promote_loaded_prefix_value(
+        run_uuid=head.run_uuid, job_id=head.job_id, field=field, value=value, job_rows_synced=job_rows_synced
+    )
+    if not moved:
+        return "kept"
+    logger.info(
+        "loaded_prefix_cursor_promoted",
+        team_id=head.team_id,
+        external_data_schema_id=head.schema_id,
+        external_data_job_id=head.job_id,
+        run_uuid=head.run_uuid,
+        last_batch_index=max(signal.batch_index for signal in run_signals),
+    )
+    return "promoted"
+
+
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
     # Short-circuit if the job is already FAILED: redelivered DLQ'd messages
     # (the retry state stays in Redis until its 72h TTL) would otherwise spam
@@ -1562,6 +1635,7 @@ def _process_message_reported(
             finals = [export_signal] if export_signal.is_final_batch else []
         if not finals and _rebuild_compaction_due(export_signal, schema, members):
             _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
+        _promote_loaded_prefixes(constituents if constituents is not None else [export_signal], finals, schema)
         for run_signal in finals:
             run_job = job if run_signal.job_id == export_signal.job_id else _load_job(run_signal.job_id)
             run_schema = run_job.schema
