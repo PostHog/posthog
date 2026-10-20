@@ -2,6 +2,7 @@ import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-ty
 
 import { SCREENSHOT_ATTRIBUTE } from './mobile/transformer/transformers'
 import { RecordingSegment, RecordingSnapshot } from './types'
+import { isObject } from './utils'
 
 // nodejs/src/session-recording/segmentation.ts has a cut-down version of this
 // for computing activeMilliseconds during ingestion. It intentionally differs:
@@ -27,7 +28,10 @@ const isScreenshotMutation = (event: eventWithTime): boolean => {
         event.type === EventType.IncrementalSnapshot &&
         event.data?.source === IncrementalSource.Mutation &&
         Array.isArray(event.data.attributes) &&
-        event.data.attributes.some((mutation) => SCREENSHOT_ATTRIBUTE in mutation.attributes)
+        event.data.attributes.some(
+            (mutation) =>
+                isObject(mutation) && isObject(mutation.attributes) && SCREENSHOT_ATTRIBUTE in mutation.attributes
+        )
     )
 }
 

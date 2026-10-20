@@ -155,4 +155,24 @@ describe('createSegments', () => {
             ['window', false, 13000],
         ])
     })
+    it('does not throw on an attribute mutation without an attributes object', () => {
+        const malformed = (timestamp: number): RecordingSnapshot =>
+            ({
+                windowId: 1,
+                timestamp,
+                type: 3,
+                data: {
+                    source: 0,
+                    texts: [],
+                    attributes: [{ id: 1 }, { id: 2, attributes: 'x' }],
+                    removes: [],
+                    adds: [],
+                },
+            }) as unknown as RecordingSnapshot
+        const snapshots = recordingWith(malformed)
+
+        expect(() =>
+            createSegments(snapshots, start, start + 19000, null, mapSnapshotsToWindowId(snapshots))
+        ).not.toThrow()
+    })
 })

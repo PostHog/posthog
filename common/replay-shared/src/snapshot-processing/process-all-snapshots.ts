@@ -1,7 +1,7 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
-import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
+import { SCREEN_CHROME_PARENT_IDS, SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -76,7 +76,8 @@ function isScreenshotOnlyUpdate(snapshot: RecordingSnapshot): boolean {
 
 // Flutter and iOS send every screenshot as a full snapshot. After transformEventToWeb its body holds the
 // screenshot img and the empty keyboard, navigation bar and status bar containers; the synthetic Android
-// full above holds only the img. Anything else in the body means the frame is not just a screenshot.
+// full above holds only the img. Any other node, or one of those containers with content, means the frame
+// is not just a screenshot.
 function extractImgNodeFromScreenshotOnlyFull(fullSnapshot: fullSnapshotEvent): any | undefined {
     const htmlNode = (fullSnapshot.data.node as any).childNodes?.find(
         (node: any) => node.type === 2 && node.tagName === 'html'
@@ -93,7 +94,7 @@ function extractImgNodeFromScreenshotOnlyFull(fullSnapshot: fullSnapshotEvent): 
                 return undefined
             }
             imgNode = child
-        } else if (child.childNodes?.length) {
+        } else if (!SCREEN_CHROME_PARENT_IDS.has(child.id) || child.childNodes?.length) {
             return undefined
         }
     }
@@ -109,6 +110,36 @@ function isSameScreenshot(previousImgNode: any | undefined, imgNode: any): boole
         previousImgNode.attributes.width === imgNode.attributes.width &&
         previousImgNode.attributes.height === imgNode.attributes.height
     )
+}
+
+// Seeking replays from the nearest full snapshot, so a long run of src swaps keeps a real full snapshot
+// every this many frames. Each one rebuilds the document, which is one WebKit flash per interval.
+const SCREENSHOT_MUTATIONS_PER_FULL_SNAPSHOT = 30
+
+function canSwapScreenshot(context: ProcessSnapshotContext, windowId: number, imgNode: any): boolean {
+    return (
+        isSameScreenshot(context.lastScreenshotByWindow[windowId], imgNode) &&
+        (context.screenshotMutationsByWindow[windowId] ?? 0) < SCREENSHOT_MUTATIONS_PER_FULL_SNAPSHOT
+    )
+}
+
+function rememberScreenshot(context: ProcessSnapshotContext, windowId: number, imgNode: any | undefined): void {
+    context.lastScreenshotByWindow[windowId] = imgNode
+    context.screenshotMutationsByWindow[windowId] = 0
+}
+
+function pushScreenshotMutation(
+    context: ProcessSnapshotContext,
+    windowId: number,
+    timestamp: number,
+    imgNode: any,
+    currentTimestamp: number
+): void {
+    const mutation = createScreenshotMutation(windowId, timestamp, imgNode)
+    context.result.push(mutation)
+    context.sourceResult.push(mutation)
+    context.previousTimestamp = currentTimestamp
+    context.screenshotMutationsByWindow[windowId] = (context.screenshotMutationsByWindow[windowId] ?? 0) + 1
 }
 
 function createScreenshotMutation(windowId: number, timestamp: number, imgNode: any): RecordingSnapshot {
@@ -205,6 +236,7 @@ export async function processAllSnapshots(
         seenHashes: new Set<number>(),
         sourceHadViewportGap: false,
         lastScreenshotByWindow: {},
+        screenshotMutationsByWindow: {},
     }
 
     // Reset each pass: any source with a gap was left uncached, so it re-processes below and
@@ -241,6 +273,7 @@ export async function processAllSnapshots(
         context.seenHashes = new Set<number>()
         // each source keeps a real full snapshot so seeking into it never depends on another source
         context.lastScreenshotByWindow = {}
+        context.screenshotMutationsByWindow = {}
         const pushPatchedMeta = createPushPatchedMeta(
             context,
             sourceKey,
@@ -299,6 +332,8 @@ type ProcessSnapshotContext = {
     // attribute mutation of that img instead of a full snapshot, since rebuilding the document for every
     // frame flashes white in WebKit until the new img decodes.
     lastScreenshotByWindow: Record<number, any | undefined>
+    // src swaps emitted since the window's last real full snapshot, capped at SCREENSHOT_MUTATIONS_PER_FULL_SNAPSHOT
+    screenshotMutationsByWindow: Record<number, number>
 }
 
 function createPushPatchedMeta(
@@ -395,20 +430,19 @@ function processSnapshot(
 
     if (snapshot.type === EventType.Meta) {
         context.hasSeenMeta = true
-        delete context.lastScreenshotByWindow[windowId]
+        rememberScreenshot(context, windowId, undefined)
     }
 
     if (snapshot.type === EventType.IncrementalSnapshot && isLikelyMobileScreenshot(snapshot)) {
         const imgNode = extractImgNodeFromMobileIncremental(snapshot)
+        const screenshotOnly = isScreenshotOnlyUpdate(snapshot)
 
-        if (isSameScreenshot(context.lastScreenshotByWindow[windowId], imgNode) && isScreenshotOnlyUpdate(snapshot)) {
-            const mutation = createScreenshotMutation(windowId, snapshot.timestamp, imgNode)
-            context.result.push(mutation)
-            context.sourceResult.push(mutation)
-            context.previousTimestamp = currentTimestamp
+        if (screenshotOnly && canSwapScreenshot(context, windowId, imgNode)) {
+            pushScreenshotMutation(context, windowId, snapshot.timestamp, imgNode, currentTimestamp)
             return
         }
-        context.lastScreenshotByWindow[windowId] = imgNode
+        // an update that also changes something besides the screenshot can't be followed by a src swap
+        rememberScreenshot(context, windowId, screenshotOnly ? imgNode : undefined)
 
         const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
         const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
@@ -421,6 +455,16 @@ function processSnapshot(
 
         context.result.push(syntheticFull)
         context.sourceResult.push(syntheticFull)
+    }
+
+    // Anything else that changes the page, like the keyboard opening, isn't in the screenshot img, so the
+    // next frame has to rebuild the document instead of only swapping the img src.
+    if (
+        snapshot.type === EventType.IncrementalSnapshot &&
+        (snapshot.data as any)?.source === IncrementalSource.Mutation &&
+        !isLikelyMobileScreenshot(snapshot)
+    ) {
+        rememberScreenshot(context, windowId, undefined)
     }
 
     // Like the FullSnapshot guard below: decompressEvent fails open, so a Mutation or StyleSheetRule
@@ -467,14 +511,11 @@ function processSnapshot(
         }
 
         const imgNode = extractImgNodeFromScreenshotOnlyFull(fullSnapshot)
-        if (imgNode && isSameScreenshot(context.lastScreenshotByWindow[windowId], imgNode)) {
-            const mutation = createScreenshotMutation(windowId, snapshot.timestamp, imgNode)
-            context.result.push(mutation)
-            context.sourceResult.push(mutation)
-            context.previousTimestamp = currentTimestamp
+        if (imgNode && canSwapScreenshot(context, windowId, imgNode)) {
+            pushScreenshotMutation(context, windowId, snapshot.timestamp, imgNode, currentTimestamp)
             return
         }
-        context.lastScreenshotByWindow[windowId] = imgNode
+        rememberScreenshot(context, windowId, imgNode)
 
         context.seenFullByWindow[snapshot.windowId] = true
         pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)

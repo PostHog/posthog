@@ -1402,6 +1402,56 @@ describe('process all snapshots', () => {
 
             expect(eventTypes(results)).toEqual([4, 2, 4, 2])
         })
+
+        it('goes back to a full snapshot when the keyboard opens between screenshots', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                { type: 5, timestamp: 1500, data: { tag: 'keyboard', payload: { open: true, height: 300 } } },
+                screenshotFull(2000, 'data:image/webp;base64,two'),
+                screenshotFull(3000, 'data:image/webp;base64,three'),
+            ])
+
+            // the keyboard mutation is followed by a real full snapshot, which rebuilds the document without it
+            expect(eventTypes(results)).toEqual([4, 2, 3, 4, 2, 3])
+            expect((results[2].data as any).source).toBe(IncrementalSource.Mutation)
+            expect(results[4].timestamp).toBe(2000)
+        })
+
+        it('does not treat an empty element other than the screen chrome containers as part of a screenshot', async () => {
+            const withOverlay = (timestamp: number, base64: string): Record<string, unknown> => {
+                const full = screenshotFull(timestamp, base64)
+                ;(full.data as any).wireframes.push({
+                    id: 888,
+                    type: 'rectangle',
+                    width: 400,
+                    height: 100,
+                    x: 0,
+                    y: 0,
+                    style: { backgroundColor: '#000000' },
+                })
+                return full
+            }
+            const results = await process([
+                withOverlay(1000, 'data:image/webp;base64,one'),
+                withOverlay(2000, 'data:image/webp;base64,two'),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 4, 2])
+        })
+
+        it('keeps a real full snapshot every 30 screenshot frames so seeking stays cheap', async () => {
+            const swapsPerFull = 30
+            const frames = Array.from({ length: swapsPerFull + 3 }, (_, i) =>
+                screenshotFull(1000 * (i + 1), `data:image/webp;base64,frame${i}`)
+            )
+            const results = await process(frames)
+
+            const fullIndexes = results.flatMap((r, i) => (r.type === 2 ? [i] : []))
+            expect(fullIndexes).toHaveLength(2)
+            // the first frame is a full snapshot, then 30 swaps, then the next frame is a full snapshot again
+            expect(results[fullIndexes[1]].timestamp).toBe(1000 * (swapsPerFull + 2))
+            expect(results.filter((r) => r.type === 3)).toHaveLength(swapsPerFull + 1)
+        })
     })
 
     describe('undecodable full snapshot', () => {
