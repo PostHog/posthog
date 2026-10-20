@@ -4,8 +4,8 @@ schedule_materialization used to clear is_materialized on any error, a Temporal 
 and nothing turns it back on. Give this command the saved query ids from the captured
 scheduling errors. It skips a query that is deleted or materialized again, and schedules the
 rest. A query that fails to schedule again goes back to off, so the summary reports it.
-Each recovery commits in one transaction. A run that stops in the middle, by SIGKILL too, leaves
-the query in progress off, so the next run tries it again.
+The flag goes back on only after every Temporal call succeeds. A run that stops in the middle,
+by SIGKILL too, leaves the query in progress off, so the next run tries it again.
 
     python manage.py reenable_materialization --ids-file ids.txt              # dry-run
     python manage.py reenable_materialization --ids-file ids.txt --apply
@@ -70,30 +70,26 @@ class Command(BaseCommand):
         self.stdout.write(f"Re-enabled {reenabled}, failed {failed}.")
 
     def _reenable(self, saved_query: DataWarehouseSavedQuery) -> None:
-        # Only queries that are off become candidates, so a run that dies here must not leave its
-        # query on. Postgres drops the uncommitted flag of a killed run. The Temporal calls are
-        # idempotent, so the next run also repairs a schedule that the killed run created.
-        with transaction.atomic():
-            saved_query.is_materialized = True
-            saved_query.save(update_fields=["is_materialized"])
-            # The default reconcile logs a failure and does not raise it, so a query that no tier runs
-            # counts as re-enabled. Reconcile below instead, where a failure raises.
-            saved_query.schedule_materialization(reconcile=False)
-            self._raise_if_switched_off(saved_query)
-            nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).select_related(
-                "dag", "dag__team"
-            )
-            for dag in {node.dag for node in nodes}:
-                reconcile_dag_schedules(dag)
-            # A failed first enable leaves the node a VIEW, and a DAG run skips a VIEW node as ephemeral.
-            promote_view_nodes_to_matview(saved_query)
-        # A DAG bootstrap waits for the commit above, and it switches the query off when it fails.
-        self._raise_if_switched_off(saved_query)
-
-    def _raise_if_switched_off(self, saved_query: DataWarehouseSavedQuery) -> None:
-        saved_query.refresh_from_db(fields=["is_materialized"])
+        # Only queries that are off become candidates, so the flag reaches the database only after
+        # every Temporal call. A run that stops before then leaves the query off for the next run, and
+        # no row lock waits on Temporal. Until then the flag is on in memory only, where the failure
+        # paths of schedule_materialization switch it off.
+        saved_query.is_materialized = True
+        # The default reconcile logs a failure and does not raise it, so a query that no tier runs
+        # counts as re-enabled. Reconcile below instead, where a failure raises.
+        saved_query.schedule_materialization(reconcile=False)
         if not saved_query.is_materialized:
             raise SwitchedOffAgainError("scheduling switched it off again")
+        nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).select_related(
+            "dag", "dag__team"
+        )
+        for dag in {node.dag for node in nodes}:
+            reconcile_dag_schedules(dag)
+        with transaction.atomic():
+            saved_query.save(update_fields=["is_materialized"])
+            # A failed first enable leaves the node a VIEW, and a DAG run skips a VIEW node as ephemeral.
+            # The promotion reads the flag from the database, so it follows the save.
+            promote_view_nodes_to_matview(saved_query)
 
     def _parse_ids(self, raw: str, ids_file: Path | None) -> set[UUID]:
         tokens = [token.strip() for token in raw.split(",")]
