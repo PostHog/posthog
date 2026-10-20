@@ -98,7 +98,7 @@ async def eval_dashboard_widgets(ctx: EvalContext) -> None:
                 expected={
                     "saved_widget_state": {
                         "widget_type": ERROR_TRACKING_WIDGET,
-                        "preserved": list(SEEDED_ERROR_TRACKING_CONFIG),
+                        "preserved": "all",
                         "layout_width": 12,
                     }
                 },

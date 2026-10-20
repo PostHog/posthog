@@ -16,7 +16,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.posthog_ai.eval_harness.log_parser import LogParser
+from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers.contract import AsyncOnlyScorerMixin, Score, Scorer
 from products.product_analytics.backend.facade.models import Insight
 
@@ -180,7 +180,7 @@ class WidgetFirstWriteValid(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
         parser = LogParser.cached(output["raw_log"], initial_prompt=output.get("prompt", "") or "")
         calls = parser.get_tool_calls()
-        writes = [call for call in calls if call.name in WIDGET_WRITE_TOOLS]
+        writes = [call for call in calls if _is_widget_write(call)]
         if not writes:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No widget write call"})
 
@@ -236,15 +236,22 @@ class SavedWidgetState(AsyncOnlyScorerMixin, Scorer):
             "requested_config": all(
                 _same_value(config.get(key), value) for key, value in spec.get("config", {}).items()
             ),
-            "preserved_config": all(
-                _same_value(config.get(key), seeded_config.get(key)) for key in spec.get("preserved", [])
-            ),
+            "preserved_config": config == seeded_config
+            if spec.get("preserved") == "all"
+            else all(_same_value(config.get(key), seeded_config.get(key)) for key in spec.get("preserved", [])),
             "same_widget": "widget_id" not in seed or str(tile["widget_id"]) == str(seed["widget_id"]),
             "layout_width": "layout_width" not in spec
             or ((tile["layouts"] or {}).get("sm") or {}).get("w") == spec["layout_width"],
         }
         failed = [name for name, passed in checks.items() if not passed]
         return Score(name=self._name(), score=float(not failed), metadata={"failed_checks": failed, "config": config})
+
+
+def _is_widget_write(call: ToolCall) -> bool:
+    # dashboard-update also edits dashboard metadata, which does not touch any widget.
+    if call.name == "dashboard-update":
+        return "tiles" in call.input
+    return call.name in WIDGET_WRITE_TOOLS
 
 
 def _same_value(actual: Any, wanted: Any) -> bool:

@@ -185,6 +185,12 @@ _SEEDED_WIDGET_CONFIG = {"limit": 5, "orderBy": "last_seen", "status": "active",
         ("widget_recreated", {"widget_id": "new-widget"}, 0.0),
         ("duplicate_widget", {"tile_count": 2}, 0.0),
         ("not_full_width", {"layouts": {"sm": {"w": 6}}}, 0.0),
+        ("whole_config_kept", {"preserve_all": True, "config": {"limit": 5}}, 1.0),
+        (
+            "default_changed_when_all_must_stay",
+            {"preserve_all": True, "config": {"limit": 5, "orderDirection": "ASC"}},
+            0.0,
+        ),
     ]
 )
 def test_widget_state_scores_config_identity_and_width(
@@ -198,12 +204,11 @@ def test_widget_state_scores_config_identity_and_width(
         "widget__config": config,
     }
     seed = {"team_id": 42, "dashboard_id": 7, "widget_id": "seeded-widget", "widget_config": _SEEDED_WIDGET_CONFIG}
-    spec = {
-        "widget_type": "error_tracking_list",
-        "config": {"limit": 20, "severityLevels": ["error", "fatal"]},
-        "preserved": ["orderBy", "status"],
-        "layout_width": 12,
-    }
+    spec: dict[str, Any] = {"widget_type": "error_tracking_list", "layout_width": 12}
+    if change.get("preserve_all"):
+        spec["preserved"] = "all"
+    else:
+        spec.update({"config": {"limit": 20, "severityLevels": ["error", "fatal"]}, "preserved": ["orderBy", "status"]})
     with patch.object(SavedWidgetState, "_read_state", return_value=[tile] * change.get("tile_count", 1)):
         score = asyncio.run(SavedWidgetState().eval_async({"seed": seed}, {"saved_widget_state": spec}))
 
@@ -237,9 +242,18 @@ def _exec(command: str, status: str = "completed") -> tuple[str, dict[str, str],
         ),
         (
             "reads_do_not_count_as_writes",
-            [_exec("call dashboard-get {}"), _exec('call dashboard-update {"id": 7}')],
+            [_exec("call dashboard-get {}"), _exec('call dashboard-update {"id": 7, "tiles": []}')],
             1.0,
             {"write_attempts": 1, "write_tools": ["dashboard-update"]},
+        ),
+        (
+            "dashboard_metadata_update_is_not_a_widget_write",
+            [
+                _exec('call dashboard-update {"id": 7, "name": "Renamed"}'),
+                _exec('call dashboard-widgets-batch-add {"id": 7}', "failed"),
+            ],
+            0.0,
+            {"write_attempts": 1, "write_tools": ["dashboard-widgets-batch-add"]},
         ),
         ("no_widget_write", [_exec("call dashboard-get {}")], 0.0, {}),
     ]
