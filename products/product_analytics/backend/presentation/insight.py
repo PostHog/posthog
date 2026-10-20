@@ -1,4 +1,5 @@
 import json
+import builtins
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -157,6 +158,7 @@ from products.dashboards.backend.facade.api import (
     hide_tiles_for_insights,
     insight_has_listed_tile,
     insight_ids_on_dashboard,
+    insights_with_dashboard_edit_access,
     plan_insight_tile_placement,
     restore_tiles_for_insights,
     tile_for_insight_on_dashboard,
@@ -166,7 +168,6 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
-from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -193,6 +194,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
 )
+from products.product_analytics.backend.presentation.insight_permissions import CanEditInsightDashboards
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
 from products.subscriptions.backend.facade.api import delete_insight_subscriptions
@@ -576,8 +578,6 @@ class InsightSerializer(InsightBasicSerializer):
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
-    effective_restriction_level = serializers.SerializerMethodField()
-    effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
     dashboards = DashboardIdsField(  # type: ignore[assignment]
@@ -651,8 +651,6 @@ class InsightSerializer(InsightBasicSerializer):
             "last_modified_at",
             "last_modified_by",
             "is_sample",
-            "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "timezone",
             "is_cached",
@@ -676,8 +674,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "updated_at",
             "is_sample",
-            "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "timezone",
             "refreshing",
@@ -803,7 +799,6 @@ class InsightSerializer(InsightBasicSerializer):
                     team_id=team_id,
                     query=validated_data.get("query"),
                     user=request.user,
-                    user_permissions=self.user_permissions,
                     user_access_control=self.user_access_control,
                 )
             except CannotAddToDashboard as error:
@@ -938,8 +933,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
-        self.user_permissions.reset_insights_dashboard_cached_results()
-
         return updated_insight
 
     def _log_insight_update(
@@ -1008,7 +1001,6 @@ class InsightSerializer(InsightBasicSerializer):
                 dashboard_ids=dashboard_ids,
                 query=query,
                 user=self.context["request"].user,
-                user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
             )
         except CannotAddToDashboard as error:
@@ -1200,18 +1192,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
-
-    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
-    def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
-        if self.context.get("is_shared"):
-            return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.insight(insight).effective_restriction_level
-
-    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
-    def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
@@ -1734,13 +1714,23 @@ class InsightDataChecksRequestSerializer(serializers.Serializer):
     )
 
 
+class InsightDataCheckFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The property the rule reads, such as `$host`.")
+    type = serializers.CharField(help_text="The kind of property, such as `event` or `person`.")
+    operator = serializers.CharField(help_text="How the rule compares the property, such as `not_regex`.")
+    value = serializers.ListField(
+        child=serializers.CharField(), help_text="The values the rule compares the property to."
+    )
+
+
 class InsightDataCheckSerializer(serializers.Serializer):
     key = serializers.ChoiceField(choices=InsightDataCheckKey.choices, help_text="Which check this is.")
     level = serializers.ChoiceField(
         choices=InsightDataCheckLevel.choices,
         help_text=(
             "`passed` when the check found nothing worth acting on, `warning` for a small share of the events, "
-            "`problem` for a fifth of the events or more, and `skipped` when the check could not run."
+            "`problem` for a fifth of the events or more, and `skipped` when the check could not run. The local "
+            "development check is never a `problem`, because some apps serve real users from a local host."
         ),
     )
     skip_reason = serializers.ChoiceField(
@@ -1775,8 +1765,8 @@ class InsightDataCheckSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's "
-            "query. `open_filter_settings`: change the project's internal and test users filter. Null when there is "
-            "no single change."
+            "query. `open_filter_settings`: change the project's internal and test users filter, for example by "
+            "adding `filter_to_add`. Null when there is no single change."
         ),
     )
     top_events = serializers.ListField(
@@ -1784,11 +1774,66 @@ class InsightDataCheckSerializer(serializers.Serializer):
     )
     top_hosts = serializers.ListField(
         child=serializers.CharField(),
-        help_text="For the local development check, the local hosts found most often, most affected first.",
+        help_text=(
+            "For the local development check, the local hosts whose events the project's internal and test users "
+            "filter keeps, most affected first."
+        ),
+    )
+    distinct_hosts = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the local development check, how many local hosts sent the events in `events`. Null for the other "
+            "checks and when the check did not run."
+        ),
     )
     top_bots = serializers.ListField(
         child=serializers.CharField(),
         help_text="For the bot traffic check, the bots and crawlers found most often, most affected first.",
+    )
+    distinct_bots = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the bot traffic check, how many named bots and crawlers sent the sampled events. Null for the other "
+            "checks and when the check did not run."
+        ),
+    )
+    removed_by_filter = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the internal users check, the part of `events` that the project's internal and test users filter "
+            "removes. It is 0 when the insight already applies the filter. Null for the other checks and when the "
+            "check did not run."
+        ),
+    )
+    missed_by_filter = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the internal users check, the part of `events` from team emails that the project's internal and "
+            "test users filter keeps. Null for the other checks and when the check did not run."
+        ),
+    )
+    top_emails = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "For the internal users check, the team emails whose events the project's internal and test users filter "
+            "keeps, most affected first. Only emails the caller may see as the team's are matched. Empty for a token "
+            "without the `person:read` scope."
+        ),
+    )
+    distinct_emails = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the internal users check, how many team emails sent events that the project's internal and test "
+            "users filter keeps. Null for the other checks and when the check did not run."
+        ),
+    )
+    filter_to_add = InsightDataCheckFilterSerializer(
+        allow_null=True,
+        help_text=(
+            "A rule for the project's internal and test users filter that removes what the check found: the local "
+            "hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found "
+            "none, and for the internal users check for a token without the `person:read` scope."
+        ),
     )
 
 
@@ -1979,6 +2024,7 @@ class InsightViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"
+    permission_classes = [CanEditInsightDashboards]
     # Record a tags change per insight when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Insight"
     serializer_class = InsightSerializer
@@ -2033,18 +2079,6 @@ class InsightViewSet(
             span.set_attribute("insight.search.result_count", results_len)
             span.set_attribute("insight.search.empty", results_len == 0)
         return response
-
-    def paginate_queryset(self, queryset):
-        page = super().paginate_queryset(queryset)
-        if (
-            page is not None
-            and getattr(self, "action", None) == "list"
-            and not self._is_basic_request()
-            and not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
-        ):
-            tiles = [tile for insight in page for tile in insight.dashboard_tiles.all()]
-            self.user_permissions.set_preloaded_dashboard_tiles(tiles)
-        return page
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
@@ -2582,8 +2616,8 @@ When set, the specified dashboard's filters and date range override will be appl
             "and lifecycle insights whose series are events. The checks apply the insight's own filters, and read "
             "the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. "
             "For a token, the internal users check matches the emails of the organization's members only with the "
-            "`organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is "
-            "stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
+            "`organization_member:read` scope, and its verified domains only with `organization:read`. It names the "
+            "emails it finds only with `person:read`. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
             "check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`."
         ),
     )
@@ -2641,13 +2675,23 @@ When set, the specified dashboard's filters and date range override will be appl
         project_scoped = bool(get_authenticator_scoped_team_ids(authenticator))
 
         def holds(scope: str) -> bool:
-            if project_scoped:
-                return False
             return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [scope])
 
         return TeamEmailAccess(
-            member_emails=holds("organization_member:read"), verified_domains=holds("organization:read")
+            member_emails=not project_scoped and holds("organization_member:read"),
+            verified_domains=not project_scoped and holds("organization:read"),
+            person_emails=holds("person:read"),
         )
+
+    def validate_bulk_tag_changes(self, objects: Sequence[Insight], tag_action: str, tags: builtins.list[str]) -> None:
+        editable_ids = insights_with_dashboard_edit_access(
+            [insight.id for insight in objects],
+            user_access_control=self.user_access_control,
+            project_id=self.team.project_id,
+        )
+        if any(insight.id not in editable_ids for insight in objects):
+            raise PermissionDenied(CanEditInsightDashboards.message)
+        super().validate_bulk_tag_changes(objects, tag_action, tags)
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
@@ -2672,10 +2716,24 @@ When set, the specified dashboard's filters and date range override will be appl
             return insights, skipped
 
         self.user_access_control.preload_object_access_controls(cast(list, insights))
+        # Deletion hides the tiles used by normal edit checks. Tile restoration checks each dashboard separately.
+        dashboard_editable_ids = (
+            {insight.id for insight in insights}
+            if deleted
+            else insights_with_dashboard_edit_access(
+                [insight.id for insight in insights],
+                user_access_control=self.user_access_control,
+                project_id=self.team.project_id,
+            )
+        )
         editable: list[Insight] = []
         for insight in insights:
             user_access_level = self.user_access_control.get_user_access_level(insight)
-            if user_access_level and access_level_satisfied_for_resource("insight", user_access_level, "editor"):
+            if (
+                insight.id in dashboard_editable_ids
+                and user_access_level
+                and access_level_satisfied_for_resource("insight", user_access_level, "editor")
+            ):
                 editable.append(insight)
             else:
                 skipped.append({"id": insight.id, "reason": "You don't have permission to edit this insight"})
@@ -2731,8 +2789,6 @@ When set, the specified dashboard's filters and date range override will be appl
                         )
                 bulk_log_activity(activity_log_entries)
 
-            self.user_permissions.reset_insights_dashboard_cached_results()
-
         return Response({"deleted": deleted, "skipped": skipped})
 
     @validated_request(
@@ -2760,7 +2816,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
-                restore_tiles_for_insights(insight_ids, user_permissions=self.user_permissions)
+                restore_tiles_for_insights(insight_ids, user_access_control=self.user_access_control)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
@@ -2780,8 +2836,6 @@ When set, the specified dashboard's filters and date range override will be appl
                             )
                         )
                 bulk_log_activity(activity_log_entries)
-
-            self.user_permissions.reset_insights_dashboard_cached_results()
 
         return Response({"restored": restored, "skipped": skipped})
 
@@ -2837,9 +2891,6 @@ When set, the specified dashboard's filters and date range override will be appl
             for key, count in self._set_test_account_filter_on_batch(batch, enabled=enabled).items():
                 totals[key] += count
 
-        if totals["updated"]:
-            self.user_permissions.reset_insights_dashboard_cached_results()
-
         # Reported even when nothing changed: a run that finds no insights to flip still tells us
         # someone reached for this, and the no-op rate is the signal for whether it's discoverable.
         report_user_action(
@@ -2865,10 +2916,6 @@ When set, the specified dashboard's filters and date range override will be appl
         Access has to be resolved one insight at a time. `filter_queryset_by_access_level` answers whether an
         insight is visible rather than whether it can be edited, so filtering in the query would let insights
         the caller only has `viewer` on through to the write.
-
-        EE's `CanEditInsight` needs no counterpart here. It refuses insights on dashboards the caller can only
-        view, but `can_edit` short-circuits for anyone who `can_restrict`, which is every project admin, and the
-        action already requires project admin. Relaxing that requirement would have to bring the check back.
         """
         if not self.user_access_control:
             return insights, 0

@@ -3147,6 +3147,14 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         assert response.status_code == 403, response.json()
 
 
+# (kind, state_before, state_after, result_count, threshold_breached, error_message) of the events
+# `_record_events_history` leaves.
+_ERRORED = ("check", "firing", "errored", None, False, "Query timed out")
+_DISABLED = ("disable", "not_firing", "not_firing", None, False, None)
+_FIRED = ("check", "not_firing", "firing", 150, True, None)
+_LOGS_ERRORED = ("check", "not_firing", "errored", None, False, "Logs stack timeout")
+
+
 class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -3296,3 +3304,84 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
         assert row["last_checked_at"] == (self.now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
         assert row["last_error_message"] == "Logs stack timeout"
+
+    def _record_events_history(self) -> None:
+        def at(minutes_after_cutover: int) -> datetime:
+            return self.now + timedelta(minutes=minutes_after_cutover)
+
+        with team_scope(self.team.id):
+            copy_id = platform_testing.copy_of(self.alert.id).id
+        condition = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
+        checks = [
+            # Before the cutover the platform only shadowed the logs stack.
+            (at(-30), "not_firing", "firing", None, 150.0),
+            (at(10), "not_firing", "firing", None, 150.0),
+            (at(20), "firing", "firing", None, 160.0),
+            (at(40), "firing", "errored", "Query timed out", None),
+        ]
+        for occurred_at, previous_state, state, error_message, value in checks:
+            platform_testing.record_check(
+                copy_id,
+                team_id=self.team.id,
+                at=occurred_at,
+                previous_state=previous_state,
+                state=state,
+                error_message=error_message,
+                value=value,
+                condition=condition,
+                query_duration_ms=42,
+            )
+        # After the cutover a logs check is the shadow evaluation.
+        self._logs_event(LogsAlertEvent.Kind.CHECK, hours_ago=-25 / 60, state_after="firing")
+        self._logs_event(LogsAlertEvent.Kind.DISABLE, hours_ago=-0.5, state_after="not_firing")
+
+    @parameterized.expand(
+        [
+            ("all", "", 4, [_ERRORED, _DISABLED, _FIRED, _LOGS_ERRORED]),
+            ("second_page", "?limit=2&offset=1", 4, [_DISABLED, _FIRED]),
+            ("control_plane_kind", "?kind=disable", 1, [_DISABLED]),
+            ("check_kind", "?kind=check", 3, [_ERRORED, _FIRED, _LOGS_ERRORED]),
+        ]
+    )
+    def test_events_take_checks_since_the_cutover_from_platform_history(
+        self, _name: str, query: str, count: int, expected: list[tuple[Any, ...]]
+    ) -> None:
+        self._record_events_history()
+
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == count
+        assert [
+            (
+                e["kind"],
+                e["state_before"],
+                e["state_after"],
+                e["result_count"],
+                e["threshold_breached"],
+                e["error_message"],
+            )
+            for e in response.json()["results"]
+        ] == expected
+
+    def test_events_fall_back_to_logs_rows_when_clickhouse_fails(self) -> None:
+        self._record_events_history()
+
+        with patch(
+            "products.logs.backend.presentation.views.alerts_api.platform_check_rows",
+            side_effect=Exception("ClickHouse is down"),
+        ):
+            response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(e["kind"], e["state_after"]) for e in response.json()["results"]] == [
+            ("disable", "not_firing"),
+            ("check", "firing"),
+            ("check", "errored"),
+        ]
+
+    def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "offset"

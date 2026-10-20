@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertOutcome,
     PlatformAlertRuntime,
     PlatformAlertUpsert,
+    PlatformCheckEventPage,
     PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
@@ -130,6 +131,19 @@ def history_by_legacy_id(
     """
     return platform_reads.history_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
+    )
+
+
+def notable_checks_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, since: datetime, limit: int
+) -> PlatformCheckEventPage | None:
+    """The newest `limit` checks since `since` that moved a named alert's state or failed, with
+    their total, or None when the platform does not own the alert.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.notable_checks_by_legacy_id(
+        team_id=team_id, legacy_configuration_id=legacy_configuration_id, since=since, limit=limit
     )
 
 
