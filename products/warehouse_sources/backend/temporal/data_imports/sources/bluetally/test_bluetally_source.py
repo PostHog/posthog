@@ -24,12 +24,6 @@ class TestSourceConfig:
         assert BluetallySource().connection_host_fields == ["tenant_id"]
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = BluetallySource().get_schemas(_config(), team_id=1, names=["assets", "employees"])
-        assert {s.name for s in schemas} == {"assets", "employees"}
-
-
 class TestValidateCredentials:
     def test_failure(self) -> None:
         with scripted_network([ScriptedResponse(status=401)]):

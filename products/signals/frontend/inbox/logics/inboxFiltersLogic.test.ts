@@ -286,13 +286,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             [
-                'resets the stored sort for a non-staff user',
+                'keeps a stored model sort for a non-staff user with the flag',
                 'ranking_action',
                 true,
                 false,
-                'recommended',
-                'recommended',
-                'asc',
+                'ranking_action',
+                'ranking_action',
+                'desc',
             ],
             [
                 'falls back to the default for a stored head the menu no longer offers',

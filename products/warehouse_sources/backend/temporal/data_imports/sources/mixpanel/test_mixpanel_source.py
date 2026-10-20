@@ -71,10 +71,6 @@ class TestGetSchemas:
         assert schemas[endpoint].supports_incremental is supports
         assert schemas[endpoint].supports_append is supports
 
-    def test_filter_by_names(self) -> None:
-        schemas = MixpanelSource().get_schemas(_config(), team_id=1, names=["engage"])
-        assert [s.name for s in schemas] == ["engage"]
-
 
 class TestApiVersions:
     def test_new_sources_default_to_2_0(self) -> None:

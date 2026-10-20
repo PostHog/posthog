@@ -2268,6 +2268,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `flag_live_after_end` - Flag Live After End
  * * `flag_live_before_launch` - Flag Live Before Launch
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
@@ -2275,6 +2276,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+ * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2285,6 +2287,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     FlagLiveAfterEnd: 'flag_live_after_end',
     FlagLiveBeforeLaunch: 'flag_live_before_launch',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
@@ -2292,6 +2295,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
+    ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
 } as const
 
 /**
@@ -2345,13 +2349,15 @@ export interface ExperimentHealthFindingApi {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run */
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -3066,6 +3072,7 @@ export interface ExperimentHealthInputsFlagApi {
 /**
  * * `split` - Split
  * * `bucketing` - Bucketing
+ * * `release_conditions` - Release-condition
  */
 export type ExperimentHealthFlagChangeKindEnumApi =
     (typeof ExperimentHealthFlagChangeKindEnumApi)[keyof typeof ExperimentHealthFlagChangeKindEnumApi]
@@ -3073,17 +3080,19 @@ export type ExperimentHealthFlagChangeKindEnumApi =
 export const ExperimentHealthFlagChangeKindEnumApi = {
     Split: 'split',
     Bucketing: 'bucketing',
+    ReleaseConditions: 'release_conditions',
 } as const
 
 export interface ExperimentHealthInputsFlagChangeApi {
     /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
      *
      * * `split` - Split
-     * * `bucketing` - Bucketing */
+     * * `bucketing` - Bucketing
+     * * `release_conditions` - Release-condition */
     kind: ExperimentHealthFlagChangeKindEnumApi
     /** When the flag changed. */
     changed_at: string
-    /** What changed: 'Split', or the name of the setting, such as 'Key'. */
+    /** What changed, as the staff view names it, such as 'Split' or 'Key'. */
     changed: string
     /** The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset. */
     before: string
@@ -3097,7 +3106,8 @@ export interface ExperimentHealthInputsExposedBetweenApi {
     /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
      *
      * * `split` - Split
-     * * `bucketing` - Bucketing */
+     * * `bucketing` - Bucketing
+     * * `release_conditions` - Release-condition */
     kind: ExperimentHealthFlagChangeKindEnumApi
     /** What was asked, as the staff view names it. */
     question: string
@@ -3120,7 +3130,7 @@ export interface ExperimentHealthInputsFlagHistoryApi {
     launched_at: string
     /** The project's time zone, which the findings use for times. */
     team_timezone: string
-    /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. Empty for 'no_history_access', which does not read them. */
+    /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */
     changes: ExperimentHealthInputsFlagChangeApi[]
     /**
      * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
@@ -3169,6 +3179,8 @@ export interface ExperimentHealthInputsConditionSetTrafficApi {
     calls: number
     /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
     remotely_evaluated_calls: number
+    /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
+    people_assigned_outside: number
 }
 
 export interface ExperimentHealthInputsReaderAccessApi {
@@ -3176,7 +3188,7 @@ export interface ExperimentHealthInputsReaderAccessApi {
     can_read_flag_history: boolean
     /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
     can_query_events: boolean
-    /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
+    /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads. */
     denied_event_properties: string[]
 }
 
@@ -3450,7 +3462,7 @@ export interface ExperimentHealthInputsApi {
     flag: ExperimentHealthInputsFlagApi | null
     /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     flag_history: ExperimentHealthInputsFlagHistoryApi | null
-    /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
+    /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
      *
      * * `read` - Read
      * * `not_needed` - Not Needed

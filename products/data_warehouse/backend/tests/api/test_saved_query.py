@@ -1692,10 +1692,7 @@ class TestSavedQuery(APIBaseTest):
         child_ancestors = response.json()["descendants"]
         self.assertEqual(child_ancestors, [])
 
-    def test_ancestors_identify_warehouse_and_cross_dag_nodes_by_id(self):
-        # An imported warehouse table and a cross-DAG proxy are lineage nodes with no saved_query
-        # FK; the id lives in properties. Both must be returned by id, not by name, so the answer
-        # stays resolvable for a caller. These node shapes mirror resolve_dependency_to_node.
+    def test_ancestors_identify_warehouse_table_nodes_by_id(self):
         dag = DAG.get_or_create_default(self.team)
         consumer = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -1704,7 +1701,6 @@ class TestSavedQuery(APIBaseTest):
             created_by=self.user,
         )
         consumer_node = Node.objects.create(team=self.team, saved_query=consumer, dag=dag, type=NodeType.VIEW)
-
         warehouse_table = DataWarehouseTable.objects.create(
             team=self.team, name="stripe_charges", format="Parquet", url_pattern="s3://bucket/path"
         )
@@ -1715,65 +1711,14 @@ class TestSavedQuery(APIBaseTest):
             type=NodeType.TABLE,
             properties={"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
         )
-
-        revenue_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="revenue_view",
-            query={"kind": "HogQLQuery", "query": "select 1"},
-            created_by=self.user,
-        )
-        proxy_node = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            name="revenue_view",
-            type=NodeType.TABLE,
-            properties={"origin": "cross_dag_view", "saved_query_id": str(revenue_query.id)},
-        )
-
         Edge.objects.create(team=self.team, dag=dag, source=warehouse_node, target=consumer_node)
-        Edge.objects.create(team=self.team, dag=dag, source=proxy_node, target=consumer_node)
-
-        # The query the proxy stands in for has its real node in the managed DAG, with its own
-        # consumer there. Its descendants must union both: the managed consumer through the real
-        # node and the Default-DAG consumer through the proxy, or the relationship is one-way.
-        managed_dag = DAG.objects.create(team=self.team, name="PostHog Revenue Analytics")
-        revenue_node = Node.objects.create(
-            team=self.team, saved_query=revenue_query, dag=managed_dag, type=NodeType.VIEW
-        )
-        managed_consumer = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="managed_consumer_view",
-            query={"kind": "HogQLQuery", "query": "select 1"},
-            created_by=self.user,
-        )
-        managed_consumer_node = Node.objects.create(
-            team=self.team, saved_query=managed_consumer, dag=managed_dag, type=NodeType.VIEW
-        )
-        Edge.objects.create(team=self.team, dag=managed_dag, source=revenue_node, target=managed_consumer_node)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{consumer.id}/ancestors",
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            sorted(response.json()["ancestors"]),
-            sorted([str(warehouse_table.id), str(revenue_query.id)]),
-        )
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{revenue_query.id}/descendants",
-        )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            sorted(response.json()["descendants"]),
-            sorted([str(consumer.id), str(managed_consumer.id)]),
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{revenue_query.id}/dependencies",
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json(), {"upstream_count": 0, "downstream_count": 2})
+        self.assertEqual(response.json()["ancestors"], [str(warehouse_table.id)])
 
     def test_descendants_omit_a_metric_that_reads_the_view(self):
         dag = DAG.get_or_create_default(self.team)

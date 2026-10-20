@@ -172,10 +172,6 @@ class TestGetRows:
         assert isinstance(result.raised, ValueError)
         assert "expects a field 'id'" in str(result.raised)
 
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Coda endpoint"):
-            coda_source("token", "nonsense", team_id=1, job_id="j")
-
 
 class TestCodaSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))

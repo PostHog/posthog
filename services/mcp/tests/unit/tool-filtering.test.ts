@@ -452,20 +452,12 @@ describe('Tool Filtering - API Scopes', () => {
         ['notebooks-widget-status', ['notebook:read']],
         ['notebooks-widget-cancel', ['notebook:write']],
     ] satisfies [string, string[]][])(
-        'exposes %s only with notebook widgets enabled and the required scopes',
+        'exposes %s with the required scopes without feature flags',
         async (toolName, scopes) => {
             const context = createMockContext(scopes)
-            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabledOptions = { aiConsentGiven: true }
             const enabled = await getToolsFromContext(context, enabledOptions)
             expect(enabled.map((tool) => tool.name)).toContain(toolName)
-
-            for (const flagValue of [false, undefined]) {
-                const disabled = await getToolsFromContext(context, {
-                    ...enabledOptions,
-                    featureFlags: { 'notebook-generated-widgets': flagValue },
-                })
-                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
-            }
 
             for (const missingScope of scopes) {
                 const denied = await getToolsFromContext(
@@ -651,6 +643,18 @@ describe('server-minted scope matching', () => {
 
     it('does not let a write on one internal object reach another', () => {
         expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
+    })
+
+    // Keys and tokens issued before the inbox got its own scope carry only `task:*`.
+    it.each([
+        { held: ['task:read'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'inbox:write', allowed: true },
+        { held: ['task:read'], required: 'inbox:write', allowed: false },
+        { held: ['inbox:read'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'insight:read', allowed: false },
+    ])('lets a legacy task scope satisfy an inbox scope: $held -> $required', ({ held, required, allowed }) => {
+        expect(hasScope(held, required)).toBe(allowed)
     })
 
     it('leaves wildcard and write-implies-read intact for user-grantable scopes', () => {
@@ -1091,6 +1095,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
+            'insight-data-checks',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1107,9 +1112,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
-                'notebook-generated-widgets',
                 'revamped-py-notebooks',
-                'notebook-generated-widgets',
                 'tasks',
                 'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
@@ -1141,7 +1144,7 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

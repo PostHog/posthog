@@ -19,6 +19,7 @@ use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
 use crate::kafka::client;
 use crate::kafka::lag::{self, ConsumerTarget, GroupLag, LagOverview};
+use crate::parity;
 use crate::personhog;
 use crate::proxy;
 use crate::state::AppState;
@@ -462,6 +463,7 @@ pub fn router(state: AppState) -> Router {
             get(etcd_get_key).put(etcd_put_key).delete(etcd_delete_key),
         )
         .route("/api/personhog/topology", get(personhog_topology))
+        .route("/api/personhog/parity/mismatches", get(parity::mismatches))
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by
         // namespace + name so identical names across lanes cannot collide.

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Q
 
 from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -15,7 +14,6 @@ from .saved_query_freshness import saved_query_materialized_at
 from .tier_run_report import MATERIALIZING_TYPES
 
 POSTHOG_TABLE_ORIGIN = "posthog"
-PROXY_SAVED_QUERY_ID_PROPERTY = "saved_query_id"
 WAREHOUSE_TABLE_ID_PROPERTY = "warehouse_table_id"
 
 if TYPE_CHECKING:
@@ -282,16 +280,16 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
 
 
 def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
-    """The DAG nodes that stand for this saved query, cross-DAG proxy table nodes included."""
+    """The DAG nodes that stand for this saved query."""
     return _node_ids_standing_for(team_id, {str(saved_query_id)})
 
 
 def _node_ids_standing_for(team_id: int, saved_query_ids: set[str]) -> set[str]:
     return {
         str(node_id)
-        for node_id in Node.objects.filter(team_id=team_id)
-        .filter(Q(saved_query_id__in=saved_query_ids) | Q(properties__saved_query_id__in=saved_query_ids))
-        .values_list("id", flat=True)
+        for node_id in Node.objects.filter(team_id=team_id, saved_query_id__in=saved_query_ids).values_list(
+            "id", flat=True
+        )
     }
 
 
@@ -328,35 +326,18 @@ def upstream_table_refs(team_id: int, saved_query_id: UUID | str) -> frozenset[U
             is_posthog_table=properties.get("origin") == POSTHOG_TABLE_ORIGIN,
         )
         for name, properties in _upstream_table_nodes(team_id, str(saved_query_id))
-        if _proxied_saved_query_id(properties) is None
     )
 
 
 def _upstream_table_nodes(team_id: int, saved_query_id: str) -> list[tuple[str, dict[str, object]]]:
-    tables_by_node_id: dict[str, tuple[str, dict[str, object]]] = {}
-    walked_saved_query_ids: set[str] = set()
-    pending_saved_query_ids = {saved_query_id}
-    while pending_saved_query_ids:
-        walked_saved_query_ids |= pending_saved_query_ids
-        start_node_ids = _node_ids_standing_for(team_id, pending_saved_query_ids)
-        reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
-        for node_id, name, properties in Node.objects.filter(
-            team_id=team_id, id__in=reached, type=NodeType.TABLE
-        ).values_list("id", "name", "properties"):
-            tables_by_node_id[str(node_id)] = (name, properties or {})
-        pending_saved_query_ids = _proxied_saved_query_ids(tables_by_node_id.values()) - walked_saved_query_ids
-    return list(tables_by_node_id.values())
-
-
-def _proxied_saved_query_ids(table_nodes: Iterable[tuple[str, dict[str, object]]]) -> set[str]:
-    return {
-        proxied_id for _, properties in table_nodes if (proxied_id := _proxied_saved_query_id(properties)) is not None
-    }
-
-
-def _proxied_saved_query_id(properties: dict[str, object]) -> str | None:
-    proxied_id = properties.get(PROXY_SAVED_QUERY_ID_PROPERTY)
-    return str(proxied_id) if proxied_id else None
+    start_node_ids = _node_ids_standing_for(team_id, {saved_query_id})
+    reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
+    return [
+        (name, properties or {})
+        for name, properties in Node.objects.filter(team_id=team_id, id__in=reached, type=NodeType.TABLE).values_list(
+            "name", "properties"
+        )
+    ]
 
 
 def _warehouse_table_id(properties: dict[str, object]) -> str | None:

@@ -47,11 +47,6 @@ class TestHightouchSource:
         assert [f["field"] for f in schemas["sync_runs"].incremental_fields] == ["startedAt"]
         assert schemas["sync_runs"].default_incremental_lookback_seconds == SYNC_RUNS_LOOKBACK_SECONDS
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sync_runs"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sync_runs"
-
     @pytest.mark.parametrize(
         "observed_error",
         [

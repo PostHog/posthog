@@ -26,8 +26,10 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_INSERTED_AT_COLUMN,
     NO_EXTRAS,
+    PRIORITY_LEVELS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
     Extras,
@@ -37,6 +39,7 @@ from products.signals.backend.ranking.features import (
 from products.signals.backend.ranking.model_contract import classification_thresholds, model_mismatch
 from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.serving_manifest import (
+    CHALLENGER_ROLE,
     CROSS_FAMILY_ROLE,
     DEFAULT_MODEL_KIND,
     ONNX_MODEL_FILE,
@@ -142,6 +145,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     LEGACY_POOL_NAME,
     MODEL_FAMILIES,
     NN_MODEL_NAME,
+    NN_WITH_PRIO_MODEL_NAME,
     POOL_NAME,
     REPORT_EMBEDDINGS_MODEL_NAME,
     SERVED_SCORES_TABLE,
@@ -2016,6 +2020,22 @@ def test_report_embeddings_matrix_puts_the_vector_in_position_order(feature_set)
     assert matrix.loc["b", ["emb_0", last]].tolist() == [float(EMBEDDING_DIMENSIONS - 1), 0.0]
 
 
+def test_the_priority_set_puts_one_column_per_level_after_the_vector():
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET
+    rows = _state(["a", "b", "c", "d"]).assign(priority=["P0", "P3", None, "urgent"])
+    extras = _report_vectors({report_id: _embedding(first=1.0) for report_id in rows.index}, feature_set=feature_set)
+
+    matrix = feature_set.build_matrix(rows, extras)
+
+    assert list(matrix.columns) == list(feature_set.feature_names)
+    assert matrix["emb_0"].tolist() == [1.0] * 4
+    levels = matrix[[f"priority_{level}" for level in PRIORITY_LEVELS]].to_numpy().tolist()
+    assert levels == [[1, 0, 0, 0, 0], [0, 0, 0, 1, 0], [0] * 5, [0] * 5]
+    # A frame without the column must not read as "no priority" on every row.
+    with pytest.raises(ValueError, match="priority"):
+        feature_set.build_matrix(rows.drop(columns=["priority"]), extras)
+
+
 @pytest.mark.parametrize("feature_set", EMBEDDING_FEATURE_SETS, ids=EMBEDDING_SET_IDS)
 @pytest.mark.parametrize(
     "vectors",
@@ -2545,14 +2565,14 @@ def _run_serving_manifest(
     dataset_objects: dict[str, bytes] | None = None,
     mirror: _AppObjectStore | None = None,
     dataset_client: _ModelStoreS3 | None = None,
+    families: tuple[ModelFamily, ...] = (
+        ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+    ),
 ) -> _FakeClient:
     partition_key = "2026-08-19"
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     capture = _patch_capture(monkeypatch, cloud=True, debug=False)
-    monkeypatch.setattr(
-        "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
-        (ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),),
-    )
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES", families)
     client = dataset_client or (
         _ModelStoreS3(dataset_objects) if dataset_objects is not None else _serving_dataset_s3(prefix, partition_key)
     )
@@ -2663,28 +2683,37 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         assert mirror.objects == {}
 
 
-def test_recent_versions_come_from_the_window_and_skip_a_version_missing_its_booster(monkeypatch):
+def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version_missing_its_booster(monkeypatch):
     # A booster deleted by a re-run would fail the whole publish, and a version older than the
-    # window would keep a stale model in every pass.
+    # window would keep a stale model in every pass. A challenger is one version per other family,
+    # from its last 2 days.
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     client = _serving_dataset_s3(prefix, "2026-08-19")
-    for version, booster in (("2026-08-18", True), ("2026-08-17", False), ("2026-08-13", True)):
-        folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
+    for name, version, booster in (
+        (EMBEDDINGS_MODEL_NAME, "2026-08-18", True),
+        (EMBEDDINGS_MODEL_NAME, "2026-08-17", False),
+        (EMBEDDINGS_MODEL_NAME, "2026-08-13", True),
+        (NN_WITH_PRIO_MODEL_NAME, "2026-08-19", False),
+        (NN_WITH_PRIO_MODEL_NAME, "2026-08-18", True),
+        (NN_MODEL_NAME, "2026-08-17", True),
+    ):
+        folder = model_object_key(prefix, name, version, "")
         client.objects[folder + METADATA_FILE] = json.dumps(
-            _serving_metadata(EMBEDDINGS_MODEL_NAME, version, heads=("open",), **_FEATURE_FIELDS)
+            _serving_metadata(name, version, heads=("open",), **_FEATURE_FIELDS)
         ).encode()
         if booster:
             client.objects[folder + "open.ubj"] = b"booster"
     monkeypatch.setattr(settings, "INBOX_RANKING_SERVING_RECENT_VERSIONS", 3)
     store = _AppObjectStore()
 
-    _run_serving_manifest(monkeypatch, store, dataset_client=client)
+    _run_serving_manifest(monkeypatch, store, dataset_client=client, families=MODEL_FAMILIES)
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
-    assert [(entry.model_version, entry.roles) for entry in manifest.models] == [
-        ("2026-08-15", [SERVED_ROLE]),
-        ("2026-08-19", [RECENT_ROLE]),
-        ("2026-08-18", [RECENT_ROLE]),
+    assert [(entry.model_name, entry.model_version, entry.roles) for entry in manifest.models] == [
+        (EMBEDDINGS_MODEL_NAME, "2026-08-15", [SERVED_ROLE]),
+        (EMBEDDINGS_MODEL_NAME, "2026-08-19", [RECENT_ROLE]),
+        (EMBEDDINGS_MODEL_NAME, "2026-08-18", [RECENT_ROLE]),
+        (NN_WITH_PRIO_MODEL_NAME, "2026-08-18", [CHALLENGER_ROLE]),
     ]
 
 
