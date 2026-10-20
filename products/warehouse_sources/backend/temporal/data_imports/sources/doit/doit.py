@@ -1,7 +1,8 @@
 import hashlib
 import datetime
+from collections.abc import Callable
 from typing import Any, Optional, cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import pyarrow as pa
 import structlog
@@ -283,6 +284,22 @@ def _endpoint_resource(name: str, settings: DoItEndpoint) -> EndpointResource:
     }
 
 
+def _path_segment_field(field: str) -> str:
+    return f"{field}_path_segment"
+
+
+def _add_path_segments(fields: list[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # The fan-out binds parent values into the path with no escaping, and DoiT insight keys are free
+    # strings that can hold `/`, `?` or `#`. The raw values still go into the child columns.
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        for field in fields:
+            if row.get(field) is not None:
+                row[_path_segment_field(field)] = quote(str(row[field]), safe="")
+        return row
+
+    return _mapper
+
+
 def doit_endpoint_source(config: DoItSourceConfig, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
     settings = DOIT_ENDPOINTS[endpoint]
     client_config: ClientConfig = {
@@ -311,17 +328,20 @@ def doit_endpoint_source(config: DoItSourceConfig, endpoint: str, team_id: int, 
     child_endpoint["params"] = {
         **(child_endpoint.get("params") or {}),
         **{
-            param: {"type": "resolve", "resource": parent.name, "field": field}
+            param: {"type": "resolve", "resource": parent.name, "field": _path_segment_field(field)}
             for param, field in parent.resolve_fields.items()
         },
     }
     # An insight that DoiT drops between the insights listing and this fetch must not sink the run.
     child_endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
 
+    parent_resource = _endpoint_resource(parent.name, DOIT_ENDPOINTS[parent.name])
+    parent_resource["data_map"] = _add_path_segments(list(parent.resolve_fields.values()))
+
     return SourceResponse(
         name=endpoint,
         items=lambda: build_chained_resource(
-            resources=[_endpoint_resource(parent.name, DOIT_ENDPOINTS[parent.name]), child],
+            resources=[parent_resource, child],
             child_name=endpoint,
             parent_name=parent.name,
             parent_field_renames=parent.include_fields,

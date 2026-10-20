@@ -129,7 +129,7 @@ class TestDoitEndpointSource:
             "InsightResourceResults",
             [
                 ScriptedResponse(
-                    json={"results": [{"source": "doit", "key": "idle-vms"}, {"source": "aws", "key": "gone"}]}
+                    json={"results": [{"source": "doit", "key": "idle/vms #2"}, {"source": "aws", "key": "gone"}]}
                 ),
                 ScriptedResponse(json={"resourceResults": [{"resourceId": "vm-1"}], "pageToken": "tok-2"}),
                 ScriptedResponse(json={"resourceResults": [{"resourceId": "vm-2"}]}),
@@ -141,14 +141,14 @@ class TestDoitEndpointSource:
         assert result.raised is None
         assert result.paths == [
             "/insights/v1/results",
-            resource_results.format("doit", "idle-vms"),
-            resource_results.format("doit", "idle-vms"),
+            resource_results.format("doit", "idle%2Fvms%20%232"),
+            resource_results.format("doit", "idle%2Fvms%20%232"),
             resource_results.format("aws", "gone"),
         ]
         assert result.params("pageToken") == [None, None, "tok-2", None]
         assert [(row["insight_source"], row["insight_key"], row["resourceId"]) for row in result.rows] == [
-            ("doit", "idle-vms", "vm-1"),
-            ("doit", "idle-vms", "vm-2"),
+            ("doit", "idle/vms #2", "vm-1"),
+            ("doit", "idle/vms #2", "vm-2"),
         ]
 
     def test_forbidden_table_fails_as_non_retryable(self) -> None:
