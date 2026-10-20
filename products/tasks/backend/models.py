@@ -59,9 +59,13 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
-from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.metrics import (
+    observe_task_run_created,
+    observe_task_run_dispatch_callback,
+    observe_task_run_terminal,
+)
 from products.tasks.backend.pr_urls import read_pr_urls
-from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
+from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
@@ -804,11 +808,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         expected_ownership_version = self.ownership_version
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
-            distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
-            dedicated_stream = evaluate_dedicated_stream_flag(
-                organization_id=str(self.team.organization_id),
-                distinct_id=distinct_id,
-            )
+            dedicated_stream = dedicated_stream_configured()
 
         with transaction.atomic():
             task = (
@@ -1620,11 +1620,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             "workflow_id_prefix": workflow_id_prefix,
         }
         if run_extra_state.get("use_dedicated_stream") is None:
-            distinct_id = (task.created_by.distinct_id if task.created_by else None) or f"team_{task.team_id}"
-            run_extra_state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
-                organization_id=str(task.team.organization_id),
-                distinct_id=distinct_id,
-            )
+            run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
         with transaction.atomic():
             task.save()
@@ -3032,6 +3028,21 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
+    def _save_terminal_status(self, update_fields: list[str]) -> bool:
+        """Save a terminal status and return whether this write moved the row out of a live status.
+
+        Reads the status under the row lock that the run PATCH and the status activity also take,
+        so a concurrent terminal write cannot make two writers each report the transition.
+        """
+        with transaction.atomic():
+            # Match start_task_run's lock order: saving the run also bumps its task's activity.
+            Task.objects.select_for_update().get(pk=self.task_id)
+            stored_status = (
+                TaskRun.objects.select_for_update().filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+            self.save(update_fields=update_fields)
+        return stored_status not in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
+
     def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
         """Mark the progress as completed.
 
@@ -3042,7 +3053,8 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
-        self.save(update_fields=["status", "completed_at"])
+        if self._save_terminal_status(["status", "completed_at"]):
+            observe_task_run_terminal(self, error_type=None, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
@@ -3073,7 +3085,8 @@ class TaskRun(models.Model):
         self.status = self.Status.FAILED
         self.error_message = error
         self.completed_at = django_timezone.now()
-        self.save(update_fields=["status", "error_message", "completed_at"])
+        if self._save_terminal_status(["status", "error_message", "completed_at"]):
+            observe_task_run_terminal(self, error_type=error_type, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",

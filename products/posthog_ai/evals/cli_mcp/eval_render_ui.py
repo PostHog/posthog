@@ -53,6 +53,7 @@ from products.posthog_ai.evals.cli_mcp.scorers import (
     ExecBeforeRender,
     RenderedEntityUi,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 # Renderable experiment tools (detail + results). The agent may render the detail
 # view (``experiment-get``) or a results view for a status/results question. Two
@@ -96,6 +97,10 @@ async def eval_renders_entity_ui(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-renders-entity-ui-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_render_ui::eval_renders_entity_ui",
+            metrics=["rendered_entity_ui", "exec_before_render"],
+        ),
         cases=cases,
         scorers=[RenderedEntityUi(), ExecBeforeRender()],
         ctx=ctx,
@@ -127,6 +132,10 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-no-render-for-query-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_render_ui::eval_no_render_for_query_results",
+            metrics=["called_target_tool", "did_not_render_ui", "did_not_cite_raw_sql_after_typed_query"],
+        ),
         cases=cases,
         scorers=[CalledTargetTool(), DidNotRenderUi(), DidNotCiteRawSqlAfterTypedQuery()],
         ctx=ctx,

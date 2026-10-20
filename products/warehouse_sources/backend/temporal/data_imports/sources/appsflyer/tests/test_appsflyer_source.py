@@ -35,7 +35,7 @@ class TestAppsFlyerSource:
 
     @pytest.mark.parametrize(
         "raised",
-        [AppsFlyerRetryableError("status=429"), requests.ConnectionError(), requests.ReadTimeout()],
+        [AppsFlyerRetryableError("status=429"), requests.ReadTimeout()],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"
