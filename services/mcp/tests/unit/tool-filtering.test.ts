@@ -1103,7 +1103,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'tasks',
                 'tasks-mcp-agent-run-start',
-                'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',

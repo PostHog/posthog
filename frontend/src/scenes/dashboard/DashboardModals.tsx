@@ -53,7 +53,6 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
         buttonTileId,
         terraformModalOpen,
         addWidgetModalOpen,
-        dashboardWidgetsEnabled,
         addWidgetTileLoading,
     } = useValues(dashboardLogic)
     const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles, closeTileModal } = useActions(dashboardLogic)
@@ -61,7 +60,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
     const isSharingOpen = dashboardMode === DashboardMode.Sharing
-    const isAddWidgetOpen = dashboardWidgetsEnabled && addWidgetModalOpen
+    const isAddWidgetOpen = addWidgetModalOpen
     // Grace-extended so each modal's exit animation finishes before its lazy subtree unmounts.
     const shouldRenderSubscriptions = useKeepMountedWhileOpen(showSubscriptions)
     const shouldRenderSharing = useKeepMountedWhileOpen(isSharingOpen)

@@ -387,8 +387,7 @@ tools:
         title: Copy dashboard tile
         description: >
             Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the
-            destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the
-            dashboard-widgets feature flag and are deep-cloned with a new widget row.
+            destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles are deep-cloned with a new widget row.
         param_overrides:
             id:
                 cast: string-int
@@ -406,8 +405,7 @@ tools:
         description: >
             Transfer a tile from the source dashboard to another dashboard. This does not resize or reposition the tile.
             To resize or reposition tiles on a dashboard, use dashboard-update. Provide to_dashboard (destination
-            dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget
-            tiles require the dashboard-widgets feature flag on the project.
+            dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles.
         param_overrides:
             id:
                 cast: string-int
@@ -583,7 +581,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        feature_flag: dashboard-widgets
     dashboard-widgets-batch-update:
         operation: dashboards_update_widgets_batch
         enabled: true
@@ -607,7 +604,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        feature_flag: dashboard-widgets
     dashboard-widgets-run:
         operation: dashboards_run_widgets_retrieve
         enabled: true
@@ -620,7 +616,7 @@ tools:
         enrich_url: '{params.id}'
         title: Run dashboard widgets
         description: >
-            Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag.
+            Run live queries for dashboard widget tiles and return results.
             Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a
             comma-separated list. Each successful result is a widget-type-specific payload (see run_widgets OpenAPI
             response and dashboard-widget-catalog-list config_schema). Returns per-tile errors when the caller lacks
@@ -629,7 +625,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        feature_flag: dashboard-widgets
     dashboards-bulk-delete:
         operation: dashboards_bulk_delete_create
         enabled: true

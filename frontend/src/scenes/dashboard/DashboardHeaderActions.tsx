@@ -32,7 +32,6 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
-    'widget-preview': 'dashboard-add-widget-preview',
 }
 
 export function getAddTileMenuItems({
@@ -54,7 +53,7 @@ export function getAddTileMenuItems({
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -63,7 +62,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { push } = useActions(router)
     const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
     if (!dashboard || tiles.length === 0) {
@@ -97,12 +95,10 @@ export function DashboardAddTileButton(): JSX.Element | null {
             >
                 <LemonMenu
                     items={getAddTileMenuItems({
-                        dashboardWidgetsEnabled,
                         onAddInsight: openAddInsightModal,
                         onAddText: openTextTileModal,
                         onAddImage: openImageTileModal,
                         onAddButton: openButtonTileModal,
-                        push,
                         setAddWidgetModalOpen,
                     })}
                     onVisibilityChange={(visible) => {
