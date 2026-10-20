@@ -382,6 +382,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Adapty",
     "AdobeAnalytics",
     "Ahrefs",
+    "AmazonCloudWatch",
     "AmazonS3",
     "Anvil",
     "Apollo",

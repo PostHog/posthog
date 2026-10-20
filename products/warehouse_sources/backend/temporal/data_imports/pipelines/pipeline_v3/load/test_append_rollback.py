@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, patch
 
+import psycopg
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 from deltalake.exceptions import CommitFailedError, DeltaError
@@ -26,6 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
     process_messages,
+)
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables as _ensure_queue_tables,
+    get_test_database_url as _get_test_database_url,
 )
 
 _PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
@@ -134,9 +139,24 @@ class _Loader:
         return [commit["operation"] for commit in DeltaTable(self.table_path).history()]
 
 
+@pytest.fixture(scope="module")
+def _queue_tables(django_db_setup: Any, django_db_blocker: Any) -> None:
+    """Create the batch queue tables in the Django test database.
+
+    The load processor reads the queue through `settings.WAREHOUSE_SOURCES_DATABASE_URL`, which
+    `_boundaries` below points at this database. The queue product's migration only runs on the
+    dedicated queue DB, so without this DDL the reads fail with a missing `sourcebatch` relation
+    unless another suite in the same shard happened to create it first.
+    """
+    with django_db_blocker.unblock():
+        with psycopg.connect(_get_test_database_url(), autocommit=True) as conn:
+            _ensure_queue_tables(conn)
+
+
 @pytest.fixture(autouse=True)
-def _boundaries(settings: Any) -> Iterator[None]:
+def _boundaries(settings: Any, _queue_tables: None) -> Iterator[None]:
     settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
+    settings.WAREHOUSE_SOURCES_DATABASE_URL = _get_test_database_url()
     with ExitStack() as stack:
         for target in (
             "close_old_connections",
