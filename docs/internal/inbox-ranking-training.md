@@ -59,14 +59,19 @@ Each head in `metadata.json` records `example_window_start`, the earliest report
 
 ## Promotion
 
-A candidate replaces its family's champion only when, on every head the champion could read:
+Promotion is manual.
+A person runs `inbox_ranking_promote_job` with a `model_key` and a `reason`, and the job writes `inbox_ranking_models/v1/served.json` and publishes the serving manifest.
+Training never moves that pointer.
 
-- its holdout AUC is at most `AUC_TOLERANCE` below the champion's, and
-- its holdout calibration error (ECE) is at most `ECE_TOLERANCE` above the champion's.
+Each run still grades every candidate against the served model of its own `model_name`.
+The decision says the candidate would promote only when, on every head the served model could read:
 
-Both champion numbers come from the champion's `<head>.holdout.ubj` scored on the candidate's holdout.
-A head without a paired champion ECE skips the calibration check.
-`inbox_ranking_promotion_decided` carries the paired values as `champion_<head>_auc_on_this_holdout` and `champion_<head>_ece_on_this_holdout`.
+- its holdout AUC is at most `AUC_TOLERANCE` below the served model's, and
+- its holdout calibration error (ECE) is at most `ECE_TOLERANCE` above the served model's.
+
+Both incumbent numbers come from the served model's `<head>.holdout.ubj` scored on the candidate's holdout.
+A head without a paired incumbent ECE skips the calibration check.
+`inbox_ranking_promotion_decided` carries the decision as `would_promote` and `gates_passed`, with `promoted` always false, and the paired values as `champion_<head>_auc_on_this_holdout` and `champion_<head>_ece_on_this_holdout`.
 
 ## Baked and unbaked unseen metrics
 
@@ -184,7 +189,7 @@ Models trained before thresholds existed have none, and no other value stands in
 
 - Population: D's newborn pool.
 - Score: per report and model key, the earliest scored event in D with this deployment's `environment`.
-- `model_role`: `served` when the event's roles hold it, else the first role (`daily_candidate`, `cross_family`, `pinned`), else `candidate`.
+- `model_role`: `served` when the event's roles hold it, else the first role (`recent`, `cross_family`, `pinned`), else `candidate`. Grades written before the `recent` role carry `daily_candidate` for the same read.
 - `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
 - Asset metadata: `served_pool_coverage`, `pool_coverage_by_model`, rows per model version, and the heads without a threshold.
 
@@ -194,7 +199,7 @@ A missing object is a skip in the asset metadata, not a failure.
 
 Caveats:
 
-- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- A manual promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
 - The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. `pool_coverage_by_model` shows how much of the pool each key covered.
 - A report first scored after D ends, for example when its vector arrived late, is not in D's rows. `served_pool_coverage` shows this for the served model. A later score never fills it in.
 - The sweep scores with the vector current at scoring time, so two keys that scored one report at different times did not always read the same vector.

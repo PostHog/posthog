@@ -21,10 +21,8 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
-    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
@@ -41,7 +39,11 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TASK_RUN_STREAM_INITIAL_GENERATION,
     get_task_run_stream_generation,
 )
-from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
+from products.tasks.backend.metrics import (
+    AGENT_OTEL_TELEMETRY_STAMPED_TOTAL,
+    observe_task_run_terminal,
+    observe_task_run_workflow_start,
+)
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
@@ -66,7 +68,6 @@ logger = logging.getLogger(__name__)
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
 _BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
-    ("agent_proxy_keep_stream_open", AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG),
     ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
     ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
 )
@@ -125,6 +126,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         logger.warning("task_processing_start_failure_task_run_missing", extra={"run_id": run_id})
         return False
 
+    observe_task_run_terminal(task_run, error_type="workflow_start_failed", termination_reason=None)
     task_run.publish_stream_state_event()
     task_run.capture_event(
         "task_run_failed",
@@ -196,14 +198,13 @@ def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
         TaskRun.update_state_atomic(run_id, updates={"stream_generation": generation})
         state = {**state, "stream_generation": generation}
 
-    need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
     need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
     pending_boot_flags = [
         (state_key, flag_key)
         for state_key, flag_key in _BOOT_ROLLOUT_FLAGS
         if not isinstance(state.get(state_key), bool)
     ]
-    if not need_event_ingest and not need_otel_telemetry and not pending_boot_flags:
+    if not need_otel_telemetry and not pending_boot_flags:
         return state
 
     task = task_run.task
@@ -214,24 +215,6 @@ def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
     actor_user = get_task_run_credential_user(task, state)
     boot_distinct_id = get_actor_distinct_id(actor_user) if actor_user else distinct_id
 
-    event_ingest_enabled = False
-    if need_event_ingest:
-        try:
-            event_ingest_enabled = bool(
-                posthoganalytics.feature_enabled(
-                    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-                    distinct_id=distinct_id,
-                    groups={"organization": organization_id},
-                    group_properties={"organization": {"id": organization_id}},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
-            )
-        except Exception as e:
-            logger.warning(
-                "sandbox_event_ingest_capture_flag_failed",
-                extra={"run_id": run_id, "task_id": str(task.id), "error": str(e)},
-            )
     otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id, organization_id=organization_id
     )
@@ -247,8 +230,6 @@ def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
     }
 
     def _stamp_flags(latest_state: dict[str, Any]) -> None:
-        if need_event_ingest and not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
-            latest_state["sandbox_event_ingest_enabled"] = event_ingest_enabled
         if need_otel_telemetry and not isinstance(latest_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool):
             latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
         for state_key, value in boot_flag_values.items():
@@ -265,7 +246,6 @@ def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
         extra={
             "run_id": run_id,
             "task_id": str(task.id),
-            "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
             "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
             **{state_key: captured_state.get(state_key) for state_key, _ in _BOOT_ROLLOUT_FLAGS},
         },

@@ -95,6 +95,8 @@ export type BIWorksheetAction =
     | 'filter_values_searched'
     | 'filter_values_page_loaded'
     | 'local_field_saved'
+    | 'calculated_field_saved'
+    | 'chart_settings_changed'
     | 'undo'
     | 'redo'
     | 'copied'
@@ -124,6 +126,7 @@ export function captureBIWorksheetAction(
         expanded?: boolean
         starter_kind?: 'metric' | 'certified_source' | 'events'
         source_certification?: 'certified' | 'deprecated' | 'unmarked'
+        setting_keys?: string[]
     } = {}
 ): void {
     posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {

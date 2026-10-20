@@ -48,6 +48,7 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -442,7 +443,13 @@ export function InsightVizDisplay({
                 return (
                     <ChunkLoadErrorBoundary>
                         {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
-                        <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                        <Suspense
+                            fallback={
+                                <div className="flex justify-center my-8">
+                                    <Spinner className="text-3xl" />
+                                </div>
+                            }
+                        >
                             <WebAnalyticsInsight context={context} editMode={editMode} />
                         </Suspense>
                     </ChunkLoadErrorBoundary>
@@ -547,6 +554,7 @@ export function InsightVizDisplay({
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
+    const showsDataChecks = !!context?.showDataChecks && !inSharedMode
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -593,6 +601,7 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
                             )}

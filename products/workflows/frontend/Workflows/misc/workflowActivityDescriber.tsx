@@ -346,6 +346,22 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'converted_to_broadcast') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Moved to broadcasts',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> moved the {objectNoun} to broadcasts:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated' || logItem.activity == 'published') {
         return describeWorkflowUpdate(logItem)
     }

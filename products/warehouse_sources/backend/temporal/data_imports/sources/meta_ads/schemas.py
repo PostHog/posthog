@@ -251,6 +251,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         # The Ad node returns its creative as a nested object. Without a scalar id there is no join
         # from an ad to `ad_creatives`, where the destination URL and the URL tags live.
         "hoisted_columns": (HoistedColumn(source_field="creative", key="id", column="creative_id"),),
+        # These fields come from the ad's creative. Meta can refuse them for one ad with an invalid
+        # Advantage+ creative, and that ad then syncs without them instead of failing the table.
+        "refusable_fields": ("creative", "tracking_specs", "conversion_specs"),
     },
     MetaAdsResource.AdStats: {
         "primary_keys": ["ad_id", "account_id", "date_start"],
@@ -507,6 +510,27 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "degrees_of_freedom_spec",
             "effective_authorization_category",
         ],
+        # Meta does not say which field triggers a refusal, so every spec-derived field is refusable.
+        "refusable_fields": (
+            "object_type",
+            "object_story_id",
+            "effective_object_story_id",
+            "object_story_spec",
+            "thumbnail_url",
+            "image_url",
+            "image_hash",
+            "video_id",
+            "body",
+            "title",
+            "call_to_action_type",
+            "link_url",
+            "url_tags",
+            "instagram_permalink_url",
+            "actor_id",
+            "asset_feed_spec",
+            "degrees_of_freedom_spec",
+            "effective_authorization_category",
+        ),
     },
     # `hash` rather than `id` as the key: Meta documents it as AdImage's default field, and the
     # `id` it returns is just the account and hash joined.

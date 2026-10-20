@@ -31,6 +31,7 @@ import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/ev
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
@@ -1295,12 +1296,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                     }
                 } else {
-                    router.actions.push(urls.insightView(savedInsight.short_id))
+                    router.actions.push(withBackLink(urls.insightView(savedInsight.short_id)))
                 }
             } else if (!insightNumericId) {
                 // If we've just saved a new insight without redirecting to view mode, we need to redirect to edit mode
                 // so that we aren't stuck on /insights/new
-                router.actions.push(urls.insightEdit(savedInsight.short_id))
+                router.actions.push(withBackLink(urls.insightEdit(savedInsight.short_id)))
             }
         },
         saveAs: async ({ redirectToViewMode, persist, folder }) => {
@@ -1345,9 +1346,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {
-                router.actions.push(urls.insightView(insight.short_id))
+                router.actions.push(withBackLink(urls.insightView(insight.short_id)))
             } else {
-                router.actions.push(urls.insightEdit(insight.short_id))
+                router.actions.push(withBackLink(urls.insightEdit(insight.short_id)))
             }
         },
         onRejectSuggestedInsight: () => {
@@ -1410,7 +1411,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (sidePanel?.values.modalMode) {
                         sidePanel.actions.closeSidePanel()
                     }
-                    router.actions.push(urls.insightEdit(newInsight.short_id))
+                    router.actions.push(withBackLink(urls.insightEdit(newInsight.short_id)))
                 }
             } catch (e: any) {
                 // Nothing downstream reports this: the copy is created by a plain listener rather than

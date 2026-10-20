@@ -1,11 +1,13 @@
 import datetime as dt
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import MetricsDashboardVariable
 
 from posthog.models import Team
 
@@ -19,6 +21,7 @@ from products.metrics.backend.models import (
 )
 from products.metrics.backend.suggested_dashboards.analysis import analyze_team, bank_revision
 from products.metrics.backend.suggested_dashboards.bank import sync_curated_templates
+from products.metrics.backend.suggested_dashboards.dashboards import attribute_variable
 from products.metrics.backend.suggested_dashboards.discovery import record_opened, teams_to_analyze
 from products.metrics.backend.suggested_dashboards.generation import (
     fail_stale_generations,
@@ -27,6 +30,8 @@ from products.metrics.backend.suggested_dashboards.generation import (
 )
 from products.metrics.backend.suggested_dashboards.review import SuggestionGone, create_from_suggestion
 from products.metrics.backend.suggested_dashboards.spec import EvaluationAnswer
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+from products.metrics.backend.variable_options import list_variable_options
 
 QUEUE_METRICS = ["queue_depth", "queue_wait_seconds", "queue_dropped_total", "queue_retries_total"]
 CATALOG = [
@@ -43,6 +48,11 @@ def _panel(key: str, metric: str, x: int) -> dict[str, Any]:
         "query": {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": metric, "aggregation": "rate"}]},
         "layout": {"x": x, "y": 0, "w": 6, "h": 4},
     }
+
+
+def _with_variable_filter(panel: dict[str, Any], name: str) -> dict[str, Any]:
+    panel["query"]["clauses"][0]["filters"] = [{"key": name, "op": "eq", "value": f"${name}"}]
+    return panel
 
 
 def _template(key: str, status: str, *metrics: str, source: str = "curated") -> MetricsDashboardTemplate:
@@ -137,6 +147,27 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert recreated.status_code == status.HTTP_201_CREATED
         assert recreated.json()["dashboard_id"] not in (None, first.json()["dashboard_id"])
 
+    def test_a_suggested_dashboard_gets_the_variables_of_its_tiles(self) -> None:
+        template = _template("mixed", "approved", "orders_total", "unknown_total")
+        _with_variable_filter(template.panels[0], "instance")
+        # The project does not send unknown_total, so its panel and its variable stay out.
+        _with_variable_filter(template.panels[1], "job")
+        template.variables = [
+            attribute_variable(name="instance", label="Instance", attribute="instance"),
+            attribute_variable(name="job", label="Job", attribute="job"),
+        ]
+        template.save(update_fields=["panels", "variables"])
+        suggestion = MetricsDashboardSuggestion.objects.for_team(self.team.id).create(
+            team_id=self.team.id, template=template, coverage=0.5
+        )
+
+        response = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dashboard/")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        dashboard = Dashboard.objects.get(id=response.json()["dashboard_id"])
+        assert dashboard.filters["metricVariables"] == [template.variables[0]]
+        assert dashboard.filters["metricVariables"][0]["current"] == {"values": [], "all": True}
+
     def test_suggestions_need_the_feature_flag(self) -> None:
         self.flags.discard("metrics-suggested-dashboards")
 
@@ -185,6 +216,69 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         ]
         assert Dashboard.objects_including_soft_deleted.get(id=preview_id).deleted
         self.start_analysis.assert_called_once_with(self.team.id, force=True)
+
+    def test_approving_keeps_the_variables_of_the_preview_and_of_the_panels_it_left_out(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        template = _template("generated-queue", "pending_review", "queue_depth", "unknown_total", source="generated")
+        _with_variable_filter(template.panels[0], "instance")
+        _with_variable_filter(template.panels[1], "job")
+        template.variables = [
+            attribute_variable(name="instance", label="Instance", attribute="instance"),
+            attribute_variable(name="job", label="Job", attribute="job"),
+        ]
+        template.source_team_id = self.team.id
+        template.save(update_fields=["panels", "variables", "source_team_id"])
+
+        preview = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/preview/")
+        dashboard = Dashboard.objects.get(id=preview.json()["dashboard_id"])
+        assert [variable["name"] for variable in dashboard.filters["metricVariables"]] == ["instance"]
+        # The reviewer renames the variable and selects an instance of this project, which other projects must not see.
+        edited = {
+            **attribute_variable(name="instance", label="Host", attribute="instance"),
+            "current": {"values": ["web-1"]},
+        }
+        dashboard.filters = {**dashboard.filters, "metricVariables": [edited]}
+        dashboard.save(update_fields=["filters"])
+        approved = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/approve/")
+
+        assert approved.status_code == status.HTTP_200_OK
+        template.refresh_from_db()
+        assert template.variables == [
+            attribute_variable(name="instance", label="Host", attribute="instance"),
+            attribute_variable(name="job", label="Job", attribute="job"),
+        ]
+
+    @parameterized.expand(
+        [
+            ("does_not_parse", {"name": "instance", "source": "invented"}),
+            (
+                "lists_values_of_the_preview_project",
+                {"name": "instance", "source": "custom", "customValues": ["web-1", "web-2"], "includeAll": True},
+            ),
+        ]
+    )
+    def test_approving_ignores_a_preview_variable_that_cannot_be_shared(
+        self, _name: str, preview_variable: dict[str, Any]
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        template = _template("generated-queue", "pending_review", "queue_depth", source="generated")
+        _with_variable_filter(template.panels[0], "instance")
+        template.variables = [attribute_variable(name="instance", label="Instance", attribute="instance")]
+        template.source_team_id = self.team.id
+        template.save(update_fields=["panels", "variables", "source_team_id"])
+
+        preview = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/preview/")
+        dashboard = Dashboard.objects.get(id=preview.json()["dashboard_id"])
+        dashboard.filters = {**dashboard.filters, "metricVariables": [preview_variable]}
+        dashboard.save(update_fields=["filters"])
+        approved = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/approve/")
+
+        assert approved.status_code == status.HTTP_200_OK
+        template.refresh_from_db()
+        # The template keeps its own definition.
+        assert template.variables == [attribute_variable(name="instance", label="Instance", attribute="instance")]
 
     @parameterized.expand(
         [
@@ -376,3 +470,42 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert isinstance(self.start_analysis, MagicMock)
         assert self.start_analysis.call_count == 2
         self.start_analysis.assert_called_with(self.team.id, force=True)
+
+
+class TestSuggestedDashboardVariableOptions(ClickhouseTestMixin, APIBaseTest):
+    def test_options_list_the_values_of_the_hour_that_holds_the_start_of_the_range(self) -> None:
+        truncate_metrics_tables()
+        # A range that starts after the hour still finds the samples in the bucket of that hour.
+        start = dt.datetime.now(dt.UTC).replace(minute=20, second=0, microsecond=0) - dt.timedelta(hours=2)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="queue_depth",
+            service_name="checkout",
+            points=[(start + dt.timedelta(minutes=5), 1.0)],
+            labels={"instance": "web-1"},
+        )
+        later = start + dt.timedelta(hours=1, minutes=10)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="queue_depth",
+            service_name="billing",
+            points=[(later, 1.0)],
+            labels={"instance": "web-2"},
+        )
+
+        def options(attribute: str) -> list[str]:
+            definition = MetricsDashboardVariable.model_validate(
+                attribute_variable(name="scope", label="Scope", attribute=attribute)
+            )
+            return list_variable_options(
+                team=self.team,
+                source=definition.source,
+                query=definition.query,
+                custom_values=None,
+                variables={},
+                date_from=start,
+                date_to=start + dt.timedelta(minutes=30),
+            )
+
+        assert options("instance") == ["web-1"]
+        assert options("service_name") == ["checkout"]

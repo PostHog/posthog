@@ -4,7 +4,11 @@ import pytest
 
 import pyarrow as pa
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     _events_table_fields,
     _get_databricks_table_settings,
@@ -37,7 +41,7 @@ def _staged_events_schema(column_names: list[str]) -> pa.Schema:
 
 def _events_table_field_names(staged_column_names: list[str], schema: BatchExportSchema | None) -> list[str]:
     table_fields, _, _ = _get_databricks_table_settings(
-        model=BatchExportModel(name="events", schema=schema),
+        model=BatchExportEventsCustomModel(schema=schema) if schema is not None else BatchExportEventsModel(),
         record_batch_schema=_staged_events_schema(staged_column_names),
         use_variant_type=True,
     )

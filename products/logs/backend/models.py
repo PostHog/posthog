@@ -13,6 +13,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
+from products.alerts_platform.backend.facade.contracts import MAX_EVALUATION_PERIODS as PLATFORM_MAX_EVALUATION_PERIODS
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
 if TYPE_CHECKING:
@@ -167,7 +168,7 @@ class TeamLogsConfig(models.Model):
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many
 # non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
 # max_value so the two can't drift.
-MAX_EVALUATION_PERIODS = 10
+MAX_EVALUATION_PERIODS = PLATFORM_MAX_EVALUATION_PERIODS
 
 
 class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):

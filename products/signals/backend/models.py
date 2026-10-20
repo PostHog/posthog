@@ -197,6 +197,7 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # by default); only an explicit False disables it, leaving reports to still generate and notify
     # while the team reviews and opens PRs manually.
     autostart_enabled = models.BooleanField(null=True, blank=True)
+    onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)

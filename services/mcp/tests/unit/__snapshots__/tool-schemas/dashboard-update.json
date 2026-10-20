@@ -182,12 +182,6 @@
             ],
             "description": "List of quick filter IDs associated with this dashboard."
         },
-        "restriction_level": {
-            "description": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.",
-            "maximum": 21,
-            "minimum": 21,
-            "type": "number"
-        },
         "tags": {
             "items": {
                 "type": "string"
@@ -443,6 +437,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -547,6 +542,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -757,6 +753,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -948,6 +945,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
