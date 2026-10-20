@@ -56,7 +56,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
-from products.tasks.backend.facade.enums import TaskChannelWriteType
+from products.tasks.backend.facade.enums import AgentCallbackRequestKind, TaskChannelWriteType
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -77,7 +77,6 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
     get_runtime_adapter_for_model,
 )
-from products.tasks.backend.pr_urls import canonical_github_pull_request_url
 
 logger = logging.getLogger(__name__)
 
@@ -5116,23 +5115,14 @@ class TaskRunEventSerializer(serializers.Serializer):
         return attrs
 
     def validate_pr_url(self, value: str) -> str:
-        if canonical_github_pull_request_url(value) is None:
+        if tasks_facade.canonical_github_pull_request_url(value) is None:
             raise serializers.ValidationError("Must be a GitHub pull request URL.")
         return value
 
 
 class AgentCallbackRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=[
-            "heartbeat",
-            "awaiting_input",
-            "turn_failed",
-            "command_dispatched",
-            "agent_activity",
-            "budget_steer",
-            "process_killed",
-            "run_event",
-        ],
+        choices=AgentCallbackRequestKind.choices,
         help_text=(
             "Side effect to dispatch. 'run_event' reports a change to the run itself, described by `event`. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "

@@ -171,7 +171,7 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.pr_urls import (
-    canonical_github_pull_request_url,
+    canonical_github_pull_request_url as canonical_github_pull_request_url,
     merge_pr_output,
     normalize_verified_pull_request_urls,
     read_head_branches,
