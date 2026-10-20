@@ -25,7 +25,6 @@ tools:
             idempotency_key and reuse it when you retry the same request. Each user can have one setup run active per
             project. Returns run_id; poll wizard-install-status with it about every 30 seconds until the status is
             completed, failed, or cancelled.
-        feature_flag: wizard-mcp-install
     wizard-install-status:
         operation: wizard_installs_retrieve
         enabled: true
@@ -38,4 +37,3 @@ tools:
         param_overrides:
             run_id:
                 description: The run_id returned by wizard-install-start.
-        feature_flag: wizard-mcp-install
