@@ -43,14 +43,17 @@ from posthog.schema import (
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyOperator,
+    StickinessActorsQuery,
+    StickinessQuery,
 )
 
 from posthog.hogql.context import HogQLContext
 
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.query_runner import get_query_runner, get_query_runner_or_none
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner, get_query_runner_or_none
 from posthog.models import Organization, Team, User
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
@@ -2623,3 +2626,32 @@ class TestActorExecutionUserContext(APIBaseTest):
         runner.user = other_user
         runner._on_user_changed()
         assert execution_context().user is other_user
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+class TestNativeActorSourceExecution(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
+
+    @parameterized.expand(
+        [
+            (
+                FunnelsActorsQuery(
+                    source=FunnelsQuery(series=[EventsNode(event="a"), EventsNode(event="b")]), funnelStep=1
+                ),
+            ),
+            (StickinessActorsQuery(source=StickinessQuery(series=[EventsNode(event="a")]), day=1),),
+        ]
+    )
+    def test_specialized_actor_sources_execute_on_the_native_cluster(
+        self, actors: FunnelsActorsQuery | StickinessActorsQuery
+    ) -> None:
+        native = HogQLQueryModifiers(useNewEventsSchema=True, useNewEventsCluster=True)
+        source = actors.source.model_copy(update={"modifiers": native})
+        query = ActorsQuery(source=actors.model_copy(update={"source": source}))
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            get_query_runner(query, self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+        self.assertIn("events_json", execute.call_args.args[0])
+        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
