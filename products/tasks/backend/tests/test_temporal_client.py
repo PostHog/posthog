@@ -247,19 +247,15 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
             self._execute_workflow(executor, run, self.user.id)
 
         run.refresh_from_db()
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
         self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
-        self.assertEqual(run.state["agent_proxy_keep_stream_open"], True)
         self.assertEqual(run.state["overlap_clone_boot_enabled"], True)
         self.assertEqual(run.state["use_modal_network_allowlist"], True)
         # Patching the shared posthoganalytics module attribute covers every evaluation
         # site (client.py for the rollout stamps, feature_flags.py for telemetry).
-        self.assertEqual(flag.call_count, 5)
+        self.assertEqual(flag.call_count, 3)
         actor_distinct_id = f"user_{self.user.id}"
         for flag_key, expected_distinct_id in (
-            ("tasks-cloud-runs-sandbox-event-ingest", "process_task_workflow"),
             ("tasks-agent-run-otel-telemetry", "process_task_workflow"),
-            ("tasks-agent-proxy-keep-stream-open", actor_distinct_id),
             ("tasks-overlap-clone-boot", actor_distinct_id),
             ("tasks-modal-network-allowlist", actor_distinct_id),
         ):
@@ -314,12 +310,12 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
 
     def test_boot_flag_capture_keeps_existing_stamp_and_survives_one_flag_error(self) -> None:
         run = self._create_run()
-        TaskRun.update_state_atomic(str(run.id), updates={"overlap_clone_boot_enabled": False})
+        TaskRun.update_state_atomic(str(run.id), updates={"use_modal_network_allowlist": False})
         client = Mock()
         client.start_workflow = AsyncMock()
 
         def _feature_enabled(flag_key: str, **kwargs: object) -> bool:
-            if flag_key == "tasks-agent-proxy-keep-stream-open":
+            if flag_key == "tasks-overlap-clone-boot":
                 raise RuntimeError("flag service unavailable")
             return True
 
@@ -332,15 +328,14 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         ):
             self._execute_workflow("sync", run, self.user.id)
 
+        client.start_workflow.assert_awaited_once()
         run.refresh_from_db()
         self.assertEqual(run.state["overlap_clone_boot_enabled"], False)
-        self.assertEqual(run.state["agent_proxy_keep_stream_open"], False)
-        self.assertEqual(run.state["use_modal_network_allowlist"], True)
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        self.assertEqual(run.state["use_modal_network_allowlist"], False)
         self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
 
     @override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=True)
-    def test_captures_sandbox_event_ingest_flag_before_resuming_workflow(self) -> None:
+    def test_captures_run_feature_flags_before_resuming_workflow(self) -> None:
         run = self._create_run()
         reset_task_run_stream(str(run.id))
         generation = get_task_run_stream_generation(str(run.id))
@@ -354,13 +349,13 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
             resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
 
         run.refresh_from_db()
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        self.assertEqual(run.state["overlap_clone_boot_enabled"], True)
 
         self.assertEqual(run.state["stream_generation"], generation)
         self.assertEqual(client.start_workflow.call_args.args[1].stream_generation, generation)
 
     @parameterized.expand([("sync",), ("async",)])
-    def test_captures_sandbox_event_ingest_flag_without_clobbering_concurrent_state(self, executor: str) -> None:
+    def test_captures_run_feature_flags_without_clobbering_concurrent_state(self, executor: str) -> None:
         run = self._create_run()
         client = Mock()
         client.start_workflow = AsyncMock()
@@ -386,7 +381,7 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.state["pending_user_message_ids"], ["message-1"])
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        self.assertEqual(run.state["overlap_clone_boot_enabled"], True)
 
 
 @override_settings(DEBUG=False)
