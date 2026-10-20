@@ -187,12 +187,10 @@ def _any_of(*arms: str) -> str:
     return "or(\n    " + ",\n    ".join(arms) + "\n)"
 
 
-_DELETE_PREDICATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
-
-# sharded_events_json writes deletes as patch parts. The team_id sets come from the dictionaries and
-# lead the sorting key, so the read skips the granules of every team with nothing to delete.
-_PATCH_PART_DELETE_PREDICATE = (
-    _DELETE_PREDICATE
+# The team_id sets come from the dictionaries and lead the sorting key of every target, so the read
+# skips the granules of every team with nothing to delete.
+_DELETE_PREDICATE = (
+    _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
     + """
     AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(team_deletion_type)s, %(event_deletion_type)s))
         OR team_id IN (SELECT team_id FROM dictionary(%(adhoc_event_deletes_dictionary)s)))"""
@@ -671,7 +669,7 @@ def _delete_with_patch_parts(placement: TargetPlacement, parameters: dict[str, s
     for partition_id, shards in sorted(shards_by_partition(placement).items()):
         runner = LightweightDeleteMutationRunner(
             table=placement.target.data_table,
-            predicate=_PATCH_PART_DELETE_PREDICATE,
+            predicate=_DELETE_PREDICATE,
             parameters=parameters,
             partition=partition_id,
             patch_parts=True,
