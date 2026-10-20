@@ -38,6 +38,7 @@ prost = { workspace = true }
 bytes = { workspace = true }
 tower-http = { workspace = true }
 hex = "0.4"
+sha2 = { workspace = true }
 snap = { workspace = true }
 prometheus-rw-proto = { path = "../prometheus-rw-proto" }
 
