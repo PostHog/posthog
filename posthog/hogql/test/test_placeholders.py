@@ -54,6 +54,7 @@ class TestParser(SimpleTestCase):
         query = cast(ast.SelectQuery, parse_select("select {foo} from events where {" + placeholder + "}"))
         replaced = cast(ast.SelectQuery, replace_placeholders(query, {"foo": ast.Constant(value=1)}))
         self.assertEqual(cast(ast.Constant, replaced.select[0]).value, 1)
+        assert replaced.where is not None and query.where is not None
         self.assertEqual(clear_locations(replaced.where), clear_locations(query.where))
 
     def test_find_placeholders_dotted_filters_calls(self):
