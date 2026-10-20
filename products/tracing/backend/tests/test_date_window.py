@@ -61,6 +61,10 @@ class TestNormalizeTracingWindow:
             ("h",),
             ("-m",),
             ("d",),
+            ("-999999999d",),
+            ("-99999999999y",),
+            (5,),
+            (True,),
         ]
     )
     def test_unparseable_values_raise(self, value: str) -> None:

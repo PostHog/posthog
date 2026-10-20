@@ -882,24 +882,24 @@ export interface _ServiceHealthSummaryApi {
 }
 
 /**
- * * `ok` - Ok
- * * `degraded` - Degraded
- * * `regressed` - Regressed
- * * `improved` - Improved
- * * `new` - New
  * * `silent` - Silent
+ * * `regressed` - Regressed
+ * * `degraded` - Degraded
+ * * `new` - New
  * * `recovered` - Recovered
+ * * `improved` - Improved
+ * * `ok` - Ok
  */
 export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
 
 export const ServiceHealthStatusEnumApi = {
-    Ok: 'ok',
-    Degraded: 'degraded',
-    Regressed: 'regressed',
-    Improved: 'improved',
-    New: 'new',
     Silent: 'silent',
+    Regressed: 'regressed',
+    Degraded: 'degraded',
+    New: 'new',
     Recovered: 'recovered',
+    Improved: 'improved',
+    Ok: 'ok',
 } as const
 
 export interface _ServiceHealthRowApi {
@@ -907,13 +907,13 @@ export interface _ServiceHealthRowApi {
     service: string
     /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
      *
-     * * `ok` - Ok
-     * * `degraded` - Degraded
-     * * `regressed` - Regressed
-     * * `improved` - Improved
-     * * `new` - New
      * * `silent` - Silent
-     * * `recovered` - Recovered */
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
     status: ServiceHealthStatusEnumApi
     /** Why the service has this status. Empty for ok. */
     reason: string

@@ -44,10 +44,10 @@ class ServiceHealthOrderBy(LabeledStrEnum):
 
 
 class ServiceHealthStatus(LabeledStrEnum):
-    OK = "ok"
-    DEGRADED = "degraded"
-    REGRESSED = "regressed"
-    IMPROVED = "improved"
-    NEW = "new"
     SILENT = "silent"
+    REGRESSED = "regressed"
+    DEGRADED = "degraded"
+    NEW = "new"
     RECOVERED = "recovered"
+    IMPROVED = "improved"
+    OK = "ok"

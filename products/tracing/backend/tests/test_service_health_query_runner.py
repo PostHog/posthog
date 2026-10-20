@@ -39,6 +39,8 @@ def _stats(
     errors: int = 0,
     p95_ms: float = 10.0,
     last_seen: dt.datetime | None = None,
+    environment_key: str = "",
+    environment_value: str = "",
 ) -> ServiceWindowStats:
     return ServiceWindowStats(
         requests=requests,
@@ -47,6 +49,8 @@ def _stats(
         p95_ms=p95_ms,
         p99_ms=p95_ms,
         last_seen=last_seen or CURRENT_TO - dt.timedelta(seconds=20),
+        environment_key=environment_key,
+        environment_value=environment_value,
     )
 
 
@@ -421,6 +425,25 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
             (True, False),
         )
         self.assertNotIn("filterGroup", self._run(environment=None)["next"][0]["query"])
+
+    def test_next_splits_services_by_environment_selector(self):
+        runner = ServiceHealthQueryRunner(
+            team=self.team, params=ServiceHealthParams(date_from="-1h", environment="production")
+        )
+        runner._current_stats = {
+            "api": _stats(
+                200, errors=20, environment_key="deployment.environment.name", environment_value="production"
+            ),
+            "worker": _stats(200, errors=20, environment_key="env", environment_value="prod"),
+        }
+        rows = [
+            {"service": name, "status": ServiceHealthStatus.DEGRADED, "error_count": 20} for name in ("api", "worker")
+        ]
+        aggregates = [call for call in runner._next_calls(rows) if call["tool"] == "apm-spans-aggregate"]
+        selectors = {
+            (tuple(call["query"]["serviceNames"]), call["query"]["filterGroup"][0]["key"]) for call in aggregates
+        }
+        self.assertEqual(selectors, {(("api",), "deployment.environment.name"), (("worker",), "env")})
 
     def test_a_truncated_scan_does_not_invent_silent_or_new_services(self):
         with patch("products.tracing.backend.service_health_query_runner.SERVICE_SCAN_LIMIT", 3):

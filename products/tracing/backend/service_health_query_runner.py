@@ -43,27 +43,17 @@ SERVICE_SCAN_LIMIT = 1000
 NEXT_SERVICES_LIMIT = 5
 
 _ENTRY_WHERE = "(is_root_span = 1 OR kind IN (2, 5))"
-_ENVIRONMENT_WHERE = (
-    "lower(coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
-    "nullIf(resource_attributes['deployment.environment'], ''), resource_attributes['env'], '')) = {env}"
+_ENVIRONMENT = (
+    "coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
+    "nullIf(resource_attributes['deployment.environment'], ''), resource_attributes['env'], '')"
 )
-_ENVIRONMENT_VALUE = (
-    "any(coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
-    "nullIf(resource_attributes['deployment.environment'], ''), resource_attributes['env'], ''))"
-)
+_ENVIRONMENT_WHERE = "lower(" + _ENVIRONMENT + ") = {env}"
+_ENVIRONMENT_VALUE = "any(" + _ENVIRONMENT + ")"
 _ENVIRONMENT_KEY = (
     "any(multiIf(resource_attributes['deployment.environment.name'] != '', 'deployment.environment.name', "
     "resource_attributes['deployment.environment'] != '', 'deployment.environment', 'env'))"
 )
-_STATUS_ORDER = [
-    Status.SILENT,
-    Status.REGRESSED,
-    Status.DEGRADED,
-    Status.NEW,
-    Status.RECOVERED,
-    Status.IMPROVED,
-    Status.OK,
-]
+_STATUS_ORDER = list(Status)
 _UNHEALTHY = (Status.REGRESSED, Status.DEGRADED)
 _SHIFT = {Compare.PREVIOUS_DAY: dt.timedelta(days=1), Compare.PREVIOUS_WEEK: dt.timedelta(days=7)}
 _AGGREGATE_COMPARE_FILTER: dict[str, dict[str, Any]] = {
@@ -315,22 +305,31 @@ class ServiceHealthQueryRunner:
         environment = {"key": stats.environment_key, "value": stats.environment_value, "operator": "exact"}
         return {**query, "filterGroup": [{**environment, "type": "span_resource_attribute"}]}
 
+    def _by_selector(self, names: list[str]) -> list[list[str]]:
+        groups: dict[tuple[str, str], list[str]] = {}
+        for name in names:
+            stats = self._current_stats.get(name)
+            selector = (
+                (stats.environment_key, stats.environment_value) if stats and self.params.environment else ("", "")
+            )
+            groups.setdefault(selector, []).append(name)
+        return list(groups.values())
+
     def _next_calls(self, rows: list[dict]) -> list[dict[str, Any]]:
         calls: list[dict[str, Any]] = []
         unhealthy = [row for row in rows if row["status"] in _UNHEALTHY]
-        if unhealthy:
-            names = [row["service"] for row in unhealthy[:NEXT_SERVICES_LIMIT]]
+        for names in self._by_selector([row["service"] for row in unhealthy[:NEXT_SERVICES_LIMIT]]):
             query: dict[str, Any] = {"dateRange": _range(self.current), "serviceNames": names, "limit": 20}
             if compare_filter := aggregate_compare_filter(self.params.compare):
                 query["compareFilter"] = compare_filter
             why = _clip(f"operations behind {', '.join(names)}")
             calls.append({"tool": "apm-spans-aggregate", "why": why, "query": self._scoped(query, names[0])})
         silent = [row["service"] for row in rows if row["status"] == Status.SILENT][:NEXT_SERVICES_LIMIT]
-        if silent:
+        for names in self._by_selector(silent):
             start = min(self.current[0], self.baseline[0]) if self.baseline else self.current[0]
-            query = {"dateRange": _range((start, self.current[1])), "serviceNames": silent}
-            why = _clip(f"when {', '.join(silent)} stopped sending spans")
-            calls.append({"tool": "apm-spans-sparkline", "why": why, "query": self._scoped(query, silent[0])})
+            query = {"dateRange": _range((start, self.current[1])), "serviceNames": names}
+            why = _clip(f"when {', '.join(names)} stopped sending spans")
+            calls.append({"tool": "apm-spans-sparkline", "why": why, "query": self._scoped(query, names[0])})
         worst = next((row for row in unhealthy if row["error_count"]), None)
         if worst:
             query = {"dateRange": _range(self.current), "serviceNames": [worst["service"]], "statusCodes": [2]}

@@ -412,15 +412,10 @@ def _date_range_from_query_params(request: Request) -> dict:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             parsed = None
-        if not isinstance(parsed, dict) or not all(isinstance(value, str | None) for value in parsed.values()):
-            raise serializers.ValidationError(
-                {
-                    "dateRange": (
-                        f"dateRange must be a JSON object, for example dateRange={json.dumps({'date_from': '-1h'})}. "
-                        f"Got {raw!r}. Or pass date_from=-1h and date_to as separate parameters."
-                    )
-                }
-            )
+        if not isinstance(parsed, dict):
+            example = json.dumps({"date_from": "-1h"})
+            message = f"dateRange must be a JSON object such as {example}, or pass date_from and date_to. Got {raw!r}."
+            raise serializers.ValidationError({"dateRange": message})
         return normalize_tracing_date_range(parsed)
     return normalize_tracing_date_range(
         {"date_from": request.GET.get("date_from"), "date_to": request.GET.get("date_to")}

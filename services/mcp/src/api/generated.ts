@@ -102814,25 +102814,25 @@ export namespace Schemas {
     }
 
     /**
-     * * `ok` - Ok
-     * * `degraded` - Degraded
-     * * `regressed` - Regressed
-     * * `improved` - Improved
-     * * `new` - New
      * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
      * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok
      */
     export type ServiceHealthStatusEnum = typeof ServiceHealthStatusEnum[keyof typeof ServiceHealthStatusEnum];
 
 
     export const ServiceHealthStatusEnum = {
-      Ok: 'ok',
-      Degraded: 'degraded',
-      Regressed: 'regressed',
-      Improved: 'improved',
-      New: 'new',
       Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
       Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
     } as const;
 
     export interface _ServiceHealthRow {
@@ -102840,13 +102840,13 @@ export namespace Schemas {
       service: string;
       /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
        *
-       * * `ok` - Ok
-       * * `degraded` - Degraded
-       * * `regressed` - Regressed
-       * * `improved` - Improved
-       * * `new` - New
        * * `silent` - Silent
-       * * `recovered` - Recovered */
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
       status: ServiceHealthStatusEnum;
       /** Why the service has this status. Empty for ok. */
       reason: string;
