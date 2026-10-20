@@ -26,7 +26,7 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
     if operation == "native_cancel":
         # nosemgrep: clickhouse-fstring-param-audit - predicate is a constant SQL expression above
         matches = execute(
-            f"SELECT FQDN(), query_id FROM clusterAllReplicas(%(cluster)s, system.processes) WHERE {predicate} SETTINGS max_execution_time=2",
+            f"SELECT FQDN(), query_id FROM clusterAllReplicas(%(cluster)s, system.processes) WHERE {predicate} SETTINGS max_execution_time=2, skip_unavailable_shards=1",
             params,
         )
         confirmed = bool(matches)

@@ -565,6 +565,11 @@ def default_client_kwargs(
     team_id: int | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    if user is None and password is None and workload is None:
+        user = settings.CLICKHOUSE_USER
+        password = ClickHouseCredentials(
+            user=user, password=settings.CLICKHOUSE_PASSWORD, password_file=settings.CLICKHOUSE_PASSWORD_FILE
+        ).read_password()
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         # We set "system" here as we don't necessarily have a "default" database,
@@ -623,11 +628,6 @@ def default_client(
     user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
-    if user is None and password is None and workload is None:
-        user = settings.CLICKHOUSE_USER
-        password = ClickHouseCredentials(
-            user=user, password=settings.CLICKHOUSE_PASSWORD, password_file=settings.CLICKHOUSE_PASSWORD_FILE
-        ).read_password()
     return ClickHouseClient(
         **default_client_kwargs(
             host=host,

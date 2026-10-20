@@ -30,6 +30,14 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         worker.start()
         self.addCleanup(worker.stop)
 
+    def test_native_discovery_skips_unavailable_replicas(self) -> None:
+        job = {"operation": "native_cancel", "connection": {}, "cluster": "c", "prefix": "44_q_", "log_comment": ""}
+        with patch("posthog.clickhouse.metadata_worker.Client") as client:
+            execute = client.return_value.__enter__.return_value.execute
+            execute.return_value = []
+            run_metadata_job(job)
+        self.assertIn("skip_unavailable_shards=1", execute.call_args.args[0])
+
     @parameterized.expand([("legacy",), ("native",)])
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_cancellation_deadline_bounds_either_stalled_cluster(self, stalled: str) -> None:
