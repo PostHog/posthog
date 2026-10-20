@@ -513,6 +513,44 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         else:
             return actual_data
 
+    def test_retrieve_records_terraform_read_at_most_once_a_day(self):
+        function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
+        updated_at = function.updated_at
+        url = f"/api/projects/{self.team.id}/hog_functions/{function.id}/"
+        terraform_ua = "posthog/terraform-provider; version: 1.0.22"
+
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+            self.client.get(url)
+            function.refresh_from_db()
+            assert function.last_terraform_read_at is None
+
+            response = self.client.get(url, headers={"user-agent": terraform_ua})
+            assert response.status_code == status.HTTP_200_OK
+            assert "last_terraform_read_at" not in response.json()
+
+        with time_machine.travel("2026-01-01T23:00:00Z", tick=False):
+            self.client.get(url, headers={"user-agent": terraform_ua})
+        function.refresh_from_db()
+        assert function.last_terraform_read_at.isoformat() == "2026-01-01T00:00:00+00:00"
+
+        with time_machine.travel("2026-01-02T01:00:00Z", tick=False):
+            self.client.get(url, headers={"user-agent": terraform_ua})
+        function.refresh_from_db()
+        assert function.last_terraform_read_at.isoformat() == "2026-01-02T01:00:00+00:00"
+        assert function.updated_at == updated_at
+
+    def test_retrieve_succeeds_when_recording_terraform_read_fails(self):
+        function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
+
+        with patch.object(HogFunction, "record_terraform_read", side_effect=Exception("db down")):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
+                headers={"user-agent": "posthog/terraform-provider; version: 1.0.22"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(function.id)
+
     def _create_hidden_template(self) -> None:
         HogFunctionTemplate.objects.create(
             template_id="template-hidden-dest",
