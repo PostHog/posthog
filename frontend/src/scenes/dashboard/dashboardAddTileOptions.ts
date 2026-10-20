@@ -4,7 +4,6 @@ export interface DashboardAddTileOption {
     key: DashboardAddTileKey
     label: string
     tag?: 'new'
-    tooltip?: string
     onClick: () => void
 }
 

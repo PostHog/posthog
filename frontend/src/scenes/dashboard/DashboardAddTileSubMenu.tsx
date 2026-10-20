@@ -23,7 +23,6 @@ export function DashboardAddTileSubMenu(): JSX.Element {
                 <SceneMenuBarItem
                     key={option.key}
                     opensFloatingUi
-                    tooltip={option.tooltip}
                     onClick={option.onClick}
                     data-attr={`dashboard-menubar-add-${option.key}`}
                 >

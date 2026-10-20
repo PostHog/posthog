@@ -41,7 +41,6 @@ export function getAddTileMenuItems({
     const items: LemonMenuItem[] = getDashboardAddTileOptions(handlers).map((option) => ({
         label: option.label,
         tag: option.tag,
-        tooltip: option.tooltip,
         onClick: () => {
             onBeforeSelect?.()
             option.onClick()
