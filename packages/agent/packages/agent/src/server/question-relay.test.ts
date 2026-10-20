@@ -155,7 +155,7 @@ describe("Question relay", () => {
     ["API Error: Connection error", "upstream_connection_error"],
     ["API Error: The operation timed out.", "upstream_timeout"],
     ["API Error: Request timed out.", "upstream_timeout"],
-    ["API Error: 429 rate_limit_error", "upstream_provider_failure"],
+    ["API Error: 429 rate_limit_error", "upstream_rate_limited"],
     ["API Error: 529 overloaded_error", "upstream_provider_failure"],
     ["API Error: 503 internal_error", "upstream_provider_failure"],
     ["something else", "agent_error"],
@@ -968,7 +968,22 @@ describe("Question relay", () => {
       expect(continuation.prompt[0].text).toContain(
         "interrupted by a transient connection error",
       );
-      expect(updateTaskRunSpy).not.toHaveBeenCalled();
+      expect(updateTaskRunSpy.mock.calls).toEqual([
+        [
+          "test-task-id",
+          "test-run-id",
+          {
+            state: {
+              upstream_turn_retry: {
+                classification: "upstream_stream_terminated",
+                attempt: 1,
+                delay_ms: 5_000,
+              },
+            },
+          },
+          expect.any(AbortSignal),
+        ],
+      ]);
     });
 
     it("re-sends the original prompt after an upstream provider failure", async () => {
@@ -1020,7 +1035,22 @@ describe("Question relay", () => {
         prompt: Array<{ type: string; text: string }>;
       };
       expect(retryRequest.prompt[0].text).toBe("original task description");
-      expect(updateTaskRunSpy).not.toHaveBeenCalled();
+      expect(updateTaskRunSpy.mock.calls).toEqual([
+        [
+          "test-task-id",
+          "test-run-id",
+          {
+            state: {
+              upstream_turn_retry: {
+                classification: "upstream_provider_failure",
+                attempt: 1,
+                delay_ms: 5_000,
+              },
+            },
+          },
+          expect.any(AbortSignal),
+        ],
+      ]);
     });
 
     it("stores the classified cause once upstream retries are exhausted", async () => {

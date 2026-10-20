@@ -96,6 +96,7 @@ import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
   type AgentErrorClassification,
+  agentErrorRetryAfterMs,
   classifyAgentError,
   isPromptTooLongError,
   isRetryableUpstreamErrorClassification,
@@ -185,6 +186,7 @@ import {
   validateCommandParams,
 } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
+import { upstreamTurnRetryDelayMs } from "./utils/upstream-turn-retry";
 import { waitForFile } from "./wait-for-file";
 
 const agentErrorClassificationSchema = z.enum([
@@ -192,6 +194,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "upstream_rate_limited",
   "content_block_rejection",
   "turn_ended_without_response",
   "subscription_usage_limit",
@@ -217,6 +220,7 @@ const errorWithClassificationSchema = z.object({
     // The adapter carries the app-server's own cause here, so the diagnostic
     // path can report it separately from the generic ACP display text.
     result: z.string().optional(),
+    retryAfterMs: z.number().nonnegative().max(2_147_483_647).optional(),
     madeProgress: z.boolean().optional(),
     usage: z
       .object({
@@ -233,18 +237,6 @@ const errorWithClassificationSchema = z.object({
 
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 
-// Bounded per-turn retries for unattended (initial/resume) turns that hit a
-// transient upstream failure. Two covers a retry whose own attempt also gets
-// cut once, without letting a hard upstream outage loop forever.
-const MAX_UPSTREAM_TURN_RETRIES = 2;
-const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
-
-// The delay doubles per attempt. Half of it is random, so many runs that hit
-// the same capacity gap do not retry at the same moment.
-export function upstreamTurnRetryDelayMs(attempt: number): number {
-  const ceiling = UPSTREAM_TURN_RETRY_DELAY_MS * 2 ** (attempt - 1);
-  return ceiling / 2 + Math.random() * (ceiling / 2);
-}
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
@@ -2720,6 +2712,7 @@ export class AgentServer {
     classification: AgentErrorClassification;
     message: string;
     cause: string;
+    retryAfterMs?: number;
     madeProgress: boolean;
     usage?: NonNullable<PromptResponse["usage"]>;
   } {
@@ -2739,6 +2732,9 @@ export class AgentServer {
         classification: parsed.data.data.classification,
         message,
         cause,
+        retryAfterMs:
+          parsed.data.data.retryAfterMs ??
+          agentErrorRetryAfterMs(parsed.data.data.result || message),
         madeProgress: parsed.data.data.madeProgress ?? false,
         usage: parsed.data.data.usage,
       };
@@ -2749,6 +2745,7 @@ export class AgentServer {
       classification,
       message,
       cause: sanitizeAgentErrorCause(message, classification),
+      retryAfterMs: agentErrorRetryAfterMs(message),
       madeProgress: false,
     };
   }
@@ -2907,12 +2904,23 @@ export class AgentServer {
         const usage = mergeUsage(retryUsage, response.usage ?? undefined);
         return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
-        const { classification, message, cause, madeProgress, usage } =
-          this.extractErrorClassification(error);
+        const {
+          classification,
+          message,
+          cause,
+          retryAfterMs,
+          madeProgress,
+          usage,
+        } = this.extractErrorClassification(error);
         const accumulatedUsage = mergeUsage(retryUsage, usage);
         const retryable =
           isRetryableUpstreamErrorClassification(classification);
-        if (!retryable || retries >= MAX_UPSTREAM_TURN_RETRIES) {
+        const delayMs = upstreamTurnRetryDelayMs(
+          classification,
+          retries,
+          retryAfterMs,
+        );
+        if (delayMs === undefined) {
           if (recordFailedUsage && this.session === originatingSession) {
             await this.recordTurnUsage(
               accumulatedUsage,
@@ -2936,17 +2944,36 @@ export class AgentServer {
         continueInterruptedTurn ||=
           classification === "upstream_stream_terminated" || madeProgress;
         this.logger.warn(
-          "Turn hit a transient upstream failure; retrying after a short delay",
+          "Turn hit a transient upstream failure; retrying after a delay",
           {
             classification,
             message,
             attempt: retries,
+            delayMs,
             continueInterruptedTurn,
           },
         );
-        await new Promise((resolve) =>
-          setTimeout(resolve, upstreamTurnRetryDelayMs(retries)),
-        );
+        void this.posthogAPI
+          .updateTaskRun(
+            originatingSession.payload.task_id,
+            originatingSession.payload.run_id,
+            {
+              state: {
+                upstream_turn_retry: {
+                  classification,
+                  attempt: retries,
+                  delay_ms: delayMs,
+                },
+              },
+            },
+            AbortSignal.timeout(30_000),
+          )
+          .catch((error: unknown) => {
+            this.logger.debug("Failed to persist the upstream turn retry", {
+              error,
+            });
+          });
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn could be retried",
