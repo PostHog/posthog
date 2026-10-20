@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
+    PlatformCheckEventPage,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.logic import platform_alert_events
@@ -192,3 +193,19 @@ def history_by_legacy_id(
     }
     histories = platform_alert_events.history(team_id, legacy_by_platform_id, since=since, until=until)
     return {legacy_by_platform_id[platform_id]: history for platform_id, history in histories.items()}
+
+
+def notable_checks_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, since: datetime, limit: int
+) -> PlatformCheckEventPage | None:
+    """The newest checks since `since` that moved the named alert's state or failed, or None when
+    the platform does not own it."""
+    platform_id = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", flat=True)
+        .first()
+    )
+    if platform_id is None:
+        return None
+    return platform_alert_events.notable_checks(team_id, platform_id, since=since, limit=limit)
