@@ -400,11 +400,12 @@ def test_publish_tags_completed_results_without_repeating_mutable_updates(
         return server.respond(request)
 
     with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))):
+        assert asyncio.run(publisher.publish(upload)).endswith(EXPERIMENT_ID)
         if tag_error == "interrupted":
             with pytest.raises(asyncio.CancelledError):
-                asyncio.run(publisher.publish(upload))
+                asyncio.run(publisher.tag(upload))
         else:
-            assert asyncio.run(publisher.publish(upload)).endswith(EXPERIMENT_ID)
+            asyncio.run(publisher.tag(upload))
         assert server.status == "completed"
         assert len(server.results) == 2
         assert "tags" not in server.experiment
@@ -412,6 +413,7 @@ def test_publish_tags_completed_results_without_repeating_mutable_updates(
 
         server.tags = ["edited-after-upload"]
         asyncio.run(publisher.publish(upload))
+        asyncio.run(publisher.tag(upload))
 
     assert len(tag_requests) == 1
     assert json.loads(tag_requests[0].content) == {"tags": list(upload.tags)}

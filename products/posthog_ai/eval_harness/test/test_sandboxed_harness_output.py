@@ -42,6 +42,7 @@ from products.posthog_ai.eval_harness.engines.types import (
 )
 from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
+from products.posthog_ai.eval_harness.harness.discovery import EvalSuite, discover_suites
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
@@ -547,40 +548,21 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
 
 
 @pytest.mark.parametrize(
-    "domain,module_name",
+    "discovered",
     [
-        ("sql", "eval_sql"),
-        ("experiments", "eval_bias_uneven_split"),
-        ("experiments", "eval_create_control_variant"),
-        ("experiments", "eval_empty_experiment"),
-        ("experiments", "eval_interpretation_traps"),
-        ("experiments", "eval_lifecycle_skills"),
-        ("experiments", "eval_metric_schema_discovery"),
-        ("experiments", "eval_midrun_changes"),
-        ("experiments", "eval_numbers_vs_sql"),
-        ("experiments", "eval_rollout_skill"),
-        ("experiments", "eval_shared_metric_validation"),
-        ("experiments", "eval_unknown_events_confirmation"),
-        ("taxonomic_filter", "eval_event_match"),
-        ("taxonomic_filter", "eval_search_intent"),
-        ("slack_app", "eval_followup_classifier"),
-        ("slack_app", "eval_model_classifier"),
-        ("slack_app", "eval_project_classifier"),
-        ("slack_app", "eval_reply_suggestions"),
-        ("slack_app", "eval_posthog_first"),
+        suite
+        for suite in discover_suites()
+        if suite.fn.__module__.startswith(("products.posthog_ai.evals.", "products.slack_app.evals."))
+        and hasattr(importlib.import_module(suite.fn.__module__), "offline_suite")
     ],
+    ids=lambda suite: suite.id,
 )
 @pytest.mark.asyncio
 async def test_suite_enrolls_every_scorer_in_offline_publishing(
-    monkeypatch: pytest.MonkeyPatch, domain: str, module_name: str
+    monkeypatch: pytest.MonkeyPatch, discovered: EvalSuite
 ) -> None:
-    module_path = (
-        f"products.slack_app.evals.{module_name}"
-        if domain == "slack_app"
-        else f"products.posthog_ai.evals.{domain}.{module_name}"
-    )
-    module = importlib.import_module(module_path)
-    suite_kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
+    domain, module_name, suite_kind = discovered.domain, discovered.module_name, discovered.kind
+    module = importlib.import_module(discovered.fn.__module__)
     if domain == "taxonomic_filter":
         monkeypatch.setattr(module, "system_one_configured", lambda: True)
         if module_name == "eval_event_match":
@@ -593,11 +575,11 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
         runner = "OneShotPublicEval"
     monkeypatch.setattr(module, runner, run)
 
-    await getattr(module, module_name)(MagicMock())
+    await discovered.fn(MagicMock(skill_delivery="bundled"))
 
     run.assert_awaited_once()
     suite = run.call_args.kwargs["offline_suite"]
-    assert suite.key == f"{domain}/{module_name}::{module_name}"
+    assert suite.key == discovered.id
     component = (
         f"slack-app/{module_name.removeprefix('eval_').replace('_', '-')}"
         if domain == "slack_app"

@@ -37,20 +37,20 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 
 ## Configured offline experiment suites
 
-All public PostHog AI and Slack app suites opt into the offline experiment publisher, including both sandboxed and one-shot suites.
+Configured public PostHog AI and Slack app suites opt into the offline experiment publisher, including both sandboxed and one-shot suites.
 The 11 experiment-skill suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses this upload too.
 
 The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and [Slack app catalog](../../products/slack_app/evals/offline_config.py) pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
-Suites select their own metrics from the catalog; the configuration includes the harness-provided `exit_code_zero` metric.
+Suites select their own metrics from the catalog; sandboxed suites also include the harness-provided `exit_code_zero` metric.
 The SQL suite retains its seven existing scorer versions.
 Provide the API key through the environment before running the suite:
 
-| Variable                       | Purpose                                                                                                                           |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal or project secret API key with `offline_evaluation_ingestion:write`. A public project token cannot authenticate uploads. |
-| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                 |
+| Variable                       | Purpose                                                                                                                                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal API key with `offline_evaluation_ingestion:write` and `evaluation:write` to upload and tag results. Ingestion-only personal or project secret keys can upload without tags. A public project token cannot authenticate uploads. |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                                                                                                                        |
 
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
@@ -93,9 +93,9 @@ Score definitions and experiment runs use the same team and component tags:
 | Signals grouping     | `team:self-driving`, `component:signals/grouping`                                           |
 | Signals scout safety | `team:self-driving`, `component:signals/scout-safety`                                       |
 
-`OfflineEvalSuite.tags` supplies the experiment tags. The publisher calls the Python SDK's `experiment.set_tags(...)` after results have uploaded and the experiment has completed. Tags are mutable metadata, separate from the immutable creation declaration and scorer versions.
+`OfflineEvalSuite.tags` supplies the experiment tags. Delivery records the successful upload and results link once the experiment has completed, then calls the publisher's `tag()` method to update tags through the Python SDK's `experiment.set_tags(...)`. Tagging has its own five-second deadline outside the upload deadline. Tags are mutable metadata, separate from the immutable creation declaration and scorer versions.
 
-To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures do not fail completed result uploads or the evaluation score gate.
+To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
 
 Each prepared experiment's tag update is attempted once per publisher, including when delivery pauses and resumes. A failed or interrupted replacement is not repeated automatically, because it may already have succeeded or someone may have edited the tags afterward. Inspect the experiment's tags before manually retrying a replacement.
 

@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
 from posthoganalytics.ai.evaluations import (
-    AsyncExperiment,
     AsyncOfflineEvaluations,
     BulkUploadError,
     EvaluationAPIError,
@@ -33,6 +32,7 @@ from posthog.dataclasses import frozen
 from .engines.types import CaseResult, ExperimentResult, ScorerResult
 
 logger = logging.getLogger(__name__)
+TAG_TIMEOUT_SECONDS = 5.0
 
 
 @frozen
@@ -405,24 +405,43 @@ class OfflineEvalPublisher:
             tags=self.suite.tags,
         )
 
-    async def _tag_experiment(self, experiment: AsyncExperiment, tags: tuple[str, ...]) -> None:
-        if not tags or experiment.id in self._attempted_tag_updates:
+    def _client(self) -> AsyncOfflineEvaluations:
+        return AsyncOfflineEvaluations(
+            host=self.settings.host,
+            project_id=self.settings.project_id,
+            secret_key=self.settings.api_key.get_secret_value(),
+            timeout=self.settings.request_timeout,
+            max_retries=self.settings.max_retries,
+        )
+
+    async def tag(self, upload: OfflineEvalUpload) -> None:
+        if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
+            raise OfflineUploadError("Upload destination differs from the configured host/project")
+        experiment_id = str(upload.experiment["id"])
+        if not upload.tags or experiment_id in self._attempted_tag_updates:
             return
-        self._attempted_tag_updates.add(experiment.id)
+        self._attempted_tag_updates.add(experiment_id)
         try:
-            await experiment.set_tags(tags)
+            async with asyncio.timeout(TAG_TIMEOUT_SECONDS), self._client() as client:
+                await client.resume_experiment(experiment_id).set_tags(upload.tags)
         except EvaluationAPIError as error:
             logger.warning(
                 "PostHog offline results uploaded, but tagging failed for experiment %s (status=%s, code=%s). "
                 "Tagging requires a personal key with evaluation:write. Tag updates are not retried.",
-                experiment.id,
+                experiment_id,
                 error.status,
                 OfflineUploadError._safe_token(error.code, path=False),
+            )
+        except TimeoutError:
+            logger.warning(
+                "PostHog offline results uploaded, but tagging timed out for experiment %s. "
+                "Tag updates are not retried.",
+                experiment_id,
             )
         except asyncio.CancelledError:
             logger.warning(
                 "PostHog offline tag update interrupted for experiment %s; inspect its tags before retrying.",
-                experiment.id,
+                experiment_id,
             )
             raise
 
@@ -430,13 +449,7 @@ class OfflineEvalPublisher:
         if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
             raise OfflineUploadError("Upload destination differs from the configured host/project")
         try:
-            async with AsyncOfflineEvaluations(
-                host=self.settings.host,
-                project_id=self.settings.project_id,
-                secret_key=self.settings.api_key.get_secret_value(),
-                timeout=self.settings.request_timeout,
-                max_retries=self.settings.max_retries,
-            ) as client:
+            async with self._client() as client:
                 experiment = await client.create_experiment(name=upload.experiment_name, **upload.experiment)
                 try:
                     await experiment.upload_results(upload.results)
@@ -445,7 +458,6 @@ class OfflineEvalPublisher:
                     with suppress(Exception):
                         await asyncio.wait_for(experiment.fail(), timeout=5)
                     raise
-                await self._tag_experiment(experiment, upload.tags)
         except EvaluationAPIError as error:
             raise OfflineUploadError(str(error), api_error=error) from None
         return (
