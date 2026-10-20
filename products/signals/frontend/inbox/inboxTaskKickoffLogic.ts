@@ -357,7 +357,8 @@ async function createReportTask(
     fallbackTitle: string,
     runtimeSelection: ReportRuntimeSelection,
     discussionQuestion?: string,
-    warmLease: ReportWarmLease | null = null
+    warmLease: ReportWarmLease | null = null,
+    matchWarmRun: boolean = true
 ): Promise<{ taskId: string; runId: string }> {
     const isDiscussion = relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
@@ -370,7 +371,8 @@ async function createReportTask(
         ...(isDiscussion
             ? {
                   signal_report_discussion_question: discussionQuestion?.trim() ?? '',
-                  branch: null,
+                  // The backend claims a matching warm run when `branch` is present.
+                  ...(matchWarmRun ? { branch: null } : {}),
                   ...runtimeSelection,
                   pending_user_message: prompt,
               }
@@ -443,6 +445,7 @@ export interface inboxTaskKickoffLogicValues {
     freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
+    lastQuickAskFailure: { reportId: string; question: string } | null
     lastReportRun: ReportRunRef | null
     metricCheckReplacementDisabledReason: string | null
     reportChatContext: ReportChatContext | null
@@ -515,6 +518,13 @@ export interface inboxTaskKickoffLogicActions {
     }
     discussReportSuccess: () => {
         value: true
+    }
+    quickAskFailed: (
+        reportId: string,
+        question: string
+    ) => {
+        question: string
+        reportId: string
     }
     openReportDiscussion: (
         report: SignalReport,
@@ -631,6 +641,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         setReportWarmLease: (lease: ReportWarmLease | null) => ({ lease }),
         discussReportSuccess: true,
         discussReportFailure: true,
+        quickAskFailed: (reportId: string, question: string) => ({ reportId, question }),
         createPrSuccess: true,
         createPrFailure: true,
     }),
@@ -658,6 +669,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             null as ReportWarmLease | null,
             {
                 setReportWarmLease: (_, { lease }) => lease,
+            },
+        ],
+        lastQuickAskFailure: [
+            null as { reportId: string; question: string } | null,
+            {
+                quickAskFailed: (_, failure) => failure,
             },
         ],
         isDiscussing: [
@@ -838,9 +855,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     blockedReason: disabledReason,
                 })
                 actions.discussReportFailure()
+                if (background) {
+                    actions.quickAskFailed(report.id, question)
+                }
                 return
             }
-            const contextItems = values.contextItems
+            // The sidebar context can belong to another report, and the quick ask shows no attachments.
+            const contextItems = background ? [] : values.contextItems
             // The composer renders from a snapshot that can go stale between load and submit (the
             // report resolves, fails, or gets suppressed meanwhile), so the action-vs-answer framing
             // is derived from the report's current server-side state. A failed refetch fails closed:
@@ -875,6 +896,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             if (values.currentProjectId == null) {
                 lemonToast.error("Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
+                if (background) {
+                    actions.quickAskFailed(report.id, question)
+                }
                 return
             }
             try {
@@ -906,7 +930,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Ask AI about report',
                     await launchSelection(values),
                     question,
-                    warmLease
+                    warmLease,
+                    !background
                 )
                 const sentContextKeys = contextItems.filter((item) => item.type !== 'text').map(attachedContextItemKey)
                 if (sentContextKeys.length > 0) {
@@ -914,6 +939,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 if (background) {
                     lemonToast.success('Asked AI about this report', {
+                        toastId: `report-quick-ask-${runId}`,
                         button: { label: 'View', action: () => actions.openReportTask(report, taskId, runId) },
                     })
                 } else if (panelStillOnReport(values.reportChatContext, report.id)) {
@@ -932,6 +958,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             } catch (error: any) {
                 handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
+                if (background) {
+                    actions.quickAskFailed(report.id, question)
+                }
             }
         },
         createPrFromReport: async ({ report, feedback }) => {

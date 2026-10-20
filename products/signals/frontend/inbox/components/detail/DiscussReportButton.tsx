@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCheckCircle, IconGitBranch, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
@@ -37,7 +37,7 @@ function isEditOf(draft: string, suggestion: string): boolean {
 }
 
 export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
-    const { isDiscussing, isCreatingPr, aiConsentDisabledReason, freeTrialDisabledReason } =
+    const { isDiscussing, isCreatingPr, aiConsentDisabledReason, freeTrialDisabledReason, lastQuickAskFailure } =
         useValues(inboxTaskKickoffLogic)
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
     const { prChecksFailing, selectedPullRequest } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
@@ -50,6 +50,13 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     // The suggestion the textarea was last filled from, so a submitted question can be reported as
     // sent as written, edited first, or written from scratch. Null until a row is clicked.
     const [filledFrom, setFilledFrom] = useState<string | null>(null)
+
+    // A quick ask closes the dropdown before its run exists, so a failed ask puts the question back.
+    useEffect(() => {
+        if (lastQuickAskFailure?.reportId === report.id) {
+            setQuestion(lastQuickAskFailure.question)
+        }
+    }, [lastQuickAskFailure, report.id])
 
     // Suggestions can be action requests, and the kickoff wrapper only carries actions out on
     // action-capable reports, so on any other report a stored suggestion would invite an action the

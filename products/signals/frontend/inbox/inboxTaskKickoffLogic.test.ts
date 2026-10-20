@@ -356,6 +356,7 @@ describe('inboxTaskKickoffLogic', () => {
             ).toFinishAllListeners()
 
             expect(createdTasks).toHaveLength(1)
+            expect(createdTasks[0]).not.toHaveProperty('branch')
             expect(startedRuns).toHaveLength(1)
             expect(logic.values.reportWarmLease).toMatchObject({ reportId: report.id })
             expect(logic.values.isDiscussing).toBe(false)
