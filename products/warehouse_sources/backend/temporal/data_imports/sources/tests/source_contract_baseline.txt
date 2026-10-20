@@ -24,6 +24,7 @@ AwsBudgets fail:rate-limit-budget
 AwsCostExplorer fail:rate-limit-budget,safe-point,stall-budget
 AwsOrganizations fail:stall-budget
 AwsWaf fail:stall-budget
+AzureBlob not-checkable:schemas
 AzureCostManagement not-checkable:no-request
 AzureDevOps fail:rate-limit-budget,stall-budget
 Baserow not-checkable:schemas
@@ -47,6 +48,7 @@ CiscoDuo not-checkable:no-request
 Clari fail:stall-budget
 ClickHouse not-checkable:schemas
 ClickhouseCloud fail:rate-limit-budget,stall-budget
+CloudflareR2 not-checkable:schemas
 Coda fail:safe-point
 Codacy fail:rate-limit-budget,stall-budget
 Codecov fail:rate-limit-budget,safe-point,stall-budget
@@ -115,6 +117,7 @@ Gladly fail:rate-limit-budget,stall-budget
 Gong fail:rate-limit-budget,stall-budget
 GoogleAds not-checkable:driver:google.ads
 GoogleAnalytics not-checkable:database
+GoogleCloudStorage not-checkable:schemas
 GooglePageSpeedInsights fail:stall-budget
 GooglePlayConsole not-checkable:no-request
 GoogleSearchConsole not-checkable:database
