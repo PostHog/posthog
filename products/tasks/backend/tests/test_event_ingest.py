@@ -666,15 +666,12 @@ class TestTaskRunEventIngest(TestCase):
 
     @parameterized.expand(
         [
-            ("interactive_flag_on", "interactive", True, True),
-            ("interactive_flag_off", "interactive", False, False),
-            ("background", "background", True, False),
+            ("interactive", "interactive", True),
+            ("background", "background", False),
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_permission_request_ingest_pushes_awaiting_input(
-        self, _name: str, mode: str, flag_enabled: bool, expect_push: bool
-    ) -> None:
+    def test_permission_request_ingest_pushes_awaiting_input(self, _name: str, mode: str, expect_push: bool) -> None:
         creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
         self.task.created_by = creator
         self.task.save(update_fields=["created_by"])
@@ -694,7 +691,6 @@ class TestTaskRunEventIngest(TestCase):
         }
 
         with (
-            patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=flag_enabled),
             patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -707,7 +703,7 @@ class TestTaskRunEventIngest(TestCase):
         if not expect_push:
             send_push.assert_not_called()
             return
-        self.assertEqual(send_push.call_count, 2)
+        send_push.assert_called_once()
         user_id, title, push_body, data, _suppressed = send_push.call_args.args
         self.assertEqual((user_id, title, push_body), (creator.id, "PostHog", '"Test Task" needs your input'))
         self.assertEqual(

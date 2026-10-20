@@ -1269,7 +1269,7 @@ class TestRelaySandboxEventsErrorHandling:
                 "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
             },
         )
-        notify.assert_called_once_with(task_run, request_id="perm-1")
+        notify.assert_called_once_with(task_run)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

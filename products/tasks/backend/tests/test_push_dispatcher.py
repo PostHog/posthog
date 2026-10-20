@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -12,6 +13,7 @@ from prometheus_client import REGISTRY
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.tasks.push_notifications import send_user_push
 
+from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
     notify_task_handoff,
@@ -103,12 +105,20 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(mock_delay.call_count, 3)
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_awaiting_cooldown_distinguishes_permission_requests(self, mock_delay) -> None:
-        with self.captureOnCommitCallbacks(execute=True):
-            notify_task_run_awaiting_input(self.task_run, request_id="request-1")
-            notify_task_run_awaiting_input(self.task_run, request_id="request-2")
-            notify_task_run_awaiting_input(self.task_run, request_id="request-1")
-        self.assertEqual(mock_delay.call_count, 2)
+    def test_awaiting_cooldown_is_shared_by_permission_requests_and_turn_end(self, mock_delay) -> None:
+        self.task_run.state = {"mode": "interactive"}
+        with time_machine.travel("2026-10-20T12:00:00Z", tick=False) as clock:
+            with self.captureOnCommitCallbacks(execute=True):
+                dispatch_awaiting_input(self.task_run, request_id="request-1")
+                dispatch_awaiting_input(self.task_run, request_id="request-2")
+                notify_task_run_awaiting_input(self.task_run)
+            self.assertEqual(mock_delay.call_count, 1)
+
+            clock.shift(31)
+            with self.captureOnCommitCallbacks(execute=True):
+                dispatch_awaiting_input(self.task_run, request_id="request-1")
+                dispatch_awaiting_input(self.task_run, request_id="request-3")
+            self.assertEqual(mock_delay.call_count, 2)
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_handoff_cooldown_distinguishes_announcements(self, mock_delay):

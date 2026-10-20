@@ -365,8 +365,7 @@ class TestAgentProxyCallback(TestCase):
         self.assertEqual(response.json()["dispatched"], expect_push)
         self.assertEqual(notify.call_count, int(expect_push))
         if expect_push:
-            self.assertEqual(notify.call_args.args[0].id, run.id)
-            self.assertEqual(notify.call_args.kwargs, {"request_id": "request-1"})
+            notify.assert_called_once_with(run)
 
     def test_turn_failed_signals_workflow_completion_as_failed(self) -> None:
         with patch(

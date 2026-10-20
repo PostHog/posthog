@@ -89,8 +89,10 @@ Successful captures are recorded for the event ingest token's lifetime so comple
 
 Interactive permission requests and questions can send a mobile push notification to the run's creator.
 Event ingest, the agent-proxy callback and the sandbox relay share a notification gate keyed by run and permission request ID.
-The gate retains each request for 24 hours so reconnecting does not repeat notifications for historical requests.
-Distinct requests have separate push cooldowns, so a new prompt can notify even if the user just answered another one.
+The gate retains each admitted request for 24 hours so reconnecting does not repeat notifications for that request.
+Requests share a 30-second per-run cooldown, applied before allocating a request deduplication key.
+The push dispatcher also shares its per-run cooldown with turn-end awaiting-input notifications.
+Permission request IDs must be non-empty and no longer than 200 characters.
 
 ## Run summaries
 
