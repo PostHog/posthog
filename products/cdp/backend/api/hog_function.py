@@ -72,6 +72,8 @@ from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
+    SYSTEM_EMAIL_TEMPLATE_ID,
+    SYSTEM_EMAIL_TRIGGER_EVENTS,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -552,6 +554,59 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 }
             )
 
+    def _validate_system_email_template(self, attrs: dict) -> None:
+        # Mail from this template is sent from a PostHog-owned address to recipients taken from the
+        # triggering event, which only internal events set. So the type, the inputs and the code all
+        # stay the template's: the reserved-function check allows whatever the template's own code calls.
+        instance = self.instance if isinstance(self.instance, HogFunction) else None
+        template_id = attrs.get("template_id") or (instance.template_id if instance else None)
+        # Only deleting an existing function skips the checks. A create marked deleted and an undelete both end live.
+        if template_id != SYSTEM_EMAIL_TEMPLATE_ID or (instance is not None and attrs.get("deleted") is True):
+            return
+
+        if attrs.get("type", instance.type if instance else None) != HogFunctionType.INTERNAL_DESTINATION:
+            raise serializers.ValidationError(
+                {"type": "This template only works as a notification for a PostHog alert, not as a destination."}
+            )
+
+        filters = attrs.get("filters", instance.filters if instance else None) or {}
+        event_ids = {event.get("id") for event in filters.get("events") or [] if isinstance(event, dict)}
+        if not event_ids or not event_ids <= SYSTEM_EMAIL_TRIGGER_EVENTS:
+            raise serializers.ValidationError(
+                {
+                    "filters": "This template can only send email for these events: "
+                    + ", ".join(sorted(SYSTEM_EMAIL_TRIGGER_EVENTS))
+                    + "."
+                }
+            )
+
+        template = HogFunctionTemplate.get_template(template_id)
+        if template is None:
+            return
+
+        def schema_shape(schemas: list[dict] | None) -> set[tuple[str, str]]:
+            return {
+                (str(schema.get("key")), str(schema.get("type")))
+                for schema in schemas or []
+                if isinstance(schema, dict)
+            }
+
+        proposed = attrs.get("inputs_schema", instance.inputs_schema if instance else None)
+        if schema_shape(proposed) != schema_shape(template.inputs_schema):
+            raise serializers.ValidationError(
+                {"inputs_schema": "The inputs of this template are fixed. Remove the inputs that you added or changed."}
+            )
+
+        proposed_hog = attrs.get("hog")
+        if instance is not None and instance.deleted and attrs.get("deleted") is False:
+            # A restore must not bring back custom code, even when the saved `hog` is unchanged.
+            proposed_hog = proposed_hog if proposed_hog is not None else instance.hog
+            allowed_hog: tuple = (template.code,)
+        else:
+            allowed_hog = (template.code, instance.hog if instance else None)
+        if proposed_hog is not None and proposed_hog not in allowed_hog:
+            raise serializers.ValidationError({"hog": "The code of this template is fixed and cannot be edited."})
+
     def _validate_no_reserved_functions(self, attrs: dict) -> None:
         # The worker's async function registry is global, so `sendEmail` and its peers run from any
         # function that names them, and a call from user-authored code kills the worker process.
@@ -762,6 +817,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
+        self._validate_system_email_template(attrs)
 
         # Existing functions keep working (and can be updated/disabled) if the flag is
         # later turned off; only creation is gated.
