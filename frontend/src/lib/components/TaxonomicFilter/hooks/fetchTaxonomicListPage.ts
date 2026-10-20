@@ -43,7 +43,10 @@ export async function fetchTaxonomicListPage({
     }
 
     const minSearchQueryLength = group.minSearchQueryLength ?? 0
-    if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+    if (
+        (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) ||
+        group.shouldSearch?.(searchQuery) === false
+    ) {
         return { ...EMPTY_LIST, searchQuery }
     }
 

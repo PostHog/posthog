@@ -903,7 +903,7 @@ function extractPathParams(urlPattern: string): string[] {
 }
 
 /** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
- *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Interpolated values are URL-encoded; ApiClient rejects paths that URL parsing would normalize.
  *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
 function buildPathExpr(
     urlPath: string,
@@ -1211,6 +1211,11 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
+            // A fallback param is already resolved into a guaranteed local above, so emit it unguarded.
+            if (localVarParams.has(bf)) {
+                handlerBody += `        body[${JSON.stringify(bodyKey)}] = ${bf}\n`
+                continue
+            }
             // Variant-specific fields (only in some union variants) need an `in`
             // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
             const guard = composition.variantSpecificBodyFieldNames.has(bf)

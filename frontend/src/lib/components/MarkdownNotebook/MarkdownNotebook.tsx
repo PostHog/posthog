@@ -3323,7 +3323,7 @@ function MarkdownNotebookEditor({
         window.document.addEventListener('focusin', handleDocumentSelectionChange)
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
-        window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
+        window.document.addEventListener('touchstart', handleDocumentPointerStart, { capture: true, passive: true })
         window.addEventListener('resize', handleViewportChange)
         window.addEventListener('scroll', handleViewportChange, { capture: true, passive: true })
 

@@ -50,8 +50,9 @@ from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
-    BatchExportModel,
+    BatchExportModelInput,
     afetch_last_run_records_completed,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
@@ -292,7 +293,7 @@ class BatchExportInsertIntoInternalStageInputs:
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     is_workflows: bool = False
     on_demand: bool = False
     destination_default_fields: list[BatchExportField] | None = None
@@ -368,6 +369,7 @@ async def insert_into_internal_stage_activity(
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
         try:
+            model = migrate_batch_export_model(inputs.batch_export_model)
             (
                 _,
                 record_batch_model,
@@ -377,7 +379,7 @@ async def insert_into_internal_stage_activity(
                 extra_query_parameters,
             ) = await database_sync_to_async(resolve_batch_exports_model)(
                 inputs.team_id,
-                inputs.batch_export_model,
+                model,
                 inputs.batch_export_id,
                 is_backfill=inputs.backfill_details is not None,
             )

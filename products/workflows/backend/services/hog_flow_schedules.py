@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -54,6 +54,16 @@ def list_schedules(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowSchedule]
 def list_schedules_oldest_first(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowSchedule]:
     """The schedules a workflow response embeds, in the order they were added."""
     schedules = HogFlowSchedule.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("created_at", "id")
+    return [_to_schedule(s) for s in schedules]
+
+
+def list_open_schedules(*, team_id: int, hog_flow_ids: Collection[UUID]) -> list[WorkflowSchedule]:
+    """The schedules of several workflows that still have sends to come, oldest first."""
+    schedules = (
+        HogFlowSchedule.objects.filter(team_id=team_id, hog_flow_id__in=hog_flow_ids)
+        .exclude(status=HogFlowScheduleStatus.COMPLETED)
+        .order_by("created_at", "id")
+    )
     return [_to_schedule(s) for s in schedules]
 
 

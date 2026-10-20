@@ -218,7 +218,9 @@ def _implementation_slot_claim(
     return None
 
 
-def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str | None) -> None:
+def enforce_report_task_cap(
+    *, team_id: int, report_id: str, relationship: str | None, description: str | None = None
+) -> None:
     """Cap the tasks a single report can spawn; raises `ReportTaskCapExceeded` at the limit.
 
     Inference on report-started tasks is unbilled (the customer pays per PR), so the report is
@@ -229,6 +231,9 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
     Must be called inside an open transaction: it locks the report row — the same lock
     auto-start's `_create_implementation_task_if_absent` takes — so concurrent creates
     serialize instead of both passing the count check.
+
+    A discussion whose `description` pushes to the report's pull request ("Get it merged", "Make it
+    green") is also refused while another such run works, so two agents never push to one branch.
     """
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("enforce_report_task_cap must run inside a transaction; it locks the report row")
@@ -249,6 +254,15 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
                 )
             release_claim(assignment, ArtefactAttribution.system())
         return
+    if description is not None:
+        from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — report_task_actions imports this module
+            PULL_REQUEST_RUN_ACTIVE_DETAIL,
+            active_pull_request_run,
+            is_pull_request_run_request,
+        )
+
+        if is_pull_request_run_request(description) and active_pull_request_run(team_id=team_id, report_id=report_id):
+            raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_DISCUSSION, detail=PULL_REQUEST_RUN_ACTIVE_DETAIL)
     # Any non-implementation label is a discussion for cap purposes; server-only pipeline labels
     # can't reach here (the write serializer rejects them) and are excluded from the count.
     # Counting is status-independent: a discussion that ended still consumed inference.

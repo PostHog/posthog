@@ -18,9 +18,9 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
-from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.subscriptions.backend.temporal.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,

@@ -1294,6 +1294,7 @@ ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS
 
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
 # e.g. the OAuth proxy "https://oauth.posthog.com" on Cloud. SITE_URL is always accepted.
+# private_key_jwt client assertions accept these issuers and their token endpoints too.
 ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDIENCES", ""))
 # Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
@@ -1565,3 +1566,5 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # header, so those consumers must reconnect from their onerror handler.
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
+
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0

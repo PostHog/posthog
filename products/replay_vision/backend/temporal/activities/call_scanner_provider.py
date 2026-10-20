@@ -29,7 +29,6 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
@@ -41,13 +40,18 @@ from posthog.temporal.session_replay.rasterize_recording.types import Navigation
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import (
+    classify_gemini_error,
+    describe_gemini_error,
+    is_gateway_refusal,
+)
 from products.replay_vision.backend.temporal.lookups import (
     LookupPlan,
     render_lookup_results,
@@ -263,12 +267,9 @@ async def run_scan(
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
-    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
-    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
-    tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
+    `scanner` is required (no snapshot fallback) so no caller can
     silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
-    before calling this; any other caller must do the same before recording data reaches the provider (the eval
-    suite is covered because dataset collection is consent-gated and time-boxed).
+    before calling this; any other caller must do the same before recording data reaches the provider.
     """
     # Built before the preamble so one object decides both the wording and what a network lookup returns, which
     # keeps the prompt from promising network data the scan does not carry.
@@ -589,20 +590,14 @@ async def _run_mission(
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
     cached run that fails for a non-validation reason is retried inline once before giving up.
     """
-    api_key = gemini_api_key()
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
-    client = genai.AsyncClient(
-        api_key=api_key,
-        # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
-        posthog_privacy_mode=True,
-        posthog_properties={
-            "ai_product": "replay_vision",
-            "feature": "scanner",
-            "scanner_type": snapshot.scanner_type.value,
-            "team_id": team_id,
-        },
-    )
-    cache_client = GoogleGenAIClient(api_key=api_key)
+    properties = {
+        "ai_product": AI_PRODUCT,
+        "feature": "scanner",
+        "scanner_type": snapshot.scanner_type.value,
+        "team_id": team_id,
+    }
+
     model = f"models/{snapshot.model}"
     metric_labels = {
         "provider": snapshot.provider,
@@ -627,7 +622,6 @@ async def _run_mission(
             record(scanner_type, snapshot.model)
         return run_lookups(plan, events_index=events_index, network_index=network_index)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
     signal_duration_s = video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds)
     network_available = network_index.has_requests()
     steps: list[MissionStep] = []
@@ -647,9 +641,10 @@ async def _run_mission(
             )
         steps.append(step)
 
+    gemini = await replay_gemini_client(team_id, properties=properties)
     run = functools.partial(
         _run_steps,
-        client=client,
+        client=gemini,
         model=model,
         steps=steps,
         video_part=video_part,
@@ -659,11 +654,14 @@ async def _run_mission(
         trace_id=trace_id,
         look_up=look_up,
     )
+    cache = None
     try:
+        cache = await _maybe_create_video_cache(gemini.raw, model, video_part, preamble_text)
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
     finally:
         if cache is not None:
-            await _delete_video_cache(cache_client, cache.name)
+            await _delete_video_cache(gemini.raw, cache.name)
+        await gemini.aclose()
 
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(
@@ -724,10 +722,10 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     except ScannerFailureError:
         raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
-        # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
-        # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
-        # still rate-limiting or down, and would multiply with the other retry layers.
-        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
+        # Retryable errors go to the Temporal retry, which backs off; an inline re-run would re-spend the video
+        # tokens. A gateway refusal would refuse the inline run too.
+        kind = classify_gemini_error(exc)
+        if (kind is not None and kind.is_retryable) or is_gateway_refusal(exc):
             raise
         # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
         # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
@@ -780,7 +778,11 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            if step.required:
+            # A gateway refusal that repeats on every attempt (e.g. a 413) fails the pass even on an optional step.
+            # One that can clear (rate limit, budget cap) skips the step instead: a Temporal retry would re-spend
+            # the core step's video tokens, and a capped budget would refuse the retry too.
+            kind = classify_gemini_error(exc)
+            if step.required or (is_gateway_refusal(exc) and not (kind and kind.is_retryable)):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))

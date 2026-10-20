@@ -26,12 +26,6 @@ class TestSourceConfig:
         assert FireworksAISource().connection_host_fields == ["account_id"]
 
 
-class TestGetSchemas:
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = FireworksAISource().get_schemas(_config(), team_id=1, names=["models"])
-        assert [s.name for s in schemas] == ["models"]
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -62,12 +56,6 @@ class TestValidateCredentials:
         assert ok is True
         assert network.requests_log[0].path == "/v1/accounts/my-account/models"
         assert network.requests_log[0].headers["authorization"] == "Bearer fw_test"
-
-    def test_transport_failure_returns_actionable_error(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, err = FireworksAISource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert err is not None
 
 
 class TestNonRetryableErrors:

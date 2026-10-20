@@ -45,6 +45,7 @@ from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
@@ -313,6 +314,45 @@ def team_api_test_factory():
                                     "after": "Europe/Lisbon",
                                     "before": "UTC",
                                     "field": "timezone",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        @time_machine.travel("2022-02-08", tick=False)
+        def test_update_revenue_analytics_config_logs_only_the_config_change(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"revenue_analytics_config": {"filter_test_accounts": True}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": {"events": [], "filter_test_accounts": True},
+                                    "before": {"events": [], "filter_test_accounts": False},
+                                    "field": "revenue_analytics_config",
                                     "type": "Team",
                                 },
                             ],
@@ -1410,18 +1450,18 @@ def team_api_test_factory():
                 },
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day == 250
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day is None
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
         def test_support_raised_limit_survives_an_echoed_update(self) -> None:
             TeamWorkflowsConfig.objects.update_or_create(
@@ -4266,6 +4306,17 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         )
         self.team.refresh_from_db()
         assert getattr(self.team, team_attr) != value
+
+    def test_member_cannot_set_project_logo_via_projects(self) -> None:
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.project.refresh_from_db()
+        assert self.project.logo_media_id is None
 
     @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS)
     def test_member_can_still_patch_member_safe_field_via_environments(

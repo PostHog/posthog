@@ -311,6 +311,7 @@ class TestTransactionalEmail(APIBaseTest):
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
+        MessageTemplate.objects.filter(id=self.template.id).update(draft_content={"email": {"subject": "Draft"}})
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
@@ -325,6 +326,22 @@ class TestTransactionalEmail(APIBaseTest):
         assert workflow["version"] == 2
         email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
         assert (email["subject"], email["html"]) == ("A new subject", "<p>New</p>")
+        assert response.json()["draft_content"] is None
+
+    def test_saving_a_draft_leaves_the_sent_email_unchanged(self, mock_post, _flag, _capture):
+        # A draft is work in progress, so one the send path would reject still saves.
+        draft = {"templating": "liquid", "email": {"subject": "", "html": "<p>Half written</p>"}}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {"draft_content": draft},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["draft_content"]["email"] == draft["email"]
+        assert response.json()["content"]["email"]["subject"] == "Reset your password"
+        assert self._workflow(self.hog_flow_id)["version"] == 1
 
     @parameterized.expand([("marketing_category",), ("no_email_content",)])
     def test_a_template_whose_workflow_was_deleted_takes_edits_it_could_not_send_with(
@@ -417,6 +434,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         [
             ("send", "post", "send/", {"to": "user@example.com"}),
             ("update", "patch", "", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
+            ("save_draft", "patch", "", {"draft_content": {"email": {"subject": "Draft", "html": "<p>Draft</p>"}}}),
         ]
     )
     def test_a_member_denied_the_workflow_cannot_send_or_change_it(self, mock_post, _flag, _name, method, suffix, body):

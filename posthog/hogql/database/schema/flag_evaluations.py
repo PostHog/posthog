@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_expr
 from posthog.hogql.parser import parse_expr
 
@@ -93,7 +94,9 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="JSON map of the event's properties. Access nested keys with `properties.$lib` etc. "
             "Prefer the `flag_key`, `response`, `session_id`, `request_id` and `$group_0`..`$group_4` columns "
-            "where they cover what you need: reading the same value out of this JSON scans far more data.",
+            "where they cover what you need: reading the same value out of this JSON scans far more data. "
+            "A property that holds an empty string reads as '' here, where `events` can return NULL. A value with "
+            "an escaped character, such as a quote, can also read differently than on `events`.",
         ),
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the flag was evaluated (client timestamp, in UTC)."
@@ -138,11 +141,17 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="Key of the flag that was evaluated; the typed copy of `properties.$feature_flag`.",
         ),
-        "response": StringDatabaseField(
+        # `flag_key` is in the sort key, and `session_id` and `request_id` carry bloom filters. They stay bare because
+        # a `nullIf` wrap stops a filter from using either. `$group_0`..`$group_4` keep '' as the events columns do.
+        "flag_evaluation_response": StringDatabaseField(name="response", nullable=False, hidden=True),
+        "response": ExpressionField(
             name="response",
-            nullable=False,
-            description="What the flag returned: 'true', 'false', or a variant key. A flag that returned JSON null "
-            "stores the literal string 'null'.",
+            expr=null_if_sentinels(ast.Field(chain=["flag_evaluation_response"])),
+            isolate_scope=True,
+            nullable=True,
+            description="What the flag returned: 'true', 'false', or a variant key. NULL when the flag returned null "
+            "or the SDK sent no response, as on events. A variant named 'null' also reads NULL. "
+            "`JSONHas(properties, '$feature_flag_response')` tells a null response from a missing one.",
         ),
         "session_id": StringDatabaseField(
             name="session_id", nullable=False, description="Session the evaluation happened in, if the SDK sent one."
