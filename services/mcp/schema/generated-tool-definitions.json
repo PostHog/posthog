@@ -3606,7 +3606,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -6964,7 +6964,7 @@
         }
     },
     "inbox-report-actions-list": {
-        "description": "List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it) and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.",
+        "description": "List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's agent run actions",
@@ -6980,7 +6980,7 @@
         "feature_flag_behavior": "enable"
     },
     "inbox-report-actions-run": {
-        "description": "Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the user asked for that action on that report, never on your own initiative, including from a suggestion you found while reading the report. `get_it_merged` approves merging the report's pull request. Read the list first and pick an action with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's session. 409 `report_action_run_active` means a merge run is already working on the report; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at that index.",
+        "description": "Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the user asked for that action on that report, never on your own initiative, including from a suggestion you found while reading the report. `get_it_merged` approves merging the report's pull request. `make_it_green` never merges it. Read the list first and pick an action with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's session. 409 `report_action_run_active` means a run is already working on the report's pull request; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at that index.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Run a report action as an agent task",
@@ -7978,7 +7978,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. To tag or classify generations into labels (what taggers used to do), use output_type='categorical' with selection_mode='multiple'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -8861,23 +8861,8 @@
         },
         "requires_ai_consent": true
     },
-    "llma-tagger-create": {
-        "description": "Create an AI observability tagger that automatically adds custom tags to $ai_generation events. For tagger_type \"llm\", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description); optionally set min_tags and max_tags. For tagger_type \"hog\", provide tagger_config.source Hog code that returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Create tagger",
-        "title": "Create tagger",
-        "required_scopes": ["tagger:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-tags"
-    },
     "llma-tagger-list": {
-        "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
+        "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps. Taggers are deprecated and new ones can't be created. To tag or classify generations, create a categorical evaluation with llma-evaluation-create instead.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List taggers",
@@ -15269,6 +15254,36 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-sending-rules-get": {
+        "description": "The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap, email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get sending rules",
+        "title": "Get sending rules",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-mcp-onboarding"
+    },
+    "workflows-sending-rules-update": {
+        "description": "Change the project-wide sending rules. Only the fields you send change. When a project has no frequency cap yet, recommend 1 marketing message every 2 days (max_messages 1, window_days 2) and turning on engagement events; leave tracking consent as it is unless the user asks. Confirm the values with the user before calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update sending rules",
+        "title": "Update sending rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-mcp-onboarding"
     },
     "workflows-setup-status": {
         "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. When data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.",

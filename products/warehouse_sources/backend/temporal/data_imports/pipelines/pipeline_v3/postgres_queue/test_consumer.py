@@ -66,7 +66,9 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
 from products.warehouse_sources_queue.backend.core.health import HealthState
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
+    ExecutingAttempt,
     FailedRunRef,
+    InterruptionHistory,
     OrphanedRunRef,
     PendingBatch,
     QueueDepth,
@@ -213,6 +215,18 @@ def _gauge_slot_granted():
         yield
 
 
+@pytest.fixture(autouse=True)
+def interruption_history():
+    # No earlier interruptions by default; the real SQL can't run against mock connections.
+    with patch.object(
+        consumer_module.BatchQueue,
+        "get_interruption_history",
+        new_callable=AsyncMock,
+        return_value=InterruptionHistory(),
+    ) as mock_history:
+        yield mock_history
+
+
 class TestProcessSingle:
     @pytest.mark.asyncio
     async def test_success_updates_status_to_executing_then_succeeded(self):
@@ -337,33 +351,141 @@ class TestProcessSingle:
         assert mock_fail.call_args[1]["reason"] == message  # run still fails with the actionable message
         assert mock_capture.called is expect_capture
 
+    @pytest.mark.parametrize(
+        "latest_attempt,recovered_interruptions,expect_fail",
+        [
+            (3, 0, True),
+            # Three shutdowns plus one error: the batch has two retries left.
+            (4, 3, False),
+            (6, 3, True),
+            (13, 10, True),
+        ],
+        ids=["errors_only", "interruptions_do_not_count", "errors_after_interruptions", "at_interruption_cap"],
+    )
     @pytest.mark.asyncio
-    async def test_max_attempts_exceeded_fails_run(self):
+    async def test_entry_check_counts_only_errors_against_max_attempts(
+        self, interruption_history: AsyncMock, latest_attempt: int, recovered_interruptions: int, expect_fail: bool
+    ):
         consumer = _make_consumer(max_attempts=3)
-        batch = _make_batch(latest_attempt=3)
-
-        with patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail:
-            await consumer._process_single(batch)
-
-        mock_fail.assert_called_once()
-        assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
-
-    @pytest.mark.asyncio
-    async def test_error_at_max_attempts_fails_run(self):
-        consumer = _make_consumer(max_attempts=2)
-        batch = _make_batch(latest_attempt=1)
-        consumer._process_batch = AsyncMock(side_effect=RuntimeError("crash"))
+        batch = _make_batch(latest_attempt=latest_attempt)
+        interruption_history.return_value = InterruptionHistory(recovered=recovered_interruptions)
+        consumer._process_batch = AsyncMock()
 
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+        ):
+            succeeded = await consumer._process_single(batch)
+
+        assert mock_fail.called is expect_fail
+        assert succeeded is not expect_fail
+        assert consumer._process_batch.called is not expect_fail
+        if expect_fail:
+            assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+
+    @pytest.mark.parametrize(
+        "latest_attempt,recovered_interruptions,history_error,expect_fail",
+        [
+            (1, 0, None, True),
+            (2, 1, None, True),
+            # Three shutdowns came before this first error, so one retry is left.
+            (3, 3, None, False),
+            # A failed history read must not fail the run before the hard cap of retries plus interruptions.
+            (3, 3, psycopg.OperationalError("server closed the connection"), False),
+            (11, 10, psycopg.OperationalError("server closed the connection"), True),
+        ],
+        ids=[
+            "errors_only",
+            "errors_after_interruption",
+            "interruptions_do_not_count",
+            "history_read_fails_below_hard_cap",
+            "history_read_fails_at_hard_cap",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_error_at_max_attempts_fails_run(
+        self,
+        interruption_history: AsyncMock,
+        latest_attempt: int,
+        recovered_interruptions: int,
+        history_error: Exception | None,
+        expect_fail: bool,
+    ):
+        consumer = _make_consumer(max_attempts=2)
+        batch = _make_batch(latest_attempt=latest_attempt)
+        consumer._process_batch = AsyncMock(side_effect=RuntimeError("crash"))
+        interruption_history.return_value = InterruptionHistory(recovered=recovered_interruptions)
+        interruption_history.side_effect = history_error
+        states: list[str] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            states.append(job_state)
+            return True
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                side_effect=track_status,
+            ),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
         ):
             await consumer._process_single(batch)
 
-        mock_fail.assert_called_once()
+        assert mock_fail.called is expect_fail
+        assert (SourceBatchStatus.State.WAITING_RETRY in states) is not expect_fail
+
+    @pytest.mark.parametrize(
+        "shutdown_during_executing_write,expected_states,expected_marked_attempts",
+        [
+            (False, [], []),
+            # The shutdown snapshot can miss an attempt whose executing write is in flight.
+            (True, ["executing"], [2]),
+        ],
+        ids=["before_executing_write", "during_executing_write"],
+    )
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_a_batch_before_its_load(
+        self,
+        shutdown_during_executing_write: bool,
+        expected_states: list[str],
+        expected_marked_attempts: list[int],
+    ):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=1)
+        consumer._process_batch = AsyncMock()
+        states: list[str] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            states.append(job_state)
+            if shutdown_during_executing_write:
+                consumer._shutdown.set()
+            return True
+
+        if not shutdown_during_executing_write:
+            consumer._shutdown.set()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                side_effect=track_status,
+            ),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(
+                consumer_module.BatchQueue, "mark_shutdown_interruptions", new_callable=AsyncMock, return_value=1
+            ) as mock_mark,
+        ):
+            succeeded = await consumer._process_single(batch)
+
+        assert succeeded is False
+        consumer._process_batch.assert_not_called()
+        assert states == expected_states
+        assert [a.attempt for c in mock_mark.call_args_list for a in c.kwargs["attempts"]] == expected_marked_attempts
+        assert consumer._executing == {}
 
     @pytest.mark.asyncio
     async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self):
@@ -676,10 +798,59 @@ class TestRecoverySweep:
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token, skip_locked=False
         )
 
+    @pytest.mark.parametrize(
+        "latest_attempt,history,expected_error,expected_fail_reason,expected_metric",
+        [
+            (3, InterruptionHistory(), None, "max retries exceeded (likely OOM)", None),
+            (
+                3,
+                InterruptionHistory(shutdown_marked=True),
+                {"error": "executing interrupted by worker shutdown", "interrupted": True},
+                None,
+                "recovered",
+            ),
+            # Earlier shutdowns do not use the retry budget of a later unmarked loss.
+            (5, InterruptionHistory(recovered=3), {"error": "executing timed out - pod restart or OOM"}, None, None),
+            (6, InterruptionHistory(recovered=3), None, "max retries exceeded (likely OOM)", None),
+            (
+                10,
+                InterruptionHistory(recovered=9, shutdown_marked=True),
+                {"error": "executing interrupted by worker shutdown", "interrupted": True},
+                None,
+                "recovered",
+            ),
+            (
+                11,
+                InterruptionHistory(recovered=10, shutdown_marked=True),
+                None,
+                "max interruptions exceeded (loading stopped 11 times by a worker shutdown)",
+                "cap_exceeded",
+            ),
+        ],
+        ids=[
+            "unmarked_at_max_retries",
+            "shutdown_at_max_retries",
+            "unmarked_after_interruptions",
+            "unmarked_errors_after_interruptions",
+            "shutdown_at_interruption_cap",
+            "shutdown_past_interruption_cap",
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_fails_exhausted_stale_batch(self):
+    async def test_shutdown_interruptions_use_their_own_cap(
+        self,
+        interruption_history: AsyncMock,
+        latest_attempt: int,
+        history: InterruptionHistory,
+        expected_error: dict[str, Any] | None,
+        expected_fail_reason: str | None,
+        expected_metric: str | None,
+    ):
         consumer = _make_consumer(max_attempts=3)
-        stale_batch = _make_batch(latest_attempt=3)
+        stale_batch = _make_batch(latest_attempt=latest_attempt, created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        interruption_history.return_value = history
+        outcomes = ("recovered", "cap_exceeded")
+        before = {o: consumer._metrics.batch_interruptions_total.labels(outcome=o)._value.get() for o in outcomes}
 
         with (
             patch(
@@ -687,6 +858,10 @@ class TestRecoverySweep:
                 new_callable=AsyncMock,
                 return_value=[stale_batch],
             ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ) as mock_status,
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
@@ -695,9 +870,63 @@ class TestRecoverySweep:
         ):
             await consumer._recovery_sweep()
 
-        mock_fail.assert_called_once()
-        assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+        interruption_history.assert_awaited_once_with(
+            consumer._recovery_conn,
+            batch_id=stale_batch.id,
+            attempt=latest_attempt,
+        )
+        if expected_fail_reason is None:
+            mock_fail.assert_not_called()
+            assert mock_status.await_count == 1
+            # The re-queue keeps the attempt, so the next delivery still runs the redelivery checks.
+            assert mock_status.call_args.kwargs["attempt"] == latest_attempt
+            assert mock_status.call_args.kwargs["error_response"] == expected_error
+        else:
+            mock_status.assert_not_called()
+            mock_fail.assert_awaited_once()
+            assert mock_fail.call_args.kwargs["reason"] == expected_fail_reason
+        for outcome in outcomes:
+            delta = consumer._metrics.batch_interruptions_total.labels(outcome=outcome)._value.get() - before[outcome]
+            assert delta == (1 if outcome == expected_metric else 0)
         mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_each_stale_batch_is_judged_on_its_own_history(self, interruption_history: AsyncMock):
+        consumer = _make_consumer(max_attempts=3)
+        interrupted = _make_batch(id="00000000-0000-0000-0000-00000000000a", latest_attempt=3)
+        crashed = _make_batch(
+            id="00000000-0000-0000-0000-00000000000b", schema_id="schema-2", run_uuid="run-2", latest_attempt=3
+        )
+        histories = {
+            interrupted.id: InterruptionHistory(shutdown_marked=True),
+            crashed.id: InterruptionHistory(),
+        }
+
+        async def history_for(conn, *, batch_id, **kwargs):
+            return histories[batch_id]
+
+        interruption_history.side_effect = history_for
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[interrupted, crashed],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._recovery_sweep()
+
+        assert [c.kwargs["batch_id"] for c in mock_status.call_args_list] == [interrupted.id]
+        assert [c.args[0].run_uuid for c in mock_fail.call_args_list] == ["run-2"]
 
     @pytest.mark.asyncio
     async def test_sweep_continues_past_terminally_retired_batch(self):
@@ -2289,10 +2518,18 @@ class TestReconcileFailedRuns:
     @pytest.fixture(autouse=True)
     def _hold_sweep_slot(self):
         """Grant the fleet-wide sweep slot by default — these tests exercise the sweep body, not the slot."""
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.try_acquire_reconcile_sweep_slot",
-            new_callable=AsyncMock,
-            return_value=True,
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.try_acquire_reconcile_sweep_slot",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            # The aged-out pass has its own tests against a real queue in test_jobs_db.py.
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_aged_out_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             yield
 
@@ -4119,6 +4356,97 @@ class TestShutdown:
         assert drained.is_set()
         assert len(consumer._in_flight) == 0
 
+    @pytest.mark.asyncio
+    async def test_close_marks_the_attempt_of_a_batch_still_loading(self):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=1, created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        loading = asyncio.Event()
+
+        async def load_forever(*args: Any) -> None:
+            loading.set()
+            await asyncio.Event().wait()
+
+        consumer._process_batch = load_forever
+        mark_conn = _make_healthy_conn()
+        before = consumer._metrics.batch_interruptions_total.labels(outcome="marked_on_shutdown")._value.get()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=mark_conn),
+            patch.object(
+                consumer_module.BatchQueue, "mark_shutdown_interruptions", new_callable=AsyncMock, return_value=1
+            ) as mock_mark,
+            patch.object(batch_consumer_module, "SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 0.01),
+        ):
+
+            async def process_single() -> None:
+                await consumer._process_single(batch)
+
+            consumer._in_flight[(1, "schema-1")] = asyncio.create_task(process_single())
+            consumer._metrics.active_groups.inc()
+            await asyncio.wait_for(loading.wait(), timeout=5.0)
+            await consumer._close()
+
+        mock_mark.assert_awaited_once_with(
+            mark_conn,
+            attempts=[ExecutingAttempt(batch_id=batch.id, batch_created_at=batch.created_at, attempt=2)],
+        )
+        mark_conn.close.assert_awaited_once()
+        assert consumer._executing == {}
+        after = consumer._metrics.batch_interruptions_total.labels(outcome="marked_on_shutdown")._value.get()
+        assert after - before == 1
+
+    @pytest.mark.parametrize(
+        "executing,connect_error,mark_error,expect_mark",
+        [
+            (False, None, None, False),
+            (True, None, None, True),
+            (True, psycopg.OperationalError("connection refused"), None, False),
+            (True, None, psycopg.OperationalError("server closed the connection"), True),
+        ],
+        ids=["nothing_executing", "marks", "connect_fails", "mark_fails"],
+    )
+    @pytest.mark.asyncio
+    async def test_close_marking_is_best_effort(
+        self,
+        executing: bool,
+        connect_error: Exception | None,
+        mark_error: Exception | None,
+        expect_mark: bool,
+    ):
+        consumer = _make_consumer()
+        if executing:
+            consumer._executing["batch-a"] = ExecutingAttempt(batch_id="batch-a", batch_created_at=None, attempt=1)
+
+        with (
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock) as mock_release_all,
+            patch.object(
+                consumer,
+                "_connect",
+                new_callable=AsyncMock,
+                return_value=_make_healthy_conn(),
+                side_effect=connect_error,
+            ) as mock_connect,
+            patch.object(
+                consumer_module.BatchQueue,
+                "mark_shutdown_interruptions",
+                new_callable=AsyncMock,
+                return_value=1,
+                side_effect=mark_error,
+            ) as mock_mark,
+        ):
+            await consumer._close()
+
+        assert mock_connect.called is executing
+        assert mock_mark.called is expect_mark
+        mock_release_all.assert_awaited_once()
+
 
 class TestDispatchGroups:
     def test_fetch_limit_caps_to_free_slots_and_poll_limit(self):
@@ -4731,6 +5059,25 @@ class TestProcessGroupCoalescing:
         process_batch.assert_not_called()
         assert statuses == [*[(b.id, "executing", 1) for b in batches], *[(b.id, "succeeded", 1) for b in batches]]
 
+    @pytest.mark.asyncio
+    async def test_every_member_of_a_loading_set_is_marked_on_shutdown(self):
+        # A shutdown cuts off every member of the set, so each one must carry the marker.
+        executing_while_loading: list[ExecutingAttempt] = []
+        process_batch = AsyncMock()
+
+        async def process_batches(batches, verify_ownership=None):
+            executing_while_loading.extend(consumer._executing.values())
+
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(3)
+
+        await self._run_group(consumer, batches)
+
+        assert executing_while_loading == [
+            ExecutingAttempt(batch_id=b.id, batch_created_at=b.created_at, attempt=1) for b in batches
+        ]
+        assert consumer._executing == {}
+
     @pytest.mark.parametrize(
         "error,expected_latest_attempt,expected_status_attempt",
         [
@@ -4769,6 +5116,29 @@ class TestProcessGroupCoalescing:
             (batches[1].id, "executing", expected_status_attempt),
             (batches[1].id, "succeeded", expected_status_attempt),
         ]
+
+    @pytest.mark.parametrize(
+        "error",
+        [CoalescingDeclined("schemas differ"), RuntimeError("merge blew up")],
+        ids=["declined", "failed"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_set_that_cannot_load_during_shutdown_starts_no_new_attempts(self, error: Exception):
+        # The shutdown marker covers only the set's own attempts, so a fallback delivery that
+        # started in the drain would use a retry when the drain cancels it.
+        process_batch = AsyncMock()
+
+        async def process_batches(batches, verify_ownership=None):
+            consumer._shutdown.set()
+            raise error
+
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(2)
+
+        statuses = await self._run_group(consumer, batches)
+
+        process_batch.assert_not_called()
+        assert statuses == [(b.id, "executing", 1) for b in batches]
 
     @pytest.mark.asyncio
     async def test_a_set_whose_post_write_status_update_fails_falls_back_to_its_members(self):
