@@ -699,7 +699,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
 
 /**
  * Health check findings for this experiment: problems in its configuration and its feature flag
- * that keep it from producing trustworthy results, each with a fix.
+ * that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+ * each check, so a check that found no problem can be told from one that did not apply or could
+ * not read an input.
  *
  * The checks here read the experiment, its flag, its linked metrics, and the changes of the
  * flag's variant split since launch. The checks that read exposure counts come with the

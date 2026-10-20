@@ -4,8 +4,18 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckSkip, not_applicable
 
 SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
+
+
+def srm_skip(ctx: HealthContext) -> CheckSkip | None:
+    if ctx.exposures is None:
+        return not_applicable(RUNS_AFTER_LAUNCH)
+    # The exposure query gives no p-value while the exposures are too few for the test.
+    if ctx.exposures.sample_ratio_mismatch_p_value is None:
+        return not_applicable("Runs once enough users are exposed")
+    return None
 
 
 def srm(ctx: HealthContext) -> ExperimentHealthFinding | None:
