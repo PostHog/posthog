@@ -189,6 +189,7 @@ ControlPlaneFailure = Literal["rate_limited", "unavailable"]
 
 RUNNING_STATUS_CACHE_SECONDS = 10.0
 MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS = 120
+MODAL_INLINE_COMMAND_MAX_BYTES = 60_000
 
 
 def _launch_preparation_failed_stage(stderr: str) -> str:
@@ -889,17 +890,22 @@ class ModalSandbox(AgentServerLaunchMixin):
                 probe_memory_watchdog=settings.TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED,
             ),
         )
+        timeout_seconds = MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS + AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS
         encoded_script = base64.b64encode(script.encode()).decode()
         command = (
             "script_path=$(mktemp /tmp/posthog-launch-preparation-XXXXXXXX) && "
             f'printf %s {encoded_script} | base64 -d > "$script_path" && bash "$script_path"'
         )
+
+        def run() -> ExecutionResult:
+            if len(command.encode()) <= MODAL_INLINE_COMMAND_MAX_BYTES:
+                return self.execute(command, timeout_seconds=timeout_seconds)
+            script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+            self._write_required_file(script_path, script.encode())
+            return self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=timeout_seconds)
+
         result, total_ms = self._run_launch_preparation(
-            lambda: self.execute(
-                command,
-                timeout_seconds=MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS + AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
-            ),
-            completed_exit_codes=(0, AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE),
+            run, completed_exit_codes=(0, AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE)
         )
         if _launch_preparation_failed_stage(result.stderr) == "bundled_skills":
             raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")

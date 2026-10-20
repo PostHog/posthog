@@ -1143,6 +1143,27 @@ class TestModalSandboxAgentServer:
 
         assert type(raised.value) is expected_error
 
+    @pytest.mark.parametrize(("domain_count", "uploads_script"), [(1, False), (400, True)])
+    def test_start_agent_server_uploads_launch_script_above_modal_command_limit(
+        self, mock_sandbox: Any, domain_count: int, uploads_script: bool
+    ) -> None:
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None)
+        )
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+        domains = [f"*.service-{index}-{'x' * 120}.example.com" for index in range(domain_count)]
+
+        mock_sandbox.start_agent_server(
+            repository=None, task_id="task-123", run_id="run-456", wait_for_health=False, allowed_domains=domains
+        )
+
+        preparation = next(
+            call.args[0]
+            for call in mock_sandbox.execute.call_args_list
+            if "posthog-launch-preparation-" in call.args[0]
+        )
+        assert preparation.startswith("bash /tmp/posthog-launch-preparation-") is uploads_script
+
     def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
             if _is_preflight_command(command):
