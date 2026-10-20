@@ -123,13 +123,13 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
-def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnreadableResultType":
+def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
     unreadable_type = err.message.removeprefix("Unknown type ")
     if unreadable_type.startswith("AggregateFunction("):
         advice = "Call the aggregate function without the State suffix. To combine stored states, use its -Merge form."
     else:
         advice = "Convert the column with toString()."
-    return CHQueryErrorUnreadableResultType(
+    return CHQueryErrorUnknownType(
         f"PostHog can't read the type {unreadable_type} in the query results. {advice}",
         code=err.code,
         code_name="unknown_type",
@@ -235,6 +235,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
+    elif name == "UNKNOWN_TYPE":
+        return CHQueryErrorUnknownType(err.message, code=err.code, code_name="unknown_type")
 
     # all other errors
     else:
@@ -312,7 +314,7 @@ class CHQueryErrorBadGet(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorUnreadableResultType(ExposedCHQueryError):
+class CHQueryErrorUnknownType(ExposedCHQueryError):
     pass
 
 
