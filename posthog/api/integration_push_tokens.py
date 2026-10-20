@@ -21,8 +21,8 @@ class PushTokenSubscriptionSerializer(serializers.Serializer):
 
 
 class PushTokenImportRequestSerializer(serializers.Serializer):
-    subscriptions = PushTokenSubscriptionSerializer(
-        many=True,
+    subscriptions: serializers.ListSerializer = serializers.ListSerializer(
+        child=PushTokenSubscriptionSerializer(),
         allow_empty=False,
         max_length=MAX_SUBSCRIPTIONS_PER_REQUEST,
         help_text=f"Up to {MAX_SUBSCRIPTIONS_PER_REQUEST} devices to register on this push channel. "
@@ -95,7 +95,13 @@ def import_push_tokens(integration: Integration, subscriptions: list[dict[str, s
         event_source=EVENT_SOURCE,
         process_person_profile=True,
     )
-    failed = {*result.dropped, *result.retried, *result.unaccounted}
+    # Capture skips the person update when person processing is disabled, so that device was never stored.
+    skipped = {
+        event_uuid
+        for event_uuid in result.warnings
+        if result.results.get(event_uuid, {}).get("details") == "person_processing_disabled"
+    }
+    failed = {*result.dropped, *result.retried, *result.unaccounted, *skipped}
     return PushTokenImportResult(
         imported=len(events) - len(failed),
         failed_distinct_ids=sorted({distinct_id_by_uuid[event_uuid] for event_uuid in failed}),

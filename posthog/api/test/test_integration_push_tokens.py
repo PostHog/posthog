@@ -13,13 +13,17 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
 
-def _capture_dropping(dropped_distinct_ids: set[str]):
+def _capture_dropping(dropped_distinct_ids: set[str], warning_details: dict[str, str] | None = None):
     captured: list[dict[str, Any]] = []
 
     def capture(*, events: list[dict[str, Any]], **kwargs: Any) -> CaptureInternalResult:
         captured.append({"events": events, **kwargs})
         result = CaptureInternalResult(status_code=200)
         for event in events:
+            if details := (warning_details or {}).get(event["distinct_id"]):
+                result.warnings.append(event["event_uuid"])
+                result.results[event["event_uuid"]] = {"result": "warning", "details": details}
+                continue
             lane = result.dropped if event["distinct_id"] in dropped_distinct_ids else result.ok
             lane.append(event["event_uuid"])
         return result
@@ -54,7 +58,9 @@ class TestPushTokenImport(APIBaseTest):
 
     @parameterized.expand([("apns", "com.example.app"), ("firebase", "example-project")])
     def test_stores_each_device_encrypted_under_the_key_the_sender_reads(self, kind: str, app_id: str) -> None:
-        capture, captured = _capture_dropping({"user-2"})
+        capture, captured = _capture_dropping(
+            {"user-2"}, {"user-3": "person_processing_disabled", "user-4": "some_other_warning"}
+        )
         with patch("posthog.api.integration_push_tokens.capture_batch_internal", side_effect=capture):
             response = self._import(
                 getattr(self, kind).id,
@@ -63,11 +69,13 @@ class TestPushTokenImport(APIBaseTest):
                     {"distinct_id": "user-1", "device_token": "a1b2c3d4"},
                     {"distinct_id": "user-1", "device_token": "second-device"},
                     {"distinct_id": "user-2", "device_token": "dropped-device"},
+                    {"distinct_id": "user-3", "device_token": "skipped-device"},
+                    {"distinct_id": "user-4", "device_token": "warned-device"},
                 ],
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"imported": 2, "failed_distinct_ids": ["user-2"]}
+        assert response.json() == {"imported": 3, "failed_distinct_ids": ["user-2", "user-3"]}
         [call] = captured
         assert call["token"] == self.team.api_token
         assert call["process_person_profile"] is True
@@ -79,7 +87,7 @@ class TestPushTokenImport(APIBaseTest):
         assert key == f"$device_push_subscription_{app_id}:7dcf407fa84a0e05"
         assert value != "a1b2c3d4"
         assert _TokenCipher().decrypt(value) == "a1b2c3d4"
-        assert len(call["events"]) == 3
+        assert len(call["events"]) == 5
 
     def test_rejects_an_integration_that_is_not_a_push_channel(self) -> None:
         slack = Integration.objects.create(team=self.team, kind="slack", integration_id="T1", config={})
