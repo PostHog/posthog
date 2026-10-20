@@ -20,19 +20,6 @@ const CUSTOMER_IO_TEMPLATE = {
     inputs_schema: [],
 } as unknown as HogFunctionTemplateType
 
-const SLACK_TEMPLATE = {
-    id: 'template-slack',
-    type: 'destination',
-    name: 'Slack',
-    description: 'Sends a message to a Slack channel',
-    icon_url: '/static/services/slack.png',
-    status: 'stable',
-    free: true,
-    code: '',
-    code_language: 'hog',
-    inputs_schema: [],
-} as unknown as HogFunctionTemplateType
-
 const meta: Meta = {
     title: 'Products/Workflows/DestinationWorkflowSuggestionModal',
     component: DestinationWorkflowSuggestionModal,
@@ -44,18 +31,12 @@ const meta: Meta = {
 }
 export default meta
 
-function Template({
-    events,
-    template = CUSTOMER_IO_TEMPLATE,
-}: {
-    events: string[]
-    template?: HogFunctionTemplateType
-}): JSX.Element {
+function Template({ events }: { events: string[] }): JSX.Element {
     const { openSuggestion } = useActions(destinationWorkflowSuggestionLogic)
 
     useEffect(() => {
-        openSuggestion(template, events, () => {})
-    }, [openSuggestion, events, template])
+        openSuggestion(CUSTOMER_IO_TEMPLATE, events, () => {})
+    }, [openSuggestion, events])
 
     return <DestinationWorkflowSuggestionModal />
 }
@@ -65,5 +46,3 @@ export const BuildFromPickedEvents: StoryFn = () => (
 )
 
 export const OnlyDefaultEvents: StoryFn = () => <Template events={[]} />
-
-export const ChatOrSmsTool: StoryFn = () => <Template events={['signed_up']} template={SLACK_TEMPLATE} />

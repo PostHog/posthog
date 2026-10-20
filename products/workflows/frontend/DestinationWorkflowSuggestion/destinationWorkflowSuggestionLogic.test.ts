@@ -61,8 +61,7 @@ describe('destinationWorkflowSuggestionLogic', () => {
     it.each([
         ['asks for an email tool', 'template-customerio', {}, true],
         ['skips a destination that is not an email tool', 'template-webhook', {}, false],
-        ['asks for a chat tool, which a workflow can send as a step', 'template-slack', {}, true],
-        ['asks for an SMS tool', 'template-kudosity-sms', {}, true],
+        ['skips team chat, which Workflows does not replace', 'template-slack', {}, false],
         [
             'skips a user who answered before',
             'template-customerio',
@@ -82,25 +81,12 @@ describe('destinationWorkflowSuggestionLogic', () => {
     })
 
     it.each([
-        ['builds workflows for picked events', 'template-customerio', ['signed_up'], true, true],
-        ['only points to Workflows with just the default events', 'template-customerio', [], true, false],
-        [
-            'only points to Workflows when the organization has not approved AI',
-            'template-customerio',
-            ['signed_up'],
-            false,
-            false,
-        ],
-        [
-            'only points to Workflows for a chat tool, because the builder plans emails',
-            'template-slack',
-            ['signed_up'],
-            true,
-            false,
-        ],
-    ])('%s', (_label, templateId, events, aiApproved, canBuild) => {
+        ['builds workflows for picked events', ['signed_up'], true, true],
+        ['only points to Workflows with just the default events', [], true, false],
+        ['only points to Workflows when the organization has not approved AI', ['signed_up'], false, false],
+    ])('%s', (_label, events, aiApproved, canBuild) => {
         setUp({ aiApproved })
-        logic.actions.openSuggestion(template(templateId), events, jest.fn())
+        logic.actions.openSuggestion(template('template-customerio'), events, jest.fn())
 
         expect(logic.values.canBuildWorkflows).toBe(canBuild)
     })

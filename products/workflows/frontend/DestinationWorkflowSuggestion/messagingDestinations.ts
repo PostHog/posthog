@@ -23,25 +23,8 @@ export const MESSAGING_DESTINATION_TEMPLATE_IDS: ReadonlySet<string> = new Set([
     'template-userlist',
 ])
 
-// Destinations whose only job is to deliver a message. A workflow can send the same message as a step, because the
-// step picker offers every destination template, so the pitch is one flow across channels rather than a replacement
-// for the tool. PostHog does not become the provider: the step still sends through the team's own account.
-export const CHANNEL_DESTINATION_TEMPLATE_IDS: ReadonlySet<string> = new Set([
-    'template-discord',
-    'template-kudosity-sms',
-    'template-microsoft-teams',
-    'template-slack',
-    'template-whatsapp',
-])
-
-/** Which pitch a destination gets, or null for a destination Workflows has nothing to say about. */
-export type DestinationSuggestionKind = 'email' | 'channel'
-
-export function destinationSuggestionKind(templateId: string): DestinationSuggestionKind | null {
-    if (MESSAGING_DESTINATION_TEMPLATE_IDS.has(templateId)) {
-        return 'email'
-    }
-    return CHANNEL_DESTINATION_TEMPLATE_IDS.has(templateId) ? 'channel' : null
+export function isMessagingDestinationTemplate(templateId: string): boolean {
+    return MESSAGING_DESTINATION_TEMPLATE_IDS.has(templateId)
 }
 
 // Matches MAX_PICKED_EVENTS in the data suggestions service, which rejects longer lists.
