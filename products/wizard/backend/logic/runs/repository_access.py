@@ -2,9 +2,6 @@ import logging
 
 from django.core.cache import cache
 
-from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
-
 from products.tasks.backend.facade import repo_selection
 from products.wizard.backend.facade.errors import MissingGitHubIntegrationError, RepositoryNotAccessibleError
 from products.wizard.backend.logic.runs.validation import validate_git_repository_name
@@ -35,28 +32,23 @@ def refresh_repository_cache(team_id: int) -> bool:
 
     The cached list can miss a repository added to the GitHub App a moment ago.
     """
-    integration_id = repo_selection.resolve_team_github_integration_id(team_id)
-    if integration_id is None:
+    github = repo_selection.resolve_team_github_integration(team_id, team_only=True)
+    if github is None:
         return False
 
     # A sync pages through every repository of the installation. One reservation per interval stops concurrent
     # misses, and repeated failures, from each starting their own sync.
-    reservation_key = f"wizard:repository-cache-refresh:{integration_id}"
+    reservation_key = f"wizard:repository-cache-refresh:{github.integration.id}"
     if not cache.add(reservation_key, 1, timeout=REPOSITORY_CACHE_MIN_REFRESH_INTERVAL_SECONDS):
         return False
 
-    integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
-    if integration is None:
-        return False
     try:
-        GitHubIntegration(integration, source="wizard", priority=Priority.CRITICAL).sync_repository_cache(
-            min_refresh_interval_seconds=REPOSITORY_CACHE_MIN_REFRESH_INTERVAL_SECONDS
-        )
+        github.sync_repository_cache(min_refresh_interval_seconds=REPOSITORY_CACHE_MIN_REFRESH_INTERVAL_SECONDS)
     except Exception:
         logger.warning(
             "wizard_repository_cache_refresh_failed",
             exc_info=True,
-            extra={"team_id": team_id, "integration_id": integration_id},
+            extra={"team_id": team_id, "integration_id": github.integration.id},
         )
         return False
     return True

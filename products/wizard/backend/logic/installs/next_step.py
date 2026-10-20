@@ -1,6 +1,7 @@
 from products.wizard.backend.facade.contracts import WizardRunDTO
 from products.wizard.backend.facade.enums import WizardRunErrorCode, WizardRunStage, WizardRunStatus
-from products.wizard.backend.logic.installs.config import LOCAL_WIZARD_COMMAND
+
+LOCAL_WIZARD_COMMAND = "npx -y @posthog/wizard@latest"
 
 _CHECK_AGAIN = "Check the status again in about 30 seconds."
 _START_AGAIN = "Start a new run when the user is ready."

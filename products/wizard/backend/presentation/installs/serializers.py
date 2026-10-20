@@ -44,9 +44,7 @@ class WizardInstallStartRequestSerializer(serializers.Serializer):
 
 
 class WizardInstallStartSerializer(serializers.Serializer):
-    run_id = serializers.UUIDField(
-        source="id", read_only=True, help_text="ID of the setup run. Pass it to the status endpoint."
-    )
+    run_id = serializers.UUIDField(read_only=True, help_text="ID of the setup run. Pass it to the status endpoint.")
     status = serializers.ChoiceField(
         read_only=True,
         choices=WizardRunStatus.choices,

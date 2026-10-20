@@ -10,9 +10,9 @@ from products.wizard.backend.facade.contracts import (
 )
 from products.wizard.backend.facade.enums import WizardRunEnvironment
 from products.wizard.backend.facade.errors import RepositoryNotAccessibleError, WizardRunNotFoundError
-from products.wizard.backend.logic.artifacts import service as artifacts
-from products.wizard.backend.logic.installs.config import INSTALL_PROGRAM_ID
+from products.wizard.backend.logic.artifacts import store as artifacts_store
 from products.wizard.backend.logic.installs.next_step import next_step
+from products.wizard.backend.logic.registry.config import POSTHOG_INTEGRATION_PROGRAM
 from products.wizard.backend.logic.runs import lifecycle, store
 from products.wizard.backend.logic.runs.repository_access import refresh_repository_cache
 from products.wizard.backend.logic.runs.validation import validate_git_branch_name, validate_git_repository_name
@@ -30,7 +30,7 @@ def start_install(params: StartWizardInstallInput) -> WizardRunCreationResult:
         created_by_id=params.created_by_id,
         environment=WizardRunEnvironment.CLOUD,
         workspace=GitRepositoryWorkspace(repository=params.repository, branch=params.branch),
-        program_id=INSTALL_PROGRAM_ID,
+        program_id=POSTHOG_INTEGRATION_PROGRAM.id,
         idempotency_key=params.idempotency_key or f"install-{uuid4()}",
     )
 
@@ -50,7 +50,7 @@ def get_install_status(team_id: int, run_id: UUID) -> WizardInstallStatusDTO:
     pull_request = next(
         (
             artifact
-            for artifact in artifacts.list_run_artifacts(team_id, run.id)
+            for artifact in artifacts_store.list_artifacts(team_id, run.id)
             if isinstance(artifact, WizardRunPullRequestArtifactDTO)
         ),
         None,

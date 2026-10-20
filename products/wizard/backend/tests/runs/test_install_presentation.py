@@ -31,7 +31,7 @@ class TestWizardInstallViewSet(APIBaseTest):
         cache.clear()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
         self.flag = patch(
-            "products.wizard.backend.presentation.installs.views.posthoganalytics.feature_enabled", return_value=True
+            "products.wizard.backend.presentation.installs.views.posthog_feature_flag_enabled", return_value=True
         )
         self.resolve_integration = patch(
             f"{REPOSITORY_ACCESS}.resolve_team_github_integration_id", return_value=self.integration.id
@@ -105,9 +105,12 @@ class TestWizardInstallViewSet(APIBaseTest):
             run = WizardRun.objects.for_team(self.team.id).get()
             self.assertEqual(
                 response.json(),
-                {"run_id": str(run.id), "status": "created", "url": response.json()["url"]},
+                {
+                    "run_id": str(run.id),
+                    "status": "created",
+                    "url": f"http://testserver/project/{self.team.id}/wizard/runs",
+                },
             )
-            self.assertTrue(response.json()["url"].endswith(f"/project/{self.team.id}/wizard/runs"))
             self.assertEqual(run.program["id"], "posthog-integration")
             self.assertEqual(run.environment, "cloud")
 

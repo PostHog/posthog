@@ -17,34 +17,11 @@ from products.wizard.backend.facade.errors import (
     WizardRunHourlyLimitError,
     WizardRunIdempotencyConflictError,
 )
+from products.wizard.backend.presentation.runs.errors import WIZARD_RUN_CREATION_ERRORS, WizardRunCreationError
 
-WizardInstallStartError = (
-    ActiveWizardRunError
-    | InvalidBranchError
-    | InvalidRepositoryError
-    | InvalidWorkspaceEnvironmentError
-    | MissingGitHubIntegrationError
-    | RepositoryNotAccessibleError
-    | WizardProgramEnvironmentNotSupportedError
-    | WizardProgramNotAvailableError
-    | WizardRunDailyLimitError
-    | WizardRunHourlyLimitError
-    | WizardRunIdempotencyConflictError
-)
+WizardInstallStartError = WizardRunCreationError | InvalidBranchError
 
-WIZARD_INSTALL_START_ERRORS = (
-    ActiveWizardRunError,
-    InvalidBranchError,
-    InvalidRepositoryError,
-    InvalidWorkspaceEnvironmentError,
-    MissingGitHubIntegrationError,
-    RepositoryNotAccessibleError,
-    WizardProgramEnvironmentNotSupportedError,
-    WizardProgramNotAvailableError,
-    WizardRunDailyLimitError,
-    WizardRunHourlyLimitError,
-    WizardRunIdempotencyConflictError,
-)
+WIZARD_INSTALL_START_ERRORS = (*WIZARD_RUN_CREATION_ERRORS, InvalidBranchError)
 
 
 def install_start_api_error(error: WizardInstallStartError) -> APIException:
