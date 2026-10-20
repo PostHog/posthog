@@ -452,10 +452,13 @@ class TestLookupEndpoints:
     @pytest.mark.parametrize(
         "endpoint,expected_sort_mode",
         [
+            ("customers", None),
+            ("threads", None),
+            ("timeline_entries", None),
             ("companies", "desc"),
             ("tenants", "desc"),
-            ("users", "asc"),
-            ("label_types", "asc"),
+            ("users", None),
+            ("label_types", None),
         ],
     )
     def test_source_for_pipeline_sets_sort_mode(self, endpoint, expected_sort_mode):

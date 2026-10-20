@@ -96,6 +96,7 @@ import {
 } from '~/types'
 
 import {
+    existingMetricFromNameConflict,
     METRIC_FIELD_COPY,
     MetricFormPrefill,
     validateMetricDescription,
@@ -107,6 +108,7 @@ import {
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { openOverwriteMetricDialog } from 'products/data_catalog/frontend/openOverwriteMetricDialog'
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
@@ -1023,14 +1025,16 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
-    saveAsMetric: () => {
-        value: true
+    saveAsMetric: (queryOverride?: string) => {
+        queryOverride: string | undefined
     }
     saveAsMetricSubmit: (
         fields: SaveAsMetricFields,
-        queryOverride?: string
+        queryOverride?: string,
+        overwrite?: boolean
     ) => {
         fields: SaveAsMetricFields
+        overwrite: boolean
         queryOverride: string | undefined
     }
     saveAsView: (
@@ -1409,10 +1413,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             description,
             queryOverride,
         }),
-        saveAsMetric: true,
-        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
+        saveAsMetric: (queryOverride?: string) => ({ queryOverride }),
+        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string, overwrite: boolean = false) => ({
             fields,
             queryOverride,
+            overwrite,
         }),
         setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
@@ -2966,8 +2971,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
-            saveAsMetric: async () => {
-                const candidates = resolveSaveCandidates()
+            saveAsMetric: async ({ queryOverride }) => {
+                const resolved = resolveSaveCandidates()
+                // Reopening after a name conflict keeps the statement the user picked, not the cursor default.
+                const restoredIndex = queryOverride === undefined ? -1 : resolved.queries.indexOf(queryOverride)
+                const candidates = restoredIndex >= 0 ? { ...resolved, initialIndex: restoredIndex } : resolved
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
@@ -3034,26 +3042,42 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ),
                 })
             },
-            saveAsMetricSubmit: async ({ fields, queryOverride }) => {
+            saveAsMetricSubmit: async ({ fields, queryOverride, overwrite }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
+                    // Blank fields are sent as blank, so an overwrite clears the old values.
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
                         name: fields.name,
-                        display_name: fields.display_name || undefined,
+                        display_name: fields.display_name,
                         description: fields.description,
-                        unit: fields.unit || undefined,
+                        unit: fields.unit,
+                        created_source: 'user',
                         definition: normalizeRawQuerySource({
                             ...(values.sourceQuery.source as HogQLQuery),
                             query: queryOverride ?? values.queryInput ?? '',
                         }) as unknown as Record<string, unknown>,
+                        overwrite,
                     })
-                    captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    captureBIEditorQuerySaved(biEditorState, 'metric', overwrite ? 'update' : 'create')
                     metricsLogic.findMounted()?.actions.loadMetrics()
                     actions.setMetricPrefill(null)
-                    lemonToast.success('Metric created')
+                    lemonToast.success(overwrite ? 'Metric overwritten' : 'Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
-                    lemonToast.error(error.detail || 'Failed to create metric')
+                    const existing = existingMetricFromNameConflict(error)
+                    if (existing) {
+                        openOverwriteMetricDialog({
+                            existing,
+                            onOverwrite: () => actions.saveAsMetricSubmit(fields, queryOverride, true),
+                            // The save form closed on submit, so reopen it with the typed values to pick another name.
+                            onCancel: () => {
+                                actions.setMetricPrefill(fields)
+                                actions.saveAsMetric(queryOverride)
+                            },
+                        })
+                    } else {
+                        lemonToast.error(error.detail || 'Failed to create metric')
+                    }
                 }
             },
             openMetricFromUrl: async ({ metricName, biEditorState }, breakpoint) => {
