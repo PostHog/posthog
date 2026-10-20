@@ -19,7 +19,7 @@ import time
 from collections.abc import Collection
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Final
+from typing import Any, Final
 
 from django.conf import settings
 
@@ -27,10 +27,15 @@ import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    render_alert_insight_chart_url,
+    resolve_alert_render_user,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -324,6 +329,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         now=now,
         value=result.value,
         query_duration_ms=duration_ms,
+        firing=_Firing(alert, tuple(result.breaches)),
     )
 
 
@@ -425,6 +431,25 @@ def _decide_grouped(
     )
 
 
+@frozen
+class _Firing:
+    """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
+
+    alert: AlertConfiguration
+    breaches: tuple[str, ...]
+
+    def detail(self, check: PlatformAlertCheckInput) -> dict[str, Any]:
+        detail: dict[str, Any] = {"breaches": list(self.breaches)}
+        # A render takes up to a minute and a half, so only an alert the platform delivers for pays
+        # for one. Production renders no chart for a real-time alert either.
+        if check.owned_by_platform and self.alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
+            render_user = resolve_alert_render_user(self.alert)
+            chart_url = render_alert_insight_chart_url(self.alert, render_user) if render_user else None
+            if chart_url:
+                detail["insight_chart_url"] = chart_url
+        return detail
+
+
 def _verdict(
     check: PlatformAlertCheckInput,
     snapshot: AlertSnapshot,
@@ -434,8 +459,10 @@ def _verdict(
     value: float | None = None,
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
+    firing: _Firing | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
+    fires = firing is not None and outcome.notification == NotificationAction.FIRE
     return _recorded(
         check,
         snapshot,
@@ -448,6 +475,7 @@ def _verdict(
         query_duration_ms=query_duration_ms,
         skip=skip,
         disable=outcome.disable,
+        source_detail=firing.detail(check) if fires and firing is not None else None,
     )
 
 
@@ -489,6 +517,7 @@ def _recorded(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     disable: bool = False,
+    source_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     """The one place an outcome is built. Every path goes through the firing decision, because
     an outcome without an episode clears the start of a firing the alert is still in."""
@@ -519,4 +548,5 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         disable=disable,
         skipped=skipped,
+        source_detail=source_detail,
     )

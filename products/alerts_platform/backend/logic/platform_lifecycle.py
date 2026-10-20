@@ -7,7 +7,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -374,6 +374,7 @@ def _event_row(
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
         muted_notification=verdict.muted_notification,
+        source_detail=group.source_detail if group else None,
         now=now,
     )
 
@@ -394,6 +395,7 @@ def event_row(
     query_duration_ms: int | None = None,
     error_message: str | None = None,
     muted_notification: str = "",
+    source_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertEventRow:
     """One history row for a configuration, with the snapshots every row carries."""
     return PlatformAlertEventRow(
@@ -417,6 +419,7 @@ def event_row(
         consecutive_failures=consecutive_failures,
         muted_notification=muted_notification,
         occurred_at=now,
+        source_detail=source_detail or {},
     )
 
 

@@ -147,6 +147,31 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
 
+    @parameterized.expand(
+        [
+            ("source_owned", "source", {"breaches": ["above 100"]}),
+            (
+                "platform_owned",
+                "platform",
+                {"breaches": ["above 100"], "insight_chart_url": "https://example.com/chart.png"},
+            ),
+        ]
+    )
+    def test_a_firing_records_what_production_sends_beside_it(
+        self, _name: str, owner: str, expected: dict[str, Any]
+    ) -> None:
+        configuration = self._copy(self._alert(created_by=self.user), owner=owner)
+
+        with patch(f"{_MODULE}.render_alert_insight_chart_url", return_value="https://example.com/chart.png") as render:
+            outcome, _ = self._evaluate(
+                configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
+            )
+
+        assert outcome is not None
+        assert outcome.groups[0].source_detail == expected
+        # A render costs up to a minute and a half, so the parallel run must never pay for one.
+        assert render.called is (owner == "platform")
+
     def test_a_breach_fires_on_the_platform_and_leaves_the_production_alert_alone(self) -> None:
         alert = self._alert()
         before = AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id)

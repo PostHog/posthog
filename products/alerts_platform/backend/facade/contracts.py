@@ -526,6 +526,9 @@ class GroupOutcome:
     labels: dict[str, str] = field(default_factory=dict)
     # What a mute held back, so history separates a muted fire from a check that said nothing.
     muted_notification: str = ""
+    # What the source's own stack sent beside this verdict, which the platform stores and returns
+    # without reading, so a delivery on the HogFunction path can send what the source sent.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -599,6 +602,7 @@ class PlatformAlertOutcome:
         disable: bool = False,
         skipped: bool = False,
         schedule_group: str | None = None,
+        source_detail: dict[str, Any] | None = None,
     ) -> PlatformAlertOutcome:
         """A check of a source that does not group: its one verdict on the empty key, or its failure."""
         failure = (
@@ -624,6 +628,7 @@ class PlatformAlertOutcome:
                     firing_episode=firing_episode,
                     value=value,
                     muted_notification=muted_notification,
+                    source_detail=source_detail or {},
                 ),
             )
         )
@@ -696,6 +701,7 @@ class AnnouncedTransition:
     occurred_at: datetime
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen

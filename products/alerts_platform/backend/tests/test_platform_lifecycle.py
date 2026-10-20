@@ -53,7 +53,16 @@ from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURAT
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
-_GROUP_FIELDS = ("kind", "new_state", "notified", "firing_episode", "value", "labels", "muted_notification")
+_GROUP_FIELDS = (
+    "kind",
+    "new_state",
+    "notified",
+    "firing_episode",
+    "value",
+    "labels",
+    "muted_notification",
+    "source_detail",
+)
 
 
 class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
@@ -326,12 +335,14 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             query_duration_ms=12,
             muted_notification="fire",
             firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
+            source_detail={"breaches": ["above 10"]},
         )
 
         rows = sync_execute(
             """
             SELECT kind, previous_state, state, value, alert_name, muted_notification,
-                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at, source_kind
+                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at, source_kind,
+                   JSONExtractArrayRaw(source_detail, 'breaches')
             FROM platform_alert_events
             WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s
             """,
@@ -339,7 +350,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
-        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff, "logs")]
+        assert rows == [
+            ("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff, "logs", ['"above 10"'])
+        ]
 
     def test_each_group_of_a_check_keeps_its_own_instance_and_history_row(self) -> None:
         self._record(
