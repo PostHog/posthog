@@ -44826,6 +44826,7 @@ export namespace Schemas {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -44844,6 +44845,7 @@ export namespace Schemas {
       FlagLiveAfterEnd: 'flag_live_after_end',
       FlagLiveBeforeLaunch: 'flag_live_before_launch',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
@@ -44905,6 +44907,7 @@ export namespace Schemas {
        * * `flag_live_after_end` - Flag Live After End
        * * `flag_live_before_launch` - Flag Live Before Launch
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
@@ -45212,6 +45215,7 @@ export namespace Schemas {
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -61427,6 +61431,17 @@ export namespace Schemas {
       OpenFilterSettings: 'open_filter_settings',
     } as const;
 
+    export interface InsightDataCheckFilter {
+      /** The property the rule reads, such as `$host`. */
+      key: string;
+      /** The kind of property, such as `event` or `person`. */
+      type: string;
+      /** How the rule compares the property, such as `not_regex`. */
+      operator: string;
+      /** The values the rule compares the property to. */
+      value: string[];
+    }
+
     export interface InsightDataCheck {
       /** Which check this is.
        *
@@ -61435,7 +61450,7 @@ export namespace Schemas {
        * * `bot_traffic` - Bot and crawler traffic
        * * `duplicate_events` - Events sent twice */
       key: InsightDataCheckKeyEnum;
-      /** `passed` when the check found nothing worth acting on, `warning` for a small share of the events, `problem` for a fifth of the events or more, and `skipped` when the check could not run.
+      /** `passed` when the check found nothing worth acting on, `warning` for a small share of the events, `problem` for a fifth of the events or more, and `skipped` when the check could not run. The local development check is never a `problem`, because some apps serve real users from a local host.
        *
        * * `passed` - Passed
        * * `warning` - Warning
@@ -61470,17 +61485,46 @@ export namespace Schemas {
       share: number | null;
       /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
       scaled: boolean;
-      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter, for example by adding `filter_to_add`. Null when there is no single change.
        *
        * * `filter_internal_users` - Turn on the internal and test users filter for the insight
        * * `open_filter_settings` - Change the project's internal and test users filter */
       action: InsightDataCheckActionEnum | null;
       /** The event names the check found most often, most affected first. */
       top_events: string[];
-      /** For the local development check, the local hosts found most often, most affected first. */
+      /** For the local development check, the local hosts whose events the project's internal and test users filter keeps, most affected first. */
       top_hosts: string[];
+      /**
+         * For the local development check, how many local hosts sent the events in `events`. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      distinct_hosts: number | null;
       /** For the bot traffic check, the bots and crawlers found most often, most affected first. */
       top_bots: string[];
+      /**
+         * For the bot traffic check, how many named bots and crawlers sent the sampled events. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      distinct_bots: number | null;
+      /**
+         * For the internal users check, the part of `events` that the project's internal and test users filter removes. It is 0 when the insight already applies the filter. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      removed_by_filter: number | null;
+      /**
+         * For the internal users check, the part of `events` from team emails that the project's internal and test users filter keeps. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      missed_by_filter: number | null;
+      /** For the internal users check, the team emails whose events the project's internal and test users filter keeps, most affected first. Only emails the caller may see as the team's are matched. Empty for a token without the `person:read` scope. */
+      top_emails: string[];
+      /**
+         * For the internal users check, how many team emails sent events that the project's internal and test users filter keeps. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      distinct_emails: number | null;
+      /** A rule for the project's internal and test users filter that removes what the check found: the local hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found none, and for the internal users check for a token without the `person:read` scope. */
+      filter_to_add: InsightDataCheckFilter | null;
     }
 
     /**
