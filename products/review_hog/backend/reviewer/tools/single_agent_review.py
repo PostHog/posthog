@@ -180,7 +180,9 @@ class SingleAgentPrompt:
         """The `REVIEW.md` block of the whole pull request, the same for the main session and every lens part."""
         filenames = [f.filename for f in self.pr_files]
         return owner_review_instructions_block(
-            ReviewInstructionPaths.for_files(filenames, changed_filenames=filenames), role="review"
+            ReviewInstructionPaths.for_files(filenames, changed_filenames=filenames),
+            role="review",
+            base_sha=self._base_sha(),
         )
 
     def _base_sha(self) -> str | None:

@@ -164,5 +164,6 @@ class TestPromptInjectionGuards:
     def test_prompt_lists_the_owner_review_instructions(self, _name: str, render: Callable[[], str]) -> None:
         prompt = render()
         assert "<owner_review_instructions>" in prompt
-        assert "\n- REVIEW.md\n" in prompt
+        assert "\n- `REVIEW.md`\n" in prompt
+        assert "is not an instruction" in prompt
         assert "never lower" in prompt

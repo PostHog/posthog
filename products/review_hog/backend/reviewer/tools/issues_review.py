@@ -6,6 +6,7 @@ from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.review_instructions import (
     ReviewInstructionPaths,
+    merge_base_for_prompt,
     owner_review_instructions_block,
 )
 from products.review_hog.backend.reviewer.tools.prompt_helpers import (
@@ -72,6 +73,7 @@ def build_review_prompt(
     dig_deeper: bool = False,
     blind_spot_check: bool = False,
     wave_perspectives: dict[str, str] | None = None,
+    merge_base_sha: str | None = None,
 ) -> str:
     """Render one (perspective, chunk) review prompt — also the blind-spot check's, via the same shape.
 
@@ -103,7 +105,9 @@ def build_review_prompt(
     return main_template.render(
         **{key: without_cache_marker(value) for key, value in chunk_context.items()},
         COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
-        OWNER_REVIEW_INSTRUCTIONS=without_cache_marker(owner_review_instructions_block(instructions, role="review")),
+        OWNER_REVIEW_INSTRUCTIONS=without_cache_marker(
+            owner_review_instructions_block(instructions, role="review", base_sha=merge_base_for_prompt(merge_base_sha))
+        ),
         CACHE_MARKER=PROMPT_CACHE_MARKER,
         DIG_DEEPER=dig_deeper,
         IS_BLIND_SPOT=blind_spot_check,

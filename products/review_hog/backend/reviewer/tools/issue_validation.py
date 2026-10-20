@@ -6,6 +6,7 @@ from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.review_instructions import (
     ReviewInstructionPaths,
+    merge_base_for_prompt,
     owner_review_instructions_block,
 )
 from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
@@ -43,12 +44,14 @@ def build_validation_prompt(
     pr_metadata: PRMetadata,
     pr_files: list[PRFile],
     changed_filenames: Sequence[str] = (),
+    merge_base_sha: str | None = None,
 ) -> str:
     """Render the validation prompt for one issue against the live codebase.
 
     The prompt instructs the agent to pull the validation criteria over MCP using the skill's name
     and pinned version. `pr_files` is already narrowed to the issue's own file by the caller;
-    `changed_filenames` is every file of the pull request, so a `REVIEW.md` it changes is never followed.
+    `changed_filenames` is every file of the pull request, so a `REVIEW.md` it changes is never followed,
+    and `merge_base_sha` is the commit the agent reads the owners' `REVIEW.md` files from.
     """
     claude_code_context = prepare_code_context([issue.file], pr_files) if issue.file else ""
     template, schema = load_template_and_schema("issue_validation")
@@ -60,7 +63,9 @@ def build_validation_prompt(
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
         CHUNK_CONTEXT=json.dumps(chunk.model_dump(), indent=2),
         ISSUE=issue.model_dump_json(indent=2),
-        OWNER_REVIEW_INSTRUCTIONS=owner_review_instructions_block(instructions, role="validation"),
+        OWNER_REVIEW_INSTRUCTIONS=owner_review_instructions_block(
+            instructions, role="validation", base_sha=merge_base_for_prompt(merge_base_sha)
+        ),
         VALIDATION_SCHEMA=schema.strip(),
         VALIDATION_SKILL_NAME=skill_name,
         VALIDATION_SKILL_VERSION=skill_version,
