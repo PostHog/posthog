@@ -45,3 +45,13 @@ class CatalogConflict(APIException):
         super().__init__(detail=detail)
         if extra is not None:
             self.extra = extra
+
+
+class MetricNameTaken(CatalogConflict):
+    """A create named a live metric without ``overwrite``, or one hidden from the caller.
+
+    ``extra.existing_metric`` holds the name and status of a visible metric. A hidden metric gets no ``extra``.
+    """
+
+    default_detail = "A metric with this name already exists. Use a different name, or overwrite the existing metric."
+    default_code = "metric_name_taken"
