@@ -366,7 +366,7 @@ class TestTeachableNestedFanout:
         # Every scripted answer was used, so no branch of the walk was skipped.
         assert len(result.requests) == sum(len(answers) for answers in routes.values())
 
-    def test_course_progress_requests_each_enrolled_user(self) -> None:
+    def test_course_progress_requests_each_enrolled_user_once(self) -> None:
         progress = ScriptedResponse(
             json={"course_progress": {"id": 1, "lecture_sections": []}, "meta": {"number_of_pages": 1}}
         )
@@ -377,7 +377,10 @@ class TestTeachableNestedFanout:
                     "/v1/courses": [ScriptedResponse(json={"courses": [{"id": 11}], "meta": {"number_of_pages": 1}})],
                     "/v1/courses/11/enrollments": [
                         ScriptedResponse(
-                            json={"enrollments": [{"user_id": 7}, {"user_id": 8}], "meta": {"number_of_pages": 1}}
+                            json={
+                                "enrollments": [{"user_id": 7}, {"user_id": 8}, {"user_id": 7}],
+                                "meta": {"number_of_pages": 1},
+                            }
                         )
                     ],
                     "/v1/courses/11/progress": [progress, progress],

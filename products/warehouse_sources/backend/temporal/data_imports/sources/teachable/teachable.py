@@ -4,6 +4,8 @@ from typing import Any, Optional, cast
 
 from requests import Request, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -257,6 +259,19 @@ def _required(body: dict[str, Any], key: str, path: str) -> Any:
     return body[key]
 
 
+@frozen
+class LectureKey:
+    course_id: int
+    lecture_id: int
+
+
+@frozen
+class QuizKey:
+    course_id: int
+    lecture_id: int
+    quiz_id: int
+
+
 def _iter_course_ids(client: RESTClient, safe_point: SafePoint) -> Iterator[int]:
     for courses in client.paginate(
         path="/v1/courses",
@@ -280,6 +295,7 @@ def _lecture_ids(client: RESTClient, course_id: int) -> list[int]:
     return [
         lecture["id"]
         for section in course.get("lecture_sections") or []
+        if isinstance(section, dict)
         for lecture in section.get("lectures") or []
         if isinstance(lecture, dict) and isinstance(lecture.get("id"), int)
     ]
@@ -293,25 +309,26 @@ def _quiz_ids(client: RESTClient, course_id: int, lecture_id: int) -> list[int]:
     return [quiz_id for quiz_id in _required(body, "quiz_ids", path) or [] if isinstance(quiz_id, int)]
 
 
-def _iter_lecture_keys(client: RESTClient, safe_point: SafePoint) -> Iterator[tuple[int, int]]:
+def _iter_lecture_keys(client: RESTClient, safe_point: SafePoint) -> Iterator[LectureKey]:
     for course_id in _iter_course_ids(client, safe_point):
         lecture_ids = _lecture_ids(client, course_id)
         safe_point()
         for lecture_id in lecture_ids:
-            yield course_id, lecture_id
+            yield LectureKey(course_id=course_id, lecture_id=lecture_id)
 
 
-def _iter_quiz_keys(client: RESTClient, safe_point: SafePoint) -> Iterator[tuple[int, int, int]]:
-    for course_id, lecture_id in _iter_lecture_keys(client, safe_point):
-        quiz_ids = _quiz_ids(client, course_id, lecture_id)
+def _iter_quiz_keys(client: RESTClient, safe_point: SafePoint) -> Iterator[QuizKey]:
+    for lecture in _iter_lecture_keys(client, safe_point):
+        quiz_ids = _quiz_ids(client, lecture.course_id, lecture.lecture_id)
         safe_point()
         for quiz_id in quiz_ids:
-            yield course_id, lecture_id, quiz_id
+            yield QuizKey(course_id=lecture.course_id, lecture_id=lecture.lecture_id, quiz_id=quiz_id)
 
 
 def _lecture_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
-    for course_id, lecture_id in _iter_lecture_keys(client, safe_point):
-        path = f"/v1/courses/{course_id}/lectures/{lecture_id}"
+    for key in _iter_lecture_keys(client, safe_point):
+        course_id = key.course_id
+        path = f"/v1/courses/{course_id}/lectures/{key.lecture_id}"
         body = _get_object(client, path)
         if body is None:
             safe_point()
@@ -320,7 +337,8 @@ def _lecture_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
 
 
 def _quiz_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
-    for course_id, lecture_id, quiz_id in _iter_quiz_keys(client, safe_point):
+    for key in _iter_quiz_keys(client, safe_point):
+        course_id, lecture_id, quiz_id = key.course_id, key.lecture_id, key.quiz_id
         quiz = _get_object(client, f"/v1/courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}")
         if quiz is None:
             safe_point()
@@ -329,7 +347,8 @@ def _quiz_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
 
 
 def _quiz_response_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
-    for course_id, lecture_id, quiz_id in _iter_quiz_keys(client, safe_point):
+    for key in _iter_quiz_keys(client, safe_point):
+        course_id, lecture_id, quiz_id = key.course_id, key.lecture_id, key.quiz_id
         path = f"/v1/courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses"
         body = _get_object(client, path)
         responses = _required(body, "responses", path) if body is not None else None
@@ -382,6 +401,7 @@ def _course_progress(
 
 def _course_progress_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
     for course_id in _iter_course_ids(client, safe_point):
+        seen_user_ids: set[int] = set()
         for enrollments in client.paginate(
             path=f"/v1/courses/{course_id}/enrollments",
             params={"per": DEFAULT_PAGE_SIZE, "sort_direction": "asc"},
@@ -397,6 +417,9 @@ def _course_progress_rows(client: RESTClient, safe_point: SafePoint) -> NestedRo
                 if isinstance(enrollment, dict) and isinstance(enrollment.get("user_id"), int)
             ]
             for user_id in user_ids:
+                if user_id in seen_user_ids:
+                    continue
+                seen_user_ids.add(user_id)
                 progress = _course_progress(client, course_id, user_id, safe_point)
                 if progress is None:
                     safe_point()
@@ -419,10 +442,12 @@ def _make_source_response(
     endpoint_config: TeachableEndpointConfig,
     items_fn: Callable[[], Iterable[Any]],
     sort_mode: SortMode = "asc",
+    supports_resume: bool = True,
 ) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
         items=items_fn,
+        supports_resume=supports_resume,
         primary_keys=endpoint_config.primary_key,
         sort_mode=sort_mode,
         partition_count=1,
@@ -451,7 +476,7 @@ def teachable_source(
         safe_point: SafePoint = (
             resumable_source_manager.safe_point if resumable_source_manager is not None else lambda: None
         )
-        return _make_source_response(endpoint_config, lambda: nested_rows(client, safe_point))
+        return _make_source_response(endpoint_config, lambda: nested_rows(client, safe_point), supports_resume=False)
 
     if endpoint_config.fanout:
         # Dependent resources don't currently support resume in the rest_source framework;
