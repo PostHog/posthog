@@ -12,6 +12,8 @@ import { CITimelineBar, CI_TIMELINE_STATUS_FILL } from './CITimelineBar'
 export const CI_TIMELINE_COLUMNS = 'grid-cols-[minmax(16rem,38%)_1fr]'
 /** Insets of the time scale inside the track; the right one leaves room for the last bar's duration label. */
 export const CI_TIMELINE_SCALE = 'absolute inset-y-0 left-2 right-14'
+/** Every row and the header are `h-7`, so the virtualized list never measures one. */
+export const CI_TIMELINE_ROW_HEIGHT_PX = 28
 
 const GUIDE_LINE = 'before:absolute before:left-[7px] before:top-0 before:border-l before:border-primary'
 const GUIDE_BRANCH = 'after:absolute after:left-[7px] after:right-0 after:top-1/2 after:border-t after:border-primary'

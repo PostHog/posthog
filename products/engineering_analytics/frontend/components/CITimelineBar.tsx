@@ -5,6 +5,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { TimelineNode, TimelineStatus, timelineDuration } from '../lib/ciTimeline'
 import { TimeAxis } from '../lib/pullRequestTimeline'
+import { formatCost } from './runTables'
 
 export const CI_TIMELINE_STATUS_FILL: Record<TimelineStatus, string> = {
     success: 'bg-success',
@@ -40,7 +41,7 @@ export function CITimelineBar({ node, axis }: { node: TimelineNode; axis: TimeAx
     return (
         <>
             <Tooltip
-                title={`${node.name}: ${node.status === 'running' ? 'running for' : 'ran'} ${duration}, starting ${offset} in${node.runner ? ` on ${node.runner}` : ''}`}
+                title={`${node.name}: ${node.status === 'running' ? 'running for' : 'ran'} ${duration}, starting ${offset} in${node.runner ? ` on ${node.runner}` : ''}${node.costUsd != null ? `, est. ${formatCost(node.costUsd)}` : ''}`}
             >
                 <span
                     className={cn(

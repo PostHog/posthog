@@ -65,22 +65,34 @@ describe('ciTimeline', () => {
     )
 
     test.each([
-        ['still running', '2026-06-09T23:50:00Z', NOW_MS, 'running'],
-        ['silent for over a day', '2026-06-01T00:00:00Z', null, 'neutral'],
-    ])('ends an unfinished run that is %s at the right time', (_, startedAt, expectedEndMs, expectedStatus) => {
-        const timeline = buildPushTimeline(
-            REPO,
-            [
-                { id: 'lint', run: run('Lint', '2026-06-09T23:50:00Z', '2026-06-09T23:55:00Z'), jobs: [] },
-                { id: 'stuck', run: run('Stuck', startedAt, null), jobs: [] },
-            ],
-            NOW_MS
-        )
+        ['still running', '2026-06-09T23:50:00Z', null, [], NOW_MS, 'running'],
+        ['silent for over a day', '2026-06-01T00:00:00Z', null, [], null, 'neutral'],
+        ['days long but updated recently', '2026-06-01T00:00:00Z', '2026-06-09T23:00:00Z', [], NOW_MS, 'running'],
+        [
+            'silent for over a day after a job finished',
+            '2026-06-01T00:00:00Z',
+            '2026-06-01T00:10:00Z',
+            [job(1, 'Build', '2026-06-01T00:01:00Z', '2026-06-01T00:10:00Z')],
+            null,
+            'neutral',
+        ],
+    ])(
+        'ends an unfinished run that is %s at the right time',
+        (_, startedAt, updatedAt, jobs, expectedEndMs, expectedStatus) => {
+            const timeline = buildPushTimeline(
+                REPO,
+                [
+                    { id: 'lint', run: run('Lint', '2026-06-09T23:50:00Z', '2026-06-09T23:55:00Z'), jobs: [] },
+                    { id: 'stuck', run: { ...run('Stuck', startedAt, null), updatedAt }, jobs },
+                ],
+                NOW_MS
+            )
 
-        expect(timeline.nodes.find((node) => node.name === 'Stuck')).toMatchObject({
-            endMs: expectedEndMs,
-            status: expectedStatus,
-        })
-        expect(timeline.endMs).toEqual(expectedEndMs ?? Date.parse('2026-06-09T23:55:00Z'))
-    })
+            expect(timeline.nodes.find((node) => node.name === 'Stuck')).toMatchObject({
+                endMs: expectedEndMs,
+                status: expectedStatus,
+            })
+            expect(timeline.endMs).toEqual(expectedEndMs ?? Date.parse('2026-06-09T23:55:00Z'))
+        }
+    )
 })

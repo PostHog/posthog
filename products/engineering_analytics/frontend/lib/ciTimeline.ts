@@ -14,6 +14,8 @@ export interface TimelineNode {
     name: string
     /** A job's runner label. null on every other kind. */
     runner: string | null
+    /** A job's estimated cost in USD. null when the runner tier is unknown or the job hasn't finished. */
+    costUsd?: number | null
     /** The workflow's run page, or the GitHub log page of a job or step. */
     url?: string
     /** null when it never started, as for a skipped job. */
@@ -44,7 +46,7 @@ function toMs(at: string | null): number | null {
     return at ? Date.parse(at) : null
 }
 
-// The webhook sync can miss a run's final event, so an item still unfinished a day after it started stopped reporting.
+// The webhook sync can miss a run's final event, so an unfinished item with no update for a day stopped reporting.
 const STOPPED_REPORTING_MS = 24 * 60 * 60 * 1000
 
 type Timing = Pick<TimelineNode, 'startMs' | 'endMs' | 'status'>
@@ -54,8 +56,17 @@ export interface TimelineRepo {
     name: string
 }
 
-/** An unfinished item ends at `nowMs`. One that stopped reporting gets no end and no outcome. */
-function timing(startedAt: string | null, finishedAt: string | null, conclusion: string | null, nowMs: number): Timing {
+/**
+ * An unfinished item ends at `nowMs`. One that stopped reporting gets no end and no outcome.
+ * Jobs and steps carry no update time, so their start stands in for it.
+ */
+function timing(
+    startedAt: string | null,
+    finishedAt: string | null,
+    conclusion: string | null,
+    nowMs: number,
+    updatedAt: string | null = null
+): Timing {
     const startMs = toMs(startedAt)
     const status = timelineStatus(conclusion)
     if (startMs == null) {
@@ -65,7 +76,7 @@ function timing(startedAt: string | null, finishedAt: string | null, conclusion:
     if (endMs != null) {
         return { startMs, endMs, status }
     }
-    return nowMs - startMs < STOPPED_REPORTING_MS
+    return nowMs - (toMs(updatedAt) ?? startMs) < STOPPED_REPORTING_MS
         ? { startMs, endMs: nowMs, status }
         : { startMs, endMs: null, status: 'neutral' }
 }
@@ -110,6 +121,7 @@ function jobNode(job: WorkflowJobApi, repo: TimelineRepo, nowMs: number): Timeli
         kind: 'job',
         name: job.name,
         runner: job.runner_label || null,
+        costUsd: job.estimated_cost_usd,
         url: logUrl(),
         ...timing(job.started_at, job.completed_at, job.conclusion, nowMs),
         children: job.steps.map(
@@ -148,9 +160,17 @@ function jobNodes(jobs: WorkflowJobApi[], repo: TimelineRepo, nowMs: number): Ti
         .sort(byStart)
 }
 
+function flatten(nodes: TimelineNode[]): TimelineNode[] {
+    return nodes.flatMap((node) => [node, ...flatten(node.children)])
+}
+
+/**
+ * The end spans every descendant, since a child outlasts a parent whose finish the sync missed.
+ * The start doesn't: a re-run lists jobs from an earlier attempt, and those started long before it.
+ */
 function withBounds(nodes: TimelineNode[], anchorMs: number | null, nowMs: number): TimelineData {
     const startMs = minOf([anchorMs, ...nodes.map((n) => n.startMs)]) ?? nowMs
-    const endMs = maxOf(nodes.map((n) => n.endMs)) ?? startMs
+    const endMs = maxOf(flatten(nodes).map((n) => n.endMs)) ?? startMs
     return { startMs, endMs: Math.max(endMs, startMs + 1000), nodes }
 }
 
@@ -171,15 +191,20 @@ export function buildPushTimeline(
     const nodes = runs
         .map(({ id, run, jobs, url }): TimelineNode => {
             const children = jobNodes(jobs, repo, nowMs)
-            const own = timing(run.startedAt, run.finishedAt, run.conclusion, nowMs)
+            const own = timing(run.startedAt, run.finishedAt, run.conclusion, nowMs, run.updatedAt)
+            // Only a run with no start of its own spans its jobs, so one that stopped reporting keeps its missing end.
+            const span =
+                own.startMs == null
+                    ? { startMs: minOf(children.map((c) => c.startMs)), endMs: maxOf(children.map((c) => c.endMs)) }
+                    : own
             return {
                 id: `workflow-${id}`,
                 kind: 'workflow',
                 name: run.workflow,
                 runner: null,
                 url,
-                startMs: own.startMs ?? minOf(children.map((c) => c.startMs)),
-                endMs: own.endMs ?? maxOf(children.map((c) => c.endMs)),
+                startMs: span.startMs,
+                endMs: span.endMs,
                 status: own.status,
                 children,
             }
