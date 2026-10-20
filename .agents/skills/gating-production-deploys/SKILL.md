@@ -79,9 +79,11 @@ owns manifest loading and projection. The foundation supports the common
 alias and policy helpers. Channels must stay empty; selective worker publication
 is not implemented. Services built elsewhere retain their existing publisher family.
 
-The publisher validates source policy and approved publication destinations.
+The source action validates policy and the configured build input offline.
+IAM authorizes origin writes; ECR handles replication.
 For new-service onboarding or an existing-service migration, hand the consumer's
 source identity, policy and destination coordinates to the Charts migration
-helper. The helper checks owner, lane, image group, repositories, regional
-replicas and inherited Git filters against the resolved Charts consumer.
+helper. Charts checks resolved regional repositories against source policy and
+provisioned infrastructure, together with owner, lane, image group and inherited
+Git filters. Kargo checks regional tag, revision and digest agreement.
 Obtain that check before treating the consumer setup as ready.

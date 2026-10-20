@@ -4,7 +4,7 @@ Use this reference when reusing the common ordered alias helper or the shared-im
 
 ## Current capability
 
-The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, approved publication bindings, the interval adapter and fingerprint APIs. Channels must stay empty; selective worker publication is not implemented. A manifest entry does not create a publisher.
+The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, source publication bindings, the interval adapter and fingerprint APIs. Channels must stay empty; selective worker publication is not implemented. A manifest entry does not create a publisher.
 
 ## Common ordered alias
 
@@ -29,7 +29,7 @@ Only `present-at-expected-digest` establishes publication. `absent`, `integrity-
 
 Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` identity. History and policy evaluation use the actual workflow checkout and built SHA. Fetch from that checkout's configured origin, never from an endpoint derived from the canonical annotation. Missing executing history is an explicit failure, not unrelated input. Images built in their own repositories retain their existing publisher family.
 
-## Canonical policy and approved bindings
+## Canonical policy and origin bindings
 
 Move each reused filter into `.github/shared-image-releases.yaml` once. The legacy action's `shared-image-policy` input calls `loadPolicy(text)` and `projectLegacyFilters(policy, inlineYaml)`. Preserve legacy endpoint comparisons, output names, ordering and compound dispatch conditions, including Python dependency analysis and coverage-added checks.
 
@@ -37,11 +37,11 @@ Keep a `dataWarehouse: null` reference at that rule's original inline position. 
 
 Version 1 has `version`, `filters` and `images`; images contain `channels`. Each channel has `repository`, `filter` and optional `bootstrapPolicyDigest`. `loadPolicy` validates the closed shape, references, positive patterns and nonempty channel status qualifiers limited to `added`, `modified` and `deleted`. The vendored matcher owns extglob/negation semantics; legacy-only veto and status rules retain prior behavior. Structural validation does not authorize publication.
 
-`bindChannels(policy, approved)` validates a caller-supplied approved map. The caller builds that map from existing workflow and infrastructure configuration, never from the manifest. It returns approved destination bindings keyed by image and channel, including owner, repository, registry and replicas. Reuse those resolved bindings instead of selecting destinations again. Manifest entries cannot authorize destinations or redirect credentials; source/destination equality and regional collisions fail.
+`bindChannels(policy, sourceRepository)` validates the configured build input, rejects duplicate origin repositories and rejects a destination equal to the common source. The canonical loader validates repository paths against the supported ECR grammar. The resolved map is keyed by image and channel, with `{repository}` values. There is no destinations map, publisher owner label or replica list. IAM authorizes writes to provisioned repositories; the publisher does not create them.
 
-Run `.github/actions/shared-image-releases` with `shared-image-operation: inspect`. Supply `shared-image-repository`, `shared-image-registry` and `shared-image-destination-registry` from approved workflow configuration, and `shared-image-destinations` as the infrastructure-approved JSON array. `shared-image-policy` defaults to `.github/shared-image-releases.yaml`; `working-directory` selects the executing checkout. Inspect validates and resolves the bindings before emitting the `channels` presence flag and the `publication-results` JSON binding map. It performs no publication. The action imports the loader and matcher from paths-filter by relative source path; do not copy either module.
+Run `.github/actions/shared-image-releases` with `shared-image-operation: inspect` and `shared-image-repository` from workflow configuration. `shared-image-policy` defaults to `.github/shared-image-releases.yaml`; `working-directory` selects the executing checkout. Inspection runs offline and emits `channels` and the repository-only `bindings` map. It needs no registry hostname or destinations input. Empty channels require no authentication or registry calls. The action imports the loader and matcher from paths-filter by relative source path; do not copy either module.
 
-The publisher validates the source policy and approved publication destinations. The Charts migration helper owns consumer binding for new-service onboarding and existing-service migration. Hand source identity, policy and destination coordinates to Charts. The helper checks owner, lane, image group, repositories, regional replicas and inherited Git filters against the resolved Charts consumer. Obtain that check before treating the consumer setup as ready.
+The source action validates policy offline. IAM authorizes origin writes and ECR handles replication; an origin receipt cannot establish regional readiness. The Charts migration helper owns consumer binding for new-service onboarding and existing-service migration. Hand source identity, policy and destination coordinates to Charts. Charts checks resolved regional repositories against source policy and provisioned infrastructure, together with owner, lane, image group and inherited Git filters. Kargo checks regional tag, revision and digest agreement. Obtain that check before treating the consumer setup as ready.
 
 Temporal worker release repositories use descriptive provisioned paths under `posthog-temporal-workers/`, such as `posthog-temporal-workers/data-warehouse-metadata`; `posthog-temporal-workers/batch-exports-sync` is the reserved sibling example. Preserve domain words and omit redundant `temporal-worker-` prefixes. Other workload classes choose their own namespace; the publisher does not infer workload identity from that prefix. Preserve bare tags, full revision/digest identity and source annotations. Changing repositories changes workload image strings and causes a rollout even at an equal digest.
 

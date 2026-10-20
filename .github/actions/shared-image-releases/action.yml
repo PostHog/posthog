@@ -1,5 +1,5 @@
 name: Shared image releases
-description: Inspect source policy and approved shared-image publication bindings
+description: Inspect source policy and shared-image publication repositories
 inputs:
     working-directory:
         description: Relative path to the executing repository checkout
@@ -15,20 +15,10 @@ inputs:
     shared-image-repository:
         description: Common build repository from workflow configuration
         required: true
-    shared-image-registry:
-        description: Approved common image registry from workflow configuration
-        required: true
-    shared-image-destination-registry:
-        description: Approved destination registry from workflow configuration
-        required: true
-    shared-image-destinations:
-        description: Infrastructure-approved JSON array of owner, repository, registry and replicas
-        required: false
-        default: '[]'
 outputs:
     channels:
         description: Whether the policy has configured publication channels
-    publication-results:
+    bindings:
         description: JSON resolved publication bindings keyed by image and channel for inspect
 runs:
     using: node24

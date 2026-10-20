@@ -2,7 +2,7 @@
     "name": "shared-image-releases",
     "version": "1.0.0",
     "private": true,
-    "description": "Inspect source-owned shared-image release policy and approved publication bindings.",
+    "description": "Inspect source-owned shared-image release policy and publication repositories.",
     "keywords": [
         "github-actions",
         "release-policy",
