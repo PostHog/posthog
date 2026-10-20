@@ -1652,10 +1652,6 @@ class BatchConsumer:
             # The failure path reads and writes on the group connection, which the heartbeat shares.
             await self._stop_heartbeat(heartbeat_task)
             heartbeat_task = None
-            # After a drop, the failure writes must use the connection the heartbeat swapped in.
-            lock_conn = self._current_lock_conn(batch, lock_conn)
-            if lock_conn is not None:
-                status_conn = lock_conn
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
@@ -1676,6 +1672,10 @@ class BatchConsumer:
         status_conn: psycopg.AsyncConnection[Any],
     ) -> None:
         """Write the retry/terminal state after a processing error."""
+        # After a drop, the failure writes must use the connection the heartbeat swapped in.
+        lock_conn = self._current_lock_conn(batch, lock_conn)
+        if lock_conn is not None:
+            status_conn = lock_conn
         if not self._adapter.is_retryable_error(err):
             # Deterministic failures do not benefit from retrying. Preserve their
             # messages, except for explicitly classified permanent apply errors.
