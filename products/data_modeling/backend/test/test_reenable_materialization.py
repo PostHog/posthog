@@ -88,3 +88,21 @@ class TestReenableMaterialization(BaseTest):
         assert deleted.is_materialized is False
         assert nodeless.is_materialized is False
         assert expected_summary in out.getvalue()
+
+    @parameterized.expand([("ctrl_c", KeyboardInterrupt), ("exit", SystemExit)])
+    def test_interrupted_apply_leaves_the_query_off_for_the_next_run(
+        self, _name: str, interruption: type[BaseException]
+    ):
+        switched_off = self._saved_query("switched_off")
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=no_existing_schedules())),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=interruption)),
+            self.assertRaises(interruption),
+        ):
+            call_command(
+                "reenable_materialization", saved_query_ids=str(switched_off.id), apply=True, stdout=StringIO()
+            )
+
+        switched_off.refresh_from_db()
+        assert switched_off.is_materialized is False
