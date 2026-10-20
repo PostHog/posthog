@@ -194,10 +194,10 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Hand-written API types.** `src/api/today.ts` and `src/api/reports.ts` declare only the fields the adapters read, each naming its serializer. Adapters in `src/model/adapters/` do all mapping, so a response change touches one adapter.
 - **Model boundary.** `src/model/adapters/` imports API types (type-only) from `src/api`, date formatting from `src/lib/dates` and the record guards from `src/lib/records`. The rest of `src/model` still imports only `src/ui/icons`.
 - **The hand-off prompt is not built by the adapter.** `reportView()` returns the view without `prompt`, because the prompt text lives in `features/handoff/prompt.ts` and adapters import nothing from features. `useReport` adds it from the report's `webUrl`.
-- **The inbox is the whole ranked list, not the briefing.** It pages through `signals/reports/for_you/`, which ranks reports the way the Today briefing does, so the order matches the web while the list holds every report for the user, not the briefing's top five.
+- **The inbox lists every report for the user.** It pages through `signals/reports/?view=for_you&sort=priority`, which orders reports the way the Today briefing does, while the list holds every report for the user beyond the briefing's top five.
   It needs no Today: the list is a signals endpoint, so a Today outage or a token without `today:read` does not change it.
-- **Only the user's reports.** The list passes `include_unowned=false`, so a P0 that nobody owns does not lead it. That report belongs to the project.
-- **Pages of 20**, the most `for_you/` returns in one call. The next page loads when the user scrolls within half a screen of the end.
+- **Only the user's reports.** The `for_you` view excludes unowned P0 reports. That report belongs to the project.
+- **Pages of 20.** The next page loads when the user scrolls within half a screen of the end.
 - **A refresh keeps only the first page.** Refetching every loaded page would rank the whole list once per page.
 - **Prev/Next wrap only over the whole list.** While more pages exist, Next on the last loaded report waits for the next page instead of going back to the top.
 - **Report screen waits** for the report, work log and Today page, and for signals only when there is no page. The task loads after and fills in; ownership from a claim does not prove that execution is running.

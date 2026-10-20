@@ -1,6 +1,9 @@
 import type { ReportPriority } from '@/model/types'
 import { type DismissReason, type ResolveReason, VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
-import type { PullRequestChecksResponseApi } from '../../../signals/frontend/generated/api.schemas'
+import type {
+    PullRequestChecksResponseApi,
+    SignalsReportsListParams,
+} from '../../../signals/frontend/generated/api.schemas'
 
 import { ApiError, apiJson, apiUrl, projectPath } from './client'
 
@@ -175,21 +178,17 @@ export const reportKeys = {
         [...reportKeys.all(scope), 'available_reviewers', query] as const,
 }
 
-/** `SignalReportsForYouResponseSerializer`. A server from before `for_you/` paged sends no `next`. */
 export interface InboxPageApi {
     results: SignalReportApi[]
     count: number
     next?: string | null
 }
 
-/** The most reports `for_you/` returns in one call (`MAX_FOR_YOU_REPORTS`). */
 export const INBOX_PAGE_SIZE = 20
 
-/** One page of the reports for the user, in the order the Today briefing ranks them. */
 export function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
-    // Without `include_unowned=false` the P0 reports nobody owns would lead the list, and they belong to the project.
-    return apiJson<InboxPageApi>(projectPath('signals/reports/for_you/'), {
-        query: { include_unowned: false, limit: INBOX_PAGE_SIZE, offset },
+    return apiJson<InboxPageApi>(projectPath('signals/reports/'), {
+        query: { view: 'for_you', sort: 'priority', limit: INBOX_PAGE_SIZE, offset } satisfies SignalsReportsListParams,
         signal,
     })
 }

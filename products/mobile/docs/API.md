@@ -16,7 +16,7 @@ file for typechecking, and its type-only import adds nothing to the native bundl
 | --- | --- | --- | --- |
 | Account | `src/api/users.ts` | `GET /api/users/@me/`, `GET /api/organizations/{id}/` | [AUTH.md](AUTH.md) |
 | OAuth | `src/auth/oauth.ts` | `/oauth/authorize`, `/oauth/token`, `/oauth/revoke` | PKCE public client |
-| Inbox and reports | `src/api/reports.ts` | `signals/reports/for_you/`, `.../{id}/`, `.../signals/`, `.../artefacts/`, `read_state/`, `.../state/`, `.../reviewers/`, `available_reviewers/` | [DATA.md](DATA.md) |
+| Inbox and reports | `src/api/reports.ts` | `signals/reports/?view=for_you&sort=priority`, `.../{id}/`, `.../signals/`, `.../artefacts/`, `read_state/`, `.../state/`, `.../reviewers/`, `available_reviewers/` | [DATA.md](DATA.md) |
 | Today | `src/api/today.ts` | `today/reports/{id}/page/` | 403 or 404 means the project lacks Today; the report screen shows signals instead |
 | Tasks | `src/api/tasks.ts` | `tasks/`, `tasks/{id}/` (`PATCH { archived }` archives a chat), `tasks/{id}/run/` (a chat's resume adds `resume_from_run_id` and `pending_user_message`; `pending_user_artifact_ids` carries staged files), `.../runs/{runId}/`, `.../logs/`, `.../stream/`, `.../command/` (`user_message`, with `artifact_ids` for files; `set_config_option`, `permission_response`, `cancel`) | [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md) |
 | Chat attachments | `src/api/tasks.ts`, `src/features/chat/attachments/uploadAttachments.ts` | `tasks/{id}/staged_artifacts/prepare_upload/`, `tasks/{id}/staged_artifacts/finalize_upload/`, `.../runs/{runId}/artifacts/prepare_upload/`, `.../runs/{runId}/artifacts/finalize_upload/`, all `task:write`; then a presigned S3 `POST` with no PostHog auth | [CHAT.md](CHAT.md#attachments) |

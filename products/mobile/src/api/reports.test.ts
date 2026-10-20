@@ -28,15 +28,16 @@ describe('reports api', () => {
         setAuthProvider(null)
     })
 
-    test('the inbox asks for the next page of only the reports for the user', async () => {
-        await fetchInboxPage(INBOX_PAGE_SIZE)
+    test.each([0, INBOX_PAGE_SIZE])('the inbox asks for personal reports at offset %i', async (offset) => {
+        await fetchInboxPage(offset)
 
         const url = new URL(urls[0] ?? '')
-        expect(url.pathname).toBe('/api/projects/2/signals/reports/for_you/')
+        expect(url.pathname).toBe('/api/projects/2/signals/reports/')
         expect(Object.fromEntries(url.searchParams)).toEqual({
-            include_unowned: 'false',
+            view: 'for_you',
+            sort: 'priority',
             limit: String(INBOX_PAGE_SIZE),
-            offset: String(INBOX_PAGE_SIZE),
+            offset: String(offset),
         })
     })
 

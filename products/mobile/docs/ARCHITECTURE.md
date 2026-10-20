@@ -101,7 +101,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 
 | Need | Source | Fallback |
 | --- | --- | --- |
-| Inbox rows | `GET signals/reports/for_you/?include_unowned=false&limit=20&offset=` one page at a time | A server without `next` shows the first page only |
+| Inbox rows | `GET signals/reports/?view=for_you&sort=priority&limit=20&offset=` one page at a time | Loads more while the response has a `next` link |
 | Report page | `GET signals/reports/{id}/`, `/signals/`, `/artefacts/`, `GET today/reports/{id}/page/` | Signals only when the Today page is unavailable |
 | Selected PR checks | `GET signals/reports/{id}/pr_checks/?pull_request_id={canonicalPrId}` | No id or failed/missing checks stay unavailable; focused foreground polling at 30 seconds |
 | Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Bounded reconnects and focused foreground task polling, including later resumes |
