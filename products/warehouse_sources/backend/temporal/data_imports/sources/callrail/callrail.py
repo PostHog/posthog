@@ -132,12 +132,27 @@ def _retention_start(today: date) -> date:
     return date(month_index // 12, month_index % 12 + 1, 1)
 
 
-def _month_windows(start: date, today: date) -> Iterator[tuple[date, date]]:
-    """Yield (first day, last day) of each calendar month from `start` up to and including today."""
+def _reporting_today() -> date:
+    """Today's date in the earliest timezone on Earth (UTC-12).
+
+    Reports use the account's timezone, so UTC's date can be a day ahead of the account's. Asking
+    for that day returns a zero-filled row that would move the watermark past a still-partial month.
+    """
+    return (datetime.now(UTC) - timedelta(hours=12)).date()
+
+
+@dataclasses.dataclass(frozen=True)
+class _MonthWindow:
+    first_day: date
+    last_day: date
+
+
+def _month_windows(start: date, today: date) -> Iterator[_MonthWindow]:
+    """Yield each calendar month from `start` up to and including today, clipped at today."""
     window_start = start.replace(day=1)
     while window_start <= today:
         next_start = (window_start + timedelta(days=32)).replace(day=1)
-        yield window_start, min(next_start - timedelta(days=1), today)
+        yield _MonthWindow(first_day=window_start, last_day=min(next_start - timedelta(days=1), today))
         window_start = next_start
 
 
@@ -253,7 +268,7 @@ def _report_rows(
     partial when it is read. The merge replaces its rows on the primary key.
     """
     config = CALLRAIL_ENDPOINTS[endpoint]
-    today = datetime.now(UTC).date()
+    today = _reporting_today()
     start = _retention_start(today)
     if resume_window_start is not None:
         start = max(start, date.fromisoformat(resume_window_start))
@@ -262,7 +277,8 @@ def _report_rows(
         if watermark is not None:
             start = max(start, watermark.replace(day=1))
 
-    for window_start, window_end in _month_windows(start, today):
+    for window in _month_windows(start, today):
+        window_start, window_end = window.first_day, window.last_day
         rest_config: RESTAPIConfig = {
             "client": _client_config(api_key),
             "resources": [

@@ -365,6 +365,19 @@ class TestReportEndpoints:
         assert result.params("interval")[0] == "day"
         assert result.params("page")[0] is None
 
+    def test_window_never_reaches_past_the_date_in_the_earliest_timezone(self) -> None:
+        # 00:30 UTC on March 1 is still February 28 for an account in Los Angeles.
+        with time_machine.travel(datetime(2026, 3, 1, 0, 30, tzinfo=UTC), tick=False):
+            result = _driver().run(
+                "calls_timeseries",
+                always(_timeseries(["2026-02-28"])),
+                resume_state=CallRailResumeConfig(account_id="ACC", window_start="2026-02-01"),
+            )
+
+        assert result.raised is None
+        assert result.params("start_date") == ["2026-02-01"]
+        assert result.params("end_date") == ["2026-02-28"]
+
     @pytest.mark.parametrize(
         "endpoint, path",
         [
