@@ -44,17 +44,20 @@ function pointerPosition(event: Event): { clientX: number; clientY: number } | u
     return Number.isFinite(clientX) && Number.isFinite(clientY) ? { clientX, clientY } : undefined
 }
 
-/** The band of `dashboardRoot` under the pointer, or undefined when the event has no pointer position. */
+/**
+ * The band of `dashboardRoot` under the pointer, or null when the pointer has left that dashboard.
+ * Undefined means the caller keeps the last band: the event has no pointer position, or the pointer is in a gap between bands.
+ */
 function sectionKeyUnderPointer(event: Event, dashboardRoot: Element | null): string | null | undefined {
     const position = pointerPosition(event)
     if (!position) {
         return undefined
     }
     const { clientX, clientY } = position
-    for (const element of document.elementsFromPoint(clientX, clientY)) {
-        if (element.closest('.react-draggable-dragging')) {
-            continue
-        }
+    const elements = document
+        .elementsFromPoint(clientX, clientY)
+        .filter((element) => !element.closest('.react-draggable-dragging'))
+    for (const element of elements) {
         const section = element.closest('[data-dashboard-section]')
         if (section) {
             // A page can show several dashboards, and their bands share keys like `tiles-start`.
@@ -63,7 +66,8 @@ function sectionKeyUnderPointer(event: Event, dashboardRoot: Element | null): st
                 : null
         }
     }
-    return null
+    // Nobody aims at the gap between bands, so a drop there keeps the move the drag showed.
+    return dashboardRoot && elements.some((element) => dashboardRoot.contains(element)) ? undefined : null
 }
 
 /** Lets a dragged tile leave its band: it tracks the band under the pointer and moves the tile there on drop. */
@@ -76,7 +80,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
     const [frozenSourceGrid, setFrozenSourceGrid] = useState<{ key: string; height: number } | null>(null)
     const dropTargetRef = useRef<string | null>(null)
     const sourceKeyRef = useRef<string | null>(null)
-    // The band under the pointer, the source band included, or null when the pointer is over no band.
+    // The last band under the pointer, the source band included, or null when the pointer left the dashboard.
     const keyUnderPointerRef = useRef<string | null>(null)
     const dashboardRootRef = useRef<Element | null>(null)
     const layoutAtStartRef = useRef<Layout>([])

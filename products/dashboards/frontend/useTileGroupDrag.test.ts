@@ -68,8 +68,21 @@ describe('useTileGroupDrag', () => {
             restored: false,
         },
         {
-            name: 'between the bands',
+            name: 'between the bands, still over its own band last',
             dropOn: (own: OwnDashboard): Element => own.root,
+            moved: false,
+            restored: false,
+        },
+        {
+            name: 'between the bands, after passing over another band',
+            passOver: (own: OwnDashboard): Element => own.opsBand,
+            dropOn: (own: OwnDashboard): Element => own.root,
+            moved: true,
+            restored: false,
+        },
+        {
+            name: 'outside its dashboard',
+            dropOn: (): Element => document.body,
             moved: false,
             restored: true,
         },
@@ -79,14 +92,14 @@ describe('useTileGroupDrag', () => {
             moved: false,
             restored: true,
         },
-    ])('a tile dropped $name', async ({ dropOn, moved, restored }) => {
+    ])('a tile dropped $name', async ({ passOver, dropOn, moved, restored }) => {
         const sourceBand = band('tiles-start')
         const opsBand = band('group-ops')
         const root = dashboardRoot(sourceBand, opsBand)
         const tileElement = document.createElement('div')
         sourceBand.append(tileElement)
-        const target = dropOn({ root, sourceBand, opsBand })
-        Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [target] })
+        const own = { root, sourceBand, opsBand }
+        const target = dropOn(own)
         const moveTileToGroup = jest.fn()
         const updateLayout = jest.fn()
         const { result } = renderHook(() =>
@@ -106,7 +119,14 @@ describe('useTileGroupDrag', () => {
         )
 
         const draggedItem = box(1, 40)
+        const pointerAt = (element: Element): void =>
+            Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [element] })
         act(() => result.current.startTileDrag(draggedItem, tileElement))
+        if (passOver) {
+            pointerAt(passOver(own))
+            act(() => result.current.trackTileDrag(new MouseEvent('mousemove', { clientX: 10, clientY: 10 })))
+        }
+        pointerAt(target)
         act(() =>
             result.current.finishTileDrag(
                 draggedItem,
