@@ -13,10 +13,7 @@ export interface SourceRecommendationInput {
     source: AgentRosterSource
     connected: boolean
     enabled: boolean
-    /**
-     * The tool was already synced when onboarding finished, so the person saw it in "Choose what to
-     * watch" and left it off. A decision they already made is not a recommendation.
-     */
+    /** An explicit saved rejection should not become a recommendation. */
     declinedInOnboarding?: boolean
 }
 
@@ -71,7 +68,6 @@ export function recommendSources(
             state.enabled ||
             state.declinedInOnboarding ||
             (agent.category && coveredCategories.has(agent.category)) ||
-            recommendations.length >= MAX_SOURCE_RECOMMENDATIONS ||
             recommendations.some((existing) => existing.agent.source === source)
         ) {
             return

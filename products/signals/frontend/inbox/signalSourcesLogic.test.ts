@@ -23,6 +23,7 @@ import {
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
+import type { InboxOnboardingDraftApi, InboxOnboardingStateApi } from '../generated/api.schemas'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
@@ -74,6 +75,15 @@ const githubIssuesConfig = {
     status: null,
 }
 
+const declinedJiraDraft: InboxOnboardingDraftApi = {
+    step: 'github',
+    sources: [{ source_product: 'jira', source_type: 'issue', enabled: false }],
+    scanner_ids: [],
+    suggestions: [],
+    automatic_implementation: false,
+    implementation_priority: 'P1',
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolvePromise!: (value: T) => void
     const promise = new Promise<T>((resolve) => {
@@ -85,11 +95,14 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 describe('signalSourcesLogic', () => {
     let logic: ReturnType<typeof signalSourcesLogic.build>
     let warehouseSources: ExternalDataSource[]
+    let onboardingState: InboxOnboardingStateApi
 
     beforeEach(() => {
         warehouseSources = []
+        onboardingState = { draft: null, completed_at: null, variant: null }
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/onboarding/': () => [200, onboardingState],
                 '/api/environments/:team_id/external_data_sources/': () => [
                     200,
                     { results: warehouseSources, count: warehouseSources.length, next: null, previous: null },
@@ -313,9 +326,11 @@ describe('signalSourcesLogic', () => {
             ['linear', 'default'],
         ])
 
-        // One connected tool retires the defaults and joins the roster. Jira was synced before onboarding
-        // finished, so the person already left it off there; Gitea came later and is still worth a nudge.
-        logic.actions.loadOnboardingStateSuccess({ draft: null, completed_at: '2024-03-10T00:00:00Z', variant: null })
+        logic.actions.loadOnboardingStateSuccess({
+            draft: declinedJiraDraft,
+            completed_at: '2024-03-10T00:00:00Z',
+            variant: 'test-ui',
+        })
         sourcesDataLogic.actions.loadSourcesSuccess({
             results: [
                 { ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' },
@@ -335,18 +350,21 @@ describe('signalSourcesLogic', () => {
             ['github', 'integration'],
         ])
 
+        const connectedSources = (['Gitea', 'Bugsnag', 'Honeybadger', 'Raygun'] as const).map((source_type) => ({
+            ...githubSource,
+            id: source_type,
+            source_type,
+        }))
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: connectedSources, next: null, previous: null })
+        expect(recommended()).toHaveLength(4)
         logic.actions.hideSourceRecommendations()
         expect(recommended()).toEqual([])
         sourcesDataLogic.actions.loadSourcesSuccess({
-            results: [
-                { ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' },
-                { ...githubSource, id: 'source-gitea', source_type: 'Gitea', created_at: '2024-03-20T00:00:00Z' },
-                { ...githubSource, id: 'source-bugsnag', source_type: 'Bugsnag', created_at: '2024-03-21T00:00:00Z' },
-            ],
+            results: [...connectedSources, { ...githubSource, id: 'rollbar', source_type: 'Rollbar' }],
             next: null,
             previous: null,
         })
-        expect(recommended()).toEqual([['bugsnag', 'synced']])
+        expect(recommended()).toEqual([['rollbar', 'synced']])
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true })
         expect(logic.values.sourceCategoryOptions).toContainEqual({ label: 'Engineering', value: 'Engineering' })
@@ -366,6 +384,55 @@ describe('signalSourcesLogic', () => {
         logic.actions.closeSourceCatalog()
         expect(logic.values.sourceCatalog.length).toBeGreaterThan(1)
         expect(logic.values.rosterGroups.find((group) => group.id === 'posthog')?.agents.length).toBeGreaterThan(0)
+    })
+
+    it.each([
+        { name: 'control completion', variant: 'control' as const, draft: null, expected: ['jira'] },
+        {
+            name: 'completion without a source choice',
+            variant: 'test-ui' as const,
+            draft: { ...declinedJiraDraft, sources: [] },
+            expected: ['jira'],
+        },
+        { name: 'an explicit source rejection', variant: 'test-ui' as const, draft: declinedJiraDraft, expected: [] },
+    ])('refreshes recommendations after $name', async (state) => {
+        warehouseSources = [{ ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' }]
+        onboardingState = { variant: state.variant, draft: state.draft, completed_at: null }
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
+        await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
+        expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(['jira'])
+
+        onboardingState = { ...onboardingState, completed_at: '2024-03-10T00:00:00Z' }
+        await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
+        expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(state.expected)
+    })
+
+    it.each(['project', 'user'])('isolates recommendation dismissals by %s across reloads', (scope) => {
+        const originalContext = window.POSTHOG_APP_CONTEXT!
+        logic.actions.hideSourceRecommendations()
+        expect(logic.values.sourceRecommendationsDismissal).toEqual([])
+        logic.unmount()
+
+        const otherTeam =
+            scope === 'project' ? { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 } : MOCK_DEFAULT_TEAM
+        window.POSTHOG_APP_CONTEXT = {
+            ...originalContext,
+            current_user: { ...originalContext.current_user!, uuid: 'another-user' },
+        }
+        if (scope === 'project') {
+            window.POSTHOG_APP_CONTEXT.current_user = originalContext.current_user
+        }
+        initKeaTests(true, otherTeam)
+        logic = signalSourcesLogic()
+        logic.mount()
+        expect(logic.values.sourceRecommendationsDismissal).toBeNull()
+        logic.unmount()
+
+        window.POSTHOG_APP_CONTEXT = originalContext
+        initKeaTests()
+        logic = signalSourcesLogic()
+        logic.mount()
+        expect(logic.values.sourceRecommendationsDismissal).toEqual([])
     })
 
     it('carries the card guidance onto an error tracking signal type turned on later', async () => {

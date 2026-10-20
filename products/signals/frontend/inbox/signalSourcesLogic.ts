@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
@@ -53,7 +54,12 @@ import {
     captureSignalSourceDisabled,
     captureSignalSourceToggleFailed,
 } from './inboxAnalytics'
-import { SourceRecommendation, SourceRecommendationInput, recommendSources } from './sourceRecommendations'
+import {
+    MAX_SOURCE_RECOMMENDATIONS,
+    SourceRecommendation,
+    SourceRecommendationInput,
+    recommendSources,
+} from './sourceRecommendations'
 import { SOURCE_STEERING_KEY, SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for products that back a signal source. */
@@ -973,7 +979,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(() => ({
         scannerInventoryKnown: [false, { setScannerInventoryKnown: (_, { known }) => known }],
         errorTrackingHasIssues: [
             null as boolean | null,
@@ -993,11 +999,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 closeSourcesModal: () => false,
             },
         ],
-        // Per person, in this browser: "already knows about these" is about the person, not the project.
-        // Holds the synced sources on screen when hidden, so a tool synced later can still surface.
+        // Remember existing synced sources so only a new connection can undo a dismissal.
         sourceRecommendationsDismissal: [
             null as string[] | null,
-            { persist: true, storageKey: SOURCE_RECOMMENDATIONS_DISMISSAL_STORAGE_KEY },
+            { ...buildUserScopedPersistenceConfig(), storageKey: SOURCE_RECOMMENDATIONS_DISMISSAL_STORAGE_KEY },
             { setSourceRecommendationsDismissed: (_, { syncedSources }) => syncedSources },
         ],
         sourcesModalOpen: [
@@ -1119,7 +1124,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 },
             },
         ],
-    }),
+    })),
 
     selectors({
         dataSourceSetupOAuthRedirectUrl: [
@@ -1320,19 +1325,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 ) {
                     return []
                 }
-                // Onboarding's "Choose what to watch" lists every tool synced at the time, so one synced
-                // before it finished and still off was declined there.
-                const onboardingCompletedAt = onboardingState?.completed_at
-                    ? Date.parse(onboardingState.completed_at)
-                    : null
-                const declinedInOnboarding = (source: WarehouseBackedSource): boolean =>
-                    onboardingCompletedAt !== null &&
-                    (dataWarehouseSources?.results ?? []).some(
-                        (warehouseSource) =>
-                            warehouseSource.source_type === WAREHOUSE_SOURCE_SETUP[source].dwSourceType &&
-                            !!warehouseSource.created_at &&
-                            Date.parse(warehouseSource.created_at) < onboardingCompletedAt
-                    )
+                const completedChoices = onboardingState?.completed_at ? (onboardingState.draft?.sources ?? []) : []
+                const declinedInOnboarding = (source: WarehouseBackedSource): boolean => {
+                    const choices = completedChoices.filter((choice) => choice.source_product === source)
+                    return choices.length > 0 && choices.every((choice) => !choice.enabled)
+                }
                 const states: SourceRecommendationInput[] = [
                     {
                         source: 'error_tracking',
@@ -1371,12 +1368,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         visibleSourceRecommendations: [
             (s) => [s.recommendedSources, s.sourceRecommendationsDismissal],
             (recommendations: SourceRecommendation[], dismissal: string[] | null): SourceRecommendation[] =>
-                dismissal === null
+                (dismissal === null
                     ? recommendations
                     : recommendations.filter(
                           (recommendation) =>
                               recommendation.reason === 'synced' && !dismissal.includes(recommendation.agent.source)
-                      ),
+                      )
+                ).slice(0, MAX_SOURCE_RECOMMENDATIONS),
         ],
         githubIssuesConfig: [
             (s) => [s.sourceConfigs],
@@ -1727,7 +1725,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             closeSourceCatalog: forgetResumedSetup,
             openSourceCatalog: () => {
                 captureSignalSourceCatalogOpened({
-                    recommendationCount: values.recommendedSources.length,
+                    recommendationCount: values.visibleSourceRecommendations.length,
                     connectedCount: values.rosterGroups.find((group) => group.id === 'external')?.agents.length ?? 0,
                 })
             },
@@ -1762,7 +1760,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
             },
             loadSourceConfigs: () => {
-                if (values.onboardingState === null && !values.onboardingStateLoading) {
+                if (!values.onboardingStateLoading) {
                     actions.loadOnboardingState()
                 }
             },
