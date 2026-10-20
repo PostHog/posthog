@@ -1,6 +1,7 @@
 import json
 import time
 from datetime import UTC, datetime
+from types import ModuleType
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
@@ -40,6 +41,10 @@ from posthog.models.instance_setting import override_instance_config
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     TtlSchedule,
+)
+from products.web_analytics.backend.hogql_queries import (
+    web_stats_frustration_lazy_precompute,
+    web_stats_paths_lazy_precompute,
 )
 from products.web_analytics.backend.hogql_queries.page_url_search_query_runner import PageUrlSearchQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
@@ -145,6 +150,31 @@ class TestChannelModifiersShapeKey(BaseTest):
         override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
         assert override_key != default_key
 
+    @parameterized.expand(
+        [
+            (web_stats_paths_lazy_precompute, WebStatsBreakdown.PAGE),
+            (web_stats_frustration_lazy_precompute, WebStatsBreakdown.FRUSTRATION_METRICS),
+        ]
+    )
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_native_route_passed_to_the_runner_skips_stats_precompute(
+        self, precompute: ModuleType, breakdown: WebStatsBreakdown
+    ) -> None:
+        query = WebStatsTableQuery(
+            properties=[], breakdownBy=breakdown, dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07")
+        )
+        with (
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+        ):
+            legacy = WebStatsTableQueryRunner(team=self.team, query=query, user=self.user)
+            native = WebStatsTableQueryRunner(
+                team=self.team, query=query, user=self.user, modifiers=HogQLQueryModifiers(useNewEventsCluster=True)
+            )
+            assert precompute.can_use_lazy_precompute(legacy) is True
+            assert precompute.can_use_lazy_precompute(native) is False
+
     @parameterized.expand([("overview", False), ("overview", True), ("url_search", False)])
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_force_blocking_native_web_queries_scan_events_with_precompute_enabled(
@@ -203,13 +233,14 @@ class TestLazyTtlSchedule(BaseTest):
 
 
 class TestCheckCommonEligibility(BaseTest):
-    def _check(self, *, use_precompute, properties=None, modifiers=None) -> None:
+    def _check(self, *, use_precompute, properties=None, modifiers=None, use_new_events_cluster=False) -> None:
         check_common_eligibility(
             team=self.team,
             use_web_analytics_precompute=use_precompute,
             conversion_goal=None,
             sampling=None,
             modifiers=modifiers,
+            use_new_events_cluster=use_new_events_cluster,
             properties=properties or [],
             resolve_date_range=_date_range,
         )
@@ -226,7 +257,7 @@ class TestCheckCommonEligibility(BaseTest):
     def test_native_cluster_opt_in_skips_precompute_for_enrolled_team(self) -> None:
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             with self.assertRaises(PerQueryOptedOut):
-                self._check(use_precompute=True, modifiers=HogQLQueryModifiers(useNewEventsCluster=True))
+                self._check(use_precompute=True, use_new_events_cluster=True)
 
     @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
@@ -1154,6 +1185,7 @@ class TestVolumeFloor(BaseTest):
                     conversion_goal=None,
                     sampling=None,
                     modifiers=runner.modifiers,
+                    use_new_events_cluster=False,
                     properties=[],
                     resolve_date_range=lambda: (None, None),
                 )
@@ -1167,6 +1199,7 @@ class TestVolumeFloor(BaseTest):
                         conversion_goal=None,
                         sampling=None,
                         modifiers=runner.modifiers,
+                        use_new_events_cluster=False,
                         properties=[],
                         resolve_date_range=lambda: (None, None),
                     )

@@ -180,6 +180,7 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
         conversion_goal=query.conversionGoal,
         sampling=query.sampling,
         modifiers=query.modifiers,
+        use_new_events_cluster=bool(runner.modifiers.useNewEventsCluster),
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
         allow_channel_type_filter=channel,
