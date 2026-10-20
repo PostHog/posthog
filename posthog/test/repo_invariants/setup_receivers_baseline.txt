@@ -91,6 +91,7 @@ post_delete:products.ai_observability.backend.models.llm_prompt.invalidate_llm_p
 post_delete:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_label_cache
 post_delete:products.ai_observability.backend.models.provider_keys.provider_key_deleted
 post_delete:products.canvas.backend.search_sync.canvas_deleted
+post_delete:products.cdp.backend.mcp_event_signals.disable_mcp_event_destination
 post_delete:products.cdp.backend.models.hog_functions.hog_function.team_inject_web_apps_changd
 post_delete:products.cdp.backend.models.hook.hook_deleted
 post_delete:products.cdp.backend.models.plugin.plugin_attachement_reload_needed

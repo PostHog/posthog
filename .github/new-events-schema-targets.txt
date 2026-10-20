@@ -74,3 +74,4 @@ products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
 products/web_analytics/backend/test/test_heatmaps_api.py
+products/cdp/backend/api/test/test_mcp_event_delivery.py
