@@ -46,21 +46,20 @@ function routeToEmailVerification(e: unknown): boolean {
     return true
 }
 
-// A discoverable passkey is picked before any email is typed, so an SSO-enforced account only
-// finds out at the complete step. The backend verified the assertion by then and returns the
-// account's email, so prefill it and run the precheck, which swaps the password form for the
-// required SSO button.
+// A discoverable passkey is picked before any email is typed, so an SSO-enforced account is only
+// refused at the complete step. The response carries the account's email: prefill it and run the
+// precheck, which swaps the password form for the required SSO button.
 function showPasskeyLoginError(e: unknown, actions: passkeyLogicType['actions']): void {
     const { code, data } = (e ?? {}) as Record<string, any>
     if (code !== 'sso_enforced') {
         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
         return
     }
-    actions.setGeneralError('sso_enforced', ssoEnforcedMessage(data?.sso_enforcement))
-    const email: unknown = data?.email
-    if (typeof email === 'string' && email) {
-        actions.setLoginValue('email', email)
-        actions.precheck({ email })
+    // The code stays `passkey_error` so login telemetry keeps counting this as a passkey step.
+    actions.setGeneralError('passkey_error', ssoEnforcedMessage(data?.sso_enforcement))
+    if (data?.email) {
+        actions.setLoginValue('email', data.email)
+        actions.precheck({ email: data.email })
     }
 }
 
@@ -80,6 +79,10 @@ export interface passkeyLogicActions {
     resolveSensitiveAction: (outcome: 'failure' | 'success') => {
         outcome: 'failure' | 'success'
     } // apiStatusLogic
+    precheck: (args_0: { autoAttempt?: boolean; email: string }) => {
+        autoAttempt?: boolean
+        email: string
+    } // loginLogic
     setGeneralError: (
         code: string,
         detail: string
@@ -93,10 +96,6 @@ export interface passkeyLogicActions {
     ) => {
         name: FieldName
         value: any
-    } // loginLogic
-    precheck: ({ email }: { autoAttempt?: boolean; email: string }) => {
-        email: string
-        autoAttempt?: boolean
     } // loginLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined

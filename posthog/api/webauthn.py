@@ -427,9 +427,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         """Check SSO enforcement for the user. Returns SSO error response if enforced, None otherwise."""
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
         if sso_enforcement:
-            # The assertion is verified at this point, so the email goes back to its owner. The
-            # login form uses it to run the precheck and show the required SSO button, because a
-            # discoverable passkey is picked before any email is typed.
+            # The assertion is already verified, so the email only goes back to its owner. The login
+            # form needs it to run the precheck, because a discoverable passkey carries no typed email.
             return Response(
                 {
                     "error": "You can only login with SSO for this account.",

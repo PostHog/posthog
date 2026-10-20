@@ -162,11 +162,9 @@ describe('passkeyLogic', () => {
 
     describe('SSO-enforced account', () => {
         let logic: ReturnType<typeof passkeyLogic.build>
-        let precheckHandler: jest.Mock
 
         beforeEach(() => {
             ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
-            precheckHandler = jest.fn(() => [200, { sso_enforcement: 'google-oauth2', saml_available: false }])
             useMocks({
                 get: { '/api/users/@me/': () => [200, {}] },
                 post: {
@@ -189,7 +187,7 @@ describe('passkeyLogic', () => {
                             email: 'user@example.com',
                         },
                     ],
-                    '/api/login/precheck': precheckHandler,
+                    '/api/login/precheck': () => [200, { sso_enforcement: 'google-oauth2', saml_available: false }],
                 },
             })
             initKeaTests()
@@ -207,11 +205,10 @@ describe('passkeyLogic', () => {
             await expectLogic(loginLogic).toDispatchActions(['precheckSuccess'])
 
             expect(loginLogic.values.generalError).toEqual({
-                code: 'sso_enforced',
+                code: 'passkey_error',
                 detail: 'Your organization requires you to log in with Google.',
             })
             expect(loginLogic.values.login.email).toBe('user@example.com')
-            expect(precheckHandler).toHaveBeenCalledTimes(1)
             expect(loginLogic.values.precheckResponse).toMatchObject({
                 email: 'user@example.com',
                 sso_enforcement: 'google-oauth2',
