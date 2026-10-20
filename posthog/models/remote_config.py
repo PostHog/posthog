@@ -67,6 +67,13 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
+def _flag_for_sdk(flag: dict[str, Any]) -> str | dict[str, Any] | None:
+    # posthog-js reads a flag gate as a bare key, or as {"flag": key, "variant": variant} to gate on one variant.
+    key = flag.get("key")
+    variant = flag.get("variant")
+    return {"flag": key, "variant": variant} if variant is not None else key
+
+
 class UnreadableTriggerGroupsError(Exception):
     """
     A team's stored session recording trigger groups hold a shape that posthog-js cannot read.
@@ -165,15 +172,8 @@ class RemoteConfig(UUIDTModel):
         if sample_rate == "1":
             sample_rate = None
 
-        linked_flag = None
-        linked_flag_config = team.session_recording_linked_flag or None
-        if isinstance(linked_flag_config, dict):
-            linked_flag_key = linked_flag_config.get("key", None)
-            linked_flag_variant = linked_flag_config.get("variant", None)
-            if linked_flag_variant is not None:
-                linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-            else:
-                linked_flag = linked_flag_key
+        linked_flag_config = team.session_recording_linked_flag
+        linked_flag = _flag_for_sdk(linked_flag_config) if isinstance(linked_flag_config, dict) else None
 
         v1_fields = {
             "sampleRate": sample_rate,
@@ -203,16 +203,17 @@ class RemoteConfig(UUIDTModel):
                     continue
                 events = conditions.get("events")
                 if isinstance(events, list):
-                    group = {
-                        **group,
-                        "conditions": {
-                            **conditions,
-                            "events": [{"name": e} if isinstance(e, str) else e for e in events],
-                        },
-                    }
+                    conditions = {**conditions, "events": [{"name": e} if isinstance(e, str) else e for e in events]}
                 elif events is not None:
                     continue
-                normalized_groups.append(group)
+                flag = conditions.get("flag")
+                # A flag object without a non-empty string key stays as stored. Its flag condition then never matches.
+                # Converting a missing or empty key would send an empty flag.
+                # The SDK reads an empty flag as no flag condition.
+                # A group with no other condition then records every session.
+                if isinstance(flag, dict) and isinstance(key := flag.get("key"), str) and key:
+                    conditions = {**conditions, "flag": _flag_for_sdk(flag)}
+                normalized_groups.append({**group, "conditions": conditions})
 
             if not isinstance(groups, list) or len(normalized_groups) < len(groups):
                 capture_exception(
