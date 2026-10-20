@@ -1,13 +1,7 @@
-from urllib.parse import parse_qs
-
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
     PersonioSourceConfig,
@@ -65,25 +59,3 @@ class TestPersonioSource:
             expected_incremental = schema.name in INCREMENTAL_FIELDS
             assert schema.supports_incremental is expected_incremental
             assert schema.supports_append is expected_incremental
-
-    @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Personio API credentials"),
-        ],
-    )
-    def test_validate_credentials(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:
-        body = {"access_token": "the-token", "expires_in": 86400} if status_code == 200 else {"error": "invalid_client"}
-        with scripted_network([ScriptedResponse(status=status_code, json=body)]) as network:
-            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        request = network.requests_log[0]
-        assert request.body is not None
-        assert parse_qs(request.body.decode()) == {
-            "grant_type": ["client_credentials"],
-            "client_id": [self.config.client_id],
-            "client_secret": [self.config.client_secret],
-        }

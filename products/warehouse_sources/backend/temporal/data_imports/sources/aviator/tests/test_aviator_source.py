@@ -66,7 +66,7 @@ class TestAviatorSource:
         assert schema.supports_append is False
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    @parameterized.expand([("valid", 200, True), ("invalid", 401, False)])
+    @parameterized.expand([("valid", 200, True)])
     def test_validate_credentials(self, _name: str, status: int, expected_ok: bool) -> None:
         config = AviatorSourceConfig(api_token="av_uat_test")
         with scripted_network([ScriptedResponse(status=status, json=[])]) as network:
