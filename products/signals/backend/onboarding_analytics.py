@@ -35,6 +35,7 @@ class InboxOnboardingAnalytics:
         return {
             "project_id": config.team_id,
             "variant": variant,
+            "$feature/inbox-ui-onboarding": variant,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
             "setup_mode": "quick"
