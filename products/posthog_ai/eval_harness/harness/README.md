@@ -69,6 +69,12 @@ The final summary renders after teardown, logging is flushed, and the transcript
 
 ## Output model
 
+`--compare` runs the selected sandboxed suites through Claude and Codex in separate, sequential child processes.
+The comparison checks every configuration first with `--check`, then forwards child output into its combined transcript.
+`--results-file` writes a validated run report using the reporter's existing scores, status counts, and case selection.
+The comparison retains these reports after each model and checks that case and scorer selections match.
+No prompts, model answers, or credentials are included in the comparison report.
+
 The reporter emits plain-text records with stable labels so terminals and agents can scan the same output.
 `START` marks work entering flight, `DONE` marks successful completion, and `TIMEOUT`, `ERROR`, or `CRASH` name exceptional outcomes.
 Only the final overall run status uses `PASS` or `FAIL`.
