@@ -23,6 +23,7 @@ from posthog.models import Team
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, fetch_blocks_from_recording_api
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.session_replay.copy_recording.types import (
     RETENTION_PERIOD_BY_DAYS,
     CopySessionInput,
@@ -179,17 +180,14 @@ async def _copy_blocks(input: CopySessionInput, source_blocks: list[RecordingBlo
                 )
 
         plaintext = await asyncio.gather(*(fetch(b) for b in source_blocks))
-        activity.heartbeat()
         encrypted: list[bytes] = []
         for batch in _batch_blocks(plaintext):
             encrypted += await client.encrypt_blocks(
                 input.session_id, input.target_team_id, batch, input.retention_days
             )
-            activity.heartbeat()
 
     key = _new_block_key(input.retention_days)
     await _upload(key, b"".join(encrypted))
-    activity.heartbeat()
 
     urls: list[str] = []
     offset = 0
@@ -202,15 +200,20 @@ async def _copy_blocks(input: CopySessionInput, source_blocks: list[RecordingBlo
 
 
 def _check_same_organization(source_team_id: int, target_team_id: int) -> None:
-    organizations = set(
-        Team.objects.filter(id__in=[source_team_id, target_team_id]).values_list("organization_id", flat=True)
-    )
-    if len(organizations) != 1:
+    teams = dict(Team.objects.filter(id__in=[source_team_id, target_team_id]).values_list("id", "organization_id"))
+    if source_team_id == target_team_id or len(teams) != 2:
+        raise ApplicationError("Source and target must be two existing teams", non_retryable=True)
+    if teams[source_team_id] != teams[target_team_id]:
         raise ApplicationError("Source and target teams must be in the same organization", non_retryable=True)
 
 
 @activity.defn
 async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
+    async with Heartbeater():
+        return await _copy_session_recording(input)
+
+
+async def _copy_session_recording(input: CopySessionInput) -> CopySessionResult:
     # The replay row goes in last because a retry treats an existing row as a finished copy.
     tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.target_team_id)
     log = logger.bind(session_id=input.session_id, target_team_id=input.target_team_id)

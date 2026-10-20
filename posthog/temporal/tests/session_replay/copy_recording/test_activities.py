@@ -133,11 +133,13 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
         client.encrypt_blocks.assert_not_awaited()
         upload.assert_not_awaited()
 
-    def test_refuses_to_copy_into_another_organization(self) -> None:
+    @parameterized.expand([("another_organization", True), ("missing_team", False)])
+    def test_refuses_target_outside_the_source_organization(self, _: str, target_exists: bool) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        target_team_id = other_team.pk if target_exists else other_team.pk + 1000
 
         with self.assertRaises(ApplicationError) as error:
-            self._run(target_team_id=other_team.pk)
+            self._run(target_team_id=target_team_id)
 
         assert error.exception.non_retryable
         assert SessionReplayEvents().get_metadata("s1", other_team) is None
