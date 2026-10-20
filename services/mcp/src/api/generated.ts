@@ -115951,7 +115951,7 @@ export namespace Schemas {
     export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
-      /** Registered dashboard widget types available when dashboard-widgets is enabled. */
+      /** Registered dashboard widget types. */
       results: WidgetCatalogEntry[];
     }
 
