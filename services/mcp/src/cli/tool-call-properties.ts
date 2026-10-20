@@ -1,5 +1,5 @@
 import { MCPToolResultError } from '@/lib/errors'
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { AnalyticsEvent, sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { ExecInnerCallProperties } from '@/tools/exec'
 import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -10,9 +10,10 @@ import type { Context } from '@/tools/types'
  * messages and inputs can carry caller-supplied content and API response
  * bodies, which must never reach usage analytics. Mirrors the hosted server,
  * whose tool-call events carry only the error flag — plus a bounded
- * classification so failures stay diagnosable. Category and clipped
- * description come from the tool catalog (never the caller), matching the
- * hosted server's stamps so per-tool analytics see one schema.
+ * classification and the backend's machine-readable error code so failures
+ * stay diagnosable. Category and clipped description come from the tool
+ * catalog (never the caller), matching the hosted server's stamps so per-tool
+ * analytics see one schema.
  */
 export function buildToolCallProperties(
     toolName: string,
@@ -28,7 +29,13 @@ export function buildToolCallProperties(
         output_format: properties.output_format,
         ...(category ? { $mcp_tool_category: category } : {}),
         ...(description ? { $mcp_tool_description: description } : {}),
-        ...(properties.success ? {} : { error_class: errorClass(properties), $mcp_error_type: errorType(properties) }),
+        ...(properties.success
+            ? {}
+            : {
+                  error_class: errorClass(properties),
+                  $mcp_error_type: errorType(properties),
+                  ...errorCodeProperties(properties),
+              }),
         ...(properties.error_status !== undefined
             ? { error_status: properties.error_status, $mcp_error_status: properties.error_status }
             : {}),
@@ -79,4 +86,12 @@ function errorType(properties: ExecInnerCallProperties): MCPToolResultError['err
         return 'rate_limited'
     }
     return status >= 500 ? 'api_5xx' : 'api_4xx'
+}
+
+function errorCodeProperties(properties: ExecInnerCallProperties): { $mcp_error_code?: string } {
+    if (!(properties.error instanceof MCPToolResultError) || !properties.error.errorCode) {
+        return {}
+    }
+    const errorCode = sanitizeErrorToken(properties.error.errorCode)
+    return errorCode ? { $mcp_error_code: errorCode } : {}
 }

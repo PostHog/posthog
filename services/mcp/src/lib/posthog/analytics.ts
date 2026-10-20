@@ -48,3 +48,19 @@ export const buildMCPContextProperties = (
     ...(ctx.projectUuid ? { [`${prefix}project_uuid`]: ctx.projectUuid } : {}),
     ...(ctx.projectName ? { [`${prefix}project_name`]: ctx.projectName } : {}),
 })
+
+// Matches the truncation the MCP analytics queries apply to `$mcp_error_type`.
+const MAX_ERROR_TOKEN_LENGTH = 200
+
+/**
+ * Backend error codes and DRF attrs are server-generated (field names and error codes,
+ * never caller values), but they cross a network boundary — strip control
+ * characters and cap length so a malformed body can't pollute the property.
+ */
+export function sanitizeErrorToken(token: string): string | undefined {
+    const sanitized = token
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, MAX_ERROR_TOKEN_LENGTH)
+    return sanitized || undefined
+}
