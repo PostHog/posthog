@@ -56,9 +56,7 @@ from posthog.schema import (
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
-    ExperimentFunnelsQuery,
     ExperimentQuery,
-    ExperimentTrendsQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -376,7 +374,9 @@ class QueryRun:
             "cache_key": self.cache_key,
             "request_trigger": self.trigger,
             "query": self.query,
-            # Report the effective modifiers from this run, matching the ClickHouse log comment.
+            # The modifiers in effect for the run, set keys only, the same dict the ClickHouse log
+            # comment carries. Passed in rather than stored, because the fresh path adds the user's
+            # modifiers after the cache key, and the event has to say what the run actually used.
             "modifiers": {k: v for k, v in modifiers.model_dump(mode="json").items() if v is not None},
         }
 
@@ -385,6 +385,14 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+}
+
+# Modes that never enqueue an async calculation. The async worker does not keep the native cluster
+# route, so a native cluster query must not run in any other mode.
+NATIVE_EVENTS_CLUSTER_EXECUTION_MODES: set[ExecutionMode] = {
+    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
 }
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
@@ -1853,6 +1861,8 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
+    # A wrapper query (actors, correlation, actor options) runs its source insight, so it reads the same
+    # events table and person data as that insight. Modifiers set on the wrapper itself take precedence.
     source = getattr(query, "source", None)
     inherited = query_node_modifiers(source) if isinstance(source, BaseModel) else None
     modifiers = getattr(query, "modifiers", None)
@@ -1860,13 +1870,6 @@ def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
         modifiers = inherited.model_copy(update={key: value for key, value in modifiers if value is not None})
     elif modifiers is None:
         modifiers = inherited
-    if isinstance(query, (ExperimentTrendsQuery, ExperimentFunnelsQuery)):
-        if modifiers is None or modifiers.useNewEventsCluster is None:
-            for field in ("count_query", "exposure_query", "funnels_query"):
-                child = getattr(query, field, None)
-                child_modifiers = getattr(child, "modifiers", None)
-                if child_modifiers and child_modifiers.useNewEventsCluster:
-                    return (modifiers or HogQLQueryModifiers()).model_copy(update={"useNewEventsCluster": True})
     return modifiers
 
 
@@ -1887,6 +1890,31 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
         "marketing_analytics": read("marketing_analytics_config"),
         "customer_analytics": read("customer_analytics_config"),
     }
+
+
+NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
+    HogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    PathsV2Query,
+    StickinessQuery,
+    LifecycleQuery,
+    EventsQuery,
+    ActorsQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    FunnelCorrelationQuery,
+    PropertyValuesQuery,
+    ExperimentQuery,
+    ExperimentExposureQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebVitalsQuery,
+)
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -2032,7 +2060,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @property
     def query_type(self) -> Any:
-        query_type = self._class_annotation("query")
+        query_type = self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
         while isinstance(query_type, TypeAliasType):
             query_type = query_type.__value__
         return query_type
@@ -2404,37 +2432,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         if self.modifiers.useNewEventsCluster:
-            if not isinstance(
-                self.query,
-                (
-                    HogQLQuery,
-                    TrendsQuery,
-                    FunnelsQuery,
-                    RetentionQuery,
-                    PathsQuery,
-                    PathsV2Query,
-                    StickinessQuery,
-                    LifecycleQuery,
-                    EventsQuery,
-                    ActorsQuery,
-                    InsightActorsQuery,
-                    InsightActorsQueryOptions,
-                    FunnelCorrelationQuery,
-                    PropertyValuesQuery,
-                    ExperimentQuery,
-                    ExperimentTrendsQuery,
-                    ExperimentFunnelsQuery,
-                    ExperimentExposureQuery,
-                    WebOverviewQuery,
-                    WebPageURLSearchQuery,
-                    WebStatsTableQuery,
-                    WebGoalsQuery,
-                    WebVitalsQuery,
-                ),
-            ):
-                raise ExposedHogQLError("Native cluster comparisons do not support this query type. Use HogQLQuery.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
+            if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+                raise ExposedHogQLError(f"Native cluster comparisons do not support {self.query.__class__.__name__}.")
+            if execution_mode not in NATIVE_EVENTS_CLUSTER_EXECUTION_MODES:
+                raise ExposedHogQLError(
+                    "Native cluster comparisons require synchronous execution. Use refresh=blocking or force_blocking with async=false."
+                )
 
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
@@ -2838,6 +2841,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         last_refresh = datetime.now(UTC)
         target_age = self.cache_target_age(last_refresh=last_refresh)
 
+        # Avoid affecting cache key
+        # Add user based modifiers here, primarily for user specific feature flagging
         if query_run.user:
             self.modifiers = create_default_modifiers_for_user(query_run.user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
@@ -3158,7 +3163,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
-        # Queued queries carry the effective table choice; the resolved modifiers already key it.
+        # The resolved modifiers below key the events table and cluster choice. Drop the requested values from the
+        # query, so an explicit false and an unset value that resolve the same way share one cache entry.
         modifier_source: dict[str, Any] | None = query
         while isinstance(modifier_source, dict):
             if isinstance(modifier_source.get("modifiers"), dict):
@@ -3169,6 +3175,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             modifier_source = modifier_source.get("source")
 
         cache_modifiers = to_dict(self.modifiers)
+        # A legacy-table query omits these default values, so its cache key does not depend on them.
         if cache_modifiers.get("useNewEventsSchema") is False:
             cache_modifiers.pop("useNewEventsSchema")
         if not cache_modifiers.get("useNewEventsCluster"):
@@ -3254,7 +3261,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         payload = self.get_cache_payload()
         variant = self.get_cache_key_variant()
-        # Use the same payload for the key and identity so cache hits and fresh runs agree.
+        # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
+        # fresh run agree, and the payload is built once per run.
         self._query_identity = self._query_identity_for(payload, variant)
         self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"

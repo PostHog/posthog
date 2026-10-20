@@ -185,6 +185,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         ]
         + [
             ({"useNewEventsCluster": True}, True, True, True, "SELECT 1", "force_async"),
+            ({"useNewEventsCluster": True}, True, True, True, "SELECT count() AS n FROM events", "blocking"),
             ({"useNewEventsCluster": True}, True, True, True, "SELECT 1", "force_blocking", True),
             (
                 {"useNewEventsCluster": True},
@@ -206,7 +207,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         async_: bool = False,
     ) -> None:
         query = {"kind": "HogQLQuery", "query": sql} if isinstance(sql, str) else sql
-        unsupported = native_cluster and (query["kind"] != "HogQLQuery" or refresh != "force_blocking" or async_)
+        unsupported = native_cluster and (query["kind"] != "HogQLQuery" or refresh == "force_async" or async_)
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
             patch(
