@@ -88,7 +88,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.alerts_platform.backend.facade.api import workflow_trigger_refusal
-from products.cdp.backend.internal_events import ALERT_TRANSITION_EVENT
+from products.alerts_platform.backend.facade.contracts import ALERT_TRANSITION_EVENT
 from products.cdp.backend.presentation.hog_functions import (
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
