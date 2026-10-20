@@ -122,6 +122,15 @@ class SweepTargetsConfig(dagster.Config):
     )
 
 
+class TeamProductDocumentsDeleteConfig(dagster.Config):
+    team_id: int = pydantic.Field(description="Delete the embedding documents of this team.")
+    product: str = pydantic.Field(
+        min_length=1,
+        description="Delete only the documents this product wrote, e.g. llm-analytics. Other products "
+        "write to the same tables, so their documents stay.",
+    )
+
+
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
         default_factory=list,
@@ -1277,6 +1286,64 @@ def manual_deletes_job():
 def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) -> dagster.RunRequest:
     # The run_key makes each manual_deletes_job success launch at most one deletes_job run.
     return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
+
+
+_TEAM_PRODUCT_DOCUMENTS_PREDICATE = "team_id = %(team_id)s AND product = %(product)s"
+
+
+@dagster.op
+def delete_team_product_documents(
+    context: dagster.OpExecutionContext,
+    config: TeamProductDocumentsDeleteConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """Delete the embedding documents of one team for one product, and fail if any survive.
+
+    The event sweep matches a document to an event only when `document_id` is the event uuid. The AI
+    observability summaries use `<trace or generation id>::<job id>`, so an event deletion leaves
+    them in place until the table TTL drops them. This job removes them on request.
+    """
+    parameters: dict[str, str | int] = {"team_id": config.team_id, "product": config.product}
+    tables = _present_document_embedding_tables(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
+    by_shard: dict[int, list[MutationWaiter]] = {}
+    for table in tables:
+        runner = LightweightDeleteMutationRunner(
+            table=table.sharded_table,
+            predicate=_TEAM_PRODUCT_DOCUMENTS_PREDICATE,
+            parameters=parameters,
+            reuse_since=reuse_floor,
+        )
+        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            if host.shard_num is not None:
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    wait_for_mutations_on_shards(
+        cluster, {shard_num: MutationWaiters(waiters=waiters) for shard_num, waiters in by_shard.items()}
+    )
+
+    surviving: dict[str, int] = {}
+    for table in tables:
+        rows = cluster.any_host_by_role(
+            Query(
+                f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table.distributed_table} "
+                f"WHERE {_TEAM_PRODUCT_DOCUMENTS_PREDICATE}",
+                parameters,
+            ),
+            NodeRole.DATA,
+        ).result()
+        surviving[table.distributed_table] = rows[0][0] if rows else 0
+    context.add_output_metadata({"surviving_documents": dagster.MetadataValue.json(surviving)})
+    if any(surviving.values()):
+        raise dagster.Failure(
+            description=f"Documents of team {config.team_id} for product {config.product!r} survived the delete: {surviving}"
+        )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def delete_team_product_documents_job():
+    """Delete the embedding documents of one team for one product, e.g. to complete a data deletion request."""
+    delete_team_product_documents()
 
 
 @dagster.op
