@@ -4,8 +4,8 @@ import { IconCheck, IconWarning } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { DnsRecordRows } from '../components/DnsRecordRows'
-import { FirstSenderCard } from '../components/FirstSenderCard'
 import { NextWorkflowCard } from '../components/NextWorkflowCard'
+import { SenderCard } from '../components/SenderCard'
 import { StepHeading } from '../components/StepHeading'
 import { emailDomainAutoConfigureLogic } from '../emailDomainAutoConfigureLogic'
 import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
@@ -34,7 +34,7 @@ export function ReadyStep(): JSX.Element {
                     }
                 />
             </div>
-            <FirstSenderCard />
+            <SenderCard />
             <LemonCollapse
                 defaultActiveKey={allRecordsFound ? undefined : 'records'}
                 panels={[

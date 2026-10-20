@@ -9,16 +9,18 @@ import { HedgehogMailbox } from '../hoggies'
 import { FirstWorkflowChoices } from './FirstWorkflowChoices'
 
 export function NextWorkflowCard(): JSX.Element {
-    const { domain, senderName, fromAddress } = useValues(emailDomainSenderLogic)
+    const { domain, senderName, fromAddress, isFirstVerifiedSender } = useValues(emailDomainSenderLogic)
     return (
         <section className="rounded-xl border border-accent bg-accent-highlight-secondary p-6 @md:p-8 flex flex-col gap-5">
             <div className="flex items-start gap-4">
                 <HedgehogMailbox className="w-20 shrink-0" />
                 <div className="flex flex-col gap-1 min-w-0">
                     <span className="text-xs uppercase tracking-wide text-secondary">Next</span>
-                    <h2 className="m-0 text-xl font-semibold">Send your first email from {domain}</h2>
+                    <h2 className="m-0 text-xl font-semibold">
+                        {isFirstVerifiedSender ? 'Send your first email from' : 'Send email from'} {domain}
+                    </h2>
                     <p className="m-0 text-sm text-secondary">
-                        Start your first workflow, and pick <span className="font-medium">{senderName}</span>{' '}
+                        Start a workflow, and pick <span className="font-medium">{senderName}</span>{' '}
                         <span className="font-mono">&lt;{fromAddress}&gt;</span> as the sender in its emails.
                     </p>
                 </div>

@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -74,6 +77,26 @@ describe('emailDomainWizardLogic', () => {
 
         expect(logic.values.sendPrefix).toBe(expected)
         expect(logic.values.sendingDomain).toBe(`${expected}.acme.com`)
+    })
+
+    it.each([
+        ['Hedgebox Inc.', 'hedgebox.example.com', 'Hedgebox Inc.'],
+        ['  Acme Labs ', 'acme.com', 'Acme Labs'],
+        ['', 'acme.com', 'Acme'],
+        ["Jane's Organization", 'shop.acme.co.uk', 'Acme'],
+        ['Default', 'acme.com.au', 'Acme'],
+        ['', 'acme.io', 'Acme'],
+    ])('names the sender for the organization %p on %s as %s', async (organizationName, domain, senderName) => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            name: organizationName,
+        })
+        const logic = mountWizard()
+        logic.actions.selectDomain(domain)
+
+        await expectLogic(logic, () => logic.actions.createSender()).toFinishAllListeners()
+
+        expect(backend.requestsTo('integration_create')[0].body).toMatchObject({ config: { name: senderName } })
     })
 
     const mountWithExistingSender = async (): Promise<ReturnType<typeof emailDomainWizardLogic.build>> => {
