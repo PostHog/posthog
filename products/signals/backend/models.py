@@ -324,6 +324,10 @@ class SignalReport(UUIDModel):
         POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
+    # Bounds on `tags`, the same as scout finding and task tags.
+    MAX_TAGS = 10
+    MAX_TAG_LENGTH = 50
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     triggering_signal_id = models.UUIDField(null=True, blank=True)
     pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
@@ -397,6 +401,10 @@ class SignalReport(UUIDModel):
     # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
     # `db_default` alongside `default` for the reason spelled out on `charts`.
     suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
+    # Free-form slug tags (lowercase kebab-case) for grouping and filtering reports. Writers go
+    # through `report_tags.set_report_tags`, which normalizes and caps them; report_tags.py holds
+    # the lifecycle rules. `db_default` for the reason spelled out on `charts`.
+    tags = ArrayField(models.CharField(max_length=MAX_TAG_LENGTH), default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

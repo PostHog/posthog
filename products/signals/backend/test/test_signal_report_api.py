@@ -3648,8 +3648,10 @@ class TestSignalReportMergeAPI(APIBaseTest):
             )
 
     def test_merge_moves_the_work_log_and_archives_the_source(self):
-        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1)
-        source = self._report(signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4)
+        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1, tags=["billing"])
+        source = self._report(
+            signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4, tags=["api", "billing"]
+        )
         SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(source.id),
@@ -3672,6 +3674,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
         ]
         # The response renders the survivor as it stands after the merge, counters included.
         assert (payload["report"]["id"], payload["report"]["signal_count"]) == (str(survivor.id), 5)
+        assert payload["report"]["tags"] == ["billing", "api"]
 
         survivor.refresh_from_db()
         source.refresh_from_db()
