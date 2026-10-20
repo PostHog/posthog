@@ -8,8 +8,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
-from django.contrib.postgres.expressions import ArraySubquery
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import (
     Case,
     CharField,
@@ -752,28 +751,42 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         paginator.limit = paginator.get_limit(request)
         paginator.offset = paginator.get_offset(request)
         paginator.count = queryset.count()
+        if paginator.offset >= paginator.count:
+            response = paginator.get_paginated_response([])
+            response.data["users"] = []
+            return response
         limit = paginator.limit or paginator.default_limit
-        end = paginator.offset + limit
 
-        matching_files = queryset.filter(team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"))
         views = FileSystemViewLog.objects.filter(
             team_id__in=Team.objects.filter(project_id=self.team.project_id).values("id"),
             user_id=cast(User, request.user).id,
         )
-        ordered_views = (
-            views.filter(Exists(matching_files))
-            .order_by("-viewed_at" if descending else "viewed_at", "id")
-            .annotate(file_ids=ArraySubquery(matching_files.order_by("-created_at", "id").values("id")))
-        )
-        viewed_ids: builtins.list[UUID] = []
-        for view in ordered_views.values("file_ids")[:end]:
-            viewed_ids.extend(view["file_ids"])
-            if len(viewed_ids) >= end:
-                break
-        page_ids = viewed_ids[paginator.offset : end]
+        files_sql, files_params = queryset.values("id", "team_id", "type", "ref", "created_at").query.sql_with_params()
+        views_sql, views_params = views.order_by().values("team_id", "type", "ref", "viewed_at").query.sql_with_params()
+        direction = "DESC" if descending else "ASC"
+        # ORM-compiled SQL retains access filters; OFFSET 0 keeps the lateral join view-log-first.
+        page_sql = f"""
+            SELECT files.id
+            FROM ({views_sql}) AS views
+            CROSS JOIN LATERAL (
+                SELECT eligible.id, eligible.created_at
+                FROM ({files_sql}) AS eligible
+                WHERE eligible.team_id = views.team_id AND eligible.type = views.type AND eligible.ref = views.ref
+                ORDER BY eligible.created_at DESC, eligible.id
+                OFFSET 0
+            ) AS files
+            ORDER BY views.viewed_at {direction}, files.created_at DESC, files.id
+            LIMIT %s OFFSET %s
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(page_sql, [*views_params, *files_params, limit, paginator.offset])
+            page_ids = [row[0] for row in cursor.fetchall()]
         if len(page_ids) < limit:
             own_view = views.filter(team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"))
-            unseen_offset = max(0, paginator.offset - len(viewed_ids))
+            unseen_offset = 0
+            if not page_ids and paginator.offset:
+                viewed_count = queryset.filter(Exists(own_view)).count()
+                unseen_offset = max(0, paginator.offset - viewed_count)
             page_ids.extend(
                 queryset.filter(~Exists(own_view))
                 .order_by("-created_at", "id")
