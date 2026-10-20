@@ -204,12 +204,15 @@ def iter_csv_tables(
         )
 
 
-def _as_rows(value: Any) -> list[dict[str, Any]]:
+def _as_rows(value: Any) -> Iterator[dict[str, Any]]:
+    # A generator, so a line holding a huge array is wrapped into rows a batch at a time.
     if isinstance(value, dict):
-        return [value]
-    if isinstance(value, list):
-        return [item if isinstance(item, dict) else {"value": item} for item in value]
-    return [{"value": value}]
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield item if isinstance(item, dict) else {"value": item}
+    else:
+        yield {"value": value}
 
 
 def iter_jsonl_tables(
@@ -234,9 +237,14 @@ def iter_jsonl_tables(
             raise ObjectStorageError(
                 f"{FILE_PARSE_ERROR} '{file_path}' as JSON Lines: line {line_number} isn't valid JSON ({e})."
             ) from e
-        rows.extend(_as_rows(parsed))
         pending_bytes += len(line)
-        if len(rows) >= max_rows or pending_bytes >= max_bytes:
+        for row in _as_rows(parsed):
+            rows.append(row)
+            if len(rows) >= max_rows:
+                yield table_from_py_list(rows)
+                rows = []
+                pending_bytes = 0
+        if rows and pending_bytes >= max_bytes:
             yield table_from_py_list(rows)
             rows = []
             pending_bytes = 0

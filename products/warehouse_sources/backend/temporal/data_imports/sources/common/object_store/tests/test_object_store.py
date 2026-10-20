@@ -390,6 +390,11 @@ class TestCsv:
 
 
 class TestJsonl:
+    def test_a_line_holding_a_large_array_is_chunked_by_row_count(self) -> None:
+        tables = list(iter_jsonl_tables(io.BytesIO(b"[" + b",".join(b"1" for _ in range(25)) + b"]\n"), max_rows=10))
+
+        assert [table.num_rows for table in tables] == [10, 10, 5]
+
     def test_chunks_by_row_count_and_wraps_scalars(self) -> None:
         content = b'{"id": 1}\n\n{"id": 2}\n[{"id": 3}, 4]\n"five"\n'
 
@@ -630,6 +635,27 @@ class TestS3Listing:
             listed = _s3_store(client).list_objects(relative_prefix, max_objects)
 
         assert [stored.path for stored in listed] == expected
+
+    def test_a_prefix_of_folder_markers_fails_instead_of_walking_every_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem."
+            "MAX_LISTED_KEYS",
+            3,
+        )
+        client = boto3.client(
+            "s3", region_name="us-east-1", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"
+        )
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "list_objects_v2",
+                _listing("exports/a/", "exports/b/", "exports/c/", "exports/d/"),
+                {"Bucket": "customer-data", "MaxKeys": 1000, "Prefix": "exports/"},
+            )
+
+            with pytest.raises(ObjectStorageError, match=TOO_MANY_FILES_ERROR):
+                _s3_store(client).list_objects("", 10)
 
     def test_rejected_credentials_become_an_access_error(self) -> None:
         client = boto3.client(

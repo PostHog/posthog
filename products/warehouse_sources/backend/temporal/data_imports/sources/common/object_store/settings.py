@@ -4,6 +4,8 @@ MAX_DISCOVERY_OBJECTS = 10_000
 # A sync lists only the table's own folder. The cap is higher than discovery's because a sync that
 # silently skipped files would replace the table with a partial copy, so going past it fails the sync.
 MAX_TABLE_OBJECTS = 50_000
+# A listing also walks folder marker keys (ending in `/`), which are never files, so the walk has its own cap.
+MAX_LISTED_KEYS = 100_000
 # One table per root-level file can turn a large flat folder into thousands of tables.
 MAX_TABLES = 1_000
 

@@ -14,8 +14,13 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     ObjectStoreConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    TOO_MANY_FILES_ERROR,
+    ObjectStorageError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CONNECT_TIMEOUT_SECONDS,
+    MAX_LISTED_KEYS,
     MAX_REQUEST_ATTEMPTS,
     READ_TIMEOUT_SECONDS,
 )
@@ -139,15 +144,23 @@ class S3ObjectStore(ObjectStore):
     def _list(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
         root_key = f"{self.prefix}/" if self.prefix else ""
         paginator = self.client.get_paginator("list_objects_v2")
-        # The cap counts files, not keys: folder marker keys are skipped, so stopping after a fixed
-        # number of keys could hide that the folder holds more files than the cap.
+        # The file cap counts files, not keys: folder marker keys are skipped, so stopping after a fixed
+        # number of keys could hide that the folder holds more files than the cap. A separate cap on
+        # the keys walked keeps a prefix full of marker keys from running the listing without end.
         pages = paginator.paginate(
             Bucket=self.bucket, Prefix=key_prefix, PaginationConfig={"PageSize": S3_MAX_PAGE_SIZE}
         )
         objects: list[StoredObject] = []
+        walked_keys = 0
         try:
             for page in pages:
                 for item in page.get("Contents", []):
+                    walked_keys += 1
+                    if walked_keys > MAX_LISTED_KEYS:
+                        raise ObjectStorageError(
+                            f"{TOO_MANY_FILES_ERROR} ({MAX_LISTED_KEYS:,} keys) under '{key_prefix or '/'}'. Point "
+                            "the source at a narrower folder."
+                        )
                     object_key: str = item["Key"]
                     if not object_key.startswith(root_key) or object_key.endswith("/"):
                         continue
