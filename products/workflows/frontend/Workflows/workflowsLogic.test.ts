@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -15,14 +17,20 @@ const draftRow = { id: 'wf-1', name: 'Welcome', status: 'draft' } as HogFlow
 describe('workflowsLogic', () => {
     let logic: ReturnType<typeof workflowsLogic.build>
     let patchBodies: Record<string, any>[]
+    let requestedTeamIds: string[]
     let detailSenders: HogFlow['unverified_email_senders']
 
     const mountWith = ({
         flagOn = true,
         senders = [{ id: 7, domain: 'example.com' }],
-    }: { flagOn?: boolean; senders?: HogFlow['unverified_email_senders'] } = {}): void => {
+        team = MOCK_DEFAULT_TEAM,
+    }: {
+        flagOn?: boolean
+        senders?: HogFlow['unverified_email_senders']
+        team?: typeof MOCK_DEFAULT_TEAM
+    } = {}): void => {
         detailSenders = senders
-        initKeaTests()
+        initKeaTests(true, team, MOCK_DEFAULT_PROJECT)
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: flagOn })
         logic = workflowsLogic()
@@ -31,17 +39,19 @@ describe('workflowsLogic', () => {
 
     beforeEach(() => {
         patchBodies = []
+        requestedTeamIds = []
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/': { results: [], count: 0 },
                 '/api/projects/:team_id/hog_flows/': { results: [], count: 0 },
-                '/api/environments/:team_id/hog_flows/:id/': () => [
-                    200,
-                    { ...draftRow, unverified_email_senders: detailSenders },
-                ],
+                '/api/environments/:team_id/hog_flows/:id/': ({ params }) => {
+                    requestedTeamIds.push(String(params.team_id))
+                    return [200, { ...draftRow, unverified_email_senders: detailSenders }]
+                },
             },
             patch: {
-                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ params, request }) => {
+                    requestedTeamIds.push(String(params.team_id))
                     patchBodies.push((await request.json()) as Record<string, any>)
                     return [200, { ...draftRow, status: 'waiting_for_domain' }]
                 },
@@ -91,6 +101,18 @@ describe('workflowsLogic', () => {
             .toDispatchActions(['loadWorkflows', 'confirmEnablePromptSuccess'])
             .toMatchValues({ enablePrompt: null })
         expect(patchBodies).toEqual([{ status: 'active' }])
+    })
+
+    it('reads and saves the workflow in the current environment, not its parent project', async () => {
+        const childEnvironmentId = MOCK_DEFAULT_PROJECT.id + 1
+        mountWith({ team: { ...MOCK_DEFAULT_TEAM, id: childEnvironmentId } })
+        logic.actions.toggleWorkflowStatus(draftRow)
+        await expectLogic(logic).toDispatchActions(['openEnablePrompt'])
+
+        await expectLogic(logic, () => {
+            logic.actions.confirmEnablePrompt()
+        }).toDispatchActions(['confirmEnablePromptSuccess'])
+        expect(requestedTeamIds).toEqual([String(childEnvironmentId), String(childEnvironmentId)])
     })
 
     it('leaves the workflow off when the person cancels', async () => {
