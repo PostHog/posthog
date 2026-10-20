@@ -22,26 +22,33 @@ def build_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilte
                 output_type, true_is_failure=output_config.get("true_is_failure") is True, output_config=output_config
             )
         except ValueError:
-            continue
-        if not definition.has_pass_rule:
-            continue
+            definition = None
         matches_evaluation = f"properties.$ai_evaluation_id = {escape_hogql_string(str(evaluation_id))}"
+        # An evaluation without a pass rule grades none of its runs, including boolean runs from before it
+        # switched to sentiment, which the default branch would otherwise grade.
+        if definition is None or not definition.has_pass_rule:
+            graded_branches += [matches_evaluation, "false"]
+            passed_branches += [matches_evaluation, "false"]
+            continue
         graded_branches += [matches_evaluation, _graded(definition)]
         passed_branches += [matches_evaluation, definition.outcome_predicates["pass"]]
 
     graded = _multi_if(graded_branches, _graded(_DEFAULT_DEFINITION))
     return contracts.EvaluationPassFilters(
         graded=graded,
-        passed=f"{graded} AND {_multi_if(passed_branches, _DEFAULT_DEFINITION.outcome_predicates['pass'])}",
+        passed=f"({graded} AND {_multi_if(passed_branches, _DEFAULT_DEFINITION.outcome_predicates['pass'])})",
     )
 
 
 def _evaluations_with_own_rule(team_id: int) -> list[tuple[UUID, str, dict]]:
-    # Soft-deleted evaluations stay in, because their past events still need their own rule.
+    # Soft-deleted evaluations stay in, because their past events still need their own rule. Reads the writer, because
+    # a receiver of evaluation_output_changed calls this right after the commit, before a replica can catch up.
     return list(
-        Evaluation.objects.filter(team_id=team_id)
+        Evaluation.objects.using("default")
+        .filter(team_id=team_id)
         .filter(
-            Q(output_type__in=[OutputType.NUMERIC, OutputType.CATEGORICAL]) | Q(output_config__true_is_failure=True)
+            Q(output_type__in=[OutputType.NUMERIC, OutputType.CATEGORICAL, OutputType.SENTIMENT])
+            | Q(output_config__true_is_failure=True)
         )
         .values_list("id", "output_type", "output_config")
     )

@@ -71,6 +71,11 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
                 (True, False),
             ),
             "sentiment": (sentiment, {"$ai_sentiment_label": "positive"}, (False, False)),
+            "boolean run before the switch to sentiment": (
+                sentiment,
+                {"$ai_evaluation_result_type": "boolean", "$ai_evaluation_result": True},
+                (False, False),
+            ),
         }
         for case, (evaluation, properties, _) in cases.items():
             _create_event(
@@ -89,7 +94,11 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
         filters = get_evaluation_pass_filters(self.team.id)
         response = execute_hogql_query(
             f"""
-            SELECT JSONExtractString(properties, 'case'), countIf({filters.graded}) > 0, countIf({filters.passed}) > 0
+            SELECT
+                JSONExtractString(properties, 'case'),
+                countIf({filters.graded}) > 0,
+                countIf({filters.passed}) > 0,
+                countIf({filters.graded} AND NOT {filters.passed}) > 0
             FROM events
             WHERE event = '$ai_evaluation'
             GROUP BY 1
@@ -97,8 +106,12 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
 
-        graded_and_passed = {case: (bool(graded), bool(passed)) for case, graded, passed in response.results}
-        assert graded_and_passed == {case: expected for case, (_, _, expected) in cases.items()}
+        graded_passed_failed = {
+            case: (bool(graded), bool(passed), bool(failed)) for case, graded, passed, failed in response.results
+        }
+        assert graded_passed_failed == {
+            case: (graded, passed, graded and not passed) for case, (_, _, (graded, passed)) in cases.items()
+        }
 
 
 def _save(evaluation: Evaluation, **changes: object) -> None:
@@ -118,12 +131,12 @@ class TestEvaluationOutputChangedSignal(BaseTest):
         [
             ("created", None, True),
             ("output config changed", lambda e: _save(e, output_config={"true_is_failure": True}), True),
-            ("name changed", lambda e: _save(e, name="renamed"), False),
-            ("paused", lambda e: _save(e, enabled=False), False),
+            ("full save without an output change", lambda e: _save(e, name="renamed"), True),
+            ("status update", lambda e: e.set_status("paused", None), False),
             ("output edited but only the name saved", _save_name_only, False),
         ]
     )
-    def test_notifies_only_on_output_changes(
+    def test_notifies_on_saves_that_write_the_output(
         self, _name: str, change: Callable[[Evaluation], None] | None, should_notify: bool
     ) -> None:
         evaluation = None if change is None else _evaluation(self.team)
