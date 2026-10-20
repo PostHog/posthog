@@ -13,7 +13,7 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { PULSE_TILES, type PinnedPulseMetric, todayHighlightsLogic } from './todayHighlightsLogic'
+import { PULSE_TILES, type PinnedPulseMetric, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 
 function PulsePinRow({
     metric,
@@ -54,23 +54,15 @@ function PulsePinRow({
 export function TodayPulseEditor(): JSX.Element {
     const { pinnedPulseMetrics, pulseTiles, pulseInsightResults, pulseInsightResultsLoading } =
         useValues(todayHighlightsLogic)
-    const { setPinnedPulseKeys, loadPulseInsightResults, pulseEditorOpened } = useActions(todayHighlightsLogic)
+    const { togglePulsePin, unpinAllPulse, loadPulseInsightResults, pulseEditorOpened } =
+        useActions(todayHighlightsLogic)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
     const [shownOnOpen, setShownOnOpen] = useState<PinnedPulseMetric[]>([])
 
     const isPinned = (key: string): boolean => pinnedPulseMetrics.some((pinned) => pinned.key === key)
-    const full = pinnedPulseMetrics.length >= PULSE_TILES
     const searching = search.trim().length > 0
     const rows = searching ? pulseInsightResults : shownOnOpen
-
-    const toggle = (metric: PinnedPulseMetric): void => {
-        setPinnedPulseKeys(
-            isPinned(metric.key)
-                ? pinnedPulseMetrics.filter((pinned) => pinned.key !== metric.key)
-                : [...pinnedPulseMetrics, { key: metric.key, name: metric.name }]
-        )
-    }
 
     return (
         <Popover
@@ -122,10 +114,8 @@ export function TodayPulseEditor(): JSX.Element {
                                 key={metric.key}
                                 metric={metric}
                                 pinned={pinned}
-                                disabledReason={
-                                    full && !pinned ? `You can pin ${PULSE_TILES}. Unpin one first.` : undefined
-                                }
-                                onToggle={() => toggle(metric)}
+                                disabledReason={pulsePinLimitReason(pinnedPulseMetrics.length, pinned)}
+                                onToggle={() => togglePulsePin(metric, 'editor')}
                             />
                         )
                     })}
@@ -135,24 +125,24 @@ export function TodayPulseEditor(): JSX.Element {
                         {pulseInsightResultsLoading ? 'Searching…' : 'No trends or SQL insights match your search'}
                     </Text>
                 ) : null}
-                <div className="flex min-h-7 items-center justify-between gap-2 border-t border-border px-2 pt-1">
-                    <Text size="xs" render={<span />} className="text-muted-foreground">
-                        Pins stay. Suggestions fill the rest.
-                    </Text>
-                    {pinnedPulseMetrics.length > 0 ? (
-                        <Text size="xs" render={<span />} className="shrink-0 text-muted-foreground">
-                            <Button
-                                size="inline"
-                                variant="link-muted"
-                                className="font-normal"
-                                onClick={() => setPinnedPulseKeys([])}
-                                data-attr="today-pulse-unpin-all"
-                            >
-                                Unpin all
-                            </Button>
+                {pinnedPulseMetrics.length > 0 ? (
+                    <div className="flex items-center justify-between gap-2 border-t border-border pt-1 ps-2">
+                        <Text size="xs" render={<span />} className="text-muted-foreground">
+                            {pinnedPulseMetrics.length >= PULSE_TILES
+                                ? `${PULSE_TILES} pinned. Unpin one to pin another.`
+                                : null}
                         </Text>
-                    ) : null}
-                </div>
+                        <Button
+                            size="xs"
+                            variant="link-muted"
+                            className="shrink-0"
+                            onClick={unpinAllPulse}
+                            data-attr="today-pulse-unpin-all"
+                        >
+                            Unpin all
+                        </Button>
+                    </div>
+                ) : null}
             </PopoverContent>
         </Popover>
     )

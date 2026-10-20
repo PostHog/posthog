@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { type RefObject, useLayoutEffect, useRef } from 'react'
 
 import { Skeleton } from '@posthog/quill'
 
@@ -19,6 +20,7 @@ import {
     type PulsePlaceholderTile,
     type TodayPulseTile,
     isPlaceholderTile,
+    pulsePinLimitReason,
     todayHighlightsLogic,
 } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
@@ -99,16 +101,42 @@ function TodayPulsePlaceholder({ tile }: { tile: PulsePlaceholderTile }): JSX.El
     )
 }
 
+const REORDER_MS = 250
+
+function useSlideOnReorder(listRef: RefObject<HTMLUListElement>): void {
+    const lefts = useRef(new Map<string, number>())
+    useLayoutEffect(() => {
+        const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        listRef.current?.querySelectorAll<HTMLElement>('[data-pulse-key]').forEach((tile) => {
+            const key = tile.dataset.pulseKey ?? ''
+            const left = tile.getBoundingClientRect().left
+            const before = lefts.current.get(key)
+            if (!still && before !== undefined && Math.abs(before - left) > 1) {
+                tile.animate([{ transform: `translateX(${before - left}px)` }, { transform: 'none' }], {
+                    duration: REORDER_MS,
+                    easing: 'cubic-bezier(0.2, 0, 0, 1)',
+                })
+            }
+            lefts.current.set(key, left)
+        })
+    })
+}
+
 export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Element {
+    const listRef = useRef<HTMLUListElement>(null)
+    useSlideOnReorder(listRef)
     const { baseCurrency } = useValues(teamLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed } = useActions(todayHighlightsLogic)
+    const { pinnedPulseMetrics } = useValues(todayHighlightsLogic)
+    const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =
+        useActions(todayHighlightsLogic)
     return (
-        <ul className="TodayPulse" aria-label="Key numbers, against the period before">
+        <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
             {metrics.map((metric, position) => {
                 if (isPlaceholderTile(metric)) {
                     return (
                         <li
                             key={metric.key}
+                            data-pulse-key={metric.key}
                             className="TodayPulse__metric"
                             aria-busy={metric.placeholder === 'computing'}
                         >
@@ -117,6 +145,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                     )
                 }
                 const isInsight = metric.key.startsWith('insight:')
+                const pinned = pinnedPulseMetrics.some((pin) => pin.key === metric.key)
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
                 const content = (
@@ -139,15 +168,23 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                     </>
                 )
                 return (
-                    <li key={metric.key} className="TodayPulse__metric">
+                    <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
                             onOpen={() => pulseMetricPreviewed(metric, position)}
+                            onOpenChange={(open) =>
+                                open ? holdPulseOrder(metrics.map((tile) => tile.key)) : releasePulseOrder()
+                            }
                             card={
                                 <TodayPulseCard
                                     metric={metric}
                                     tone={tone}
                                     formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
+                                    pinned={pinned}
+                                    pinDisabledReason={pulsePinLimitReason(pinnedPulseMetrics.length, pinned)}
+                                    onTogglePin={() =>
+                                        togglePulsePin({ key: metric.key, name: metric.name }, 'hover_card')
+                                    }
                                 />
                             }
                         >

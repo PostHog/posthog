@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconArrowRight, IconInfo } from '@posthog/icons'
+import { IconArrowRight, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
 import {
     Button,
     Collapsible,
@@ -44,11 +44,17 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
+    pinned,
+    pinDisabledReason,
+    onTogglePin,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
+    pinned: boolean
+    pinDisabledReason?: string
+    onTogglePin: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
     const previous = metric.previous_value
@@ -122,23 +128,37 @@ export function TodayPulseCard({
                     ) : (
                         <span />
                     )}
-                    {why && (
-                        <Tooltip>
-                            <TooltipTrigger
-                                render={
-                                    <CollapsibleTrigger
-                                        iconOnly
-                                        icon={<IconInfo />}
-                                        className="-me-1.5 text-muted-foreground"
-                                        data-attr="today-pulse-card-why"
-                                    />
-                                }
-                            >
-                                Why you see this
-                            </TooltipTrigger>
-                            <TooltipContent>Why you see this</TooltipContent>
-                        </Tooltip>
-                    )}
+                    <div className="-me-1.5 flex items-center">
+                        <Button
+                            size="icon-xs"
+                            aria-label={pinned ? 'Unpin from your home' : 'Pin to your home'}
+                            tooltip={pinned ? 'Unpin from your home' : 'Pin to your home'}
+                            aria-pressed={pinned}
+                            disabledReason={pinDisabledReason}
+                            onClick={onTogglePin}
+                            className={pinned ? undefined : 'text-muted-foreground'}
+                            data-attr="today-pulse-card-pin"
+                        >
+                            {pinned ? <IconPinFilled /> : <IconPin />}
+                        </Button>
+                        {why && (
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <CollapsibleTrigger
+                                            iconOnly
+                                            icon={<IconInfo />}
+                                            className="text-muted-foreground"
+                                            data-attr="today-pulse-card-why"
+                                        />
+                                    }
+                                >
+                                    Why you see this
+                                </TooltipTrigger>
+                                <TooltipContent>Why you see this</TooltipContent>
+                            </Tooltip>
+                        )}
+                    </div>
                 </div>
                 {why && (
                     <CollapsibleContent className="px-0 pb-0">

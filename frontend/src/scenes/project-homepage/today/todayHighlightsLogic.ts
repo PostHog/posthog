@@ -41,6 +41,12 @@ export function isPlaceholderTile(tile: TodayPulseTile): tile is PulsePlaceholde
     return 'placeholder' in tile
 }
 
+export type PulsePinSource = 'editor' | 'hover_card'
+
+export function pulsePinLimitReason(pinnedCount: number, pinned: boolean): string | undefined {
+    return pinnedCount >= PULSE_TILES && !pinned ? `You can pin ${PULSE_TILES}. Unpin one first.` : undefined
+}
+
 function pulseKind(key: string): 'insight' | 'key_metric' {
     return key.startsWith('insight:') ? 'insight' : 'key_metric'
 }
@@ -64,6 +70,7 @@ export interface todayHighlightsLogicValues {
     pinnedPulseMetrics: PinnedPulseMetric[]
     pulseInsightResults: PinnedPulseMetric[]
     pulseInsightResultsLoading: boolean
+    pulseOrderHeld: string[] | null
     pulsePins: PulsePinApi[]
     pulsePinsLoading: boolean
     pulseTiles: TodayPulseTile[]
@@ -151,6 +158,22 @@ export interface todayHighlightsLogicActions {
     pulseEditorOpened: () => {
         value: true
     }
+    togglePulsePin: (
+        pin: PinnedPulseMetric,
+        source: PulsePinSource
+    ) => {
+        pin: PinnedPulseMetric
+        source: PulsePinSource
+    }
+    unpinAllPulse: () => {
+        value: true
+    }
+    holdPulseOrder: (keys: string[]) => {
+        keys: string[]
+    }
+    releasePulseOrder: () => {
+        value: true
+    }
     setHiddenHighlights: (hidden: Record<string, string>) => {
         hidden: Record<string, string>
     }
@@ -190,7 +213,8 @@ export interface todayHighlightsLogicMeta {
         pulseTiles: (
             pinnedPulseMetrics: PinnedPulseMetric[],
             suggestedPulseMetrics: HighlightMetricApi[],
-            highlights: HighlightsApi | null
+            highlights: HighlightsApi | null,
+            pulseOrderHeld: string[] | null
         ) => TodayPulseTile[]
     }
 }
@@ -217,6 +241,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         stopWaitingForHighlights: true,
         setPinnedPulseKeys: (metrics: PinnedPulseMetric[]) => ({ metrics }),
         pulseEditorOpened: true,
+        togglePulsePin: (pin: PinnedPulseMetric, source: PulsePinSource) => ({ pin, source }),
+        unpinAllPulse: true,
+        holdPulseOrder: (keys: string[]) => ({ keys }),
+        releasePulseOrder: true,
     }),
     loaders(({ values }) => ({
         pulseInsightResults: [
@@ -290,6 +318,13 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePins: {
             setPinnedPulseKeys: (_, { metrics }) => metrics,
         },
+        pulseOrderHeld: [
+            null as string[] | null,
+            {
+                holdPulseOrder: (_, { keys }) => keys,
+                releasePulseOrder: () => null,
+            },
+        ],
         hiddenHighlights: [
             {} as Record<string, string>,
             { persist: true },
@@ -324,11 +359,12 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 ),
         ],
         pulseTiles: [
-            (s) => [s.pinnedPulseMetrics, s.suggestedPulseMetrics, s.highlights],
+            (s) => [s.pinnedPulseMetrics, s.suggestedPulseMetrics, s.highlights, s.pulseOrderHeld],
             (
                 pinnedPulseMetrics: PinnedPulseMetric[],
                 suggestedPulseMetrics: HighlightMetricApi[],
-                highlights: HighlightsApi | null
+                highlights: HighlightsApi | null,
+                pulseOrderHeld: string[] | null
             ): TodayPulseTile[] => {
                 const computing = highlights?.status === 'computing'
                 const pinned: TodayPulseTile[] = pinnedPulseMetrics.map(
@@ -338,7 +374,15 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                             placeholder: computing ? 'computing' : 'unavailable',
                         }
                 )
-                return [...pinned, ...suggestedPulseMetrics].slice(0, Math.max(PULSE_TILES, pinned.length))
+                const tiles = [...pinned, ...suggestedPulseMetrics].slice(0, Math.max(PULSE_TILES, pinned.length))
+                if (!pulseOrderHeld) {
+                    return tiles
+                }
+                const place = (key: string): number => {
+                    const index = pulseOrderHeld.indexOf(key)
+                    return index === -1 ? pulseOrderHeld.length : index
+                }
+                return [...tiles].sort((a, b) => place(a.key) - place(b.key))
             },
         ],
         highlightsPending: [
@@ -385,10 +429,26 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }
             breakpoint()
             actions.loadHighlights()
-            posthog.capture('today pulse numbers kept', {
-                kept_count: metrics.length,
-                kept_kinds: metrics.map((metric) => pulseKind(metric.key)),
+        },
+        togglePulsePin: ({ pin, source }) => {
+            const pinned = values.pinnedPulseMetrics.some((existing) => existing.key === pin.key)
+            if (pulsePinLimitReason(values.pinnedPulseMetrics.length, pinned)) {
+                return
+            }
+            actions.setPinnedPulseKeys(
+                pinned
+                    ? values.pinnedPulseMetrics.filter((existing) => existing.key !== pin.key)
+                    : [...values.pinnedPulseMetrics, { key: pin.key, name: pin.name }]
+            )
+            posthog.capture(pinned ? 'today pulse number unpinned' : 'today pulse number pinned', {
+                kind: pulseKind(pin.key),
+                source,
+                pinned_count: values.pinnedPulseMetrics.length,
             })
+        },
+        unpinAllPulse: () => {
+            posthog.capture('today pulse numbers unpinned all', { pinned_count: values.pinnedPulseMetrics.length })
+            actions.setPinnedPulseKeys([])
         },
         pulseEditorOpened: () => {
             posthog.capture('today pulse editor opened', { kept_count: values.pinnedPulseMetrics.length })

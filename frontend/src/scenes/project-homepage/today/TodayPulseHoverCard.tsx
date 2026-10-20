@@ -11,12 +11,20 @@ export function TodayPulseHoverCard({
     children,
     card,
     onOpen,
+    onOpenChange,
 }: {
     children: ReactNode
     card: ReactNode
     onOpen: () => void
+    onOpenChange?: (open: boolean) => void
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
+    const [open, setOpenState] = useState(false)
+    const setOpen = (next: boolean): void => {
+        if (next !== open) {
+            onOpenChange?.(next)
+        }
+        setOpenState(next)
+    }
     const popupRef = useRef<HTMLDivElement>(null)
     const triggerRef = useCallback((): void => trackPointer(), [])
     const show = (next: boolean): void => {

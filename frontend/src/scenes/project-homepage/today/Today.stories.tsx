@@ -741,12 +741,35 @@ const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
 let storyPins: { key: string; name: string }[] = []
 let storyComputingCalls = 0
 
+const RETENTION_METRIC: HighlightsApi['pulse'][number] = {
+    ...CHECKOUT_METRIC,
+    key: 'insight:ret01',
+    name: 'Week 1 retention',
+    value: 0.412,
+    change_pct: -1.2,
+    series: [0.42, 0.41, 0.43, 0.42, 0.4, 0.41, 0.42, 0.41, 0.42, 0.42, 0.417, 0.412],
+    url: '/insights/ret01',
+    previous_value: 0.417,
+}
+
+const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
+    ...CHECKOUT_METRIC,
+    key: 'insight:arr01',
+    name: 'Monthly recurring revenue',
+    value: 48200,
+    change_pct: 3.4,
+    series: [39000, 40100, 41000, 41800, 42600, 43300, 44000, 44900, 45700, 46200, 46600, 48200],
+    url: '/insights/arr01',
+    value_format: { format: 'numeric', prefix: '$', postfix: null, decimal_places: 0 },
+    previous_value: 46600,
+}
+
 function storyHighlights(): HighlightsApi {
     if (storyComputingCalls > 0) {
         storyComputingCalls -= 1
         return { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
     }
-    const offered = [CHECKOUT_METRIC, ...HIGHLIGHTS.pulse]
+    const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
     const chosen = storyPins.flatMap((pin) => {
         const metric = offered.find((candidate) => candidate.key === pin.key)
         return metric ? [{ ...metric, reason: 'pinned' as const }] : []
