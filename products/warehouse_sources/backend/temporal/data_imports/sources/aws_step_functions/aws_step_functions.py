@@ -403,9 +403,9 @@ def validate_credentials(
             return True, None
         if error.code in ERROR_MESSAGES:
             return False, ERROR_MESSAGES[error.code]
-        message = probe_status_message("AWS Step Functions", error.status_code)
-        if message:
-            return False, message
+        status_message = probe_status_message("AWS Step Functions", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     finally:
         client.close()

@@ -453,7 +453,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
         # Every override gets the guard, so a new source cannot forget it.
         probe = cls.__dict__.get("validate_credentials")
         if callable(probe) and not getattr(probe, _GUARDED_PROBE, False):
-            cls.validate_credentials = _report_unreachable_vendor(probe)
+            cls.validate_credentials = _report_unreachable_vendor(probe)  # type: ignore[method-assign]
 
     def _vendor_label(self) -> str:
         # The label is for a message only, so a source config that cannot build must not hide the result.

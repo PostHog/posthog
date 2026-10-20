@@ -333,9 +333,9 @@ def validate_credentials(
         for code, message in ERROR_MESSAGES.items():
             if error.code.startswith(code):
                 return False, message
-        message = probe_status_message("AWS SageMaker", error.status_code)
-        if message:
-            return False, message
+        status_message = probe_status_message("AWS SageMaker", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     except requests.RequestException:
         return False, "Could not reach AWS SageMaker. Check the region and try again."

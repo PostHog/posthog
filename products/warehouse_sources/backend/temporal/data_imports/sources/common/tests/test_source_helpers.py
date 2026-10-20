@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 import requests
@@ -62,7 +64,7 @@ def _suppressed(context: BaseException) -> ValueError:
         (_http_error(401), False),
         (_http_error(403), False),
         (_http_error(404), False),
-        (requests.HTTPError("no response"), False),
+        (requests.HTTPError("no response", response=cast(requests.Response, None)), False),
         (OAuth2AuthRequestError("invalid_client", is_permanent=True), False),
         (_wrapped(_http_error(400)), False),
         (_implicitly_wrapped(_http_error(400)), False),

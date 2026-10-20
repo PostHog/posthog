@@ -257,9 +257,9 @@ def validate_credentials(
             return False, f"Grant {', '.join(others)} and {last} for this table."
         if error.code in ERROR_MESSAGES:
             return False, ERROR_MESSAGES[error.code]
-        message = probe_status_message("AWS WAF", error.status_code)
-        if message:
-            return False, message
+        status_message = probe_status_message("AWS WAF", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     finally:
         client.close()

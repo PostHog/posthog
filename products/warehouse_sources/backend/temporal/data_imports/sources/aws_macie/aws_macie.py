@@ -313,9 +313,9 @@ def validate_credentials(
         for pattern, message in ERROR_MESSAGES.items():
             if pattern.lower() in str(error).lower():
                 return False, message
-        message = probe_status_message("AWS Macie", error.status_code)
-        if message:
-            return False, message
+        status_message = probe_status_message("AWS Macie", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     finally:
         client.close()
