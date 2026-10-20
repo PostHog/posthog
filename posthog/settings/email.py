@@ -7,5 +7,3 @@ MESSAGING_HASH_SALT: str = os.getenv("MESSAGING_HASH_SALT") or SECRET_KEY
 MESSAGING_HASH_SALT_FALLBACKS: list[str] = [
     salt for salt in get_list(os.getenv("MESSAGING_HASH_SALT_FALLBACKS", "")) if salt
 ]
-
-POSTHOG_TRANSACTIONAL_EMAIL_API_KEY: str = os.getenv("POSTHOG_TRANSACTIONAL_EMAIL_API_KEY", "")

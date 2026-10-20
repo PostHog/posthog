@@ -69,6 +69,7 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # PostHog's internal US project is also used by callers running in the EU region.
 POSTHOG_PROJECT_ID: int = get_from_env("POSTHOG_PROJECT_ID", 2, type_cast=int)
 POSTHOG_HOST: str = get_from_env("POSTHOG_HOST", "https://us.posthog.com")
+POSTHOG_PROJECT_SECRET_API_KEY: str = get_from_env("POSTHOG_PROJECT_SECRET_API_KEY", "")
 
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
