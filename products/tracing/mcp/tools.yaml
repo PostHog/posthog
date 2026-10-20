@@ -81,6 +81,9 @@ tools:
         description: >
             List distinct service names that have emitted trace spans. Use to discover available services before
             filtering spans by service name.
+        param_overrides:
+            dateRange:
+                cast: object-json-string
         feature_flag: tracing
         response:
             include:
