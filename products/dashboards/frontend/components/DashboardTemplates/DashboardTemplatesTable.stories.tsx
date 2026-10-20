@@ -224,6 +224,7 @@ const storySecondProject: ProjectType = {
     id: storySecondTeam.id,
     name: storySecondTeam.name,
     organization_id: MOCK_ORGANIZATION_ID,
+    logo_media_id: null,
     created_at: MOCK_DEFAULT_PROJECT.created_at,
     is_pending_deletion: false,
     deletion_scheduled_at: null,
