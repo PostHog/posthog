@@ -479,6 +479,30 @@ export class EmailService {
 
             const from = this.resolveFromSender(integration, params.from, addLog)
 
+            // An empty `to` comes from the customer's data (a person without an email property, or no
+            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
+            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
+            // with bad data inflates the platform send failure rate.
+            if (!params.to?.email?.trim()) {
+                addLog(
+                    'warn',
+                    'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_missing_recipient',
+                        count: 1,
+                    })
+                }
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream

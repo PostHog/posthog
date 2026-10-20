@@ -1085,6 +1085,28 @@ describe('EmailService', () => {
             })
         })
 
+        // A person without an email property renders an empty `to`. Counting that as email_failed
+        // lets one project's data trip the platform send failure rate alert.
+        it.each([
+            ['an empty string', ''],
+            ['only whitespace', '   '],
+            ['no value', undefined],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: email as string, name: 'Test User' },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
+            expect(result.skipped).toBe(true)
+            expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+        })
+
         describe('SES tenant attribution', () => {
             it('attributes the send to the team tenant', async () => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
