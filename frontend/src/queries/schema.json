@@ -50769,7 +50769,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

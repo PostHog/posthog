@@ -422,6 +422,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.error_message
         self.assertRegex(result.error_message, "trailing tokens after expression")
+        self.assertEqual(result.error_code, "hogql_syntax_error")
 
     def test_async_query_user_safe_error_carries_error_code(self):
         query = build_query("SELECT * FROM events")
@@ -440,19 +441,35 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("unknown_identifier", 47, "unknown_identifier"),
-            ("unsupported_method", 1, "unsupported_method"),
-            ("syntax_error", 62, None),
-            ("query_was_cancelled", 394, None),
-            ("temporary_server_fault", 252, "too_many_parts"),
-            ("unknown_server_fault", 999_999, None),
+            # code_name can be lost when an internal error is re-raised from another thread.
+            ("unknown_identifier", InternalCHQueryError("DB::Exception: stored-secret", code=47), "unknown_identifier"),
+            ("unsupported_method", InternalCHQueryError("DB::Exception: stored-secret", code=1), "unsupported_method"),
+            ("syntax_error", InternalCHQueryError("DB::Exception: stored-secret", code=62), "syntax_error"),
+            (
+                "query_was_cancelled",
+                InternalCHQueryError("DB::Exception: stored-secret", code=394),
+                "query_was_cancelled",
+            ),
+            (
+                "temporary_server_fault",
+                InternalCHQueryError("DB::Exception: stored-secret", code=252),
+                "too_many_parts",
+            ),
+            (
+                "unknown_server_fault",
+                InternalCHQueryError("DB::Exception: stored-secret", code=999_999),
+                "unknown_exception",
+            ),
+            (
+                "python_error",
+                json.JSONDecodeError("stored-secret", "stored-secret", 0),
+                "unhandled_json_decode_error",
+            ),
         ]
     )
-    def test_async_query_internal_ch_error_code(self, _name, code, expected_code):
+    def test_async_query_internal_error_code(self, _name, error, expected_code):
         query = build_query("SELECT * FROM events")
         query_id = uuid.uuid4().hex
-        # code_name can be lost when an internal error is re-raised from another thread.
-        error = InternalCHQueryError("DB::Exception: stored-secret", code=code)
 
         with (
             patch("posthog.api.services.query.process_query_dict", side_effect=error),

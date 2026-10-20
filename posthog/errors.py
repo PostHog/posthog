@@ -1183,6 +1183,18 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     return None
 
 
+_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
+
+
+def unhandled_error_code(error: BaseException) -> str:
+    """Return a code for an unclassified failure from its type alone, since its message can quote stored data."""
+    if isinstance(error, InternalCHQueryError):
+        return look_up_clickhouse_error_code_meta(error).name.lower()
+    class_name = _WORD_BOUNDARY.sub(r"\1_\2", _ACRONYM_BOUNDARY.sub(r"\1_\2", type(error).__name__))
+    return f"unhandled_{class_name.lower()}"
+
+
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
