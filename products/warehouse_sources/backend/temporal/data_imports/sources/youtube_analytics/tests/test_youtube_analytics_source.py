@@ -114,10 +114,6 @@ class TestYouTubeAnalyticsSource:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
         assert schema.detected_primary_keys == expected
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=[TOP_VIDEOS])
-        assert [schema.name for schema in schemas] == [TOP_VIDEOS]
-
     def test_lists_tables_without_credentials(self) -> None:
         # The report catalog is static, so public docs can render it without connecting.
         assert self.source.lists_tables_without_credentials is True

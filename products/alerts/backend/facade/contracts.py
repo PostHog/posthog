@@ -7,13 +7,14 @@ an insight alert means.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.contracts import DestinationType
+from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
@@ -69,6 +70,28 @@ class DestinationBucket(StrEnum):
     STOCK = "N0"
 
 
+class HogFunctionPathReason(StrEnum):
+    """Why an alert the platform owns sends through its HogFunctions rather than natively."""
+
+    CUSTOMIZED = "customized"
+    # A function takes the source's alert events without being bound to one alert. Native
+    # delivery reads destinations per alert, so it would never send to it.
+    UNBOUND = "unbound"
+    # A stock webhook whose team receives the platform body natively. Its receiver parses the
+    # body the HogFunction sends.
+    NEW_WEBHOOK_BODY = "new_webhook_body"
+    WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+
+
+@frozen
+class DeliveryPathChoice:
+    reason: HogFunctionPathReason | None = None
+
+    @property
+    def path(self) -> DeliveryPath:
+        return DeliveryPath.NATIVE if self.reason is None else DeliveryPath.HOG_FUNCTION
+
+
 @frozen
 class DestinationEligibility:
     """One alert destination function, and every reason native delivery cannot take it over."""
@@ -96,3 +119,18 @@ class FiringAlert:
     name: str
     insight_name: str | None
     insight_short_id: str
+
+
+@frozen
+class AlertInternalEvent:
+    """One internal event that makes an alert's HogFunction destinations fire."""
+
+    event_name: str
+    properties: dict[str, Any]
+    timestamp: datetime
+    # Stable across attempts, so a receiver can drop an event a retry emits again.
+    uuid: str
+
+
+class AlertInternalEventsNotDelivered(Exception):
+    """The broker did not take every event, so the caller retries."""

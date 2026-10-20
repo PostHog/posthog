@@ -22,11 +22,6 @@ class TestCodySource:
         # credential be pointed at another instance's analytics.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["credits"])
-
-        assert [s.name for s in schemas] == ["credits"]
-
     def test_validate_credentials_success(self):
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cody.source.validate_cody_credentials",

@@ -329,3 +329,89 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_test_account_cohort_filter_is_applied
+  '''
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000001']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_test_account_cohort_filter_is_applied.1
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_test_account_cohort_filter_is_applied.2
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), notIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                                                                                                                                          (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                           FROM person_static_cohort
+                                                                                                                                                                                                                                                                                                                                                           WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---

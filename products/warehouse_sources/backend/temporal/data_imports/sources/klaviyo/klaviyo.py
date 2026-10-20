@@ -822,6 +822,11 @@ def klaviyo_source(
     conversion_metric_id: str | None = None,
 ) -> SourceResponse:
     endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
+    if not endpoint_config.is_served_at(api_version):
+        raise ValueError(
+            f"Klaviyo table {endpoint} requires Klaviyo API version {', '.join(endpoint_config.api_versions or ())}, "
+            f"but this source is pinned to {api_version}"
+        )
 
     return SourceResponse(
         name=endpoint,

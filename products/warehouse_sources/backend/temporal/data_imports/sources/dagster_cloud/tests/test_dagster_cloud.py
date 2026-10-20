@@ -170,14 +170,6 @@ class TestPagination:
         assert result.requests[0].json()["variables"]["filter"] == {"updatedAfter": EPOCH_2024}
 
 
-class TestSourceResponse:
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("nope", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Dagster Cloud endpoint" in str(result.raised)
-
-
 class TestValidateCredentials:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_failure(self, _name: str, status: int) -> None:

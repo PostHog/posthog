@@ -1,5 +1,6 @@
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 
+import { cleanTagFilters, type ResourceTagFilters } from '../components/resourceTagFilters'
 import type {
     AiObservabilityOfflineExperimentsListParams,
     AiObservabilityOfflineScorersHistoryListParams,
@@ -8,11 +9,12 @@ import type {
 export type OfflineExperimentFilters = Pick<
     AiObservabilityOfflineExperimentsListParams,
     'search' | 'statuses' | 'run_source' | 'date_from' | 'date_to'
->
+> &
+    Partial<ResourceTagFilters>
 
 export type OfflineOverviewTrendFilters = Pick<
     AiObservabilityOfflineScorersHistoryListParams,
-    'run_source' | 'statuses'
+    'run_source' | 'statuses' | 'tags' | 'tag_match'
 >
 
 export const OFFLINE_ALL_UPLOAD_STATES = 'completed,uploading,failed'
@@ -66,13 +68,16 @@ export function offlineFiltersFromUrl(search: Record<string, unknown>): OfflineE
         date_to: search.date_to ?? search.trend_to,
         run_source: search.run_source ?? search.trend_run_source,
     }
-    return Object.fromEntries(
-        FILTER_KEYS.flatMap((key) => {
-            const raw = shared[key]
-            const value = key === 'search' && Array.isArray(raw) && raw.length === 1 ? raw[0] : raw
-            return typeof value === 'string' && value ? [[key, value]] : []
-        })
-    )
+    return {
+        ...('tags' in search || 'tag_match' in search ? cleanTagFilters(search) : {}),
+        ...Object.fromEntries(
+            FILTER_KEYS.flatMap((key) => {
+                const raw = shared[key]
+                const value = key === 'search' && Array.isArray(raw) && raw.length === 1 ? raw[0] : raw
+                return typeof value === 'string' && value ? [[key, value]] : []
+            })
+        ),
+    }
 }
 
 export function offlineFiltersToUrl(filters: OfflineExperimentFilters): Record<string, unknown> {

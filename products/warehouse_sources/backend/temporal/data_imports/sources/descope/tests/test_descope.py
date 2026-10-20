@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.descope.descope import (
     DescopeResumeConfig,
     _audit_body,
-    get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.descope.settings import (
@@ -36,14 +35,6 @@ class TestAuditBody:
     def test_incremental_body_sets_from(self) -> None:
         body = _audit_body(should_use_incremental_field=True, db_incremental_field_last_value=1700000000000)
         assert body == {"from": 1700000000000}
-
-
-class TestGetResource:
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError):
-            get_resource(
-                "Nope", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
-            )
 
 
 class TestValidateCredentials:

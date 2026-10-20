@@ -182,6 +182,26 @@ class TestPagination:
         assert result.response is not None
         assert result.response.partition_keys == ["invoice_date"]
 
+    def test_volume_quota_usage_fans_out_per_quota_and_skips_quotas_without_usage(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/volumes/quotas":
+                return _page([{"quota_id": "vol-capacity-us-east"}, {"quota_id": "vol-attachments-us-east"}])
+            if request.path == "/v4/volumes/quotas/vol-attachments-us-east/usage":
+                return ScriptedResponse(status=404, json={"errors": [{"reason": "Not found"}]})
+            return ScriptedResponse(json={"quota_limit": 51200, "usage": 12800})
+
+        result = _driver().run("volume_quota_usage", respond)
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v4/volumes/quotas",
+            "/v4/volumes/quotas/vol-capacity-us-east/usage",
+            "/v4/volumes/quotas/vol-attachments-us-east/usage",
+        ]
+        assert result.requests[0].param("page_size") == "500"
+        assert result.requests[1].param("page_size") is None
+        assert result.rows == [{"quota_id": "vol-capacity-us-east", "quota_limit": 51200, "usage": 12800}]
+
     def test_account_transfer_yields_the_bare_object_as_one_row(self) -> None:
         transfer = {"quota": 4000, "used": 120, "billable": 0, "region_transfers": []}
         result = _driver().run("account_transfer", [ScriptedResponse(json=transfer)])

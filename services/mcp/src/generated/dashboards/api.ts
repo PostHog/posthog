@@ -113,9 +113,6 @@ export const DashboardsCreateQueryParams = () => zod.object({
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
-export const dashboardsCreateBodyRestrictionLevelMin = 21
-export const dashboardsCreateBodyRestrictionLevelMax = 21
-
 export const dashboardsCreateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
@@ -167,14 +164,6 @@ export const DashboardsCreateBody = () => zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .number()
-            .min(dashboardsCreateBodyRestrictionLevelMin)
-            .max(dashboardsCreateBodyRestrictionLevelMax)
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
-            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -266,9 +255,6 @@ export const DashboardsPartialUpdateQueryParams = () => zod.object({
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
-export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
-export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
-
 export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
@@ -420,14 +406,6 @@ export const DashboardsPartialUpdateBody = () => zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod
-            .number()
-            .min(dashboardsPartialUpdateBodyRestrictionLevelMin)
-            .max(dashboardsPartialUpdateBodyRestrictionLevelMax)
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
-            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -640,6 +618,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -723,6 +702,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                                 'in',
                                                                 'not_in',
                                                                 'is_cleaned_path_exact',
+                                                                'is_cleaned_path_not_exact',
                                                                 'flag_evaluates_to',
                                                                 'semver_eq',
                                                                 'semver_neq',
@@ -836,6 +816,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -970,6 +951,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1920,6 +1902,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1999,6 +1982,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -2173,6 +2157,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2348,6 +2333,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3208,6 +3194,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3287,6 +3274,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -3418,6 +3406,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3550,6 +3539,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',

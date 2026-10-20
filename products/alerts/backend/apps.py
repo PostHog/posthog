@@ -15,7 +15,14 @@ class AlertsConfig(AppConfig):
         from products.alerts.backend import activity_logging  # noqa: F401, PLC0415
 
         # The platform cannot import this product, so it reaches this product's destinations here.
-        from products.alerts.backend.facade.destinations import list_delivery_destination_groups  # noqa: PLC0415
-        from products.alerts_platform.backend.facade.delivery import register_destination_resolver  # noqa: PLC0415
+        from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
+            choose_delivery_path,
+            list_delivery_destination_groups,
+        )
+        from products.alerts_platform.backend.facade.delivery import (  # noqa: PLC0415
+            register_delivery_path_chooser,
+            register_destination_resolver,
+        )
 
         register_destination_resolver(list_delivery_destination_groups)
+        register_delivery_path_chooser(choose_delivery_path)

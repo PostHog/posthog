@@ -1,11 +1,3 @@
-"""Access control coverage for the non-core data warehouse viewsets.
-
-Covers managed viewsets, the data_warehouse stats/provisioning endpoints, model paths,
-data modeling jobs, and lineage — each gated under warehouse_view (reads) or
-warehouse_view:write (write actions). Verifies viewer/editor/none rejection and
-acceptance for the endpoints that actually get traffic.
-"""
-
 from datetime import timedelta
 
 import pytest

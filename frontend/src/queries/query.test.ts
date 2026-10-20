@@ -516,6 +516,19 @@ describe('query', () => {
         })
     })
 
+    it('throws a readable ApiError when the query endpoint returns no content', async () => {
+        jest.spyOn(api, 'query').mockResolvedValueOnce(null as any)
+
+        const promise = performQuery(
+            { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery,
+            undefined,
+            'blocking'
+        )
+        await expect(promise).rejects.toBeInstanceOf(ApiError)
+        await expect(promise).rejects.toMatchObject({ detail: expect.stringContaining('empty response') })
+        jest.restoreAllMocks()
+    })
+
     describe('transient query submission failures', () => {
         const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
         const refused = (): ApiError => new ApiError('', 503, undefined, {})

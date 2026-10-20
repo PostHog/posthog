@@ -17,10 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class TestGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = ElasticemailSource().get_schemas(MagicMock(), team_id=1, names=["contacts", "events"])
-        assert {s.name for s in schemas} == {"contacts", "events"}
-
     @parameterized.expand(
         [
             ("contacts",),

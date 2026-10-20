@@ -153,6 +153,23 @@ describe('useGroupList', () => {
             expect(apiGet).not.toHaveBeenCalled()
         })
 
+        it('clears remote rows without fetching when the query no longer passes the group predicate', async () => {
+            apiGet.mockResolvedValue({ results: [{ name: 'sample@example.com' }], count: 1 })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.EmailAddresses,
+                endpoint: 'api/projects/1/persons/values',
+                shouldSearch: (query: string): boolean => query.includes('@'),
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'sample@' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'sample@example.com' }]))
+            rerender({ q: 'sample' })
+            expect(result.current.items).toEqual([])
+            expect(result.current.isLoading).toBe(false)
+            expect(apiGet).toHaveBeenCalledTimes(1)
+        })
+
         it('drops the previous page when the query falls below the minimum length', async () => {
             apiGet.mockResolvedValue({ results: [{ name: 'checkout' }], count: 1 })
             const group = makeGroup({ endpoint: 'api/projects/1/whatever', minSearchQueryLength: 3 })

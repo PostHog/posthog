@@ -24,10 +24,8 @@ from products.workflows.backend.presentation.views.hog_flow import (
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
-BATCH_TRIGGER = {
-    "type": "batch",
-    "filters": {"properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}]},
-}
+BATCH_AUDIENCE = [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}]
+BATCH_TRIGGER = {"type": "batch", "filters": {"properties": BATCH_AUDIENCE}}
 
 SCHEDULE_DATA = {
     "rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO",
@@ -837,3 +835,114 @@ class TestHogFlowRun(APIBaseTest):
 
         assert retried.status_code == status.HTTP_200_OK
         assert mock_invocation.call_count == 2
+
+
+def _email_step(category_type=None, to=None):
+    config = {
+        "template_id": "template-email",
+        "inputs": {"email": {"value": {"to": {"email": to}, "html": "<p>Hi</p>"}}},
+    }
+    if category_type:
+        config.update(message_category_id="category-1", message_category_type=category_type)
+    return {"id": "email", "name": "email", "type": "function_email", "config": config}
+
+
+class TestSendCalendarAPI(APIBaseTest):
+    RANGE_START = datetime(2030, 3, 1, tzinfo=UTC)
+    RANGE_END = datetime(2030, 4, 12, tzinfo=UTC)
+
+    def _flow(self, name, *, trigger=BATCH_TRIGGER, email=None, flow_status="active", origin_product=None):
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name=name,
+            status=flow_status,
+            origin_product=origin_product,
+            trigger=trigger,
+            actions=[email] if email else [],
+        )
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=hog_flow,
+            rrule="FREQ=WEEKLY;BYDAY=MO",
+            starts_at=self.RANGE_START,
+            timezone="UTC",
+            status="active",
+        )
+        return hog_flow
+
+    def _run(self, hog_flow, created_at):
+        # bulk_create skips the signal that dispatches the run to the plugin server.
+        [job] = HogFlowBatchJob.objects.bulk_create(
+            [HogFlowBatchJob(team=self.team, hog_flow=hog_flow, status="completed")]
+        )
+        HogFlowBatchJob.objects.filter(id=job.id).update(created_at=created_at)
+        return str(job.id)
+
+    def _get(self, start=None, end=None):
+        return self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/send_calendar/",
+            {"start": (start or self.RANGE_START).isoformat(), "end": (end or self.RANGE_END).isoformat()},
+        )
+
+    @parameterized.expand(
+        [
+            ("marketing_broadcast", {"email": _email_step("marketing"), "origin_product": "broadcasts"}, True),
+            ("uncategorized_email", {"email": _email_step()}, True),
+            ("schedule_trigger", {"trigger": {"type": "schedule"}, "email": _email_step()}, True),
+            ("transactional_category", {"email": _email_step("transactional")}, False),
+            (
+                "transactional_email_product",
+                {"trigger": {"type": "batch"}, "email": _email_step(), "origin_product": "transactional_emails"},
+                False,
+            ),
+            ("no_email_step", {}, False),
+            ("draft", {"email": _email_step(), "flow_status": "draft"}, False),
+            ("event_trigger", {"trigger": {"type": "event"}, "email": _email_step()}, False),
+        ]
+    )
+    def test_lists_only_active_scheduled_email_flows_that_are_not_transactional(self, _name, flow_kwargs, listed):
+        hog_flow = self._flow("Flow", **flow_kwargs)
+
+        response = self._get()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["id"] for row in response.json()] == ([str(hog_flow.id)] if listed else [])
+
+    def test_returns_card_fields_and_only_the_runs_inside_the_range(self):
+        hog_flow = self._flow("October update", email=_email_step("marketing", to="team@example.com"))
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=hog_flow,
+            rrule="FREQ=DAILY;COUNT=1",
+            starts_at=self.RANGE_START,
+            timezone="UTC",
+            status="completed",
+        )
+        self._run(hog_flow, self.RANGE_START - timedelta(seconds=1))
+        inside = self._run(hog_flow, self.RANGE_START)
+
+        [row] = self._get().json()
+
+        assert row["name"] == "October update"
+        assert row["trigger_type"] == "batch"
+        assert row["audience_properties"] == BATCH_AUDIENCE
+        assert row["message_category_id"] == "category-1"
+        assert row["user_access_level"] == "editor"
+        assert "actions" not in row
+        assert [schedule["status"] for schedule in row["schedules"]] == ["active"]
+        assert [job["id"] for job in row["batch_jobs"]] == [inside]
+
+    def test_a_flow_with_only_a_past_run_inside_the_range_is_listed(self):
+        hog_flow = self._flow("Sent broadcast", email=_email_step("marketing"))
+        HogFlowSchedule.objects.filter(hog_flow=hog_flow).update(status="completed")
+        self._run(hog_flow, self.RANGE_START + timedelta(days=2))
+
+        assert [row["id"] for row in self._get().json()] == [str(hog_flow.id)]
+        assert self._get(end=self.RANGE_START + timedelta(days=1)).json() == []
+
+    @parameterized.expand([("end_before_start", -1), ("range_too_long", 93)])
+    def test_rejects_an_unusable_range(self, _name, days):
+        response = self._get(end=self.RANGE_START + timedelta(days=days))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "end"

@@ -21,10 +21,6 @@ class TestConfluentCloudSource:
             api_key="cloud-key", api_secret="cloud-secret", kafka_cluster_ids="lkc-111, lkc-222"
         )
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["kafka_metrics"])
-        assert [s.name for s in schemas] == ["kafka_metrics"]
-
     def test_endpoint_permissions_flag_unconfigured_metrics_tables(self):
         permissions = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
 

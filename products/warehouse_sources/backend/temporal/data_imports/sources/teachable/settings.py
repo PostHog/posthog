@@ -87,6 +87,40 @@ TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
         partition_key="created_at",
         # No server-side updated-since filter, so full refresh (the table is small).
     ),
+    # The four endpoints below sit two or more levels under /v1/courses, so `teachable.py` walks
+    # them with its own iterators. None has a server-side time filter: all are full refresh.
+    "course_progress": TeachableEndpointConfig(
+        name="course_progress",
+        # Needs a `user_id` query param, so this fans out over each course's enrollments.
+        path="/v1/courses/{course_id}/progress",
+        data_selector="course_progress",
+        primary_key=["course_id", "user_id"],
+        partition_key="enrolled_at",
+    ),
+    "lectures": TeachableEndpointConfig(
+        name="lectures",
+        # There is no lecture list endpoint: lecture ids come from the course detail curriculum.
+        path="/v1/courses/{course_id}/lectures/{lecture_id}",
+        data_selector="lecture",
+        primary_key=["course_id", "id"],
+    ),
+    "quizzes": TeachableEndpointConfig(
+        name="quizzes",
+        # The list endpoint returns only `quiz_ids`, so each id is resolved through
+        # /quizzes/{quiz_id} to get the quiz name and questions.
+        path="/v1/courses/{course_id}/lectures/{lecture_id}/quizzes",
+        data_selector="quiz_ids",
+        primary_key=["course_id", "lecture_id", "id"],
+    ),
+    "quiz_responses": TeachableEndpointConfig(
+        name="quiz_responses",
+        path="/v1/courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses",
+        data_selector="responses",
+        # The docs don't say whether a retake replaces the earlier submission, so the
+        # submission time is part of the key.
+        primary_key=["course_id", "lecture_id", "quiz_id", "student_id", "submitted_at"],
+        partition_key="submitted_at",
+    ),
 }
 
 ENDPOINTS = tuple(TEACHABLE_ENDPOINTS)
