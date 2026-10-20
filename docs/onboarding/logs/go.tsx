@@ -58,7 +58,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
 
                                     func setupLogging(ctx context.Context) (*sdklog.LoggerProvider, error) {
                                         exporter, err := otlploghttp.New(ctx,
-                                            otlploghttp.WithEndpointURL("<ph_client_api_host>/otlp/v1/logs"),
+                                            otlploghttp.WithEndpointURL("<ph_client_api_host>/i/v1/logs"),
                                             otlploghttp.WithHeaders(map[string]string{
                                                 "Authorization": "Bearer <ph_project_token>",
                                             }),
