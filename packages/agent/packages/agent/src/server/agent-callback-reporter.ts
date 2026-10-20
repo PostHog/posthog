@@ -250,10 +250,7 @@ export class AgentCallbackReporter {
   }
 
   reportRun(event: RunEvent): Promise<DeliveryOutcome> {
-    if (this.runEnded) {
-      this.config.logger.warn("Dropped run event after the run ended", {
-        type: event.type,
-      });
+    if (this.droppedAfterRunEnded(event)) {
       return Promise.resolve("skipped");
     }
     const callback: AgentCallback = {
@@ -268,10 +265,22 @@ export class AgentCallbackReporter {
       return delivered;
     }
     const delivered = this.runQueue.then(() =>
-      this.deliver(callback, RUN_EVENT_ATTEMPTS),
+      this.droppedAfterRunEnded(event)
+        ? "skipped"
+        : this.deliver(callback, RUN_EVENT_ATTEMPTS),
     );
     this.runQueue = delivered;
     return delivered;
+  }
+
+  private droppedAfterRunEnded(event: RunEvent): boolean {
+    if (!this.runEnded || event.type === "usage") {
+      return false;
+    }
+    this.config.logger.warn("Dropped run event after the run ended", {
+      type: event.type,
+    });
+    return true;
   }
 
   async settled(): Promise<void> {

@@ -348,7 +348,7 @@ describe("AgentCallbackReporter", () => {
     ]);
   });
 
-  it("drops run events after the run failed", async () => {
+  it("drops run events after the run failed, except usage", async () => {
     const { reporter, sent } = createReporter({ sendsCallbacks: false });
 
     await reporter.reportRun({
@@ -356,12 +356,47 @@ describe("AgentCallbackReporter", () => {
       error_type: "agent_reported",
       cause: "boom",
     });
-    const outcome = await reporter.reportRun({
-      type: "usage",
-      token_usage: { turns: 1 },
+    const outcomes = [
+      await reporter.reportRun({ type: "branch_changed", branch: "feat/x" }),
+      await reporter.reportRun({ type: "usage", token_usage: { turns: 1 } }),
+    ];
+
+    expect([outcomes, sent.length]).toEqual([["skipped", "dispatched"], 2]);
+  });
+
+  it("drops queued structured output once a failure overtakes it", async () => {
+    let releaseBranch!: () => void;
+    const branchPending = new Promise<boolean>((resolve) => {
+      releaseBranch = () => resolve(true);
+    });
+    const { reporter, sent } = createReporter({
+      sendsCallbacks: false,
+      send: (callback) =>
+        callback.kind === "run_event" &&
+        callback.event.type === "branch_changed"
+          ? branchPending
+          : Promise.resolve(true),
     });
 
-    expect([sent.length, outcome]).toEqual([1, "skipped"]);
+    void reporter.reportRun({ type: "branch_changed", branch: "feat/x" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    const output = reporter.reportRun({
+      type: "structured_output",
+      output: { summary: "done" },
+    });
+    await reporter.reportRun({
+      type: "failed",
+      error_type: "agent_server_crash",
+      cause: "boom",
+    });
+    releaseBranch();
+
+    expect(await output).toBe("skipped");
+    expect(
+      sent.map(
+        (callback) => callback.kind === "run_event" && callback.event.type,
+      ),
+    ).toEqual(["branch_changed", "failed"]);
   });
 
   it("sends a failure without waiting for earlier run events", async () => {
@@ -379,6 +414,7 @@ describe("AgentCallbackReporter", () => {
     });
 
     void reporter.reportRun({ type: "branch_changed", branch: "feat/x" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
     await reporter.reportRun({
       type: "failed",
       error_type: "agent_server_crash",
@@ -391,7 +427,7 @@ describe("AgentCallbackReporter", () => {
       sent.map(
         (callback) => callback.kind === "run_event" && callback.event.type,
       ),
-    ).toEqual(["failed", "branch_changed"]);
+    ).toEqual(["branch_changed", "failed"]);
   });
 
   it("does not hold run events behind a callback waiting for its ack", async () => {
