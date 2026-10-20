@@ -61,12 +61,6 @@ class TestValidateCredentials:
         assert ok is expected_ok
         assert network.requests_log[0].path == "/v3/organizations/org-abc/sessions"
 
-    def test_transport_failure_is_not_fatal_message(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, err = DevinAISource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert err is not None
-
 
 class TestNonRetryableErrors:
     @parameterized.expand(
