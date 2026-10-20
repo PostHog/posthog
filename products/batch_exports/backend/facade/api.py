@@ -762,7 +762,7 @@ def list_batch_export_runs(
 
 
 def get_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> contracts.BatchExportRunDetail:
-    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run."""
+    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run under this export, and the export is not deleted."""
     return _import_runs().get_run(team_id, export_id, run_id)
 
 
