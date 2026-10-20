@@ -8678,6 +8678,10 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     limit?: number
     /**
+     * Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:*` identity). Omit to return entries from every writer.
+     */
+    skill_name?: string
+    /**
      * ILIKE substring match against `content`. Omit to return the most recent entries.
      */
     text?: string
