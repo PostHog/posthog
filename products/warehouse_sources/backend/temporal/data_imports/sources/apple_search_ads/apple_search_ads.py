@@ -886,9 +886,7 @@ def apple_search_ads_source(
             token_provider=token_provider,
         ),
         primary_keys=list(config.primary_keys),
-        # Reporting windows are walked oldest-first, so `date` only ever moves forward across
-        # batches by at most one window — which the schema's trailing lookback re-reads.
-        sort_mode="asc",
+        # No `sort_mode`: each campaign restarts at the start of its window, so `date` has no order.
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
