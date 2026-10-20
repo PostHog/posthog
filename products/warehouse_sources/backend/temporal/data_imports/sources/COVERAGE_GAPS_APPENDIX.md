@@ -12721,6 +12721,16 @@ Diffed against: <https://docs.x.com/openapi.json>
 
 Note: Compared every GET operation in the current official X API specification with the seven source paths. Post and list engagement endpoints need requests for each parent; user lookup accepts batches of IDs. Analytics and direct messages require user authorization, while the current source accepts an application bearer token. Excluded write operations, uploads, webhook administration, compliance jobs, and continuous streams; plan access was not tested.
 
+## TwitterAds — gaps
+
+Today (8): `campaign_stats`, `campaigns`, `funding_instruments`, `lead_forms`, `line_item_stats`, `line_items`, `media_creatives`, `promoted_tweets`
+
+Diffed against: <https://docs.x.com/x-ads-api/lead-generation/reference>
+
+- [x] `Lead forms (GET /12/accounts/{account_id}/lead_forms)` — list native lead forms used by Lead Gen campaigns, with their fields and privacy policy (medium)
+
+Note: Added from the X API changelog entry for the Lead Generation API, not from a full sweep of the X Ads API. Leads themselves are only available through asynchronous export jobs, so they are not covered here.
+
 ## TyntecSMS — adequate
 
 Today (4): `Contacts`, `MessageStatus`, `PhoneNumbers`, `PhoneRegistrations`
