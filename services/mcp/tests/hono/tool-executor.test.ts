@@ -24,7 +24,7 @@ import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
-import { getToolDefinition } from '@/tools/toolDefinitions'
+import { getToolDefinition, getToolDefinitions } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 import { makeToolExecutorState, mockApi } from '../shared/test-utils'
@@ -245,6 +245,14 @@ describe('ToolExecutor', () => {
         const block = { projectHasData: false, variant: 'block' }
         const warn = { projectHasData: false, variant: 'warn' }
 
+        // The notice reaches only tools that declare `reads_ingested_data`, so a new query tool without it would skip it.
+        it('declares reads_ingested_data on every query tool', () => {
+            const undeclared = Object.entries(getToolDefinitions())
+                .filter(([name, definition]) => name.startsWith('query-') && !definition.reads_ingested_data)
+                .map(([name]) => name)
+            expect(undeclared).toEqual([])
+        })
+
         it.each<Row>([
             { mode: 'direct', tool: 'query-trends', ...block, outcome: 'blocked' },
             { mode: 'exec', tool: 'query-trends', ...block, outcome: 'blocked' },
@@ -290,12 +298,14 @@ describe('ToolExecutor', () => {
                     ...(withInstallTool ? [{ name: 'wizard-install-start' }] : []),
                 ]
                 const getOrFetchHasWarehouseData = vi.fn().mockResolvedValue(hasWarehouseData)
+                const baseContext = makeToolExecutorState([]).context
                 const state = makeToolExecutorState(roster as any, {
                     useSingleExec: mode === 'exec',
                     projectHasData,
                     toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
                     context: {
-                        ...makeToolExecutorState([]).context,
+                        ...baseContext,
+                        api: Object.assign(baseContext.api, { publicBaseUrl: 'https://us.posthog.com/' }),
                         stateManager: { getProjectId: vi.fn().mockResolvedValue('7'), getOrFetchHasWarehouseData },
                     } as any,
                     ...overrides,
@@ -314,6 +324,11 @@ describe('ToolExecutor', () => {
                     expect(result.content).toHaveLength(1)
                     expect(text).toContain('npx -y @posthog/wizard@latest --project-id=7')
                     expect(text.includes('`wizard-install-start`')).toBe(withInstallTool === true)
+                    expect(
+                        text.includes(
+                            'https://us.posthog.com/integrations/connect/github/?project_id=7&connect_from=mcp'
+                        )
+                    ).toBe(withInstallTool === true)
                 }
                 if (outcome === 'warned') {
                     // The tool still ran, so its own output follows the notice.

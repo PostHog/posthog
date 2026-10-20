@@ -20,6 +20,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Get element click stats
         description: >
             Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each

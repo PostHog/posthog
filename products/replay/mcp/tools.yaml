@@ -50,6 +50,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{id}'
         title: Get session recording
         description: >
@@ -161,6 +162,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List session recordings
         description_file: ./prompts/query-session-recordings-list.md
         system_prompt_hint: Session replay metadata and activity

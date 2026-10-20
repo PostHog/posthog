@@ -131,6 +131,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Break down MCP tool calls by harness
         description: >
             Group this project's MCP tool-call activity by the resolved client harness — the friendly product label for
@@ -154,6 +155,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Summarise one MCP tool
         description: >
             Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95
@@ -176,6 +178,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Daily trend for one MCP tool
         description: >
             Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and
@@ -198,6 +201,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Top errors for one MCP tool
         description: >
             Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came
@@ -223,6 +227,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Individual errored calls in one failure bucket
         description: >
             Return individual errored $mcp_tool_call events for a single MCP tool within one failure bucket, newest
@@ -248,6 +253,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Top callers of one MCP tool
         description: >
             Return the top callers of a single MCP tool: per caller, the call count, error rate, resolved harness
@@ -269,6 +275,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Tools called alongside one MCP tool
         description: >
             Return the tools most often called immediately before or after a single MCP tool within the same
@@ -291,6 +298,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Sample intents for one MCP tool
         description: >
             Return recent sample agent intents recorded for a single MCP tool, each with its resolved client harness.
@@ -312,6 +320,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Descriptions seen for one MCP tool
         description: >
             Return the distinct effective tool-description strings seen for a single MCP tool over the window. Pass
@@ -333,6 +342,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List MCP missing-capability reports
         description: >
             Return capabilities that agents asked this MCP server for but could not access. Each row contains one

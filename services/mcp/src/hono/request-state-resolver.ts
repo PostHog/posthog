@@ -3,7 +3,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction, noDataNoticeMode } from '@/lib/no-data-guard'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -252,8 +252,6 @@ export class RequestStateResolver {
                 ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
                 : undefined
 
-        context.noDataInstallNotice = noDataNoticeMode(mergedFlags[MCP_NO_DATA_INSTALL_NOTICE_FLAG]) !== undefined
-
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
             clientVersion: clientContext.mcpClientVersion,
@@ -462,15 +460,13 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent and no-data experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
                     flagKeys.map((key) => [
                         key,
-                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
-                            key !== MCP_INTENT_PROMPT_FLAG &&
-                            key !== MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
                     ])
                 ),
                 payloads: {},

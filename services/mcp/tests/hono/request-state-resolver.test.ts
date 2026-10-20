@@ -511,26 +511,16 @@ describe('RequestStateResolver MCP client contexts', () => {
 
     // Unknown must stay unknown: the no-data notice only fires on an explicit false.
     it.each([
-        [{ projectHasData: false }, 'block', false, true],
-        [{ projectHasData: false }, 'warn', false, true],
-        [{ projectHasData: false }, 'control', false, false],
-        [{ projectHasData: true }, 'block', true, true],
-        [undefined, undefined, undefined, false],
-    ])(
-        'carries the project ingestion state from analytics context %j with variant %s',
-        async (analyticsContext, variant, expectedHasData, expectedNotice) => {
-            mockAnalyticsContext.current = analyticsContext
-            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
-                flags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
-                payloads: {},
-            })
+        [{ projectHasData: false }, false],
+        [{ projectHasData: true }, true],
+        [undefined, undefined],
+    ])('carries the project ingestion state from analytics context %j', async (analyticsContext, expectedHasData) => {
+        mockAnalyticsContext.current = analyticsContext
 
-            const result = await makeResolver().resolve(makeProps())
+        const result = await makeResolver().resolve(makeProps())
 
-            expect(result.projectHasData).toBe(expectedHasData)
-            expect(result.context.noDataInstallNotice).toBe(expectedNotice)
-        }
-    )
+        expect(result.projectHasData).toBe(expectedHasData)
+    })
 
     it.each([
         { taskId: 'test-task' },

@@ -16,6 +16,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Get sessions behind heatmap coordinates
         description: >
             Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a
@@ -31,6 +32,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         list: true
         title: List heatmap interactions for a page
         description: >
@@ -221,6 +223,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Summarize web analytics
         description: >
             Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews,
@@ -239,6 +242,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a web analytics overview query
         description_file: ./prompts/query-web-overview.md
         system_prompt_hint: Web analytics KPIs — visitors, sessions, bounce rate, session duration
@@ -257,6 +261,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a web analytics breakdown table query
         description_file: ./prompts/query-web-stats.md
         system_prompt_hint: Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate
@@ -275,6 +280,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a web vitals path breakdown query
         description_file: ./prompts/query-web-vitals.md
         system_prompt_hint: Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor

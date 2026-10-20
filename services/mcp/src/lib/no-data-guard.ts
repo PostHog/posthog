@@ -1,6 +1,3 @@
-// A tool that is not listed here is never blocked, so a new data-read tool needs an entry here
-// or a `query-` name to return the install guidance on a project without events.
-
 import type { FlagValue } from '@/lib/posthog/flags'
 
 export const MCP_NO_DATA_INSTALL_NOTICE_FLAG = 'mcp-no-data-install-notice'
@@ -11,39 +8,10 @@ export function noDataNoticeMode(variant: FlagValue): NoDataNoticeMode | undefin
     return variant === 'warn' || variant === 'block' ? variant : undefined
 }
 
+export const INGESTED_DATA_KINDS = ['events', 'events_or_warehouse', 'logs', 'traces', 'metrics'] as const
+export type IngestedDataKind = (typeof INGESTED_DATA_KINDS)[number]
+
 export const WIZARD_INSTALL_START_TOOL = 'wizard-install-start'
-const GITHUB_CONNECT_URL_TOOL = 'integrations-github-connect-url'
-
-const BLOCKED_TOOL_PREFIX = 'query-'
-
-const BLOCKED_TOOLS: ReadonlySet<string> = new Set([
-    'insight-query',
-    'dashboard-insights-run',
-    'dashboard-widgets-run',
-    'persons-list',
-    'persons-retrieve',
-    'persons-values-retrieve',
-    'persons-cohorts-retrieve',
-    'session-recording-get',
-    'elements-stats-retrieve',
-    'heatmaps-list',
-    'heatmaps-events',
-    'web-analytics-weekly-digest',
-    'get-llm-total-costs-for-project',
-])
-
-// These tools also read data warehouse tables, so they still answer on a project with warehouse data and no events.
-const WAREHOUSE_QUERY_TOOLS: ReadonlySet<string> = new Set(['execute-sql', 'read-data-schema'])
-
-export function isNoDataBlockedTool(toolName: string): boolean {
-    return (
-        toolName.startsWith(BLOCKED_TOOL_PREFIX) || BLOCKED_TOOLS.has(toolName) || WAREHOUSE_QUERY_TOOLS.has(toolName)
-    )
-}
-
-export function canQueryWarehouse(toolName: string): boolean {
-    return WAREHOUSE_QUERY_TOOLS.has(toolName)
-}
 
 export interface NoDataNoticeAudience {
     projectHasData: boolean | undefined
@@ -68,26 +36,30 @@ export function resolveNoDataNoticeMode(audience: NoDataNoticeAudience): NoDataN
     return noDataNoticeMode(audience.variant)
 }
 
+export function githubConnectUrl(publicBaseUrl: string, projectId: string): string {
+    const params = new URLSearchParams({ project_id: projectId, connect_from: 'mcp' })
+    return `${publicBaseUrl.replace(/\/+$/, '')}/integrations/connect/github/?${params.toString()}`
+}
+
 export function buildNoDataInstallNotice({
     projectId,
-    offerGitHubInstall,
+    githubConnectUrl,
 }: {
     projectId: string
-    offerGitHubInstall: boolean
+    /** Set only when the GitHub pull request route is available. */
+    githubConnectUrl?: string | undefined
 }): string {
     const wizardCommand = `\`npx -y @posthog/wizard@latest --project-id=${projectId}\``
     const intro = `This project (id ${projectId}) hasn't received any events yet, so there is nothing to query.`
+    const wizardOption = `If you can run commands in the user's codebase, run Wizard in their app's folder: ${wizardCommand}. The setup agent installs the SDK and sends the first events.`
     const outro = 'Data appears about a minute after the first event; this message stops then.'
-    if (!offerGitHubInstall) {
-        return [
-            `${intro} Tell the user and offer to install PostHog by running Wizard in their app's folder: ${wizardCommand}. The setup agent installs the SDK and sends the first events.`,
-            outro,
-        ].join('\n')
+    if (!githubConnectUrl) {
+        return [`${intro} Tell the user and offer to install PostHog.`, wizardOption, outro].join('\n')
     }
     return [
-        `${intro} Tell the user and offer two ways to install PostHog:`,
-        `1. Run Wizard in their app's folder: ${wizardCommand}. The setup agent installs the SDK and sends the first events.`,
-        `2. Connect GitHub with \`${GITHUB_CONNECT_URL_TOOL}\`, then call \`${WIZARD_INSTALL_START_TOOL}\` with the repository, and PostHog opens a pull request that installs it.`,
+        `${intro} Tell the user and offer to install PostHog:`,
+        `1. ${wizardOption}`,
+        `2. Otherwise, call \`${WIZARD_INSTALL_START_TOOL}\` with the repository, and PostHog opens a pull request that installs it. If the project isn't connected to GitHub yet, give the user this link first: ${githubConnectUrl}`,
         outro,
     ].join('\n')
 }

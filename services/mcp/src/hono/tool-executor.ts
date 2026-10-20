@@ -30,8 +30,7 @@ import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import {
     buildNoDataInstallNotice,
-    canQueryWarehouse,
-    isNoDataBlockedTool,
+    githubConnectUrl,
     MCP_NO_DATA_INSTALL_NOTICE_FLAG,
     type NoDataNoticeMode,
     prependNoDataNotice,
@@ -60,6 +59,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
+import { getToolIngestedData } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -775,7 +775,8 @@ export class ToolExecutor {
         toolName: string,
         state: ResolvedState
     ): Promise<{ mode: NoDataNoticeMode; text: string } | undefined> {
-        if (!isNoDataBlockedTool(toolName) || !state.allTools.some((tool) => tool.name === toolName)) {
+        const ingestedData = getToolIngestedData(toolName)
+        if (!ingestedData || !state.allTools.some((tool) => tool.name === toolName)) {
             return undefined
         }
         const mode = resolveNoDataNoticeMode({
@@ -793,7 +794,7 @@ export class ToolExecutor {
         if (!projectId) {
             return undefined
         }
-        if (canQueryWarehouse(toolName)) {
+        if (ingestedData === 'events_or_warehouse') {
             const hasWarehouseData = await state.context.stateManager
                 .getOrFetchHasWarehouseData(projectId)
                 .catch(() => undefined)
@@ -801,9 +802,13 @@ export class ToolExecutor {
                 return undefined
             }
         }
+        const offerGitHubInstall =
+            isCloudApi() && state.allTools.some((tool) => tool.name === WIZARD_INSTALL_START_TOOL)
         const text = buildNoDataInstallNotice({
             projectId,
-            offerGitHubInstall: isCloudApi() && state.allTools.some((tool) => tool.name === WIZARD_INSTALL_START_TOOL),
+            githubConnectUrl: offerGitHubInstall
+                ? githubConnectUrl(state.context.api.publicBaseUrl, projectId)
+                : undefined,
         })
         return { mode, text }
     }

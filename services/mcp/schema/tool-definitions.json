@@ -268,7 +268,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events"
     },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
@@ -420,7 +421,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events"
     },
     "llma-parser-recipe-create": {
         "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
@@ -658,7 +660,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events_or_warehouse"
     },
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.\n\nPut all parameters in `query`. Select the schema with `kind`:\n\n```json\n{ \"query\": { \"kind\": \"events\" } }\n```",
@@ -672,7 +675,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events_or_warehouse"
     },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",

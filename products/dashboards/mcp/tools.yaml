@@ -310,6 +310,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{params.id}'
         title: Run dashboard insights
         description: >
@@ -649,6 +650,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{params.id}'
         title: Run dashboard widgets
         description: >

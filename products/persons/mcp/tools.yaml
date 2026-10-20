@@ -33,6 +33,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Get person cohorts
         description: |
             Get all cohorts that a specific person belongs to. Requires the person_id query parameter.
@@ -47,6 +48,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         list: true
         title: List persons
         description: >
@@ -114,6 +116,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{uuid}'
         title: Get person
         description: |
@@ -138,6 +141,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Get person property values
         description: >
             Get distinct values for a person property key. Useful for discovering what values exist for properties like

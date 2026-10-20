@@ -457,6 +457,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{params.issueId}'
         title: Query error tracking issue
         description_file: ./prompts/query-error-tracking-issue.md
@@ -471,6 +472,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{params.issueId}'
         title: Query error tracking issue events
         description_file: ./prompts/query-error-tracking-issue-events.md
@@ -485,6 +487,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         enrich_url: '{id}'
         list: true
         title: Query error tracking issues list
