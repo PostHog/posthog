@@ -234,6 +234,9 @@ export class RecordingService {
                     container_hostname: process.env.HOSTNAME || 'unknown',
                 }),
                 max_execution_time: 30,
+                // The lookup has no date bound, so cap it to keep it from starving playback listings on the shared pool.
+                max_threads: 4,
+                max_bytes_to_read: '10000000000',
             },
         })
         const rows = await result.json()
