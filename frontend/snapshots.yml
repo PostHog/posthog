@@ -2593,9 +2593,9 @@ snapshots:
     components-sharing--dashboard-sharing--light:
         hash: v1.k794b7964.5f6110ca74b9cbcd8533e6ef7a27d21e39dffb7fb47badd98eff9558696edaf1.v90RMIq4sZEsfHeUnh6tMkn9f5XfqrCH773D16M3HGY
     components-sharing--dashboard-sharing-licensed--dark:
-        hash: v1.k794b7964.9d3da1f1746d52609577029a3d7b1bf67f1b0b98391b3c8dfb2a20c07c47f488.wBaXiHe7YLaaxopy_GhVeH9o-Py90L85aD9JVlD_9ok
+        hash: v1.k794b7964.f3addd7389a092d64c44b7d9637542cb9e18fc58d2fac0ace02ef71cfdbbcb6b.tOl9v2jubFHs7Mp8Vsyt8aLxVcfd_46H57x7EzNU8HQ
     components-sharing--dashboard-sharing-licensed--light:
-        hash: v1.k794b7964.602614952b8ab439849b70033b416c94828b627b572fa161876dfb63545e9ae6.-GqCyQSw3lzGYAAPLRft0Rdz6otSvGD9pnw_AMrhMu4
+        hash: v1.k794b7964.3345909d8f89c934e44a38830fa068998fde5aecdfc171cad9aaf2e9c833af60.r0sr7WnhbzOQ9N58Hd33a3F16jNmaOtTLQKbn8UIGHk
     components-sharing--insight-sharing--dark:
         hash: v1.k794b7964.ced9828e7edacbe1c75ff3dd4c892daeb996fe0292bb61ddcea340f361bc3db6.80MnXjKdeTtupehXi3tzvr1Ov5DwPMgCfxj3TfhRrCQ
     components-sharing--insight-sharing--light:
@@ -2604,6 +2604,10 @@ snapshots:
         hash: v1.k794b7964.fd0442e5fa5b4e73dcaa6a371531b562e76109d7796afd1e7872cac2ed0c69ed.KenKN_Ir-gZzX0BjE9weo1vznK2j8ucP3byfh-arl7k
     components-sharing--insight-sharing-licensed--light:
         hash: v1.k794b7964.3da9301ea63a20be20cb9107226dc69f219372ce6e39f90ef5f9e560c9412540.-vdFnOau7-g5ZDEN2MDixSVpz6KuYQtV6aIdtGKTmmc
+    components-sharing--notebook-sharing-with-access-controls--dark:
+        hash: v1.k794b7964.dfcdff34c71e3a6bbd89848fd292241428a5c1603008fbf33bf77c18d3f2fed1.NBlQLHBV7zY9mAAxPeJjhIaEWovecg836CcUB72dmp0
+    components-sharing--notebook-sharing-with-access-controls--light:
+        hash: v1.k794b7964.76e1953231389338b11c42f4f982fc7f7ea3777acf65d613e5b9cf77da6cb976._qendEPbWgHp6uwG23l_OoPtpAo4xQyKddUZn6N_CiE
     components-sharing--recording-sharing-licensed--dark:
         hash: v1.k794b7964.9a607e1c8b67aa4caf736f532eae8f04172a08b1519a5b233caed383cd61ac2e.oJJ1rz584k526jS3YRjmGoRSSlONVnNRC_gh0BpAWDw
     components-sharing--recording-sharing-licensed--light:
