@@ -25,6 +25,10 @@ EMBEDDING_RENDERING = "summary_text"
 # The model `EMBEDDINGS_TABLE` holds. The worker also writes the other models, like the report rows.
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 KAFKA_FLUSH_TIMEOUT_SECONDS = 60.0
+# `document_embeddings` drops a row three months after its timestamp, which is the partition day. Three
+# months is never less than 89 days, and the margin leaves room for the worker and the read-back.
+SOURCE_TTL_DAYS = 89
+SOURCE_TTL_MARGIN_DAYS = 7
 
 # `timestamp` is in the table's sort key as `toDate(timestamp)`, and every row of a partition carries
 # the partition day, so the day bound prunes the read to one day of the table.
@@ -57,6 +61,13 @@ class SummaryDocument:
 class LandedVector:
     embedding: list[float]
     content: str
+
+
+def within_source_ttl(partition_key: str, today: datetime.date) -> bool:
+    """Whether a vector stamped with this partition day still lives in `document_embeddings` long
+    enough to be read back. An older backfill would lose its vectors and write a partial partition."""
+    age_days = (today - datetime.date.fromisoformat(partition_key)).days
+    return age_days <= SOURCE_TTL_DAYS - SOURCE_TTL_MARGIN_DAYS
 
 
 def document_id(user_id: int, partition_key: str) -> str:

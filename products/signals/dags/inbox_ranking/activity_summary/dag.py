@@ -42,6 +42,7 @@ from products.signals.dags.inbox_ranking.activity_summary.embeddings import (
     flush_embedding_requests,
     landed_vectors,
     pending_documents,
+    within_source_ttl,
 )
 from products.signals.dags.inbox_ranking.activity_summary.prompt import PROMPT_VERSION
 from products.signals.dags.inbox_ranking.activity_summary.render import (
@@ -599,12 +600,36 @@ def previous_summaries(
     return found
 
 
+def keep_earlier_successes(
+    rows: list[dict[str, Any]], existing: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """A re-run's rows, with each failed row replaced by the pair's successful row from the earlier
+    write of the partition, so a transient failure does not destroy a summary. Returns the rows and
+    how many were kept from the earlier write."""
+    earlier = {
+        MemberProject(team_id=row["team_id"], user_id=row["user_id"]): row
+        for row in existing
+        if row["status"] == STATUS_OK
+    }
+    merged: list[dict[str, Any]] = []
+    kept = 0
+    for row in rows:
+        previous = earlier.get(MemberProject(team_id=row["team_id"], user_id=row["user_id"]))
+        if row["status"] != STATUS_OK and previous is not None:
+            merged.append(previous)
+            kept += 1
+        else:
+            merged.append(row)
+    return merged, kept
+
+
 @dagster.asset(name=SUMMARIES_TABLE, deps=[INPUTS_TABLE], **ASSET_KWARGS)
 def activity_summaries(context: dagster.AssetExecutionContext, config: SummariesConfig) -> None:
     """One LLM summary per `activity_summary_inputs` row, with its tokens, latency and cost.
 
     A row whose answer stays malformed after one retry, or whose request fails, is written with
-    `status = failed`. When every row fails, the asset fails and leaves the partition as it was."""
+    `status = failed`, unless an earlier write of the partition holds a successful row for that pair.
+    When every row fails, the asset fails and leaves the partition as it was."""
     if skip_unconfigured(context):
         return
     partition_key = context.partition_key
@@ -654,7 +679,9 @@ def activity_summaries(context: dagster.AssetExecutionContext, config: Summaries
         )
 
     key = partition_object_key(prefix, SUMMARIES_TABLE, partition_key)
-    write_parquet(client, bucket, key, pa.Table.from_pylist(rows, schema=SUMMARIES_SCHEMA))
+    existing = read_parquet_if_exists(client, bucket, key)
+    written_rows, kept = keep_earlier_successes(rows, [] if existing is None else existing.to_pylist())
+    write_parquet(client, bucket, key, pa.Table.from_pylist(written_rows, schema=SUMMARIES_SCHEMA))
     capture_training_events(
         context,
         partition_key,
@@ -666,6 +693,7 @@ def activity_summaries(context: dagster.AssetExecutionContext, config: Summaries
         {
             "rows": dagster.MetadataValue.int(len(rows)),
             "failed": dagster.MetadataValue.int(failed),
+            "kept_from_earlier_run": dagster.MetadataValue.int(kept),
             "used_previous_summary": dagster.MetadataValue.int(sum(1 for row in rows if row["used_previous_summary"])),
             "tokens_in": dagster.MetadataValue.int(sum(row["tokens_in"] for row in rows)),
             "tokens_out": dagster.MetadataValue.int(sum(row["tokens_out"] for row in rows)),
@@ -733,6 +761,12 @@ def activity_summary_embeddings(context: dagster.AssetExecutionContext, config: 
     if skip_unconfigured(context):
         return
     partition_key = context.partition_key
+    if not within_source_ttl(partition_key, datetime.datetime.now(datetime.UTC).date()):
+        context.log.warning(
+            f"dt={partition_key} is too old: its vectors would expire from document_embeddings before they "
+            "could be read back; nothing to embed"
+        )
+        return
     client = s3_client()
     bucket = dataset_bucket()
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX

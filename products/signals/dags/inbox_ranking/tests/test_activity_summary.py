@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import time_machine
 
 import dagster
 import pyarrow as pa
@@ -16,7 +17,11 @@ from parameterized import parameterized
 from posthog import settings
 
 from products.signals.dags.inbox_ranking.activity_summary import dag
-from products.signals.dags.inbox_ranking.activity_summary.embeddings import LandedVector, SummaryDocument
+from products.signals.dags.inbox_ranking.activity_summary.embeddings import (
+    LandedVector,
+    SummaryDocument,
+    within_source_ttl,
+)
 from products.signals.dags.inbox_ranking.activity_summary.prompt import (
     MalformedSummaryError,
     normalize_summary,
@@ -727,19 +732,56 @@ def test_summaries_asset_reads_earlier_partitions_only_and_survives_a_failed_cap
     assert "Previous summary:\nNone" in messages["- input eight"]
 
 
-def test_summaries_asset_leaves_the_partition_alone_when_every_row_fails(
-    memory_s3: _MemoryS3, monkeypatch: pytest.MonkeyPatch
+class _FailingForLLM(_FakeLLM):
+    def __init__(self, failing_input: str):
+        super().__init__([_answer()])
+        self.failing_input = failing_input
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        if kwargs["messages"][1]["content"].endswith(self.failing_input):
+            self.requests.append(kwargs)
+            raise _CONNECTION_ERROR
+        return super().create(**kwargs)
+
+
+@pytest.mark.parametrize("users", [[7], [7, 8]], ids=["every row fails", "one row fails"])
+def test_summaries_asset_keeps_earlier_successes_when_a_rerun_fails(
+    users: list[int], memory_s3: _MemoryS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    memory_s3.write(dag.INPUTS_TABLE, PARTITION, [_input_row(2, 7, "- input seven")], dag.INPUTS_SCHEMA)
+    names = {7: "seven", 8: "eight"}
+    memory_s3.write(
+        dag.INPUTS_TABLE,
+        PARTITION,
+        [_input_row(2, user, f"- input {names[user]}") for user in users],
+        dag.INPUTS_SCHEMA,
+    )
     memory_s3.write(dag.SUMMARIES_TABLE, PARTITION, [_summary_row(2, 7, "ok", PREVIOUS)], dag.SUMMARIES_SCHEMA)
-    monkeypatch.setattr(dag, "gateway_client", lambda partition_key: _FakeLLM([_CONNECTION_ERROR]))
+    monkeypatch.setattr(dag, "gateway_client", lambda partition_key: _FailingForLLM("- input seven"))
+    context = dagster.build_asset_context(partition_key=PARTITION)
 
-    with pytest.raises(dagster.Failure):
-        dag.activity_summaries(dagster.build_asset_context(partition_key=PARTITION), dag.SummariesConfig())
+    if len(users) == 1:
+        with pytest.raises(dagster.Failure):
+            dag.activity_summaries(context, dag.SummariesConfig())
+    else:
+        dag.activity_summaries(context, dag.SummariesConfig())
 
-    assert [row["summary_json"] for row in memory_s3.read(dag.SUMMARIES_TABLE, PARTITION)] == [json.dumps(PREVIOUS)]
+    rows = memory_s3.read(dag.SUMMARIES_TABLE, PARTITION)
+    assert [(row["user_id"], row["status"]) for row in rows] == [(user, "ok") for user in users]
+    assert rows[0]["summary_json"] == json.dumps(PREVIOUS)
 
 
+@parameterized.expand(
+    [
+        ("recent partition", "2026-10-18", True),
+        ("at the cutoff", "2026-07-29", True),
+        ("past the cutoff", "2026-07-28", False),
+    ]
+)
+def test_within_source_ttl(_name: str, partition_key: str, expected: bool) -> None:
+    assert within_source_ttl(partition_key, datetime.date(2026, 10, 19)) is expected
+
+
+@time_machine.travel(datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC), tick=False)
 def test_embeddings_asset_embeds_only_new_text_and_never_shrinks_a_written_partition(
     memory_s3: _MemoryS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:

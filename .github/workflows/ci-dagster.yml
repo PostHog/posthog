@@ -179,6 +179,7 @@ jobs:
                         - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
                         - 'posthog/api/embedding_worker.py'
+                        - 'posthog/security/outbound_proxy.py'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/personhog_client/**'
