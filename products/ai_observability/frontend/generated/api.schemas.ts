@@ -2969,7 +2969,7 @@ export interface LLMProviderKeyApi {
      * @nullable
      */
     readonly system_one_model_display: string | null
-    /** Azure OpenAI endpoint URL */
+    /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
     azure_endpoint?: string
     /**
      * Azure OpenAI API version
@@ -3589,7 +3589,7 @@ export interface PatchedLLMProviderKeyApi {
      * @nullable
      */
     readonly system_one_model_display?: string | null
-    /** Azure OpenAI endpoint URL */
+    /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
     azure_endpoint?: string
     /**
      * Azure OpenAI API version
@@ -4607,19 +4607,6 @@ export interface TaggerModelConfigurationWriteApi {
      * @nullable
      */
     provider_key_id?: string | null
-}
-
-export interface TaggerCreateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
 }
 
 export interface TaggerUpdateApi {

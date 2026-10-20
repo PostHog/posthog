@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonModal, LemonSelect, Link, Spinner } from
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { Scene } from 'scenes/sceneTypes'
@@ -17,6 +18,7 @@ import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
@@ -143,7 +145,10 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 }
 
 export function BroadcastRecipientsStep(): JSX.Element {
-    const { audienceProperties, linkAudienceRejected } = useValues(broadcastWizardLogic)
+    const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
+    const { audienceProperties, linkAudienceRejected, blastRadius } = useValues(broadcastWizardLogic)
+    // A realtime cohort has to be the audience's only condition.
+    const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
@@ -189,11 +194,12 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 pageKey="broadcast-wizard-recipients"
                 propertyFilters={audienceProperties}
                 addText="Add condition"
+                allowNew={!realtimeCohortAlone}
                 orFiltering
                 sendAllKeyUpdates
                 allowRelativeDateOptions
                 {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
-                hideBehavioralCohorts
+                hideBehavioralCohorts={!cohortConditionsEnabled}
                 logicalRowDivider
                 onChange={(properties) => setAudienceProperties(properties)}
                 taxonomicGroupTypes={[
@@ -209,17 +215,20 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
-            <div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconUpload />}
-                    onClick={openListModal}
-                    data-attr="broadcast-audience-add-list"
-                >
-                    Upload a list
-                </LemonButton>
-            </div>
+            <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
+            {!realtimeCohortAlone && (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconUpload />}
+                        onClick={openListModal}
+                        data-attr="broadcast-audience-add-list"
+                    >
+                        Upload a list
+                    </LemonButton>
+                </div>
+            )}
             <BroadcastAudienceCohorts />
             <BroadcastAudienceListModal />
             <MessageCategoryPicker />

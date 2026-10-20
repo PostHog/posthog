@@ -195,6 +195,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = cast(CachedHogQLQueryResponse, runner.run())
 
             self.assertIsNotNone(response.cache_target_age)
+            self.assertIsNone(response.column_formats)
             self.assertEqual(response.cache_target_age, expected_target_age)
 
     @parameterized.expand(

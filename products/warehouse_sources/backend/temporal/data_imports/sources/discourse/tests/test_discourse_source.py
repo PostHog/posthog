@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.source import DiscourseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.discourse import (
     DiscourseSourceConfig,
@@ -65,8 +64,3 @@ class TestDiscourseSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 42
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("nope", [])
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Discourse schema" in str(result.raised)

@@ -44,7 +44,6 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     ScheduleReconcilePlan,
     Tier,
     bucket_into_cadence_tiers,
-    is_tier_schedule_id,
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
@@ -82,13 +81,10 @@ logger = structlog.get_logger(__name__)
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
-    """Trigger hook for graph/target mutations: reconcile an already-tiered DAG, best-effort.
+    """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
-    commit — the user's write already succeeded. Only DAGs already converted to cadence
-    tiers are touched: `require_tiered` below leaves legacy single-schedule DAGs to the
-    reconcile_freshness_schedules command, so a stray mutation cannot unschedule an
-    unseeded DAG.
+    commit — the user's write already succeeded.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
@@ -97,7 +93,7 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
         graph = build_frequency_graph(dag)
         _warn_on_invalid_targets(dag, graph)
-        reconcile_dag_schedules(dag, require_tiered=True, graph=graph)
+        reconcile_dag_schedules(dag, graph=graph)
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
@@ -110,10 +106,6 @@ def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery |
     for callers that are not inside an atomic block — so call this only once the v2 lookup has
     said the DAG has no `execute-dag` schedule, and only after whatever frequency validation the
     caller does, never before.
-
-    Reconciles without `require_tiered`, because this is the pass that creates the DAG's first
-    tier schedules: `maybe_reconcile_dag` cannot stand in for it, since it declines a DAG that
-    has no tier schedule yet.
 
     `requested_by` is the saved query whose enable triggered this, and is marked not materialized
     if the reconcile fails.
@@ -258,18 +250,11 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> bool:
+def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
-    Converging a covered DAG to zero schedules is refused only while it still has just legacy
-    (non-tier) schedules AND schedulable nodes — an empty tier set there almost always means
-    unseeded targets. A DAG with no schedulable nodes has nothing to seed, so its legacy schedule
-    is swept rather than left firing no-op runs. Once tier schedules exist, an empty tier set is a
-    deliberate wind-down (last target reverted/cleared) and those tiers are torn down. With
-    `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing) is
-    left untouched.
-
-    Returns whether a reconcile was applied; False means a guard skipped it.
+    An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
+    schedules are torn down.
     """
     team = dag.team
     if graph is None:
@@ -279,14 +264,12 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
     )
     effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
-    return _apply_reconciliation(
+    _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
-        require_tiered=require_tiered,
-        has_schedulable_nodes=bool(graph.nodes),
     )
 
 
@@ -429,9 +412,7 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[Tier, set[str]],
-    require_tiered: bool = False,
-    has_schedulable_nodes: bool = True,
-) -> bool:
+) -> None:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
         tiers = ", ".join(format_cadence(interval) for interval in unsupported)
@@ -441,31 +422,6 @@ async def _apply_reconciliation(
 
     temporal = await async_connect()
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
-    # `require_tiered` protects a DAG that still holds legacy (non-tier) schedules: tiering only
-    # the seeded nodes would delete the whole-DAG schedule and leave the unseeded ones with no
-    # scheduler. A DAG holding no schedule at all carries no such risk and has no scheduler to
-    # lose, so it reconciles: that is a DAG whose views were all paused and one re-enabled.
-    if require_tiered and existing_ids and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
-        logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
-        return False
-    # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
-    # conversion — protect it, but only when there is anything to seed: a DAG with no schedulable
-    # nodes gets its legacy schedule swept instead of firing no-op runs forever. Once tier
-    # schedules exist, empty desired is a deliberate wind-down (last target reverted/cleared/
-    # "never"), so let the teardown sweep the stale tiers instead of leaving them firing
-    # execute-dag on node_ids that no longer materialize.
-    if (
-        not desired_tiers
-        and has_schedulable_nodes
-        and existing_ids
-        and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids)
-    ):
-        logger.warning(
-            "Refusing to unschedule an unseeded DAG with only legacy schedules",
-            dag_id=dag_id,
-            existing_schedule_ids=sorted(existing_ids),
-        )
-        return False
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
     # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on
@@ -509,7 +465,6 @@ async def _apply_reconciliation(
         except Exception as error:
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
-    return True
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:

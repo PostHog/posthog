@@ -24,18 +24,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SessionRecordingSidebarTab } from '~/types'
 
 import { visionObservationsList, visionScannersInlineScanCreate, visionScannersObserveCreate } from '../generated/api'
+import { BuiltInScanKeyEnumApi } from '../generated/api.schemas'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { isSummarizerScanner } from '../replay_scanners/types'
 import { isSummaryObservation } from '../utils/observation'
 import { RecordingTimeline, recordingTimeline } from '../utils/recordingTimeline'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
-import {
-    BUILT_IN_SUMMARIZER,
-    SUMMARIZE_RECORDING_CONFIG,
-    resolveSummarizer,
-    summarizeOutcomeMessage,
-} from './summarizeRecording'
+import { BUILT_IN_SUMMARIZER, resolveSummarizer, summarizeOutcomeMessage } from './summarizeRecording'
 import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -422,7 +418,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             cache.summarizeInFlight = true
             try {
                 const response = await visionScannersInlineScanCreate(String(teamId), {
-                    ...SUMMARIZE_RECORDING_CONFIG,
+                    built_in: BuiltInScanKeyEnumApi.SummarizeRecording,
                     session_ids: [props.sessionId],
                 })
                 // One session in, so one result out. The inline scanner is shared per project, so a

@@ -22,10 +22,6 @@ class TestSimFinSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert SimFinSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = SimFinSource().get_schemas(_make_config(), team_id=1, names=["companies", "share_prices"])
-        assert {s.name for s in schemas} == {"companies", "share_prices"}
-
     @parameterized.expand(
         [
             ("valid", "KEY", "AAPL", True, True, None),

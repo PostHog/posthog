@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { toolHrefForPath } from 'scenes/tools/toolsUtils'
@@ -17,7 +18,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 import { TODAY_PANES } from './todayRailItems'
 
-export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products' | 'settings'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings'
 
 /** What showed or hid the sidebar. `navigation` is a page change that hides the unpinned sidebar. */
 export type TodaySidebarToggleSource =
@@ -79,14 +80,16 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
     }
-    // Notebooks and dashboards are views, list pages included, so they never open the Products pane.
+    // Notebooks, dashboards and insights are analytics, list pages included, so they never open the Products pane.
     if (
-        isUnderPath(path, urls.views()) ||
+        isUnderPath(path, urls.analytics()) ||
         isUnderPath(path, '/canvases') ||
         isUnderPath(path, urls.notebooks()) ||
-        isUnderPath(path, urls.dashboards())
+        isUnderPath(path, urls.dashboards()) ||
+        isUnderPath(path, '/insights') ||
+        fromPostHogProducts().some((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))
     ) {
-        return 'views'
+        return 'analytics'
     }
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
@@ -107,6 +110,7 @@ export interface todayShellLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     mobileLayout: boolean // navigationLogic
     activePane: TodayRailPane
+    lastSceneUrl: string | null
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
@@ -157,6 +161,13 @@ export interface todayShellLogicActions {
     }
     pickPane: (pane: TodayRailPane) => {
         pane: TodayRailPane
+    }
+    rememberSceneUrl: (location: { hash: string; pathname: string; search: string }) => {
+        location: {
+            hash: string
+            pathname: string
+            search: string
+        }
     }
     setMobileSidebarOpen: (open: boolean) => {
         open: boolean
@@ -223,6 +234,18 @@ export type todayShellLogicType = MakeLogicType<
     todayShellLogicMeta
 >
 
+function isAiPath(pathname: string): boolean {
+    const path = removeProjectIdIfPresent(pathname)
+    return path === urls.ai() || path.startsWith(`${urls.ai()}/`)
+}
+
+function sceneUrlOutsideAi(
+    current: string | null,
+    { pathname, search, hash }: { pathname: string; search: string; hash: string }
+): string | null {
+    return isAiPath(pathname) ? current : `${pathname}${search}${hash}`
+}
+
 export const todayShellLogic = kea<todayShellLogicType>([
     path(['layout', 'today', 'todayShellLogic']),
     connect(() => ({
@@ -230,6 +253,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
+        rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),
         pickPane: (pane: TodayRailPane) => ({ pane }),
         goBackOnPhone: true,
         setPhonePages: (pages: TodayPhonePage[]) => ({ pages }),
@@ -282,6 +306,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
                     nextPhonePages(state, method, { pathname, url: `${pathname}${search}${hash}` }),
             },
         ],
+        // Where the user was before /ai, so a chat moved from /ai into the panel opens over that scene again.
+        lastSceneUrl: [
+            null as string | null,
+            {
+                locationChanged: (state, location) => sceneUrlOutsideAi(state, location),
+                rememberSceneUrl: (state, { location }) => sceneUrlOutsideAi(state, location),
+            },
+        ],
         // The resizer persists the width itself. This copy lets the app layout size the main column from it.
         sidebarWidth: [TODAY_SIDEBAR_DEFAULT_WIDTH, { setSidebarWidth: (_, { width }) => clampSidebarWidth(width) }],
     }),
@@ -324,10 +356,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         ],
         onAiPage: [
             () => [router.selectors.location],
-            (location: { pathname: string }): boolean => {
-                const path = removeProjectIdIfPresent(location.pathname)
-                return path === urls.ai() || path.startsWith(`${urls.ai()}/`)
-            },
+            (location: { pathname: string }): boolean => isAiPath(location.pathname),
         ],
         phoneHeaderHidden: [
             (s) => [s.onAiPage, router.selectors.searchParams, s.todayRailEnabled, s.phoneLayout],
@@ -445,6 +474,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
     afterMount(({ actions, cache }) => {
         const { pathname, search, hash } = router.values.location
         cache.lastPathname = pathname
+        actions.rememberSceneUrl({ pathname, search, hash })
         actions.setPhonePages([{ pathname, url: `${pathname}${search}${hash}` }])
     }),
 ])
