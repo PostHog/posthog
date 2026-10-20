@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.control_plane import control_plane_task_queue
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
@@ -964,6 +965,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             trigger_schedule_buffer_one_activity,
             schedule_id,
+            task_queue=control_plane_task_queue(),
             start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -1036,6 +1038,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         team_id=inputs.team_id,
                         schema_id=inputs.external_data_schema_id,
                     ),
+                    task_queue=control_plane_task_queue(),
                     start_to_close_timeout=dt.timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
@@ -1079,6 +1082,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             create_job_result = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
+                task_queue=control_plane_task_queue(),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
@@ -1127,6 +1131,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = await workflow.execute_activity(
                     check_billing_limits_activity,
                     CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
+                    task_queue=control_plane_task_queue(),
                     start_to_close_timeout=dt.timedelta(minutes=1),
                     retry_policy=RetryPolicy(
                         initial_interval=dt.timedelta(seconds=10),
@@ -1432,6 +1437,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 await workflow.execute_activity(
                     create_source_templates,
                     CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
+                    task_queue=control_plane_task_queue(),
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
@@ -1544,6 +1550,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 await workflow.execute_activity(
                     update_external_data_job_model,
                     update_inputs,
+                    task_queue=control_plane_task_queue(),
                     start_to_close_timeout=dt.timedelta(minutes=1),
                     retry_policy=RetryPolicy(
                         initial_interval=dt.timedelta(seconds=10),
@@ -1564,6 +1571,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=inputs.external_data_schema_id,
                             token=lock_token,
                         ),
+                        task_queue=control_plane_task_queue(),
                         start_to_close_timeout=dt.timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )

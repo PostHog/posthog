@@ -290,6 +290,14 @@ DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehous
 # Post-sync table metadata (semantic enrichment + column statistics) runs on its own worker so this
 # best-effort work can't starve the import pipeline.
 DATA_WAREHOUSE_METADATA_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-metadata-task-queue")
+# The short status, lock and bookkeeping activities of an import run go to this queue when the routing
+# is on, so CPU-heavy imports in the same process do not slow them. Turn the routing on only after a
+# worker polls this queue in the region: a routed activity has no schedule-to-start timeout, so with no
+# poller the run stops at that activity.
+DATA_WAREHOUSE_CONTROL_PLANE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-control-plane-task-queue")
+DATA_WAREHOUSE_CONTROL_PLANE_ROUTING_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_CONTROL_PLANE_ROUTING_ENABLED", False, type_cast=str_to_bool
+)
 # A data import that leaves a worker which is shutting down runs again without using a retry
 # attempt. Turn this on only when every worker on the queue has the code that reads the hand-off
 # fields of the import activity: an older worker ignores them and reuses the first attempt's run id.

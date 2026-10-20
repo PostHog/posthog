@@ -48,7 +48,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
 )
-from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES, WORKFLOWS
+from products.warehouse_sources.backend.temporal.data_imports.settings import (
+    ACTIVITIES,
+    CONTROL_PLANE_ACTIVITIES,
+    WORKFLOWS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
 from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
     ACTIVITIES as METADATA_ACTIVITIES,
@@ -58,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import prepar
 
 __all__ = [
     "ACTIVITIES",
+    "CONTROL_PLANE_ACTIVITIES",
     "METADATA_ACTIVITIES",
     "METADATA_WORKFLOWS",
     "PERSON_PROPERTY_BACKFILL_ACTIVITIES",

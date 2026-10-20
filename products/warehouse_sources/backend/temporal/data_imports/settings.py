@@ -68,3 +68,17 @@ ACTIVITIES = [
     maybe_repartition_table_activity,
     resolve_post_import_context_activity,
 ]
+
+# Short status, lock and bookkeeping activities that read no source data and no table files. They stay
+# in ACTIVITIES too, so the import worker still runs them while the routing is off and while scheduled
+# ones drain.
+CONTROL_PLANE_ACTIVITIES = [
+    acquire_v3_pipeline_lock_activity,
+    create_external_data_job_model_activity,
+    check_billing_limits_activity,
+    update_external_data_job_model,
+    release_v3_pipeline_lock_activity,
+    trigger_schedule_buffer_one_activity,
+    create_source_templates,
+    resolve_post_import_context_activity,
+]
