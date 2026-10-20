@@ -65,7 +65,9 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
         blocks.append(context_block(clip_text(context, MAX_CONTEXT_CHARS)))
     if message.image is not None:
         blocks.append(image_block(message.image.url, message.image.alt_text))
-    blocks.append(actions_block([SlackButton(text=link.label, url=link.url) for link in message.links]))
+    actions = actions_block([SlackButton(text=link.label, url=link.url) for link in message.links])
+    actions["elements"].extend(message.slack_elements)
+    blocks.append(actions)
     return blocks
 
 

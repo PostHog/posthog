@@ -446,6 +446,8 @@ def _firing_detail(
         "breaches": list(breaches),
         "insight_name": alert.insight.name,
         "insight_short_id": alert.insight.short_id,
+        # The legacy alert's id, which a native message's snooze menu snoozes.
+        "alert_id": str(alert.id),
     }
     # A render takes up to a minute and a half, so only an alert the platform delivers for pays
     # for one. Production renders no chart for a real-time alert either.

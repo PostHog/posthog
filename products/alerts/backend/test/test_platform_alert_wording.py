@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
+from products.alerts.backend.logic.insight_alert_destinations import snooze_select
 from products.alerts.backend.platform_alert_wording import describe_insight_transition
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
@@ -22,6 +23,7 @@ DETAIL = {
     "insight_name": "Signups",
     "insight_short_id": "abc123",
     "insight_chart_url": "https://example.com/chart.png",
+    "alert_id": "01900000-0000-0000-0000-000000000001",
 }
 LINK = MessageLink(label="View insight", url=absolute_uri("/project/7/insights/abc123"))
 
@@ -38,6 +40,7 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     context=("Insight: Signups",),
                     data_link=LINK,
                     image=MessageImage(url="https://example.com/chart.png", alt_text="Insight chart"),
+                    slack_elements=(snooze_select("01900000-0000-0000-0000-000000000001"),),
                 ),
             ),
             # The platform states a failure in its own words, so only the insight's name and link are added.

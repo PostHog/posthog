@@ -1146,6 +1146,9 @@ class SourceDescription:
     data_link: MessageLink | None = None
     # A picture of that data, such as the insight's chart. A provider that cannot show one leaves it out.
     image: MessageImage | None = None
+    # Slack elements that act on the alert from the message, such as a snooze menu, beside the
+    # buttons. They are Slack's own Block Kit, so every other provider leaves them out.
+    slack_elements: tuple[dict[str, Any], ...] = ()
 
 
 class SourceDescriber(Protocol):

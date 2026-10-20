@@ -72,6 +72,7 @@ class AlertMessage:
     context: tuple[str, ...] = ()
     data_link: MessageLink | None = None
     image: MessageImage | None = None
+    slack_elements: tuple[dict[str, Any], ...] = ()
     incident_action: IncidentAction | None = None
 
     @property
@@ -199,5 +200,6 @@ def build_message(
         context=description.context,
         data_link=description.data_link,
         image=description.image,
+        slack_elements=description.slack_elements,
         incident_action=incident_action,
     )
