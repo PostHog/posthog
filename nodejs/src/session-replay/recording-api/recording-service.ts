@@ -28,7 +28,7 @@ export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'n
 
 export type EncryptBlocksResult =
     | { ok: true; blocks: Buffer[] }
-    | { ok: false; error: 'cleartext_recording' }
+    | { ok: false; error: 'recording_exists' }
     | RecordingDeletedResult
 
 export type DeleteRecordingResult =
@@ -68,12 +68,13 @@ export class RecordingService {
         if (!encryptor) {
             throw new Error('Encryptor not initialized')
         }
+        // Encrypting only for sessions with no stored recording keeps this route from touching ingested data,
+        // and stops a new key from breaking the plaintext blocks of a pre-encryption recording.
+        if (await this.recordingExists(sessionId, teamId)) {
+            return { ok: false, error: 'recording_exists' }
+        }
         let sessionKey = await this.keyStore.getKey(sessionId, teamId)
         if (sessionKey.sessionState === 'cleartext') {
-            // Minting a key for a pre-encryption recording would make its plaintext blocks unreadable.
-            if (await this.recordingExists(sessionId, teamId)) {
-                return { ok: false, error: 'cleartext_recording' }
-            }
             sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
         }
         if (sessionKey.sessionState === 'deleted') {

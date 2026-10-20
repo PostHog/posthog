@@ -674,7 +674,7 @@ describe('RecordingApi', () => {
                 200,
                 { blocks: [Buffer.from('sealed').toString('base64')] },
             ],
-            [{ ok: false, error: 'cleartext_recording' }, 409, { error: 'cleartext_recording' }],
+            [{ ok: false, error: 'recording_exists' }, 409, { error: 'recording_exists' }],
             [
                 { ok: false, error: 'deleted', deletedAt: 1700000000, deletedBy: 'user@example.com' },
                 410,

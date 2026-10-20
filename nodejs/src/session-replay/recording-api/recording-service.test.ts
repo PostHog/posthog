@@ -795,17 +795,21 @@ describe('RecordingService', () => {
             expect(mockKeyStore.generateKey).toHaveBeenCalledTimes(expectedKeyMints)
         })
 
-        it('refuses to mint a key over a recording that predates encryption', async () => {
-            mockKeyStore.getKey.mockResolvedValue(cleartextKey)
+        it.each([
+            ['a recording that predates encryption', cleartextKey],
+            ['an ingested encrypted recording', ciphertextKey],
+        ])('refuses to encrypt into %s', async (_, existingKey) => {
+            mockKeyStore.getKey.mockResolvedValue(existingKey)
             mockRecordingExists(true)
 
             const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
 
-            expect(result).toEqual({ ok: false, error: 'cleartext_recording' })
+            expect(result).toEqual({ ok: false, error: 'recording_exists' })
             expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
         })
 
         it('returns deleted when the session key was shredded', async () => {
+            mockRecordingExists(false)
             mockKeyStore.getKey.mockResolvedValue({
                 ...cleartextKey,
                 sessionState: 'deleted',

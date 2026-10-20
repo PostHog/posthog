@@ -27,7 +27,7 @@ class CopySessionInput(BaseModel):
 
 class CopySessionResult(BaseModel):
     session_id: str
-    status: Literal["copied", "already_copied", "not_found"]
+    status: Literal["copied", "already_copied", "not_found", "failed"]
     block_count: int = 0
     event_count: int = 0
     warnings: list[str] = Field(default_factory=list)

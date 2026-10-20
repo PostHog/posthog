@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
@@ -49,7 +51,7 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
             block_last_timestamps=[datetime.fromisoformat(b.end_timestamp) for b in self.blocks],
             ensure_analytics_event_in_session=False,
         )
-        for i in range(3):
+        self.event_uuids = [
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -57,9 +59,11 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
                 timestamp=self.start + timedelta(seconds=10 * i),
                 properties={"$session_id": "s1", "$current_url": "https://example.com/pricing"},
             )
+            for i in range(3)
+        ]
         flush_persons_and_events()
 
-    def _run(self) -> tuple[CopySessionResult, MagicMock, AsyncMock]:
+    def _run(self, target_team_id: int | None = None) -> tuple[CopySessionResult, MagicMock, AsyncMock]:
         client = MagicMock()
         client.fetch_block = AsyncMock(side_effect=lambda key, *_: f"plain-{key[-20:]}".encode())
         client.encrypt_blocks = AsyncMock(side_effect=lambda _s, _t, blocks, _r: [b"sealed:" + b for b in blocks])
@@ -73,7 +77,10 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
             patch(f"{ACTIVITIES}._upload", upload),
         ):
             input = CopySessionInput(
-                source_team_id=self.team.pk, target_team_id=self.target_team.pk, session_id="s1", retention_days=365
+                source_team_id=self.team.pk,
+                target_team_id=target_team_id or self.target_team.pk,
+                session_id="s1",
+                retention_days=365,
             )
             result: CopySessionResult = async_to_sync(self._run_activity)(input)
         return result, client, upload
@@ -81,7 +88,19 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
     async def _run_activity(self, input: CopySessionInput) -> CopySessionResult:
         return await ActivityEnvironment().run(copy_session_recording, input)
 
-    def test_copies_recording_events_and_metadata_into_target_team(self) -> None:
+    @parameterized.expand([("fresh_target", 0), ("retry_after_partial_event_copy", 1)])
+    def test_copies_recording_events_and_metadata_into_target_team(self, _: str, pre_copied_events: int) -> None:
+        for uuid in self.event_uuids[:pre_copied_events]:
+            _create_event(
+                team=self.target_team,
+                event_uuid=uuid,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=self.start,
+                properties={"$session_id": "s1"},
+            )
+        flush_persons_and_events()
+
         result, client, upload = self._run()
 
         assert (result.status, result.block_count, result.event_count, result.warnings) == ("copied", 2, 3, [])
@@ -113,3 +132,12 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
         assert result.status == "already_copied"
         client.encrypt_blocks.assert_not_awaited()
         upload.assert_not_awaited()
+
+    def test_refuses_to_copy_into_another_organization(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+
+        with self.assertRaises(ApplicationError) as error:
+            self._run(target_team_id=other_team.pk)
+
+        assert error.exception.non_retryable
+        assert SessionReplayEvents().get_metadata("s1", other_team) is None

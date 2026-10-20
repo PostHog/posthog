@@ -2,14 +2,17 @@ import time
 import asyncio
 import secrets
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 
+import aiohttp
 import aioboto3
 import structlog
 from asgiref.sync import sync_to_async
 from botocore.client import Config
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -17,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
+from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, fetch_blocks_from_recording_api
 from posthog.temporal.session_replay.copy_recording.types import (
@@ -51,6 +55,9 @@ WHERE team_id = %(target_team_id)s AND `$session_id` = %(session_id)s
     + SESSION_WINDOW
 )
 
+# Waits for every shard, so the count after the insert sees all copied rows.
+SYNC_INSERT_SETTINGS = {"insert_distributed_sync": 1}
+
 # dmat_* columns are per-team slot allocations, so the target team reads these properties from `properties` instead.
 COPY_EVENTS_QUERY = (
     """
@@ -71,6 +78,13 @@ FROM events
 WHERE team_id = %(source_team_id)s AND `$session_id` = %(session_id)s
 """
     + SESSION_WINDOW
+    + """
+  AND uuid NOT IN (
+      SELECT uuid FROM events
+      WHERE team_id = %(target_team_id)s AND `$session_id` = %(session_id)s
+"""
+    + SESSION_WINDOW
+    + ")"
 )
 
 # AI tags, highlights and surfacing scores are left out so the copy starts unscanned.
@@ -165,6 +179,7 @@ async def _copy_blocks(input: CopySessionInput, source_blocks: list[RecordingBlo
                 )
 
         plaintext = await asyncio.gather(*(fetch(b) for b in source_blocks))
+        activity.heartbeat()
         encrypted: list[bytes] = []
         for batch in _batch_blocks(plaintext):
             encrypted += await client.encrypt_blocks(
@@ -174,6 +189,7 @@ async def _copy_blocks(input: CopySessionInput, source_blocks: list[RecordingBlo
 
     key = _new_block_key(input.retention_days)
     await _upload(key, b"".join(encrypted))
+    activity.heartbeat()
 
     urls: list[str] = []
     offset = 0
@@ -183,6 +199,14 @@ async def _copy_blocks(input: CopySessionInput, source_blocks: list[RecordingBlo
         )
         offset += len(block)
     return urls
+
+
+def _check_same_organization(source_team_id: int, target_team_id: int) -> None:
+    organizations = set(
+        Team.objects.filter(id__in=[source_team_id, target_team_id]).values_list("organization_id", flat=True)
+    )
+    if len(organizations) != 1:
+        raise ApplicationError("Source and target teams must be in the same organization", non_retryable=True)
 
 
 @activity.defn
@@ -196,6 +220,8 @@ async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
         "session_id": input.session_id,
     }
 
+    await sync_to_async(_check_same_organization)(input.source_team_id, input.target_team_id)
+
     if await sync_to_async(_count)(REPLAY_ROW_EXISTS_QUERY, params):
         log.info("copy_recording.already_copied")
         return CopySessionResult(session_id=input.session_id, status="already_copied")
@@ -205,15 +231,24 @@ async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
         log.warning("copy_recording.source_not_found")
         return CopySessionResult(session_id=input.session_id, status="not_found")
 
-    block_urls = await _copy_blocks(input, source_blocks)
-
     start, end = source_blocks[0].start_timestamp, source_blocks[-1].end_timestamp
+    # Expiry counts from the copied start time, so a too-short retention would hide the copy at once.
+    if datetime.fromisoformat(start).astimezone(UTC) + timedelta(days=input.retention_days) <= datetime.now(UTC):
+        raise ApplicationError("retention_days ends before today for this recording", non_retryable=True)
+
+    try:
+        block_urls = await _copy_blocks(input, source_blocks)
+    except RecordingDeletedError as e:
+        raise ApplicationError("Recording was deleted", non_retryable=True) from e
+    except aiohttp.ClientResponseError as e:
+        # 409 means the target session already holds a recording, 413 a block too large to encrypt in one request.
+        if e.status in (409, 413):
+            raise ApplicationError(f"recording-api refused to encrypt: {e.status}", non_retryable=True) from e
+        raise
+
     window_params = {**params, "start": start, "end": end}
-    # Events have no unique key, so a retry after this insert must not insert them twice.
+    await sync_to_async(sync_execute)(COPY_EVENTS_QUERY, window_params, settings=SYNC_INSERT_SETTINGS)
     event_count = await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, window_params)
-    if not event_count:
-        await sync_to_async(sync_execute)(COPY_EVENTS_QUERY, window_params)
-        event_count = await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, window_params)
 
     await sync_to_async(sync_execute)(
         COPY_REPLAY_ROW_QUERY,
@@ -224,7 +259,10 @@ async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
             "block_urls": block_urls,
             "retention_days": input.retention_days,
         },
+        settings=SYNC_INSERT_SETTINGS,
     )
+    if not await sync_to_async(_count)(REPLAY_ROW_EXISTS_QUERY, params):
+        raise ApplicationError("Source recording was deleted during the copy", non_retryable=True)
 
     warnings: list[str] = []
     visible = await sync_to_async(_visible_event_count)(input.target_team_id, input.session_id, start, end)

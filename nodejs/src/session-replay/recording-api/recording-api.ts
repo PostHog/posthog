@@ -362,8 +362,8 @@ export class RecordingApi {
                 retentionDays
             )
             if (!result.ok) {
-                if (result.error === 'cleartext_recording') {
-                    res.status(409).json({ error: 'cleartext_recording' })
+                if (result.error === 'recording_exists') {
+                    res.status(409).json({ error: 'recording_exists' })
                     return
                 }
                 res.status(410).json({

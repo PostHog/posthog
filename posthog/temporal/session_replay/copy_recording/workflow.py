@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from temporalio import common, workflow
+from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.copy_recording.activities import copy_session_recording
@@ -22,17 +23,20 @@ class CopyRecordingsWorkflow(PostHogWorkflow):
     async def run(self, input: CopyRecordingsInput) -> CopyRecordingsResult:
         sessions: list[CopySessionResult] = []
         for session_id in input.session_ids:
-            result: CopySessionResult = await workflow.execute_activity(
-                copy_session_recording,
-                CopySessionInput(
-                    source_team_id=input.source_team_id,
-                    target_team_id=input.target_team_id,
-                    session_id=session_id,
-                    retention_days=input.retention_days,
-                ),
-                start_to_close_timeout=timedelta(minutes=15),
-                heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
-            )
+            try:
+                result: CopySessionResult = await workflow.execute_activity(
+                    copy_session_recording,
+                    CopySessionInput(
+                        source_team_id=input.source_team_id,
+                        target_team_id=input.target_team_id,
+                        session_id=session_id,
+                        retention_days=input.retention_days,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=15),
+                    heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
+                )
+            except ActivityError as e:
+                result = CopySessionResult(session_id=session_id, status="failed", warnings=[str(e.cause or e)])
             sessions.append(result)
         return CopyRecordingsResult(sessions=sessions)
