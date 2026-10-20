@@ -2740,6 +2740,28 @@ describe('runStreamLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        it.each([
+            { name: 'an existing run', justCreatedRun: false, captured: 1 },
+            { name: 'a just-created run', justCreatedRun: true, captured: 0 },
+        ])('reports history load time once for $name', async ({ justCreatedRun, captured }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { type: 'text', text: 'Done.' } }),
+            ] as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun })
+            }).toFinishAllListeners()
+
+            const loaded = captureSpy.mock.calls.filter(([event]) => event === 'sandbox_run_history_loaded')
+            expect(loaded.map(([, properties]) => properties)).toEqual(
+                Array(captured).fill(
+                    expect.objectContaining({ run_id: 'run-1', entry_count: 1, run_status: 'completed' })
+                )
+            )
+        })
+
         it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
             jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'failed', state: {} } as any)
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
@@ -6620,7 +6642,7 @@ describe('runStreamLogic', () => {
                 await flushPromises()
 
                 expect(logic.values.pendingPermissionRequest?.requestId).toEqual(actionable ? 'req-1' : undefined)
-                expect(captureSpy).not.toHaveBeenCalled()
+                expect(captureSpy).not.toHaveBeenCalledWith('permission_requested', expect.anything())
                 logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
                 await flushPromises()
                 expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(actionable ? 1 : 0)

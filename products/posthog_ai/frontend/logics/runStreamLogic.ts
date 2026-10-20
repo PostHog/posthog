@@ -3992,6 +3992,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             actions.setHistoryComplete(true)
             actions.bootstrapLogReady()
+            if (cache.bootstrapStartedAt !== undefined) {
+                posthog.capture('sandbox_run_history_loaded', {
+                    conversation_id: props.conversationId,
+                    task_id: session.taskId,
+                    run_id: session.runId,
+                    run_status: values.currentRunStatus,
+                    entry_count: entries.length,
+                    duration_ms: Math.round(performance.now() - cache.bootstrapStartedAt),
+                    execution_type: 'sandbox',
+                })
+                cache.bootstrapStartedAt = undefined
+            }
             if (session.phase !== 'finalization') {
                 recordRecovery(session)
             }
@@ -4068,6 +4080,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.openSseForRun({ taskId, runId, startLatest: false })
                         return
                     }
+                    cache.bootstrapStartedAt = performance.now()
                     const run = await readWithRetry(session, () => readRun(session))
                     applyRun(session, run)
                     if (isTerminalRunStatus(run.status) || props.replayOnly) {
@@ -4789,6 +4802,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             },
             reset: () => {
                 cache.disposables.dispose('stream-session')
+                cache.bootstrapStartedAt = undefined
                 cache.recoverySession = undefined
                 cache.eventCoverage = undefined
                 cache.retainedMessage = undefined
