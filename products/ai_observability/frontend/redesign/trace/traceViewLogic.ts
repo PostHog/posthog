@@ -283,31 +283,31 @@ export const traceViewLogic = kea<traceViewLogicType>([
             nodeRequested: async ({ nodeId, trigger }) => {
                 const hint = values.createdAt
                 const firstRequestedAt = (requestedAt()[nodeId] ??= performance.now())
-                let node: TraceNodeDetailApi
-                try {
-                    node = await aiObservabilityTracesNodesRetrieve(
-                        String(ApiConfig.getCurrentProjectId()),
-                        encodeTraceIdSegment(props.traceId),
-                        encodeTraceIdSegment(nodeId),
-                        hint ? { timestamp_hint: hint } : undefined
-                    )
-                } catch (error) {
-                    // A read can answer after the view closed, and a reopened view of the trace shares its actions.
-                    if (cache.disposables.isDisposed) {
-                        return
-                    }
-                    const failure = toLoadFailure(error)
-                    if (failure === 'not_found' && !hint) {
+                const result = await aiObservabilityTracesNodesRetrieve(
+                    String(ApiConfig.getCurrentProjectId()),
+                    encodeTraceIdSegment(props.traceId),
+                    encodeTraceIdSegment(nodeId),
+                    hint ? { timestamp_hint: hint } : undefined
+                ).then(
+                    (node: TraceNodeDetailApi) => ({ node }),
+                    (error: unknown) => ({ failure: toLoadFailure(error) })
+                )
+                // A read can answer after the view closed, and a reopened view of the trace shares its actions.
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+                if ('failure' in result) {
+                    if (result.failure === 'not_found' && !hint) {
                         actions.nodeMissedWithoutHint(nodeId, trigger)
                     } else {
-                        actions.loadNodeFailure(nodeId, failure)
+                        actions.loadNodeFailure(nodeId, result.failure)
                     }
                     return
                 }
                 const waitedSince = selectedAt()[nodeId]
                 const loadMs = elapsedMs(firstRequestedAt)
                 const waitedMs = waitedSince === undefined ? null : elapsedMs(waitedSince)
-                actions.loadNodeSuccess(nodeId, node)
+                actions.loadNodeSuccess(nodeId, result.node)
                 posthog.capture('llma trace node loaded', { load_ms: loadMs, trigger, waited_ms: waitedMs })
             },
             loadNodeSuccess: ({ nodeId }) => endRead(nodeId),

@@ -245,6 +245,29 @@ describe('traceViewLogic', () => {
         })
     })
 
+    it.each([
+        ['misses', 'expired-1'],
+        ['succeeds', 'closed-1'],
+    ])('drops a read that %s after the view is closed, even once the trace is open again', async (_, nodeId) => {
+        useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource({ timeline: [EXPIRED_ROW] })] } })
+        const heldNodeReads = deferred()
+        nodeGate = heldNodeReads.promise
+        const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
+        logic.mount()
+        logic.actions.loadNode(nodeId, 'selection')
+        await expectLogic(logic).toDispatchActions(['loadTraceSuccess'])
+        logic.unmount()
+        const reopened = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
+        reopened.mount()
+        await expectLogic(reopened).toDispatchActions(['loadTraceSuccess'])
+        heldNodeReads.resolve()
+
+        await expectLogic(reopened).toFinishAllListeners()
+
+        expect(nodeRequests.filter((id) => id === nodeId)).toHaveLength(1)
+        expect(reopened.values.nodes[nodeId]).toBeUndefined()
+    })
+
     describe('nodes of a trace past the ai_events retention', () => {
         it.each([
             ['trace', 'expired-1', [null, '2026-09-01T10:15:00Z'], 'ready'],
@@ -282,26 +305,6 @@ describe('traceViewLogic', () => {
                 expect(nodeHints.filter((_, index) => nodeRequests[index] === nodeId)).toEqual(expectedHints)
             }
         )
-
-        it('drops an early read that misses after the view is closed, even once the trace is open again', async () => {
-            useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource({ timeline: [EXPIRED_ROW] })] } })
-            const heldNodeReads = deferred()
-            nodeGate = heldNodeReads.promise
-            const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
-            logic.mount()
-            logic.actions.loadNode('expired-1', 'selection')
-            await expectLogic(logic).toDispatchActions(['loadTraceSuccess'])
-            logic.unmount()
-            const reopened = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
-            reopened.mount()
-            await expectLogic(reopened).toDispatchActions(['loadTraceSuccess'])
-            heldNodeReads.resolve()
-
-            await expectLogic(reopened).toFinishAllListeners()
-
-            expect(nodeRequests.filter((id) => id === 'expired-1')).toHaveLength(1)
-            expect(reopened.values.nodes['expired-1']).toBeUndefined()
-        })
 
         it('times a reread from the first request to its answer', async () => {
             const capture = jest.spyOn(posthog, 'capture')
