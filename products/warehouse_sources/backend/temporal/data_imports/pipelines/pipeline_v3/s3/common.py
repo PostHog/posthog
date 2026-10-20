@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import NonRet
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class BatchWriteResult:
     """Result of writing a batch to S3."""
 
