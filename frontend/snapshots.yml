@@ -15490,10 +15490,22 @@ snapshots:
         hash: v1.k794b7964.fcae9b65af8160ba40bf82664dd9b5a6b9f5a1ddbdedee05bf15ec453eb7aa64.3616s9KNJancKVe-j4dQsJdo3W1CVcwWxRMA24QgU6Q
     scenes-other-account-connected--github-integration-connected--light:
         hash: v1.k794b7964.8b287d932c7d89e4769d4d7a79205e51310541dc0cd1591812e2f2720fcd1dcf.OwYcgNvVm3W2msQK67UA0yi6X4skN-YvuKtoTJnvb3E
+    scenes-other-account-connected--github-integration-connected-from-chat--dark:
+        hash: v1.k794b7964.535f7aeb801398ecf55500693f9ade1baf555ed733e4493101dac42b04056a45.Qed7usHliqMf7DFZcDg1LFuSUN04T1T8QeihUWgow4E
+    scenes-other-account-connected--github-integration-connected-from-chat--light:
+        hash: v1.k794b7964.c5900005fd2031973261348080f18f7dfc81da66e4b31e13ad8c48f044b36b4e.H6Meweqjpk_OBydPJ_aiPUPZ7fbLluXeBCLsVPfL9aQ
     scenes-other-account-connected--github-integration-failed--dark:
         hash: v1.k794b7964.d394cba800dc42d80f3b1cea7fb920d020cc2074c9e0b06e4974876b8a4cf318.K2N8s22_cesvI1EmzuVNW6fWS7uWkt1_mgBJdSgPalg
     scenes-other-account-connected--github-integration-failed--light:
         hash: v1.k794b7964.80ceb7909660009c7e03f12e2eacbe6a05ccd428779032966faeac8c84ad8a0e.XONQ2bh-fy2UnBPBQk0BNm_NeKsGNKgkUE2hRr4sOdE
+    scenes-other-account-connected--github-integration-failed-from-chat--dark:
+        hash: v1.k794b7964.4f68d57d3cfc6e7589b2f81b06382812e32d84d9b45eb77bba80508d4bd0cabe.HrkzbByynZUikG3LYSS8JtMmKIuG_0bQ0Mm51-MRlWk
+    scenes-other-account-connected--github-integration-failed-from-chat--light:
+        hash: v1.k794b7964.df35d0aff13d613800ece8dfee7bd97b78c54674d753732270c476654ef74460.M5tAWPwC8jqluUe00dMQpMhMK_Jryoi2lbkTgpsgWP4
+    scenes-other-account-connected--github-integration-pending-from-chat--dark:
+        hash: v1.k794b7964.f59a17f4e6940dc9d1f517d5db2a524699107090eb3af619055fb7b7b49601c0.bZ-GZ-VGWiB7hq4SA2EXMkMtawFOF6AJ8CEgDmjppMU
+    scenes-other-account-connected--github-integration-pending-from-chat--light:
+        hash: v1.k794b7964.3e09f863ec3ec65f4804c9dad2468e4204340ca2e874de8e175d0bf63b7c7128.WTl1lcIsYBtSO4z1eQxP7u5exvarTnpRq9Z2VGD5fjU
     scenes-other-account-connected--github-login-failed--dark:
         hash: v1.k794b7964.7d20c098085fe690be2109a71a37b40ac5fa763f0afd702aadbe9b3c712a8f7b.DAcCHbNqKQOtZ8sThEiIcQuUCYuAhp-x-nWzqDTCNqI
     scenes-other-account-connected--github-login-failed--light:
