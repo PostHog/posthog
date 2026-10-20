@@ -28,5 +28,8 @@ export function upstreamTurnRetryDelayMs(
     RATE_LIMIT_RETRY_BASE_MS * 2 ** retries,
   );
   // Full jitter spreads runs that encounter the same provider burst.
-  return Math.max(retryAfterMs, Math.floor(random() * ceiling));
+  return Math.min(
+    RATE_LIMIT_RETRY_CAP_MS,
+    Math.max(retryAfterMs, Math.floor(random() * ceiling)),
+  );
 }

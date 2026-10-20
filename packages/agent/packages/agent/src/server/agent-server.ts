@@ -533,6 +533,10 @@ export class AgentServer {
   private adapterEmittedTurnComplete = false;
   private suppressAdapterTurnComplete = false;
   private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
+  private readonly upstreamRetryControllers = new WeakMap<
+    ActiveSession,
+    AbortController
+  >();
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
@@ -1768,6 +1772,7 @@ export class AgentServer {
         if (this.isRetryWrappedSession(this.session)) {
           this.cancelledStartupSessions.add(this.session);
         }
+        this.upstreamRetryControllers.get(this.session)?.abort();
         await this.session.clientConnection.cancel({
           sessionId: this.session.acpSessionId,
         });
@@ -2864,6 +2869,15 @@ export class AgentServer {
     if (this.cancelledStartupSessions.delete(originatingSession)) {
       return { stopReason: "cancelled" };
     }
+    let retryController = this.upstreamRetryControllers.get(originatingSession);
+    if (!retryController || retryController.signal.aborted) {
+      retryController = new AbortController();
+      this.upstreamRetryControllers.set(originatingSession, retryController);
+    }
+    const retrySignal = AbortSignal.any([
+      retryController.signal,
+      this.shutdownController.signal,
+    ]);
     for (;;) {
       const session = this.session;
       if (session !== originatingSession) {
@@ -2973,13 +2987,16 @@ export class AgentServer {
               error,
             });
           });
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await sleepWithBackoff(0, { initialDelayMs: delayMs }, retrySignal);
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn could be retried",
           );
         }
-        if (this.cancelledStartupSessions.delete(originatingSession)) {
+        if (
+          this.cancelledStartupSessions.delete(originatingSession) ||
+          retrySignal.aborted
+        ) {
           return {
             stopReason: "cancelled",
             ...(retryUsage ? { usage: retryUsage } : {}),
@@ -5590,6 +5607,7 @@ export class AgentServer {
     if (!this.session) return;
 
     this.logger.debug("Cleaning up session");
+    this.upstreamRetryControllers.get(this.session)?.abort();
 
     try {
       await this.session.logWriter.flush(this.session.payload.run_id, {
