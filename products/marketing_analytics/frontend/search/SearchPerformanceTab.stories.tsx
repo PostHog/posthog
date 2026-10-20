@@ -516,8 +516,11 @@ export const StaleAggregate: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText(/Showing query-and-page data instead/)).toBeVisible()
-        await expect(await canvas.findByText('1,240')).toBeVisible()
+        await expect(
+            await canvas.findByText(/This view requires its dedicated table to keep metrics consistent/)
+        ).toBeVisible()
+        await expect(await canvas.findByText('840')).toBeVisible()
+        await expect(canvas.queryByText('1,240')).toBeNull()
     },
 }
 export const UnavailableSources: Story = {
