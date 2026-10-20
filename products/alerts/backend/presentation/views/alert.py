@@ -88,6 +88,7 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
+    follow_insight_alert,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -116,7 +117,6 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
     Threshold,
 )
-from products.alerts.backend.platform_alert_backfill import follow_insight_alert
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -902,7 +902,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         if instance.enabled:
-            transaction.on_commit(partial(follow_insight_alert, instance), robust=True)
+            transaction.on_commit(
+                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     @transaction.atomic
@@ -1028,7 +1030,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         if enable_now:
-            transaction.on_commit(partial(follow_insight_alert, instance), robust=True)
+            transaction.on_commit(
+                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
