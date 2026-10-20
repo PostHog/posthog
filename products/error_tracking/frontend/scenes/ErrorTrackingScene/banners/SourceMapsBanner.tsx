@@ -61,9 +61,9 @@ export function SourceMapsBanner({
                 title={`${percent}% of ${labels.platform} frames that need ${labels.symbols} are missing them`}
                 description={
                     <>
-                        Upload {labels.symbols} to see your original code.
-                        {offersWizard ? " Wizard's setup agent can add the uploads to your build." : null}{' '}
+                        Upload {labels.symbols} to see your original code.{' '}
                         <Link
+                            className="whitespace-nowrap"
                             onClick={() => openExamples(platform)}
                             data-attr="error-tracking-source-maps-banner-examples"
                         >
