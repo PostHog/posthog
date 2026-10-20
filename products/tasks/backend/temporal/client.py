@@ -37,8 +37,17 @@ from products.tasks.backend.logic.services.dev_stack_image_refresh import reconc
 from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
-from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_INITIAL_GENERATION,
+    get_task_run_stream_generation,
+)
+from products.tasks.backend.metrics import (
+    AGENT_OTEL_TELEMETRY_STAMPED_TOTAL,
+    observe_task_run_terminal,
+    observe_task_run_workflow_start,
+)
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.constants import (
@@ -120,6 +129,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         logger.warning("task_processing_start_failure_task_run_missing", extra={"run_id": run_id})
         return False
 
+    observe_task_run_terminal(task_run, error_type="workflow_start_failed", termination_reason=None)
     task_run.publish_stream_state_event()
     task_run.capture_event(
         "task_run_failed",
@@ -186,6 +196,11 @@ def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
         return {}
 
     state = task_run.state or {}
+    generation = get_task_run_stream_generation(run_id, run_uses_dedicated_stream(state))
+    if state.get("stream_generation") != generation:
+        TaskRun.update_state_atomic(run_id, updates={"stream_generation": generation})
+        state = {**state, "stream_generation": generation}
+
     need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
     need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
     pending_boot_flags = [
@@ -272,6 +287,11 @@ async def start_process_task_workflow(
     run_state: dict[str, Any],
     rpc_timeout: timedelta | None = None,
 ) -> None:
+    if workflow_input.stream_generation is None:
+        generation = run_state.get("stream_generation")
+        workflow_input.stream_generation = (
+            generation if isinstance(generation, str) else TASK_RUN_STREAM_INITIAL_GENERATION
+        )
     with run_trace_context(workflow_input.run_id, enabled=agent_otel_telemetry_enabled_for_state(run_state)):
         await client.start_workflow(
             "process-task",

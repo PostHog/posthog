@@ -501,6 +501,17 @@
                 }
             ]
         },
+        "logo_media_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
+        },
         "logs_settings": {},
         "marketing_analytics_config": {
             "properties": {
@@ -1039,6 +1050,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -1145,6 +1157,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -1259,6 +1272,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -1336,6 +1350,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -1491,6 +1506,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -2057,6 +2073,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -2163,6 +2180,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -2277,6 +2295,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -2354,6 +2373,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -2509,6 +2529,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -3092,6 +3113,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -3198,6 +3220,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -3312,6 +3335,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -3389,6 +3413,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -3544,6 +3569,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",

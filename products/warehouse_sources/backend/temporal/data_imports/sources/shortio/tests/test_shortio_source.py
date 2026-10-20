@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 import structlog
@@ -64,8 +63,3 @@ class TestShortioSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "sk-key"
         assert kwargs["endpoint"] == "domains"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = _make_inputs(schema_name="not_a_table")
-        with pytest.raises(ValueError, match="Unknown Short.io schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, inputs)

@@ -4,18 +4,27 @@ from unittest.mock import patch
 from products.slack_app.backend.temporal import slack_app_mention_processing
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 
+_BILLING = "enforce_posthog_code_billing_quota_activity"
+_CLASSIFY = "classify_untagged_followup_activity"
+_CONFIRM = "request_untagged_followup_confirmation_activity"
+_OVERRIDE = "classify_slack_app_model_override_activity"
+_FORWARD = "forward_posthog_code_followup_activity"
+
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("parallel", [False, True])
 @pytest.mark.parametrize(
-    "text,expect_classifier",
+    "text,expected_after_billing",
     [
         # File-only replies skip the classifier so the attachment isn't dropped.
-        ("", False),
+        ("", [_CONFIRM, _OVERRIDE, _FORWARD]),
         # Replies with text still face the classifier even when files are attached.
-        ("nice weather today", True),
+        ("nice weather today", [_CLASSIFY, _CONFIRM, _OVERRIDE, _FORWARD]),
     ],
 )
-async def test_untagged_followup_with_files_classifier_gating(text: str, expect_classifier: bool) -> None:
+async def test_untagged_followup_with_files_classifier_gating(
+    text: str, parallel: bool, expected_after_billing: list[str]
+) -> None:
     workflow = slack_app_mention_processing.SlackAppMentionProcessingWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
@@ -47,26 +56,18 @@ async def test_untagged_followup_with_files_classifier_gating(text: str, expect_
 
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with patch.object(
-        slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity
+    with (
+        patch.object(slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
+        patch.object(slack_app_mention_processing.workflow, "patched", return_value=parallel),
     ):
         await workflow.run(inputs)
 
-    expected = ["enforce_posthog_code_billing_quota_activity"]
-    if expect_classifier:
-        expected.append("classify_untagged_followup_activity")
-    expected += [
-        "request_untagged_followup_confirmation_activity",
-        # The model-override classifier sits above the follow-up/new-task split, so it
-        # runs for a reply too.
-        "classify_slack_app_model_override_activity",
-        "forward_posthog_code_followup_activity",
-    ]
-    assert calls == expected
+    assert calls == [_BILLING, *expected_after_billing]
 
 
 @pytest.mark.asyncio
-async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt() -> None:
+@pytest.mark.parametrize("parallel", [False, True])
+async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt(parallel: bool) -> None:
     """The click that re-dispatches carries the answer, so asking again would
     loop: prompt, confirm, classify, prompt."""
     workflow = slack_app_mention_processing.SlackAppMentionProcessingWorkflow()
@@ -90,13 +91,10 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt()
             return True
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with patch.object(
-        slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity
+    with (
+        patch.object(slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
+        patch.object(slack_app_mention_processing.workflow, "patched", return_value=parallel),
     ):
         await workflow.run(inputs)
 
-    assert calls == [
-        "enforce_posthog_code_billing_quota_activity",
-        "classify_slack_app_model_override_activity",
-        "forward_posthog_code_followup_activity",
-    ]
+    assert calls == [_BILLING, _OVERRIDE, _FORWARD]

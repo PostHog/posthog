@@ -22,6 +22,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
@@ -218,6 +219,9 @@ export async function trackToolCall(
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(state.interviewRecruitmentDiagnostics && !state.isImpersonated && !state.suppressAnalytics
+                    ? interviewRecruitmentProperties(state.interviewRecruitmentDiagnostics)
+                    : {}),
                 ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
                     ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
                     : {}),

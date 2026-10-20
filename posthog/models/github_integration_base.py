@@ -2617,7 +2617,9 @@ class GitHubIntegrationBase:
                 integration_id=self.integration.id,
                 status_code=response.status_code,
             )
-            raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
+            raise GitHubIntegrationError(
+                "GitHubIntegration: list_repositories non-JSON response", status_code=response.status_code
+            )
         if response.status_code == 200 and isinstance(body, dict):
             page_repos = extract_repos(body)
             has_more = len(page_repos) == per_page
@@ -2628,7 +2630,7 @@ class GitHubIntegrationBase:
             status_code=response.status_code,
             error=body if isinstance(body, dict) else None,
         )
-        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories", status_code=response.status_code)
 
     def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API. ``priority`` overrides the client's lane."""

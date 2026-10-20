@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from google.genai import errors as genai_errors
 from parameterized import parameterized
 
 from products.replay_vision.backend.error_kinds import FailureKind
@@ -18,11 +19,14 @@ def _detector(*, team_id: int, text: dict[str, str], trace_id: str) -> bool:
     return _SUBJECT in joined or _PHONE.lower() in joined
 
 
-async def _check(reasoning: str, asks: bool | None, rewrite_to: str = _CLEAN) -> MonitorOutput:
+async def _check(
+    reasoning: str, asks: bool | None, rewrite_to: str = _CLEAN, rewrite_error: Exception | None = None
+) -> MonitorOutput:
+    rewrite = AsyncMock(return_value={"reasoning": rewrite_to}, side_effect=rewrite_error)
     with (
         patch.object(pii_check, "asks_for_identity", return_value=asks),
         patch.object(pii_check, "contains_pii", side_effect=_detector),
-        patch.object(pii_check, "rewrite_without_pii", new=AsyncMock(return_value={"reasoning": rewrite_to})),
+        patch.object(pii_check, "rewrite_without_pii", new=rewrite),
     ):
         return await pii_check.keep_unrequested_pii_out(
             MonitorOutput(verdict="yes", reasoning=reasoning, confidence=0.9),
@@ -57,3 +61,23 @@ async def test_answer_still_flagged_after_the_rewrite_fails_the_observation() ->
         await _check(f"(t 12) {_SUBJECT} paid.", False, rewrite_to=f"(t 12) {_SUBJECT} paid, again.")
     assert raised.value.kind == FailureKind.PII_DETECTED
     assert raised.value.non_retryable
+
+
+def _refusal(domain: str, code: int = 402) -> genai_errors.ClientError:
+    return genai_errors.ClientError(code, {"error": {"code": code, "details": [{"domain": domain}]}})
+
+
+@pytest.mark.parametrize("code", [402, 404, 429])
+@pytest.mark.asyncio
+async def test_a_gateway_refusal_of_the_rewrite_reaches_the_activity_boundary(code: int) -> None:
+    refusal = _refusal("posthog.com", code)
+    with pytest.raises(genai_errors.ClientError) as raised:
+        await _check(f"(t 12) {_SUBJECT} paid.", False, rewrite_error=refusal)
+    assert raised.value is refusal
+
+
+@pytest.mark.asyncio
+async def test_a_provider_refusal_of_the_rewrite_fails_the_observation() -> None:
+    with pytest.raises(ScannerFailureError) as raised:
+        await _check(f"(t 12) {_SUBJECT} paid.", False, rewrite_error=_refusal("googleapis.com"))
+    assert raised.value.kind == FailureKind.PII_DETECTED

@@ -453,6 +453,14 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
     "schedule."
 )
 
+_SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
+    "Your database canceled one of PostHog's statements, and the sync kept hitting the same "
+    "cancellation on every retry. This can happen when a connection pooler recycles connections "
+    "mid-query, or someone or something on your database canceled it. Check your database and "
+    "pooler logs around the time of the failure. This sync is still enabled and will run again on "
+    "its next schedule."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(
@@ -1398,6 +1406,20 @@ class PostgresSource(
                 '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
                 "your database so it contains data, then re-enable the sync."
             ),
+            # Also ObjectNotInPrerequisiteState (SQLSTATE 55000), raised while reading a selected
+            # view whose own definition queries the pg_stat_statements extension (e.g. a
+            # slow-queries monitoring view) when that extension's module isn't loaded via the
+            # server's `shared_preload_libraries` setting. Loading it needs a postgresql.conf edit
+            # and a server restart, which only the customer's database admin can do — deterministic
+            # and outside our control, so retrying just re-reads into the same error. The message is
+            # a fixed PostgreSQL string with no volatile parts to exclude.
+            "pg_stat_statements must be loaded via": (
+                "A view you're syncing queries the pg_stat_statements extension, which your "
+                "PostgreSQL server hasn't loaded (\"pg_stat_statements must be loaded via "
+                "'shared_preload_libraries'\"). Add it to shared_preload_libraries in postgresql.conf "
+                "and restart your database server, or remove that view from the sync, then re-enable "
+                "the sync."
+            ),
             # Raised by Postgres while reading a view/materialized view whose own definition calls
             # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
             # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;
@@ -1405,6 +1427,13 @@ class PostgresSource(
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # Sibling of the jsonb_each case above: a view's own definition deletes a key/path from a
+            # jsonb column with the `#-` operator (or `jsonb_delete_path()`) and the column is a scalar
+            # jsonb value (not an object or array) for at least one row — Postgres can only delete a
+            # path from inside an object or array. We only ever run `SELECT ... FROM <relation>`; the
+            # expression lives in the customer's view definition, so it's deterministic against the
+            # source data and retrying re-evaluates the same view into the same row.
+            "cannot delete path in scalar": "A view you're syncing deletes a key or path from a JSON value with the #- operator (or jsonb_delete_path()), and that value is a scalar for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only delete the path when jsonb_typeof(col) is 'object' or 'array'), or remove that view from the sync.",
             # A selected relation's own definition calls date_trunc()/extract() with a unit
             # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
             # `date_trunc('week', some_interval_column)`, since week truncation is only defined
@@ -1508,6 +1537,18 @@ class PostgresSource(
                 "or foreign table that converts text to uuid, so fix the data or the column type, or "
                 "remove the table from the sync. Then re-enable the sync."
             ),
+            # Raised (DivisionByZero, SQLSTATE 22012) while Postgres evaluates a row during the main
+            # `SELECT ... FROM <relation>` read. We only ever select configured columns and apply the
+            # customer's own row filters; the division lives in the relation's own definition — a
+            # generated/computed column, or a view that divides by another column or expression that
+            # is zero for at least one row. Deterministic against the source data, so every retry
+            # re-evaluates the same relation into the same row.
+            "division by zero": (
+                "A table or view you're syncing has a computed column or definition that divides by "
+                'zero for at least one row (PostgreSQL reported "division by zero"). Guard the '
+                "division in that column or view definition (for example with a CASE or NULLIF), or "
+                "remove it from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -1554,8 +1595,19 @@ class PostgresSource(
         # `CLIENT_DEADLINE_ERROR` is the client-side statement deadline. It acts only when the
         # server's own statement timeout did not, so it reports a pooler or a server that stopped
         # answering, not a query that is too slow for its index.
+        #
+        # "canceling statement due to user request" (psycopg's `QueryCanceled`) reaching here is
+        # *not* our own client-side deadline — that path always converts an expired deadline's
+        # cancel into `ClientDeadlineExceededError` first (see `client_side_deadline`). This is the
+        # raw message, so either our own watchdog's cancel request landed on a later statement on
+        # the same connection after its own statement already finished (the race
+        # `_StatementWatchdog.finish` documents), or something external — a pooler recycling the
+        # connection mid-query, or an admin cancel — canceled it. Neither says anything about this
+        # query or schema, and a retry runs on a fresh connection, so it's self-recovering like the
+        # other entries here rather than a verdict to stop retrying.
         return {
             CLIENT_DEADLINE_ERROR,
+            "canceling statement due to user request",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1582,6 +1634,7 @@ class PostgresSource(
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
+            "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }
@@ -2102,7 +2155,7 @@ class PostgresSource(
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
             )
 
-        def no_op_tick() -> SourceResponse:
+        def no_op_tick(*, reset_handed_over: bool = False) -> SourceResponse:
             # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
             # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
             # the workflow completes the job on this response — so the stamp comes off, or a batch
@@ -2117,18 +2170,20 @@ class PostgresSource(
                 cdc_write_mode=first_lane.write_mode,
                 # A change stream carries no seekable key, and `supports_resume` defaults to True.
                 supports_resume=False,
+                reset_handed_over=reset_handed_over,
             )
 
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
-        # replays over it; every reset writer does that. Merging the buffer into a wiped table
-        # instead would leave only the rows changed since.
+        # replays over it. Merging the buffer into a wiped table instead would leave only the rows
+        # changed since. A reset that reaches a streaming table anyway goes to capture, which puts the
+        # table back into snapshot mode. Refusing it would fail every run of the table until a manual reset.
+        # This run must not delete the table itself: capture waits for queued batches to land first.
         if inputs.reset_pipeline:
-            raise ValueError(
-                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
-                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
-            )
+            inputs.logger.warning("cdc_buffered_reset_handed_to_capture", schema_name=schema.name)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick(reset_handed_over=True)
 
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a previous

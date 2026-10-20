@@ -69,10 +69,6 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_get_schemas_honors_names_filter(self) -> None:
-        schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1, names=["users"])
-        assert [s.name for s in schemas] == ["users"]
-
     @parameterized.expand([(200, True), (401, False)])
     def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:

@@ -809,6 +809,14 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+export const GroupPageTodayRailNav: Story = {
+    name: 'Issue scene with new navigation',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
+}
+
 export const GroupPageManyAssignees: Story = {
     name: 'Issue scene with many assignees',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },

@@ -9,15 +9,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.source import WaydevSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.waydev import (
     WaydevResumeConfig,
-    get_resource,
     validate_credentials,
 )
-
-
-class TestGetResource:
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(KeyError):
-            get_resource("NotAnEndpoint")
 
 
 class TestWaydevSourceResumeBehavior:

@@ -1457,6 +1457,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                stream_generation=self.context.stream_generation,
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,

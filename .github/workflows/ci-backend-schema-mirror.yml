@@ -51,7 +51,8 @@ jobs:
                       echo "::warning::No Depot master run with a schema dump in the last two days"
                       exit 0
                   fi
-                  if ! [[ "$run_id" =~ ^[a-z0-9]{1,32}$ && "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+                  # Depot push run ids carry a `ps_` prefix.
+                  if ! [[ "$run_id" =~ ^(ps_)?[a-z0-9]{1,32}$ && "$sha" =~ ^[0-9a-f]{40}$ ]]; then
                       echo "::error::Unexpected run id or sha from the Depot listing"
                       exit 1
                   fi

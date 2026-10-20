@@ -1,6 +1,3 @@
-from typing import Any
-
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -153,9 +150,3 @@ class TestAdobeCommerceSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs: Any = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

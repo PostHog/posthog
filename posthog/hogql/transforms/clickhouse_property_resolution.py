@@ -37,6 +37,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
@@ -51,6 +52,7 @@ from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
     constant_type_from_runtime_type,
+    convert_literal_to_runtime_type,
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
 )
@@ -71,8 +73,6 @@ from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
-# In non-nullable materialized columns these stored strings are treated as NULL.
-MAT_COL_NULL_SENTINELS = ["", "null"]
 MAX_MATERIALIZED_LIKE_PATTERN_LENGTH = 16 * 1024
 
 # Leave the legacy $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
@@ -396,10 +396,9 @@ def _materialized_head_expr(
         return column_field
 
     # Non-nullable materialized column: scrub the '' / 'null' string sentinels back to NULL.
-    scrubbed_empty = ast.Call(name="nullIf", args=[column_field, _sentinel("")])
     if materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
-        return scrubbed_empty
-    return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
+        return null_if_sentinels(column_field, ("",))
+    return null_if_sentinels(column_field)
 
 
 def _json_subcolumn_access(
@@ -2045,6 +2044,27 @@ class ClickHousePropertyResolver(CloningVisitor):
             source=source,
         )
 
+    def _numeric_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
+        """A Numeric JSON property compared to non-numeric text, read as text the way the legacy table compares it.
+
+        A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
+        Float64 read never matches.
+        """
+        single = self._single_key_property(expr)
+        if single is None:
+            return None
+        field_type, property_name = single
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
+        if semantic_type.family != "float":
+            return None
+        if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
+            return None
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or not _is_dynamic_json_source(source):
+            return None
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
+
     def _materialized_property_for_op(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key materialized-column property (any resolved type), for IN comparisons that don't need a string."""
         single = self._single_key_property(expr)
@@ -2419,7 +2439,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if self._is_boolean_conversion(property_expr):
             return None
-        prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
+        prop = self._materialized_string_property(
+            property_expr, allow_dynamic_json=True
+        ) or self._numeric_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
             return None
 
@@ -2709,7 +2731,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         # Bail if a value could collide with a stored NULL sentinel.
-        null_sentinels = [""] if prop.source.is_nullable else MAT_COL_NULL_SENTINELS
+        null_sentinels = ("",) if prop.source.is_nullable else MAT_COL_NULL_SENTINELS
         if any(v in null_sentinels for v in values):
             return None
 

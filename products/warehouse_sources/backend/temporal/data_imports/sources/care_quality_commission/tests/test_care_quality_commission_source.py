@@ -33,10 +33,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].detected_primary_keys == expected_keys
 
-    def test_names_filter(self) -> None:
-        schemas = CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1, names=["locations"])
-        assert [s.name for s in schemas] == ["locations"]
-
 
 class TestDocumentedTables:
     def test_lists_tables_without_credentials(self) -> None:

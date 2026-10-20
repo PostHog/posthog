@@ -292,7 +292,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -382,6 +382,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -563,6 +564,8 @@ export const productRedirects: Record<
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
     '/replay/vision': '/replay-vision',
+    '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+        combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     '/scout-trials': (_params, searchParams, hashParams) =>
         combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1869,8 +1872,8 @@ export const productUrls = {
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
-    replayVisionTemplates: (): string => '/replay-vision/new/template',
-    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+    replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
     replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
@@ -1977,7 +1980,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+    broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
 }
@@ -1991,6 +1994,15 @@ export const fileSystemTypes = {
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
+    },
+    canvas: {
+        name: 'Canvas',
+        iconType: 'canvas',
+        flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
+        href: (ref: string) => urls.canvasDetail(ref),
+        listHref: () => urls.analyticsList({ type: 'canvas' }),
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+        filterKey: 'canvas',
     },
     cohort: {
         name: 'Cohort',
@@ -2986,13 +2998,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'notebook',
         href: urls.notebooks(),
         searchKeywords: ['documents', 'scratchpad'],
-        searchTabs: [
-            {
-                name: 'Reusable widgets',
-                href: urls.notebooks('widgets'),
-                flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
-            },
-        ],
+        searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
     },

@@ -67,6 +67,42 @@ class TestFactorialSourceResumeBehavior:
 class TestEndpointParams:
     """Static endpoint params must survive both the paginator and the page walk."""
 
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path", "expected_params"),
+        [
+            (
+                "worked_times",
+                "/api/2026-07-01/resources/attendance/worked_times",
+                {"include_time_range_category": "false", "include_non_attendable_employees": "false"},
+            ),
+            (
+                "overtime_requests",
+                "/api/2026-07-01/resources/attendance/overtime_requests",
+                {"include_approval_flow": "false"},
+            ),
+            (
+                "cost_center_memberships",
+                "/api/2026-07-01/resources/finance/cost_center_memberships",
+                {"only_active": "false"},
+            ),
+        ],
+    )
+    def test_static_params_sent_on_every_page(
+        self, endpoint: str, expected_path: str, expected_params: dict[str, str]
+    ) -> None:
+        responses = [
+            ScriptedResponse(json=_page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
+            ScriptedResponse(json=_page_body([{"id": "x"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.params("after_id") == [None, "Mjc="]
+        for name, value in expected_params.items():
+            assert result.params(name) == [value, value]
+        assert set(result.paths) == {expected_path}
+
     def test_allowance_stats_pins_one_reference_date_across_pages(self) -> None:
         # Factorial recomputes allowance_stats against the date it receives, defaulting to today,
         # so a walk that crosses midnight would otherwise mix two as-of dates into one table.

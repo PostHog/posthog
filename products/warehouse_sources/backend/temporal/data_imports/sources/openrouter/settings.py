@@ -7,16 +7,19 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # through this endpoint, so both the first sync and every incremental sync are bounded to this window.
 ACTIVITY_RETENTION_DAYS = 30
 
-PaginationMode = Literal["offset", "offset_limit"]
+PaginationMode = Literal["offset", "offset_limit", "cursor"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenRouterEndpointConfig:
     name: str
     path: str
     # Management endpoints (activity/api_keys/credits/organization_members/workspaces) require an
     # OpenRouter management key; the models/providers catalogs are public and read with any valid key.
     requires_management_key: bool
+    # Batches are scoped to the workspace of the calling key, which an account-level management key
+    # doesn't have, so they can only be read with a regular inference key.
+    requires_inference_key: bool = False
     # Table-wide unique key. None for the /credits singleton (a single balance snapshot, full-refresh
     # replace, so there's nothing to merge on).
     primary_keys: Optional[list[str]] = field(default_factory=lambda: ["id"])
@@ -26,8 +29,12 @@ class OpenRouterEndpointConfig:
     # Offset-based pagination style, or None for a single unpaginated request.
     #   "offset"       -> only an `offset` query param (e.g. /keys)
     #   "offset_limit" -> `offset` + `limit` query params (e.g. /organization/members, /workspaces)
+    #   "cursor"       -> `after` set to the previous page's `last_id` while `has_more` (e.g. /batches)
     pagination: Optional[PaginationMode] = None
     page_size: int = 100
+    # Fixed query params sent on every page.
+    params: dict[str, str] = field(default_factory=dict)
+    sort_mode: Literal["asc", "desc"] = "asc"
     # `data` is a single object rather than a list of rows (e.g. /credits).
     is_singleton: bool = False
     # Day-by-day pull driven by the ?date= filter (only /activity). See openrouter.py.
@@ -96,6 +103,31 @@ OPENROUTER_ENDPOINTS: dict[str, OpenRouterEndpointConfig] = {
         requires_management_key=True,
         primary_keys=["id"],
         pagination="offset_limit",
+    ),
+    "end_users": OpenRouterEndpointConfig(
+        name="end_users",
+        path="/end-users",
+        requires_management_key=True,
+        primary_keys=["user"],
+        partition_key="created_at",
+        pagination="offset_limit",
+        # Deactivated registrations are hidden by default; include them so a full refresh keeps their
+        # rows with is_active=false instead of dropping them.
+        params={"include_inactive": "true"},
+    ),
+    "batches": OpenRouterEndpointConfig(
+        name="batches",
+        path="/batches",
+        requires_management_key=False,
+        requires_inference_key=True,
+        primary_keys=["id"],
+        partition_key="created_at",
+        pagination="cursor",
+        # The list is newest-first only. Full refresh, because a batch's status, request counts and
+        # usage keep changing after it's created.
+        sort_mode="desc",
+        # The source is usually connected with a management key, which can't read this table.
+        should_sync_default=False,
     ),
 }
 

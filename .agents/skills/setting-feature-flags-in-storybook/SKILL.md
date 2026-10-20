@@ -66,9 +66,12 @@ renders the flag-OFF branch. The `featureFlags` parameter avoids this by writing
 the always-merged baseline instead (below), so the empty callback can't clobber them.
 
 > Do **not** try to fix this by disabling posthog-js flags (e.g. `advanced_disable_feature_flags`).
-> The app shell (`appLogic.showApp`) only renders once `receivedFeatureFlags` is true,
+> The app shell (`appLogic.showApp`) normally waits until `receivedFeatureFlags` is true,
 > which is set by that same `onFeatureFlags` callback — suppress it and every
 > `Scenes-App/*` story stalls behind a 3s timeout and flakes.
+> The login page is an intentional exception: with no user on `/login`, `showApp` renders
+> without waiting for flags. Login stories still need the `featureFlags` parameter for
+> deterministic flag state.
 
 ## Under the hood (implementation detail — may drift)
 

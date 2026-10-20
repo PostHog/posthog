@@ -9,6 +9,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.db.models.signals import post_init
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -1087,20 +1088,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # queries: the runner passes its already-loaded team, so the check skips the Team
             # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
-            with self.assertNumQueries(baseline + 11):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 9 once at least one insight materializes
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 9):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
@@ -1196,26 +1198,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert [r.get("items", None) for r in response["results"]] == [None, None]
         assert [r.get("tiles", None) for r in response["results"]] == [None, None]
 
-    @snapshot_postgres_queries
     def test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles(self) -> None:
-        """
-        this test only exists for the query snapshot
-        which can be used to check if all dashboard tiles are being queried.
-        look for a query on posthog_dashboard_tile with
-        ```
-            AND "posthog_dashboardtile"."dashboard_id" = 2
-            AND "posthog_dashboardtile"."dashboard_id" IN (1,
-         ```
-        """
-        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-1"})
-        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        dashboard_one = Dashboard.objects.create(team=self.team, name="dashboard-1")
+        dashboard_two = Dashboard.objects.create(team=self.team, name="dashboard-2")
+        shared_insight = Insight.objects.create(team=self.team, name="shared", query=default_pageview_query())
+        shared_tile = DashboardTile.objects.create(dashboard=dashboard_one, insight=shared_insight)
+        dashboard_one_only_tile = DashboardTile.objects.create(
+            dashboard=dashboard_one,
+            insight=Insight.objects.create(team=self.team, name="dashboard-1 only", query=default_pageview_query()),
+        )
+        # The response lists every dashboard that holds the shared insight. The GET therefore also loads this tile.
+        DashboardTile.objects.create(dashboard=dashboard_two, insight=shared_insight)
+        unrelated_tile = DashboardTile.objects.create(
+            dashboard=dashboard_two,
+            insight=Insight.objects.create(team=self.team, name="dashboard-2 only", query=default_pageview_query()),
+        )
 
-        # so DB has 5 tiles, but we only load need to 1
-        self.dashboard_api.get_dashboard(dashboard_one_id)
+        loaded_tile_ids: set[int] = set()
+
+        def record_loaded_tile(instance: DashboardTile, **kwargs: object) -> None:
+            loaded_tile_ids.add(instance.pk)
+
+        post_init.connect(record_loaded_tile, sender=DashboardTile)
+        try:
+            self.dashboard_api.get_dashboard(dashboard_one.pk)
+        finally:
+            post_init.disconnect(record_loaded_tile, sender=DashboardTile)
+
+        assert {shared_tile.pk, dashboard_one_only_tile.pk} <= loaded_tile_ids
+        assert unrelated_tile.pk not in loaded_tile_ids
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

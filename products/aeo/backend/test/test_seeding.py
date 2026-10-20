@@ -31,13 +31,25 @@ def test_imports_csv_with_and_without_a_header(tmp_path: Path) -> None:
         assert {c.source for c in candidates} == {AEOPrompt.Source.MANUAL}
 
 
+def test_imports_the_topic_column_when_present(tmp_path: Path) -> None:
+    path = tmp_path / "with_topic.csv"
+    path.write_text("Topic,Prompt\nSession replay,Best open source session replay?\n,Untagged question?\n")
+
+    candidates = import_prompts_csv(str(path))
+
+    assert [(c.text, c.topic) for c in candidates] == [
+        ("Best open source session replay?", "Session replay"),
+        ("Untagged question?", ""),
+    ]
+
+
 def test_prompt_hash_ignores_case_and_whitespace() -> None:
     assert prompt_hash("  Best   Session  Replay?  ") == prompt_hash("best session replay?")
     assert normalize_prompt("  Best   Session  Replay?  ") == "Best Session Replay?"
 
 
-def _candidate(text: str) -> PromptCandidate:
-    return PromptCandidate(text=text, source=AEOPrompt.Source.MANUAL)
+def _candidate(text: str, topic: str = "") -> PromptCandidate:
+    return PromptCandidate(text=text, source=AEOPrompt.Source.MANUAL, topic=topic)
 
 
 @pytest.fixture
@@ -47,11 +59,16 @@ def team(db: None) -> Team:
 
 
 def test_reseeding_the_same_prompt_updates_instead_of_duplicating(team: Team) -> None:
-    assert upsert_prompts(team, [_candidate("Best session replay?")])["created"] == 1
-    result = upsert_prompts(team, [_candidate("  best   SESSION replay?  ")])
+    first = upsert_prompts(team, [_candidate("Best session replay?"), _candidate("best session replay?")])
+    assert first == {"created": 1, "updated": 1, "skipped": 0}
+    AEOPrompt.objects.for_team(team.id).update(active=False)
+
+    result = upsert_prompts(team, [_candidate("  best   SESSION replay?  ", topic="Session replay")])
 
     assert result == {"created": 0, "updated": 1, "skipped": 0}
-    assert AEOPrompt.objects.for_team(team.id).count() == 1
+    prompt = AEOPrompt.objects.for_team(team.id).get()
+    assert prompt.topic == "Session replay"
+    assert prompt.active is False
 
 
 def test_oversized_and_empty_prompts_are_skipped(team: Team) -> None:
@@ -68,3 +85,13 @@ def test_oversized_and_empty_prompts_are_skipped(team: Team) -> None:
 
     assert result == {"created": 1, "updated": 0, "skipped": 2}
     assert [p.prompt for p in AEOPrompt.objects.for_team(team.id)] == ["What is the best web analytics tool?"]
+
+
+def test_import_through_a_child_environment_lands_on_the_parent(team: Team) -> None:
+    child = Team.objects.create(organization=team.organization, name="child env", parent_team=team)
+    upsert_prompts(team, [_candidate("Best session replay?")])
+
+    result = upsert_prompts(child, [_candidate("best session replay?"), _candidate("Best feature flags?")])
+
+    assert result == {"created": 1, "updated": 1, "skipped": 0}
+    assert AEOPrompt.objects.for_team(team.id).count() == 2
