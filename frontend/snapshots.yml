@@ -8203,9 +8203,9 @@ snapshots:
     products-workflows-editor-graph--with-navigation--light:
         hash: v1.k794b7964.56d8bf045970b426f994709ddc19478d18e1968fcf3a41f8e0d28485ff338fa1.QsH5OKiKp00RMcqNzSYgsacI4_1BZ7UtU31Qt2EYzuU
     products-workflows-editor-tile-canvas--long-emails--dark:
-        hash: v1.k794b7964.1c68fbef090e03ad78553e83f9600ca723e1410c5dea6cde7724640423dc63a3.IpQlXvn4eu0Kx0xAvtWrFY0HWEDmW2PJSaTJ-DdzfuQ
+        hash: v1.k794b7964.746428991aecc1377d0eee56fb4bfa599ea2655fd0e5ea52b422d2801a35b7d3.1ymLS7jybK2AYnJEU35IFIHsVPFfXodyVK7oL-aUNB8
     products-workflows-editor-tile-canvas--long-emails--light:
-        hash: v1.k794b7964.a44070a707b2bb3a40b702e9a651c7f65ace1aacbca38638558385d335b46931.-Ngt_-R_pmOJcOIUzg0hvf17t1OdkMaL3XHfBp8resg
+        hash: v1.k794b7964.eebfc3cc0b5c90e085ba25241bcc782ecea76b1d80eddecd7395694223163f78.6yn2sx_hr50S9YDOqkZOEFUj3ksKoyDB5SOGeOwjQ6k
     products-workflows-editor-tile-canvas--paths-collapsed--dark:
         hash: v1.k794b7964.a7d1365772454bc11513284e6b78429127fd18f9e88dc8596005089e1ec69719.W3pCWyBom6wjFqo5FoXZ1Ve1o6zhmWDzy3X0gRZHdN0
     products-workflows-editor-tile-canvas--paths-collapsed--light:
@@ -8219,9 +8219,9 @@ snapshots:
     products-workflows-editor-tile-canvas--time-window-and-webhook--light:
         hash: v1.k794b7964.bb4d20744239d7853c41634985d6c021415cf69a6c7a7affd82cc1b66629c05c.V8xSVCs8-Ryzp0TxCYhQJGUE6lIVtIJhK3_z07BoEvc
     products-workflows-editor-tile-canvas--with-step-counts--dark:
-        hash: v1.k794b7964.2316bb905034aa99508f6137d9c223b2b4748f4095dcd1fedfe9f201505a5860.fonj_IIaN6K5A3Y_4FuSU0S8XBM-aMC8uhrRRFD4ac8
+        hash: v1.k794b7964.0ab0b8a7082c3361fbfe4411ced4404bb68a064b053b7f2ccf1a837eac899e16.J6jtQPYdW-CDpPpbapVHB1Ne2lsf5pfJIDUyPiAP5XM
     products-workflows-editor-tile-canvas--with-step-counts--light:
-        hash: v1.k794b7964.9250d4a392bfacf5d7777281f0e9759727d32119667b05630dd0131f89043d1e.e6tQol5A8SUhDy8Ubh964qHOS0Vp329Jjst4MIRsx-k
+        hash: v1.k794b7964.b152134d4ebad3b1aad8e7daa775d1c9a8eb751a4135054d79236ed3a667ab6d.SJNeHLOjBtEOEO14ecxMYO0Bc2DHtzrAF3ddp99XzsE
     products-workflows-editor-tree--add-on-promotion-emails--dark:
         hash: v1.k794b7964.b57f08708c8687742a71ed295c7e0d342e11cc63c709a9b9b703385fbf4d1b31.yosoQWPjKotHOoPqaIycyvai4desJVjTgoOqJHZu1fA
     products-workflows-editor-tree--add-on-promotion-emails--light:
@@ -11209,7 +11209,7 @@ snapshots:
     scenes-app-heatmap-new--authenticated-review--dark:
         hash: v1.k794b7964.23ad5e208a3001a6415b90a9ba2402e483aab06938cc95fa7fe5d1ea5c496bcc.sZFsnhxz8q2n5R5WhX4eifoKj2C-UIdZM9Yv3Hp_G9U
     scenes-app-heatmap-new--authenticated-review--light:
-        hash: v1.k794b7964.61d6de77bd380e99500dae2f0a78057fec5603627b73f9eb7bd9054edac3266c.BU5AqsFGK7h4O8TAWLjEZXdNMSPz2sQpCmWjNvHGajk
+        hash: v1.k794b7964.1e5957da89de374b78732161eb00eea58830bd3dd0785bdc27cb31addfc970bd.7YJ59ISZkOm2Oe2GUoxbCJyhxqmfIFSTQimLYKZtwvM
     scenes-app-heatmap-new--authenticated-with-recordings--dark:
         hash: v1.k794b7964.442992a798205b41538d40ab3c5852395200d7d52fe23bd1059aed4c771b50ee.1nJ8Jqy6XLD1f94_Ynt--NV4WjG8B5DEVHmW88gBA5M
     scenes-app-heatmap-new--authenticated-with-recordings--light:
