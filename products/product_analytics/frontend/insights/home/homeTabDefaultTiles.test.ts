@@ -292,10 +292,10 @@ describe('homeTabDefaultTiles', () => {
         const { tiles } = getHomeTabDashboardTemplate()
 
         expect(tiles.map((tile) => tile.type === 'INSIGHT' && tile.name)).toEqual([
-            'Active users',
+            'Weekly active users',
             'Sessions',
             'First-time users',
-            'Session duration',
+            'Avg. session duration',
             'Avg. DAU',
             'Daily active users',
             'Top pages',
@@ -319,12 +319,22 @@ describe('homeTabDefaultTiles', () => {
             }
         }
         expect(tiles.slice(0, 5).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
-            { source: { trendsFilter: { display: ChartDisplayType.BoldNumber } } },
+            {
+                source: {
+                    series: [{ math: BaseMathType.WeeklyActiveUsers }],
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'latest' },
+                },
+            },
             { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
             { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
             {
                 source: {
-                    trendsFilter: { display: ChartDisplayType.BoldNumber, aggregationAxisFormat: 'duration' },
+                    trendsFilter: {
+                        display: ChartDisplayType.Metric,
+                        metricSummary: 'average',
+                        aggregationAxisFormat: 'duration',
+                    },
                 },
             },
             {

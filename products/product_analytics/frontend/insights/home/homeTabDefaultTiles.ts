@@ -483,13 +483,19 @@ interface HomeTabDashboardTile {
     h: number
 }
 
-// The Metric display (number with a sparkline) sums or averages the interval points. That would count
-// a person once per active day and average the daily session durations, so those two tiles keep the
-// bold number to show the same values as Home.
-const HOME_TAB_STAT_METRIC_SUMMARIES: Partial<Record<HomeTabMetricKey, 'total' | 'average'>> = {
+// The Metric display (number with a sparkline) sums the interval points, which counts a person once per
+// active day. Weekly active users on the latest day counts each person once and still has a daily trend.
+const HOME_TAB_STAT_METRIC_SUMMARIES: Record<HomeTabMetricKey, 'total' | 'average' | 'latest'> = {
+    active_users: 'latest',
     sessions: 'total',
     new_users: 'total',
+    session_duration: 'average',
     daily_active_users: 'average',
+}
+
+const HOME_TAB_STAT_DASHBOARD_NAMES: Partial<Record<HomeTabMetricKey, string>> = {
+    active_users: 'Weekly active users',
+    session_duration: 'Avg. session duration',
 }
 
 /** PostHog Home as a dashboard template, so a copy keeps the Home charts and the user can edit them. */
@@ -511,19 +517,27 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
         return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
     }
     const statTiles = getHomeTabStatQueries(dateRange, compare).map((stat): HomeTabDashboardTile => {
-        const metricSummary = HOME_TAB_STAT_METRIC_SUMMARIES[stat.key]
+        const weeklyActiveUsers = stat.key === 'active_users'
         return {
-            name: stat.title,
-            description: stat.description ?? '',
+            name: HOME_TAB_STAT_DASHBOARD_NAMES[stat.key] ?? stat.title,
+            description: '',
             source: {
                 ...stat.query,
+                ...(weeklyActiveUsers
+                    ? {
+                          series: [activityEvent(BaseMathType.WeeklyActiveUsers)],
+                          interval: 'day',
+                          compareFilter: { compare: false },
+                      }
+                    : {}),
                 trendsFilter: {
                     ...stat.query.trendsFilter,
-                    ...(metricSummary ? { display: ChartDisplayType.Metric, metricSummary } : {}),
+                    display: ChartDisplayType.Metric,
+                    metricSummary: HOME_TAB_STAT_METRIC_SUMMARIES[stat.key],
                     ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
                 },
             },
-            w: stat.key === 'active_users' || stat.key === 'daily_active_users' ? 3 : 2,
+            w: weeklyActiveUsers || stat.key === 'daily_active_users' ? 3 : 2,
             h: 3,
         }
     })

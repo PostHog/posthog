@@ -89,6 +89,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         layouts,
         layoutEditMode,
         placement,
+        readOnly,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -236,11 +237,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [containerRef])
     const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
-    const isEditablePlacement = [
-        DashboardPlacement.Dashboard,
-        DashboardPlacement.ProjectHomepage,
-        DashboardPlacement.Builtin,
-    ].includes(placement)
+    const isEditablePlacement =
+        !readOnly &&
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(
+            placement
+        )
 
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement

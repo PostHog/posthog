@@ -309,6 +309,31 @@ describe('DashboardItems', () => {
     })
 
     it.each([
+        [false, true],
+        [true, false],
+    ])('with readOnly %s on a built-in dashboard, offers editing controls: %s', (readOnly, editable) => {
+        const defaultValues = mockedUseValues.getMockImplementation()!
+        mockedUseValues.mockImplementation((logic) =>
+            logic === dashboardLogic
+                ? {
+                      ...defaultValues(logic),
+                      placement: DashboardPlacement.Builtin,
+                      readOnly,
+                      layoutEditMode: false,
+                      dashboardEditing: null,
+                  }
+                : defaultValues(logic)
+        )
+
+        render(<DashboardItems />)
+
+        const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
+        expect(cardProps.showEditingControls).toBe(editable)
+        expect(cardProps.onEnterEditModeFromEdge !== undefined).toBe(editable)
+        expect(cardProps.onDragHandleMouseDown !== undefined).toBe(editable)
+    })
+
+    it.each([
         ['tight', '8,8'],
         ['condensed', '12,12'],
         ['relaxed', '32,32'],

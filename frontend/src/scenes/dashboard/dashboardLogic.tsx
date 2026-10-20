@@ -217,6 +217,8 @@ export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    /** Hides the tile menus and the drag-to-edit controls, even for users who can edit the dashboard. */
+    readOnly?: boolean
 }
 
 interface PendingFilterChange {
@@ -429,6 +431,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -3204,6 +3207,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props) => props.placement],
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
+        readOnly: [() => [(_, props) => props.readOnly], (readOnly: boolean | undefined): boolean => !!readOnly],
         apiUrl: [
             (_, p) => [p.id],
             (id: number) => {
