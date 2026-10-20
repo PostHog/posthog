@@ -175,7 +175,14 @@ class SandboxedEvalHarness:
             flags = ", ".join(self.options.sandbox_flags_set)
             raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
-        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose, dashboard=self._dashboard)
+        reporter = ProgressReporter(
+            total_suites=len(suites),
+            verbose=self.options.verbose,
+            dashboard=self._dashboard,
+            revision=self._git_sha,
+            worktree_dirty=self._git_dirty,
+        )
+        reporter.write_run_report(self.options, suites, exit_code=1, duration_seconds=0)
         reporter.print_run_header(
             provider=self.options.provider,
             agent_runtime=self.options.agent_runtime,
@@ -201,6 +208,11 @@ class SandboxedEvalHarness:
                     )
                     self._validate_agent_options()
                     self.provider.preflight()
+                if self.options.check_only:
+                    reporter.write_run_report(
+                        self.options, suites, exit_code=0, duration_seconds=time.monotonic() - started
+                    )
+                    return 0
                 if Infra.PERSONHOG in required:
                     reporter.setup_started("build personhog")
                     ensure_personhog_binaries()
@@ -235,15 +247,25 @@ class SandboxedEvalHarness:
                     except KeyboardInterrupt:
                         interrupted = True
                         runner.run(self._offline_delivery.cancel())
+                    finally:
+                        if not self.options.check_only:
+                            reporter.write_run_report(
+                                self.options,
+                                suites,
+                                exit_code=130 if interrupted else 1,
+                                duration_seconds=time.monotonic() - started,
+                            )
 
         duration_seconds = time.monotonic() - started
         if interrupted:
             reporter.print_incomplete_summary(status="INTERRUPTED", duration_seconds=duration_seconds)
+            reporter.write_run_report(self.options, suites, exit_code=130, duration_seconds=duration_seconds)
             return 130
         if results is None:
             raise RuntimeError("Sandboxed eval run finished without suite results")
 
         exit_code = self._exit_code(results, reporter)
+        reporter.write_run_report(self.options, suites, exit_code=exit_code, duration_seconds=duration_seconds)
         reporter.print_final_summary(
             results,
             exit_code=exit_code,
