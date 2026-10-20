@@ -16,6 +16,7 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -822,10 +823,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             </WithMeasuredWidth>
         )
 
+        // Without a line, viewers read loose tiles under a closed group as part of that group.
+        const followsGroup = sections[index - 1]?.kind === 'group'
         return (
             <div key={section.key}>
                 {section.kind === 'tiles' ? (
-                    grid
+                    <>
+                        {followsGroup && <LemonDivider className="mb-4" />}
+                        {grid}
+                    </>
                 ) : (
                     <DashboardTileGroup
                         group={section.group}
