@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
@@ -92,7 +93,7 @@ class TestComposeTicketSerializer(SimpleTestCase):
 
 
 # Patch on_commit to execute immediately in tests
-def immediate_on_commit(func):
+def immediate_on_commit(func: Callable[[], object], using: str | None = None) -> None:
     func()
 
 
