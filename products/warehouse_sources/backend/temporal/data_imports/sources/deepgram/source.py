@@ -56,7 +56,7 @@ class DeepgramSource(ResumableSource[DeepgramSourceConfig, DeepgramResumeConfig]
             name=ExternalDataSourceType.DEEPGRAM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Deepgram",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Deepgram API key to sync your Deepgram Management API data into the PostHog Data warehouse.
 
 You can create an API key in your [Deepgram Console](https://console.deepgram.com/) under **Settings → API Keys**. A key with a read-capable scope (e.g. `member`) is sufficient — the source only reads projects, members, keys, balances, invites, and the request log.""",

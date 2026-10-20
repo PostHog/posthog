@@ -146,5 +146,5 @@ class CloudabilitySource(ResumableSource[CloudabilitySourceConfig, CloudabilityR
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

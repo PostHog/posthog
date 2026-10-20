@@ -52,7 +52,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
             name=ExternalDataSourceType.CIMIS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CIMIS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull California weather and reference evapotranspiration (ETo) data from the [California Irrigation Management Information System (CIMIS)](https://cimis.water.ca.gov/) into the PostHog Data warehouse.
 
 CIMIS is a free service. Register for a free account and create a **web-services appKey** in your [CIMIS account](https://et.water.ca.gov/Account/Login), then paste it below.

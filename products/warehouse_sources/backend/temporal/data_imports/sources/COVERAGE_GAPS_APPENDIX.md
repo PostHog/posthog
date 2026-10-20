@@ -11125,7 +11125,7 @@ Today (4): `answers`, `questions`, `responses`, `surveys`
 
 Diffed against: <https://developer.simplesat.io/api/Simplesat%20API%20(v1)%20OpenAPI.yaml>
 
-- [ ] `customers (GET /api/v1/customers)` — lookup table resolving the customer referenced on every synced response, so CSAT/NPS can be sliced by account (high)
+- [x] `customers (GET /api/v1/customers)` — lookup table resolving the customer referenced on every synced response, so CSAT/NPS can be sliced by account (high)
 
 Note: The v1 OpenAPI defines only six resources: answers, customers, team-members, responses, surveys, questions. PostHog syncs four of them, so coverage is proportionate — only customers is a real miss. team-members exposes GET /api/v1/team-members/{team_member_id} but no list endpoint (the collection path is POST-only), so it cannot be synced as a table without hydrating ids from responses; I did not list it as a gap for that reason.
 
