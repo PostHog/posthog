@@ -1876,7 +1876,6 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             else None
         )
 
-        # Only `limit` is validated here, so the loosely parsed filter fields keep their behavior.
         options = PatternsDiffBodyFields(data={"limit": query_data["limit"]} if "limit" in query_data else {})
         options.is_valid(raise_exception=True)
         results = run_patterns_diff(

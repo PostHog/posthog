@@ -55,10 +55,6 @@ const RELATED_CAPABILITY_HINTS: Record<string, string> = {
         'Related: this insight can go on a dashboard (`building-a-dashboard` skill) or be delivered to email/Slack on a schedule (`managing-subscriptions` skill).',
 }
 
-/**
- * Tools whose response puts its rows under a key other than `results`. The
- * value names that key, so an empty array there counts as an empty result.
- */
 const PRIMARY_RESULT_KEYS: Record<string, string> = {
     'apm-service-health': 'services',
     'logs-context': 'timeline',
@@ -68,10 +64,9 @@ const PRIMARY_RESULT_KEYS: Record<string, string> = {
 /**
  * Empty means "zero rows", in the two shapes the registered tools return:
  * a bare array, or the standardized `{ results: [...] }` envelope produced by
- * `withPostHogUrl` / `pickResponseFields` / the query-wrapper factory. Tools in
- * `PRIMARY_RESULT_KEYS` use their own row key instead of `results`. Any other
- * shape is treated as non-empty — hints only register tools whose shapes are
- * known, so this never has to guess.
+ * `withPostHogUrl` / `pickResponseFields` / the query-wrapper factory. Any
+ * other shape is treated as non-empty — hints only register tools whose
+ * shapes are known, so this never has to guess.
  */
 export function isEmptyToolResult(handlerResult: unknown, toolName?: string): boolean {
     if (Array.isArray(handlerResult)) {

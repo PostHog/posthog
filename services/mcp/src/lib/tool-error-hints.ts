@@ -42,12 +42,6 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/environments/',
 ]
 
-/**
- * The tracing span endpoints scan `trace_spans` and fail server-side the same
- * way the logs endpoints do: a window or filter set too wide for one request.
- * The recovery starts from the service-level summary instead of the logs
- * count tools.
- */
 const TRACING_QUERY_RECOVERY_HINT = [
     'This tracing query failed server-side. The most common cause is a query that scans too much data and times out — not a bug in your filters.',
     '',
@@ -57,7 +51,6 @@ const TRACING_QUERY_RECOVERY_HINT = [
     '3. Start from `apm-service-health` for per-service rates and latency, then drill into one service with `apm-spans-aggregate` before you pull spans with `query-apm-spans`.',
 ].join('\n')
 
-/** Matches every span endpoint under `/tracing/spans/`. */
 const TRACING_QUERY_URL_FRAGMENT = '/tracing/spans/'
 
 /**

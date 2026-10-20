@@ -2,7 +2,6 @@ import datetime as dt
 
 
 def utc_iso(value: dt.datetime) -> str:
-    """Absolute UTC timestamp for agent-facing responses, `Z`-suffixed, at millisecond precision at most."""
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt.UTC)
     value = value.astimezone(dt.UTC)
@@ -13,7 +12,6 @@ def utc_iso(value: dt.datetime) -> str:
 def window_echo(
     current: tuple[dt.datetime, dt.datetime], baseline: tuple[dt.datetime, dt.datetime] | None = None
 ) -> dict:
-    """The `window` object every agent-facing response starts with: the bounds the server used."""
     window: dict = {"current": {"from": utc_iso(current[0]), "to": utc_iso(current[1])}}
     if baseline is not None:
         window["baseline"] = {"from": utc_iso(baseline[0]), "to": utc_iso(baseline[1])}

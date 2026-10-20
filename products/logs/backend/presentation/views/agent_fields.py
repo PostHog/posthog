@@ -3,7 +3,6 @@ from rest_framework import serializers
 
 class LogsAgentWindowBoundsSerializer(serializers.Serializer):
     def get_fields(self) -> dict[str, serializers.Field]:
-        # `from` is a Python keyword, so it cannot be a declared class attribute.
         return {
             "from": serializers.CharField(help_text="Window start, ISO 8601 UTC with a Z suffix (inclusive)."),
             "to": serializers.CharField(help_text="Window end, ISO 8601 UTC with a Z suffix (exclusive)."),

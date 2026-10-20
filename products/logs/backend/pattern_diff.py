@@ -45,11 +45,6 @@ def _group_by_key(patterns: list[dict], key: Callable[[dict], str]) -> dict[str,
 
 
 def stored_pattern_keys(current: list[dict], baseline: list[dict]) -> Callable[[dict], str]:
-    """Identity for stored-pattern groups: a baseline group matches the current group it shares a member with.
-
-    Each window groups its stored patterns with its own Drain pass, so the group template can differ
-    between windows ("Retry <*> timed out" vs "Retry <N> timed out") while the members stay exact.
-    """
     owner = {member: min(group["match_patterns"]) for group in current for member in group["match_patterns"]}
 
     def key(pattern: dict) -> str:
@@ -185,16 +180,12 @@ def run_patterns_diff(
     user: "User | None" = None,
     limit: int | None = None,
 ) -> dict:
-    """Pattern both windows, and return classified diff entries.
+    """Mine the query's window and a baseline window, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
     daily/weekly cycles, so last week's identical window is a fairer expectation than the
     preceding hour. The current window is resolved once and the baseline derived from the
     resolved bounds, so a relative ``date_from`` (e.g. ``-1h``) can't drift between the two runs.
-
-    Both windows use stored patterns when each qualifies by the PatternsQueryRunner rule (flag on,
-    ≥99% of rows on one version) and they share the version. Otherwise both use body mining: the two
-    paths name placeholders differently, so a mixed pair would read every message as new + gone.
     """
     current_runner = PatternsQueryRunner(team=team, query=query, user=user)
     current_from = current_runner.query_date_range.date_from()

@@ -47,19 +47,6 @@ export const castStringToInt = (v: unknown): unknown => {
  */
 export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boolean' ? String(v) : v)
 
-/**
- * JSON-encode a plain object; pass everything else through.
- *
- * Some GET endpoints take a structured param (a `dateRange`) as a JSON-encoded
- * query string, while the POST tools next to them take the same param as an
- * object. Agents send the object form, the string schema rejects it, and the
- * agent repeats the mistake on its next run. Encoding the object here makes
- * both forms send the same query string. Arrays, primitives, and `null` pass
- * through unchanged, so zod still rejects them.
- *
- * Wired up declaratively via `param_overrides: { dateRange: { cast: 'object-json-string' } }`
- * in product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
- */
 export const castObjectToJsonString = (v: unknown): unknown =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v
 

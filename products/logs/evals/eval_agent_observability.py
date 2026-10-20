@@ -1,8 +1,3 @@
-"""Agent eval for the five common logs questions, scored on the answer and on the number of tool calls.
-
-Every case runs on invented logs for invented services. Run: hogli evals eval_agent_observability
-"""
-
 from __future__ import annotations
 
 import json
@@ -57,8 +52,6 @@ def seed_observability_logs(context: CustomPromptSandboxContext) -> dict[str, An
 
 
 class AnswerMentions(Scorer):
-    """Share of the expected terms in the final answer. A `seed:` term names a value the seeder returned."""
-
     def _name(self) -> str:
         return "answer_mentions"
 
@@ -73,8 +66,6 @@ class AnswerMentions(Scorer):
 
 
 class CallBudget(Scorer):
-    """1.0 within the call budget, then budget / calls, because fewer calls to the answer is the goal."""
-
     def _name(self) -> str:
         return "call_budget"
 
@@ -86,7 +77,6 @@ class CallBudget(Scorer):
         return Score(name=self._name(), score=min(1.0, budget / max(calls, 1)), metadata={"calls": calls})
 
 
-# (name, prompt, terms the answer must mention, call budget)
 CASES = [
     ("daily_health", "Write a health report of my services for the last 24h of logs.", ["checkout", SILENT], 4),
     ("silent_service", "Did a service stop sending logs in the last 24h, compared with the day before?", [SILENT], 2),
