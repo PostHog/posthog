@@ -11,7 +11,6 @@ import requests
 import requests_mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -95,6 +94,56 @@ def test_requests_and_pagination(
     ]
 
 
+@pytest.mark.parametrize("endpoint", ["users", "job_status_workflows", "job_status_workflow_statuses", "timesheets"])
+@pytest.mark.parametrize(
+    "pages,expected_items,expected_pages",
+    [
+        pytest.param(
+            [[{"id": 1}, {"id": 2}], [{"id": 1}, {"id": 2}]],
+            [[{"id": 1}, {"id": 2}]],
+            ["1", "2"],
+            id="page_parameter_ignored",
+        ),
+        pytest.param(
+            [[{"id": 1}], [{"id": 2}], []],
+            [[{"id": 1}], [{"id": 2}]],
+            ["1", "2", "3"],
+            id="page_parameter_honored",
+        ),
+        pytest.param(
+            [[{"id": 1}], [{"id": 2}], [{"id": 2}]],
+            [[{"id": 1}], [{"id": 2}]],
+            ["1", "2", "3"],
+            id="last_page_repeats",
+        ),
+        pytest.param(
+            [{"id": 1, "name": "Default"}, {"id": 1, "name": "Default"}],
+            [[{"id": 1, "name": "Default"}]],
+            ["1", "2"],
+            id="single_record_response",
+        ),
+        pytest.param([[]], [], ["1"], id="no_rows"),
+    ],
+)
+def test_endpoints_without_documented_paging_stop_on_a_repeated_page(
+    endpoint: str,
+    pages: list[Any],
+    expected_items: list[list[dict[str, Any]]],
+    expected_pages: list[str],
+) -> None:
+    result = driver().run(
+        endpoint,
+        [ScriptedResponse(json={"error": False, "response": page}) for page in pages],
+    )
+
+    assert result.raised is None
+    assert result.items == expected_items
+    assert result.params("page") == expected_pages
+    for request in result.requests:
+        assert request.param("sort[0][attribute]") == "id"
+        assert not any(key.startswith("filter[") for key in request.query)
+
+
 @pytest.mark.parametrize("saved_bound", [None, "2026-01-01T00:00:00+00:00"])
 def test_resume_preserves_original_filter(saved_bound: str | None) -> None:
     result = driver().run(
@@ -163,13 +212,6 @@ def test_missing_response_fails_instead_of_silently_importing_nothing() -> None:
     assert isinstance(result.raised, ValueError)
     assert "response" in str(result.raised)
     assert result.saved_states == []
-
-
-def test_unknown_table_is_rejected_before_request() -> None:
-    result = driver().run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 @pytest.mark.parametrize("reset_value,expected_delay", [("1800000030", 30), ("invalid", 1), ("1799999990", 1)])

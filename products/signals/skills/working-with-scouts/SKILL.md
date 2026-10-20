@@ -127,6 +127,7 @@ Which `scopes` value each granted scope writes under:
 
 | Granted write scope     | Activity `scopes` value                       |
 | ----------------------- | --------------------------------------------- |
+| `notebook:write`        | `Notebook`                                    |
 | `dashboard:write`       | `Dashboard`                                   |
 | `insight:write`         | `Insight`                                     |
 | `annotation:write`      | `Annotation`                                  |
@@ -134,18 +135,18 @@ Which `scopes` value each granted scope writes under:
 | `warehouse_view:write`  | `DataWarehouseSavedQuery`, `DataQualityCheck` |
 | `warehouse_table:write` | `DataQualityCheck`                            |
 | `llm_skill:write`       | `PersonalAPIKey`                              |
+| `canvas:write`          | `Canvas`                                      |
 
-Pass `Notebook` as well, whatever the grant says: notebooks are the floor write every scout holds, so any scout can leave rows under that scope.
 Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
 The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
+A canvas publish leaves no activity row either. Read the canvas's version history: each version a scout published records the run's task.
 
 Four caveats change what the answer means:
 
 - **The window is not an attribution.** Without a scout tag, the window can include the acting user's other writes. Even with a tag, overlapping runs of the same scout can share it. Compare actors, items, and timestamps with the close-out.
 - **History access is optional.** Permissions, the Cloud Audit Logs entitlement, and the plan's retention window can make history unavailable. Missing history does not establish that a run made no changes. Defer conclusions that depend on it and continue independent checks; a confirmed access restriction is not a missing-tool defect.
-- **A dry run drops the grant, not the floor.** A scout on `emit: false` never holds the granted scopes, so it writes no rows under the scopes in the table above.
-  It keeps `notebook:write`, the floor write every scout holds, so a dry run can still create, edit, or delete a notebook.
-  Keep `Notebook` in the filter for a dry-run window.
+- **A dry run holds no grant.** A scout on `emit: false` never holds the granted scopes, notebooks included, so it writes no rows under the scopes in the table above.
+- **A team-fallback run keeps only the default grant.** When the scout's author no longer resolves, the run acts as another project member and holds only `notebook:write` (if the scout still has it), so it can leave `Notebook` rows and nothing else.
 - **A refused write is not logged, because it never happened.** The grant is an upper bound and the acting user's own permissions still apply, so a close-out that reports a refused write will have no matching row. That is the expected pairing, not a discrepancy.
 
 ## The steering ladder

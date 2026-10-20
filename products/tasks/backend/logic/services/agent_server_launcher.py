@@ -74,7 +74,7 @@ AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 # The agent-server reads this fd once at boot and closes it, so processes it starts never see the
 # token. The launch shell opens the file on fd 3 and deletes it before the server starts.
 CODEX_RUN_TOKEN_FD = 3
-CODEX_RUN_TOKEN_FILE = "/tmp/agent-codex-run-token"
+CODEX_RUN_TOKEN_FILE = "/run/posthog/agent-codex-run-token"
 
 AGENT_SERVER_FREE_PORT_SCRIPT = (
     "agent_server_pids() { for p in $(pgrep -f '[a]gent-server'); do "
@@ -87,7 +87,6 @@ AGENT_SERVER_FREE_PORT_SCRIPT = (
 AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex")
 AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX = "__posthog_agent_preflight_capability="
 AGENT_SERVER_PREFLIGHT_REUSE_MARKER = "__posthog_agent_preflight_reuse=1"
-AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE = 90
 AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE = 91
 AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE = 92
 AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS = 60
@@ -223,12 +222,9 @@ def build_agent_server_preflight_script(
     *, probe_health: bool, executable_paths: tuple[str, ...], probe_memory_watchdog: bool = False
 ) -> str:
     lines = [
-        f"if ! ( {build_bundled_skills_clear_command()} ); then exit {AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE}; fi"
-    ]
-    lines.extend(
         f"if ! chmod +x {shlex.quote(path)}; then exit {AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE}; fi"
         for path in executable_paths
-    )
+    ]
     if probe_memory_watchdog:
         lines.append(build_memory_watchdog_probe_command())
     lines.extend(
@@ -290,8 +286,8 @@ class AgentServerLaunchMixin(SandboxBase):
     def supports_combined_agent_server_start_and_health(self) -> bool:
         return True
 
-    def _write_required_file(self, path: str, payload: bytes) -> None:
-        result = self.write_file(path, payload)
+    def _write_required_file(self, path: str, payload: bytes, *, timeout_seconds: int | None = None) -> None:
+        result = self.write_file(path, payload, timeout_seconds=timeout_seconds)
         if result.exit_code != 0:
             write_stage = (result.error or "unknown")[:100]
             raise SandboxExecutionError(
@@ -335,6 +331,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -361,6 +358,7 @@ class AgentServerLaunchMixin(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
@@ -384,11 +382,13 @@ class AgentServerLaunchMixin(SandboxBase):
         unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
+            f"POSTHOG_AGENT_STATE_DIR={shlex.quote(f'{WORKING_DIR}/.posthog/agent-state')} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
+        server_cmd = self._wrap_agent_server_command(server_cmd)
         launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
         if repo_ready_file:
@@ -416,6 +416,9 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
+
+    def _wrap_agent_server_command(self, command: str) -> str:
+        return command
 
     def _sandbox_runtime(self) -> str | None:
         return None
@@ -560,6 +563,11 @@ class AgentServerLaunchMixin(SandboxBase):
 
     def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
         executable_paths = self._install_agent_server_launch_files()
+        result = self.execute_in_task_filesystem(
+            build_bundled_skills_clear_command(), timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
         result = self.execute(
             build_agent_server_preflight_script(
                 probe_health=self._agent_server_reuse_enabled(),
@@ -568,8 +576,6 @@ class AgentServerLaunchMixin(SandboxBase):
             ),
             timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
         )
-        if result.exit_code == AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE:
-            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE:
             raise SandboxExecutionError(
                 "Failed to set permissions on required sandbox file",
@@ -701,6 +707,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
@@ -787,6 +794,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
+                pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
                 codex_model_access=codex_model_access,

@@ -18,12 +18,16 @@ import hashlib
 from dataclasses import field
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
+from products.aeo.backend.facade.contracts import PROMPT_TOPIC_MAX_LENGTH
 from products.aeo.backend.models import AEOPrompt
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +37,7 @@ logger = structlog.get_logger(__name__)
 class PromptCandidate:
     text: str
     source: str
+    topic: str = ""
     rank: float = 0
     evidence: dict[str, Any] = field(default_factory=dict)
 
@@ -46,24 +51,24 @@ def prompt_hash(text: str) -> str:
 
 
 def import_prompts_csv(path: str, *, source: str = AEOPrompt.Source.IMPORTED) -> list[PromptCandidate]:
-    """Import prompts from a CSV — either a file with a `prompt` header column,
-    or a headerless file with one prompt per line."""
+    """Import prompts from a CSV — either a file with a `prompt` header column
+    (and an optional `topic` column), or a headerless file with one prompt per line."""
     with open(path, newline="") as f:
         first_row = next(csv.reader(f), None)
         f.seek(0)
         has_header = first_row is not None and any(cell.strip().lower() == "prompt" for cell in first_row)
-        texts: list[str] = []
+        rows: list[tuple[str, str]] = []
         if has_header:
             for row in csv.DictReader(f):
-                text = next((value for key, value in row.items() if key and key.strip().lower() == "prompt"), None)
-                if text and text.strip():
-                    texts.append(text.strip())
+                cells = {key.strip().lower(): (value or "").strip() for key, value in row.items() if key}
+                if cells.get("prompt"):
+                    rows.append((cells["prompt"], cells.get("topic", "")))
         else:
             for line in f:
                 text = line.strip().strip('"')
                 if text:
-                    texts.append(text)
-    return [PromptCandidate(text=text, source=source, evidence={"file": path}) for text in texts]
+                    rows.append((text, ""))
+    return [PromptCandidate(text=text, source=source, topic=topic, evidence={"file": path}) for text, topic in rows]
 
 
 def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, int]:
@@ -73,27 +78,41 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
     single prompt from bloating every check event it appears on, and it matches
     what a check event records for prompt_text.
     """
-    created = updated = skipped = 0
+    # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
+    team_id = team.parent_team_id or team.id
+    skipped = 0
+    rows: dict[str, AEOPrompt] = {}
+    now = timezone.now()
     for candidate in candidates:
         text = normalize_prompt(candidate.text)
         if not text or len(text) > MAX_PROMPT_LENGTH:
             skipped += 1
             continue
-        # for_team scopes the fail-closed manager; team is still passed
-        # explicitly because queryset filters don't propagate into row creation.
-        _, was_created = AEOPrompt.objects.for_team(team.id).update_or_create(
-            team=team,
-            prompt_hash=prompt_hash(text),
-            defaults={
-                "prompt": text,
-                "prompt_source": candidate.source,
-                "rank": candidate.rank,
-                "evidence": candidate.evidence,
-                "active": True,
-            },
+        key = prompt_hash(text)
+        # Keyed by hash because one upsert statement cannot touch the same row twice; the later copy wins.
+        rows[key] = AEOPrompt(
+            team_id=team_id,
+            prompt=text,
+            prompt_hash=key,
+            prompt_source=candidate.source,
+            topic=normalize_prompt(candidate.topic)[:PROMPT_TOPIC_MAX_LENGTH],
+            rank=candidate.rank,
+            evidence=candidate.evidence,
+            active=True,
+            updated_at=now,
         )
-        created += was_created
-        updated += not was_created
+    valid = len(candidates) - skipped
+    with team_scope(team_id):
+        existing = set(AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list("prompt_hash", flat=True))
+        # `active` is left out of the update, so a re-import keeps prompts someone turned off.
+        # Sorted so concurrent imports lock conflicting rows in the same order and cannot deadlock.
+        AEOPrompt.objects.bulk_create(
+            [rows[key] for key in sorted(rows)],
+            update_conflicts=True,
+            unique_fields=["team", "prompt_hash"],
+            update_fields=["prompt", "prompt_source", "topic", "rank", "evidence", "updated_at"],
+        )
+    created = len(rows.keys() - existing)
     if skipped:
         logger.info("aeo_seed_candidates_skipped", team_id=team.id, skipped=skipped)
-    return {"created": created, "updated": updated, "skipped": skipped}
+    return {"created": created, "updated": valid - created, "skipped": skipped}

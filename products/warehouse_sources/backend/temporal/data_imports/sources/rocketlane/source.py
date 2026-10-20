@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RocketlaneSource(ResumableSource[RocketlaneSourceConfig, RocketlaneResumeConfig]):
+    codebase_detection = detect(env=("^ROCKETLANE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("1.0",)
     default_version = "1.0"
@@ -50,7 +53,7 @@ class RocketlaneSource(ResumableSource[RocketlaneSourceConfig, RocketlaneResumeC
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Rocketlane API key to pull your Rocketlane data into the PostHog Data warehouse.
 
-You can generate an API key under **Settings → API** in the [Rocketlane app](https://app.rocketlane.com/). This single key grants read access to your projects, tasks, time entries, users, and fields.
+You can generate an API key under **Settings → API** in the [Rocketlane app](https://app.rocketlane.com/). This single key grants read access to your projects, phases, tasks, time entries, users, fields, and invoices.
 """,
             iconPath="/static/services/rocketlane.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rocketlane",

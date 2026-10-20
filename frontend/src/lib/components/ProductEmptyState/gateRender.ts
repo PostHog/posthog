@@ -37,12 +37,16 @@ export function forcedModeFromParam(value: unknown): ProductEmptyStateMode | nul
 function coversCurrentSurface(
     gated: GatedScene,
     activeSceneId: string | null,
-    params: Record<string, string | undefined>
+    params: Record<string, string | undefined>,
+    searchParams: Record<string, string | undefined>
 ): boolean {
     if (typeof gated === 'string') {
         return gated === activeSceneId
     }
-    return gated.scene === activeSceneId && gated.tabs.includes(params.tab)
+    return (
+        gated.scene === activeSceneId &&
+        gated.tabs.includes(gated.tabSource === 'search' ? searchParams.tab : params.tab)
+    )
 }
 
 export type ProductEmptyStateGateActivation = 'off' | 'awaiting-flags' | 'on'
@@ -54,6 +58,7 @@ export interface ProductEmptyStateGateSurface {
     emptyState: SceneProductEmptyState
     activeSceneId: string | null
     params: Record<string, string | undefined>
+    searchParams?: Record<string, string | undefined>
     featureFlags: FeatureFlagsSet
     receivedFeatureFlags: boolean
     forcedMode: ProductEmptyStateMode | null
@@ -70,6 +75,7 @@ export function productEmptyStateGateActivation({
     emptyState,
     activeSceneId,
     params,
+    searchParams = {},
     featureFlags,
     receivedFeatureFlags,
     forcedMode,
@@ -84,7 +90,10 @@ export function productEmptyStateGateActivation({
             return 'off'
         }
     }
-    if (emptyState.scenes && !emptyState.scenes.some((gated) => coversCurrentSurface(gated, activeSceneId, params))) {
+    if (
+        emptyState.scenes &&
+        !emptyState.scenes.some((gated) => coversCurrentSurface(gated, activeSceneId, params, searchParams))
+    ) {
         return 'off'
     }
     if (emptyState.bypassFeatureFlag && !forcedMode) {

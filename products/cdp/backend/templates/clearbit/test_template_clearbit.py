@@ -1,6 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.clearbit.template_clearbit import template as template_clearbit
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 EXAMPLE_RESPONSE = {
     "person": {

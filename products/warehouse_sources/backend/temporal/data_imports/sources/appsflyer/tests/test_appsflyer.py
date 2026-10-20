@@ -134,11 +134,50 @@ class TestValidateCredentials:
                 validate_credentials("token", "id123")
         assert expected_substring in str(exc.value)
 
-    def test_validate_rejects_bad_app_id_without_request(self) -> None:
+    @pytest.mark.parametrize(
+        "body, expected_reason",
+        [
+            ("Pull API is not enabled\nfor this account", "AppsFlyer said: Pull API is not enabled for this account"),
+            ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
+            ("<html><body>Forbidden</body></html>", None),
+            ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+        ],
+    )
+    def test_validate_credentials_surfaces_appsflyer_reason(self, body: str, expected_reason: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=403, body=body.encode())]):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("Bearer secret-token", "id123")
+        message = str(exc.value)
+        if expected_reason is None:
+            assert "AppsFlyer said" not in message
+        else:
+            assert message.endswith(expected_reason)
+        assert "secret-token" not in message
+
+    @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
+    def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials(api_token, "123456789")
+
+        request = network.requests_log[0]
+        assert request.headers["authorization"] == "Bearer token"
+        assert "/app/id123456789/" in request.path
+
+    @pytest.mark.parametrize(
+        "api_token, app_id, expected_substring",
+        [
+            ("token", "bad app!", "app id"),
+            ("token\u201d", "id123", "API token"),
+            ("\u201ctoken\u201d", "id123", "API token"),
+        ],
+    )
+    def test_validate_rejects_bad_input_without_request(
+        self, api_token: str, app_id: str, expected_substring: str
+    ) -> None:
         with scripted_network([]) as network:
             with pytest.raises(AppsFlyerCredentialsError) as exc:
-                validate_credentials("token", "bad app!")
-        assert "app id" in str(exc.value)
+                validate_credentials(api_token, app_id)
+        assert expected_substring in str(exc.value)
         assert network.requests_log == []
 
     @pytest.mark.parametrize("status_code", [400, 418, 451])

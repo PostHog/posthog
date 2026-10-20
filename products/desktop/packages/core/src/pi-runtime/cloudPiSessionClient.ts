@@ -17,11 +17,13 @@ import {
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
+  acpNotificationToAgentConversationEvent,
   type McpToolPermissionDecision,
   type McpToolPermissionRequest,
   type PiRuntimeHealth,
   readMcpInstallationId,
   readMcpToolDescriptor,
+  readPiExtensionMessage,
   type StoredLogEntry,
   type TaskRunStatus,
 } from "@posthog/shared";
@@ -83,7 +85,18 @@ function extensionMessageFromLogEntry(entry: StoredLogEntry): unknown {
   ) {
     return entry.notification.params;
   }
+  if (entry.type === "notification") {
+    return readPiExtensionMessage(entry.notification?.params);
+  }
   return entry;
+}
+
+function isRunStartedEntry(entry: StoredLogEntry): boolean {
+  return (
+    entry.type === "pi_run_started" ||
+    (entry.type === "notification" &&
+      entry.notification?.method === "_posthog/run_started")
+  );
 }
 
 function permissionDescription(
@@ -519,7 +532,7 @@ export class CloudPiSessionClient implements PiSession {
       update.sandboxAlive !== false;
     const hasRuntimeStartedEvent =
       (update.kind === "logs" || update.kind === "snapshot") &&
-      update.newEntries.some((entry) => entry.type === "pi_run_started");
+      update.newEntries.some(isRunStartedEntry);
     const hasLiveRuntimeStarted =
       update.kind === "logs" && hasRuntimeStartedEvent;
     if (hasLiveRuntimeStarted) {
@@ -667,9 +680,35 @@ export class CloudPiSessionClient implements PiSession {
       const progress = this.getProgressEvent(entry);
       if (progress) {
         events.push({ ...progress, sourceId });
+        continue;
+      }
+
+      const event = this.getAcpConversationEvent(entry);
+      if (event) {
+        events.push({ ...event, sourceId });
       }
     }
     return events;
+  }
+
+  private getAcpConversationEvent(
+    entry: StoredLogEntry,
+  ): AgentConversationEvent | null {
+    const method = entry.notification?.method;
+    const params = entry.notification?.params;
+    if (
+      entry.type !== "notification" ||
+      !method ||
+      typeof params !== "object" ||
+      params === null
+    ) {
+      return null;
+    }
+    const timestamp = Date.parse(entry.timestamp ?? "");
+    return acpNotificationToAgentConversationEvent(
+      { method, params: params as Record<string, unknown> },
+      Number.isNaN(timestamp) ? Date.now() : timestamp,
+    );
   }
 
   private normalizeLegacyEvent(

@@ -233,6 +233,157 @@ def test_jobs_discover_queues_and_hydrate_all_statuses(config: AwsBatchSourceCon
     assert result.response is not None and result.response.sort_mode is None
 
 
+def test_job_children_describe_array_children_and_nodes(config: AwsBatchSourceConfig) -> None:
+    def send(request: RecordedRequest) -> ScriptedResponse:
+        payload = request.json()
+        if request.path.endswith("describejobqueues"):
+            return ScriptedResponse(
+                json={
+                    "jobQueues": [
+                        {"jobQueueArn": "arn:queue:ecs", "computeEnvironmentOrder": [{"order": 1}]},
+                        {"jobQueueArn": "arn:queue:service", "serviceEnvironmentOrder": [{"order": 1}]},
+                    ]
+                }
+            )
+        if request.path.endswith("listjobs"):
+            assert payload["jobQueue"] == "arn:queue:ecs"
+            assert payload["filters"] == [{"name": "JOB_NAME", "values": ["*"]}]
+            if "nextToken" not in payload:
+                return ScriptedResponse(
+                    json={
+                        "jobSummaryList": [{"jobId": "plain"}, {"jobId": "array", "arrayProperties": {"size": 101}}],
+                        "nextToken": "page-two",
+                    }
+                )
+            return ScriptedResponse(json={"jobSummaryList": [{"jobId": "mnp", "nodeProperties": {"numNodes": 2}}]})
+        return ScriptedResponse(
+            json={"jobs": [{"jobArn": f"arn:job/{job_id}", "createdAt": 1735689600000} for job_id in payload["jobs"]]}
+        )
+
+    result = driver(config).run("job_children", send)
+    assert result.raised is None
+    described = [request.json()["jobs"] for request in result.requests if request.path.endswith("describejobs")]
+    assert described == [[f"array:{i}" for i in range(100)], ["array:100"], ["mnp#0", "mnp#1"]]
+    rows = result.rows
+    assert len(rows) == 103
+    assert {row["parent_job_id"] for row in rows} == {"array", "mnp"}
+    assert rows[-1] == {
+        "job_arn": "arn:job/mnp#1",
+        "created_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+        "region": "eu-west-1",
+        "parent_job_id": "mnp",
+    }
+    assert result.saved_states[-1].complete
+
+
+def test_job_children_resume_mid_parent_and_finish_queue(config: AwsBatchSourceConfig) -> None:
+    result = driver(config).run(
+        "job_children",
+        [ScriptedResponse(json={"jobs": []}), ScriptedResponse(json={"jobSummaryList": []})],
+        resume_state=AwsBatchResumeConfig(
+            queue_arns=["arn:queue"],
+            next_token="page-two",
+            child_prefixes=["done:", "array:"],
+            child_counts=[5, 150],
+            parent_index=1,
+            child_offset=100,
+        ),
+    )
+    assert result.raised is None
+    assert result.requests[0].json() == {"jobs": [f"array:{i}" for i in range(100, 150)]}
+    assert result.requests[1].json()["nextToken"] == "page-two"
+    assert len(result.requests) == 2
+    assert result.saved_states[-1].complete
+
+
+def test_service_jobs_read_only_service_queues(config: AwsBatchSourceConfig) -> None:
+    def send(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("describejobqueues"):
+            return ScriptedResponse(
+                json={
+                    "jobQueues": [
+                        {"jobQueueArn": "arn:queue:ecs", "computeEnvironmentOrder": [{"order": 1}]},
+                        {"jobQueueArn": "arn:queue:service", "serviceEnvironmentOrder": [{"order": 1}]},
+                    ]
+                }
+            )
+        payload = request.json()
+        assert payload["jobQueue"] == "arn:queue:service"
+        assert payload["filters"] == [{"name": "JOB_NAME", "values": ["*"]}]
+        return ScriptedResponse(
+            json={"jobSummaryList": [{"jobArn": "arn:service-job", "status": "FAILED", "stoppedAt": 1735689600000}]}
+        )
+
+    result = driver(config).run("service_jobs", send)
+    assert result.raised is None
+    assert [request.path for request in result.requests] == ["/v1/describejobqueues", "/v1/listservicejobs"]
+    assert result.rows == [
+        {
+            "job_arn": "arn:service-job",
+            "status": "FAILED",
+            "stopped_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+            "region": "eu-west-1",
+            "job_queue": "arn:queue:service",
+        }
+    ]
+    assert result.saved_states[-1].complete
+
+
+@pytest.mark.parametrize(
+    "endpoint,list_key,item_key,detail_path,expected_details",
+    [
+        (
+            "scheduling_policies",
+            "schedulingPolicies",
+            "arn",
+            "/v1/describeschedulingpolicies",
+            [{"arns": ["arn:one"]}, {"arns": ["arn:two", "arn:three"]}],
+        ),
+        (
+            "consumable_resources",
+            "consumableResources",
+            "consumableResourceArn",
+            "/v1/describeconsumableresource",
+            [{"consumableResource": arn} for arn in ("arn:one", "arn:two", "arn:three")],
+        ),
+    ],
+)
+def test_listed_resources_are_described_page_by_page(
+    config: AwsBatchSourceConfig,
+    endpoint: str,
+    list_key: str,
+    item_key: str,
+    detail_path: str,
+    expected_details: list[dict[str, Any]],
+) -> None:
+    def send(request: RecordedRequest) -> ScriptedResponse:
+        payload = request.json()
+        if request.path == detail_path:
+            if endpoint == "scheduling_policies":
+                return ScriptedResponse(
+                    json={"schedulingPolicies": [{"arn": arn, "fairsharePolicy": {}} for arn in payload["arns"]]}
+                )
+            return ScriptedResponse(
+                json={"consumableResourceArn": payload["consumableResource"], "availableQuantity": 3, "createdAt": 0}
+            )
+        if "nextToken" not in payload:
+            return ScriptedResponse(json={list_key: [{item_key: "arn:one"}], "nextToken": "next"})
+        return ScriptedResponse(json={list_key: [{item_key: "arn:two"}, {item_key: "arn:three"}]})
+
+    result = driver(config).run(endpoint, send)
+    assert result.raised is None
+    assert [request.json() for request in result.requests if request.path == detail_path] == expected_details
+    rows = result.rows
+    assert result.response is not None and result.response.primary_keys is not None
+    assert [row[result.response.primary_keys[0]] for row in rows] == ["arn:one", "arn:two", "arn:three"]
+    if endpoint == "scheduling_policies":
+        assert rows[0]["fairshare_policy"] == {}
+    else:
+        assert rows[0]["available_quantity"] == 3
+        assert rows[0]["created_at"] is None
+    assert result.saved_states[-1].complete
+
+
 @pytest.mark.parametrize("job_count", [0, 100, 101])
 def test_job_descriptions_respect_batch_limit(config: AwsBatchSourceConfig, job_count: int) -> None:
     result = driver(config).run(
@@ -399,19 +550,54 @@ def test_connection_error_is_actionable(config: AwsBatchSourceConfig, exception:
     assert {request.path for request in network.requests_log} == {"/v1/describejobqueues"}
 
 
-@pytest.mark.parametrize("schema_name", [None, "job_queues", "compute_environments", "job_definitions", "jobs"])
-def test_validation_probes_only_required_operations(config: AwsBatchSourceConfig, schema_name: str | None) -> None:
-    with scripted_network(
-        [
-            ScriptedResponse(json={"jobQueues": [{"jobQueueArn": "arn:queue"}]}),
-            ScriptedResponse(json={"jobSummaryList": [{"jobId": "job-one"}]}),
-            ScriptedResponse(json={"jobs": []}),
-        ]
-    ) as network:
+@pytest.mark.parametrize(
+    "schema_name,paths",
+    [
+        (None, ["describejobqueues"]),
+        ("job_queues", ["describejobqueues"]),
+        ("compute_environments", ["describecomputeenvironments"]),
+        ("job_definitions", ["describejobdefinitions"]),
+        ("jobs", ["describejobqueues", "listjobs", "describejobs"]),
+        ("job_children", ["describejobqueues", "describejobqueues", "listjobs", "describejobs"]),
+        ("service_jobs", ["describejobqueues", "listservicejobs"]),
+        ("scheduling_policies", ["listschedulingpolicies", "describeschedulingpolicies"]),
+        ("consumable_resources", ["listconsumableresources", "describeconsumableresource"]),
+    ],
+)
+def test_validation_probes_only_required_operations(
+    config: AwsBatchSourceConfig, schema_name: str | None, paths: list[str]
+) -> None:
+    def send(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("describejobqueues"):
+            if "nextToken" not in request.json():
+                return ScriptedResponse(
+                    json={
+                        "jobQueues": [{"jobQueueArn": "arn:service-queue", "serviceEnvironmentOrder": [{"order": 1}]}],
+                        "nextToken": "queues-next",
+                    }
+                )
+            return ScriptedResponse(
+                json={"jobQueues": [{"jobQueueArn": "arn:queue", "computeEnvironmentOrder": [{"order": 1}]}]}
+            )
+        return ScriptedResponse(
+            json={
+                "jobSummaryList": [{"jobId": "job-one"}],
+                "jobs": [],
+                "schedulingPolicies": [{"arn": "arn:policy"}],
+                "consumableResources": [{"consumableResourceArn": "arn:resource"}],
+            }
+        )
+
+    with scripted_network(send) as network:
         assert validate_credentials(config, schema_name) == (True, None)
-    assert len(network.requests_log) == (3 if schema_name == "jobs" else 1)
-    assert network.requests_log[0].json() == {"maxResults": 1}
-    if schema_name == "jobs":
+    assert [request.path.removeprefix("/v1/") for request in network.requests_log] == paths
+    probed_queues = {"job_children": "arn:queue", "service_jobs": "arn:service-queue"}
+    if schema_name in probed_queues:
+        assert (
+            network.requests_log[-1 if schema_name == "service_jobs" else -2].json()["jobQueue"]
+            == probed_queues[schema_name]
+        )
+    if schema_name in ("jobs", "job_children"):
         assert network.requests_log[-1].json() == {"jobs": ["job-one"]}
 
 

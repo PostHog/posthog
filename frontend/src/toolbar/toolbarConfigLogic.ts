@@ -691,6 +691,12 @@ function maybeMigrateTemporaryToken(
     }
 }
 
+export function identifiesToolbarUser<P extends Pick<ToolbarProps, 'instrument' | 'distinctId'>>(
+    props: P
+): props is P & { distinctId: string } {
+    return !!props.instrument && !!props.distinctId
+}
+
 /** Set up PostHog instrumentation and capture the "toolbar loaded" event. */
 function initInstrumentation(
     props: ToolbarProps,
@@ -703,9 +709,9 @@ function initInstrumentation(
 ): void {
     if (props.instrument) {
         toolbarPosthogJS.opt_in_capturing()
-        if (props.distinctId) {
-            toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
-        }
+    }
+    if (identifiesToolbarUser(props)) {
+        toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
     }
 
     const loadStart = (window as any).__posthog_toolbar_load_start as number | undefined

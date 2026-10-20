@@ -249,6 +249,10 @@ class SuggestedReviewerEntry(BaseModel):
             "could name a privileged teammate as owner and have an implementation agent run as them."
         ),
     )
+    is_research_selected: bool = Field(
+        default=False,
+        description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
+    )
     source_skill: str | None = Field(
         default=None,
         description=(

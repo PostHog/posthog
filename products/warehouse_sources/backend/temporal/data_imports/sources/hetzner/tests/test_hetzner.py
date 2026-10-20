@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.he
     HETZNER_BASE_URL,
     METRICS_RETENTION,
     HetznerResumeConfig,
-    hetzner_child_source,
     hetzner_metrics_source,
     validate_credentials,
 )
@@ -265,27 +264,52 @@ class TestMetrics:
         assert result.paths == ["/v1/servers", "/v1/servers/1/metrics", "/v1/servers/2/metrics"]
 
 
-class TestNetworkMembers:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_deleted_or_empty_network_is_skipped(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire_requests(
-            session,
+class TestChildEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "network_members",
+                "networks",
+                "members",
+                {"type": "server", "id": 9, "ip": "10.0.0.2"},
+                {"network_id": 3, "type": "server", "id": 9, "ip": "10.0.0.2"},
+            ),
+            (
+                "zone_rrsets",
+                "zones",
+                "rrsets",
+                {"id": "www/A", "name": "www", "type": "A", "zone": 3, "records": [{"value": "198.51.100.7"}]},
+                {"zone": 3, "id": "www/A", "name": "www", "type": "A", "records": [{"value": "198.51.100.7"}]},
+            ),
+        ]
+    )
+    def test_fans_out_over_parents_and_skips_deleted_or_empty_ones(
+        self,
+        endpoint: str,
+        parent: str,
+        child_key: str,
+        child_row: dict[str, Any],
+        expected_row: dict[str, Any],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _page([{"id": 1}, {"id": 2}, {"id": 3}], endpoint="networks"),
-                _json_response({"error": {"code": "not_found"}}, status=404, reason="Not Found"),
-                _page([], endpoint="members"),
-                _page([{"type": "server", "id": 9}], endpoint="members"),
+                _scripted_page([{"id": 1}, {"id": 2}, {"id": 3}], endpoint=parent),
+                ScriptedResponse(status=404, json={"error": {"code": "not_found"}}),
+                _scripted_page([], endpoint=child_key),
+                _scripted_page([child_row], endpoint=child_key),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(
-            hetzner_child_source(api_token="token", endpoint="network_members", resumable_source_manager=manager)
-        )
-
-        assert rows == [{"network_id": 3, "type": "server", "id": 9}]
-        assert manager.safe_point.call_count == 2
+        assert result.raised is None
+        assert result.rows == [expected_row]
+        assert result.paths == [
+            f"/v1/{parent}",
+            f"/v1/{parent}/1/{child_key}",
+            f"/v1/{parent}/2/{child_key}",
+            f"/v1/{parent}/3/{child_key}",
+        ]
+        assert result.params("sort") == ["id:asc"] * 4
 
 
 class TestRetries:

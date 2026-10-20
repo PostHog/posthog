@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeConfig]):
+    codebase_detection = detect(env=("^EVENTZILLA_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.eventzilla.net/docs/"

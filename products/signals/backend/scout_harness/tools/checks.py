@@ -125,7 +125,7 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
             raise InvalidCheckResultError(
                 f"check {check_id} is not due until {check.next_run_at.isoformat()}, so it is not yours to close yet"
             )
-        pause_reason = _pause_reason(check, check.report.status, now)
+        pause_reason = _pause_reason(check, check.report.effective_status, now)
         if pause_reason is not None:
             raise InvalidCheckResultError(
                 f"check {check_id} is paused because {pause_reason}, so nothing is owed on it"
@@ -187,6 +187,7 @@ def record_check_result(
         # report's log names what produced the verdict rather than the system that scheduled it.
         attribution=_run_attribution(run),
         run_id=str(run.id),
+        lane_can_emit_report=_run_can_emit_report(run),
     )
     check.refresh_from_db()
     return RecordCheckResultResult(
@@ -358,7 +359,7 @@ def create_report_check(
         )
     except CheckCreationError as error:
         raise InvalidCheckWriteError(str(error)) from None
-    return _summarize(check, report.status)
+    return _summarize(check, report.effective_status)
 
 
 def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]:
@@ -372,13 +373,26 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     )
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
     now = timezone.now()
-    return [_summarize(check, report.status, run_ids.get(str(check.id)), now) for check in checks]
+    report_status = report.effective_status
+    return [_summarize(check, report_status, run_ids.get(str(check.id)), now) for check in checks]
 
 
 def _run_attribution(run: SignalScoutRun) -> ArtefactAttribution:
     """Attribute a write to the run's task, the way every other scout write is attributed."""
     task_id = _resolve_task_id(run)
     return ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system()
+
+
+def _run_can_emit_report(run: SignalScoutRun) -> bool | None:
+    """Whether the run held `emit_report`, read off the channel the runner stamped when it started.
+
+    Read from the stamp rather than the skill, because a skill's `allowed_tools` can be edited mid-run
+    and the prompt this run got was built from the old list. None for a run without the stamp.
+    """
+    channel = (run.metadata or {}).get("report_channel")
+    if channel is None:
+        return None
+    return channel in ("emit", "both")
 
 
 def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:
@@ -396,4 +410,4 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
         raise InvalidCheckWriteError(f"check {check_id} not found")
     if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
         raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
-    return _summarize(check, check.report.status)
+    return _summarize(check, check.report.effective_status)

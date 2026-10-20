@@ -60,6 +60,10 @@ pub struct JobState {
     // and running summary instead of starting over.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trial: Option<crate::trial::TrialProgress>,
+    // Events committed to the sink across all parts. Old states have no value,
+    // so it defaults to 0.
+    #[serde(default)]
+    pub events_emitted: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +102,26 @@ impl JobState {
         let part = self.parts.iter_mut().find(|p| p.key == key)?;
         part.current_offset = part.current_offset.saturating_sub(consumed);
         Some(part.current_offset)
+    }
+
+    /// Return why the job must not complete, or `None` when it can. The read loop
+    /// decides completion from its in-memory parts, so this checks the stored parts
+    /// as well: a job must never report success for a part it did not finish, or
+    /// for a source that listed no parts at all.
+    pub fn completion_blocker(&self) -> Option<String> {
+        if self.parts.is_empty() {
+            return Some("job has no parts to import".to_string());
+        }
+        let unfinished: Vec<&PartState> = self.parts.iter().filter(|p| !p.is_done()).collect();
+        let first = unfinished.first()?;
+        Some(format!(
+            "{} of {} parts are not finished in the stored state, first is {} at offset {} of {:?}",
+            unfinished.len(),
+            self.parts.len(),
+            first.key,
+            first.current_offset,
+            first.total_size
+        ))
     }
 }
 
@@ -421,6 +445,7 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             None => JobState {
                 parts: vec![],
                 trial: None,
+                events_emitted: 0,
             },
         };
 
@@ -522,6 +547,7 @@ mod tests {
                 })
                 .collect(),
             trial: None,
+            events_emitted: 0,
         }
     }
 
@@ -584,6 +610,42 @@ mod tests {
                 total_size: total,
             };
             assert_eq!(part.is_done(), expected, "offset {offset}, total {total:?}");
+        }
+    }
+
+    #[test]
+    fn test_completion_blocker() {
+        let part = |offset: u64, total: Option<u64>| PartState {
+            key: "k".to_string(),
+            current_offset: offset,
+            total_size: total,
+        };
+        let cases: [(&str, Vec<PartState>, bool); 5] = [
+            ("no parts", vec![], true),
+            (
+                "all done",
+                vec![part(10, Some(10)), part(0, Some(0))],
+                false,
+            ),
+            ("overshot counts as done", vec![part(11, Some(10))], false),
+            (
+                "one part behind",
+                vec![part(10, Some(10)), part(4, Some(10))],
+                true,
+            ),
+            ("unknown size", vec![part(10, None)], true),
+        ];
+        for (name, parts, blocked) in cases {
+            let state = JobState {
+                parts,
+                trial: None,
+                events_emitted: 0,
+            };
+            assert_eq!(
+                state.completion_blocker().is_some(),
+                blocked,
+                "case '{name}'"
+            );
         }
     }
 

@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpCloudBillingResumeConfig]):
+    codebase_detection = detect(
+        env=("^(GCP_CLOUD_BILLING|GCPCLOUDBILLING)_",),
+        npm=("@google-cloud/billing", "@google-cloud/billing-budgets"),
+        pypi=("google-cloud-billing", "google-cloud-billing-budgets"),
+        composer=("google/cloud-billing", "google/cloud-billing-budgets"),
+        go=("cloud.google.com/go/billing",),
+        maven=(
+            "com.google.cloud:google-cloud-billing",
+            "com.google.cloud:google-cloud-billingbudgets",
+            "com.google.cloud:google-cloud-billing-spring-starter",
+            "com.google.cloud:google-cloud-billingbudgets-spring-starter",
+        ),
+        rubygems=("google-cloud-billing",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"

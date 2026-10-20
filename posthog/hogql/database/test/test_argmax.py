@@ -1,10 +1,10 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 from posthog.hogql.database.argmax import argmax_select
 
 
-class TestArgmax(BaseTest):
+class TestArgmax(SimpleTestCase):
     def test_argmax_select(self):
         response = argmax_select(
             table_name="raw_persons",

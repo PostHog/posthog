@@ -23,48 +23,57 @@ import {
 } from './dropdown-menu'
 import { cn } from './lib/utils'
 
-function Menubar({ className, ...props }: MenubarPrimitive.Props): React.ReactElement {
+const Menubar = React.forwardRef<React.ComponentRef<typeof MenubarPrimitive>, MenubarPrimitive.Props>(function Menubar(
+    { className, ...props },
+    ref
+) {
     return (
         <MenubarPrimitive
+            ref={ref}
             data-quill
             data-slot="menubar"
             className={cn('quill-menubar flex items-center', className)}
             {...props}
         />
     )
-}
+})
 
 function MenubarMenu({ ...props }: React.ComponentProps<typeof DropdownMenu>): React.ReactElement {
     return <DropdownMenu data-slot="menubar-menu" {...props} />
 }
 
-function MenubarGroup({ ...props }: React.ComponentProps<typeof DropdownMenuGroup>): React.ReactElement {
-    return <DropdownMenuGroup data-slot="menubar-group" {...props} />
-}
+const MenubarGroup = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuGroup>,
+    React.ComponentProps<typeof DropdownMenuGroup>
+>(function MenubarGroup({ ...props }, ref) {
+    return <DropdownMenuGroup ref={ref} data-slot="menubar-group" {...props} />
+})
 
 function MenubarPortal({ ...props }: React.ComponentProps<typeof DropdownMenuPortal>): React.ReactElement {
     return <DropdownMenuPortal data-slot="menubar-portal" {...props} />
 }
 
-function MenubarTrigger({ className, ...props }: React.ComponentProps<typeof DropdownMenuTrigger>): React.ReactElement {
+const MenubarTrigger = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuTrigger>,
+    React.ComponentProps<typeof DropdownMenuTrigger>
+>(function MenubarTrigger({ className, ...props }, ref) {
     return (
         <DropdownMenuTrigger
+            ref={ref}
             data-slot="menubar-trigger"
             className={cn('quill-menubar__trigger flex items-center outline-hidden select-none', className)}
             {...props}
         />
     )
-}
+})
 
-function MenubarContent({
-    className,
-    align = 'start',
-    alignOffset = -4,
-    sideOffset = 8,
-    ...props
-}: React.ComponentProps<typeof DropdownMenuContent>): React.ReactElement {
+const MenubarContent = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuContent>,
+    React.ComponentProps<typeof DropdownMenuContent>
+>(function MenubarContent({ className, align = 'start', alignOffset = -4, sideOffset = 8, ...props }, ref) {
     return (
         <DropdownMenuContent
+            ref={ref}
             data-slot="menubar-content"
             align={align}
             alignOffset={alignOffset}
@@ -73,99 +82,104 @@ function MenubarContent({
             {...props}
         />
     )
-}
+})
 
-function MenubarItem({
-    className,
-    inset,
-    variant = 'default',
-    ...props
-}: React.ComponentProps<typeof DropdownMenuItem>): React.ReactElement {
+const MenubarItem = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuItem>,
+    React.ComponentProps<typeof DropdownMenuItem>
+>(function MenubarItem({ className, inset, variant = 'default', ...props }, ref) {
     return (
         <DropdownMenuItem
+            ref={ref}
             data-slot="menubar-item"
             data-inset={inset}
             variant={variant}
-            className={cn(
-                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 data-disabled:opacity-50',
-                className
-            )}
+            className={cn('group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 data-disabled:opacity-50', className)}
             {...props}
         />
     )
-}
+})
 
 // Explicit Base UI props, not `ComponentProps<typeof ...>`, so inline `onCheckedChange` callbacks keep their parameter type.
-function MenubarCheckboxItem({
-    ...props
-}: MenuPrimitive.CheckboxItem.Props & { inset?: boolean }): React.ReactElement {
-    return <DropdownMenuCheckboxItem data-slot="menubar-checkbox-item" {...props} />
-}
+const MenubarCheckboxItem = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuCheckboxItem>,
+    MenuPrimitive.CheckboxItem.Props & { inset?: boolean }
+>(function MenubarCheckboxItem({ ...props }, ref) {
+    return <DropdownMenuCheckboxItem ref={ref} data-slot="menubar-checkbox-item" {...props} />
+})
 
-function MenubarRadioGroup({ ...props }: React.ComponentProps<typeof DropdownMenuRadioGroup>): React.ReactElement {
-    return <DropdownMenuRadioGroup data-slot="menubar-radio-group" {...props} />
-}
+const MenubarRadioGroup = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuRadioGroup>,
+    React.ComponentProps<typeof DropdownMenuRadioGroup>
+>(function MenubarRadioGroup({ ...props }, ref) {
+    return <DropdownMenuRadioGroup ref={ref} data-slot="menubar-radio-group" {...props} />
+})
 
-function MenubarRadioItem({ ...props }: MenuPrimitive.RadioItem.Props & { inset?: boolean }): React.ReactElement {
-    return <DropdownMenuRadioItem data-slot="menubar-radio-item" {...props} />
-}
+const MenubarRadioItem = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuRadioItem>,
+    MenuPrimitive.RadioItem.Props & { inset?: boolean }
+>(function MenubarRadioItem({ ...props }, ref) {
+    return <DropdownMenuRadioItem ref={ref} data-slot="menubar-radio-item" {...props} />
+})
 
-function MenubarLabel({
-    className,
-    inset,
-    ...props
-}: React.ComponentProps<typeof DropdownMenuLabel> & {
-    inset?: boolean
-}): React.ReactElement {
+const MenubarLabel = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuLabel>,
+    React.ComponentProps<typeof DropdownMenuLabel> & {
+        inset?: boolean
+    }
+>(function MenubarLabel({ className, inset, ...props }, ref) {
     return (
         <DropdownMenuLabel
+            ref={ref}
             data-slot="menubar-label"
             data-inset={inset}
             className={cn('px-2 py-1.5 text-xs text-muted-foreground', inset && 'quill-menu-item--inset', className)}
             {...props}
         />
     )
-}
+})
 
-function MenubarSeparator({
-    className,
-    ...props
-}: React.ComponentProps<typeof DropdownMenuSeparator>): React.ReactElement {
+const MenubarSeparator = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuSeparator>,
+    React.ComponentProps<typeof DropdownMenuSeparator>
+>(function MenubarSeparator({ className, ...props }, ref) {
     return (
         <DropdownMenuSeparator
+            ref={ref}
             data-slot="menubar-separator"
             className={cn('quill-menu__separator', className)}
             {...props}
         />
     )
-}
+})
 
-function MenubarShortcut({
-    className,
-    ...props
-}: React.ComponentProps<typeof DropdownMenuShortcut>): React.ReactElement {
+const MenubarShortcut = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuShortcut>,
+    React.ComponentProps<typeof DropdownMenuShortcut>
+>(function MenubarShortcut({ className, ...props }, ref) {
     return (
         <DropdownMenuShortcut
+            ref={ref}
             data-slot="menubar-shortcut"
             className={cn('quill-menu__shortcut', className)}
             {...props}
         />
     )
-}
+})
 
 function MenubarSub({ ...props }: React.ComponentProps<typeof DropdownMenuSub>): React.ReactElement {
     return <DropdownMenuSub data-slot="menubar-sub" {...props} />
 }
 
-function MenubarSubTrigger({
-    className,
-    inset,
-    ...props
-}: React.ComponentProps<typeof DropdownMenuSubTrigger> & {
-    inset?: boolean
-}): React.ReactElement {
+const MenubarSubTrigger = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuSubTrigger>,
+    React.ComponentProps<typeof DropdownMenuSubTrigger> & {
+        inset?: boolean
+    }
+>(function MenubarSubTrigger({ className, inset, ...props }, ref) {
     return (
         <DropdownMenuSubTrigger
+            ref={ref}
             data-slot="menubar-sub-trigger"
             data-inset={inset}
             className={cn(
@@ -176,14 +190,14 @@ function MenubarSubTrigger({
             {...props}
         />
     )
-}
+})
 
-function MenubarSubContent({
-    className,
-    ...props
-}: React.ComponentProps<typeof DropdownMenuSubContent>): React.ReactElement {
-    return <DropdownMenuSubContent data-slot="menubar-sub-content" className={className} {...props} />
-}
+const MenubarSubContent = React.forwardRef<
+    React.ComponentRef<typeof DropdownMenuSubContent>,
+    React.ComponentProps<typeof DropdownMenuSubContent>
+>(function MenubarSubContent({ className, ...props }, ref) {
+    return <DropdownMenuSubContent ref={ref} data-slot="menubar-sub-content" className={className} {...props} />
+})
 
 export {
     Menubar,

@@ -5,6 +5,7 @@ pub mod etcd;
 pub mod jobs;
 pub mod k8s;
 pub mod kafka;
+pub mod parity;
 pub mod personhog;
 pub mod proxy;
 pub mod state;

@@ -73,6 +73,7 @@ export interface AccessControlTableProps {
     entries: AccessControlSettingsEntry[]
     loading: boolean
     canEditAny: boolean
+    cannotEditReason?: string
     visibleResources: Set<APIScopeObject>
     /** The products selected in the Product filter. They limit which tags each row shows. */
     filteredResources: Set<APIScopeObject>
@@ -85,6 +86,7 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
     const columns = getColumns(
         props.activeTab,
         props.canEditAny,
+        props.cannotEditReason,
         props.visibleResources,
         props.filteredResources,
         props.onEdit
@@ -155,6 +157,7 @@ function AccessSummary({
 function getColumns(
     activeTab: AccessControlsTab,
     canEditAny: boolean,
+    cannotEditReason: string | undefined,
     visibleResources: Set<APIScopeObject>,
     filteredResources: Set<APIScopeObject>,
     onEdit: (entry: AccessControlSettingsEntry) => void
@@ -191,7 +194,7 @@ function getColumns(
                         size="small"
                         fullWidth
                         icon={<IconPencil />}
-                        disabledReason={!canEditAny ? 'You cannot edit this' : undefined}
+                        disabledReason={!canEditAny ? (cannotEditReason ?? 'You cannot edit this') : undefined}
                         onClick={() => onEdit(entry)}
                     >
                         Edit

@@ -109,6 +109,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert warning.source_type == ExternalDataSourceType.STRIPE
         assert warning.source_id == str(self.source.id)
         assert warning.status == str(status)
+        assert warning.data_is_current is (status == ExternalDataSchema.Status.PAUSED)
         assert "stripe_charge" in warning.message
 
     def test_failed_does_not_leak_raw_error(self) -> None:
@@ -247,6 +248,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert "current as of" in message
         assert "won't update" in message
         assert "reflect the last successful sync" not in message
+        assert warnings[0].data_is_current is True
 
     def test_paused_and_stale_reflects_last_sync(self) -> None:
         self._make_schema(
@@ -258,6 +260,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert "reflect the last successful sync" in warnings[0].message
+        assert warnings[0].data_is_current is False
 
     def test_paused_and_never_synced(self) -> None:
         self._make_schema(
@@ -268,6 +271,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert "hasn't completed a sync yet" in warnings[0].message
+        assert warnings[0].data_is_current is False
 
     def test_warning_when_completed_but_stale(self) -> None:
         self._make_schema(

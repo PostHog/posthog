@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +45,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class YoutubeDataSource(ResumableSource[YoutubeDataSourceConfig, YoutubeDataResumeConfig]):
+    codebase_detection = detect(
+        env=("^YOUTUBE_(DATA_)?API_KEY$", "^(NEXT_PUBLIC|VITE|REACT_APP)_YOUTUBE_(DATA_)?API_KEY$"),
+        npm=("@googleapis/youtube", "simple-youtube-api", "youtube-api"),
+        pypi=("python-youtube", "youtube-data-api"),
+        cargo=("google-youtube3",),
+        composer=("alaouy/youtube", "madcoda/php-youtube-api"),
+        maven=("com.google.apis:google-api-services-youtube",),
+        pub=("youtube_api",),
+        rubygems=("yt", "google-apis-youtube_v3"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v3",)
     default_version = "v3"

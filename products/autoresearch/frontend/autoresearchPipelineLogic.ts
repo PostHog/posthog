@@ -20,18 +20,22 @@ import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import {
-    AgentNotes,
     AgentSearch,
     ExperimentLogFilter,
     ExperimentLogGroup,
+    type RunRole,
     SearchPoint,
+    type StatusBrief,
     buildAgentSearch,
     experimentLogGroups,
-    latestAgentNotes,
+    runRoles,
+    scoredChallenger,
+    statusBrief,
 } from './agentSearch'
 import {
     autoresearchModelsList,
     autoresearchOnlinePerformanceRetrieve,
+    autoresearchPartialUpdate,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
     autoresearchRetrieve,
@@ -83,6 +87,9 @@ import {
 } from './predictionSegments'
 import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
+/** Where a person opened an experiment from. */
+export type ExperimentOpenSource = 'chart' | 'log'
+
 export interface AutoresearchPipelineLogicProps {
     id: string
 }
@@ -110,11 +117,17 @@ export function pipelineTabFromUrl(value: unknown): AutoresearchPipelineTab | nu
     return LEGACY_PIPELINE_TABS[value] ?? null
 }
 
+/** Where a person changed whether scores are written to person profiles. */
+export type PersonPropertyToggleSource = 'actions_panel' | 'setup_tab'
+
 /** How often the Score now button checks a running scoring run. */
 export const SCORE_RUN_POLL_INTERVAL_MS = 5000
 
 /** How often the Agent research tab reloads training runs while one is pending or running. */
 export const TRAINING_RUN_POLL_INTERVAL_MS = 10000
+
+/** How often the runs reload while a person property cleanup is pending or running. A cleanup takes over an hour. */
+export const PROPERTY_CLEANUP_POLL_INTERVAL_MS = 30000
 
 function isTrainingRunLive(run: AutoresearchTrainingRunApi): boolean {
     return run.status === 'pending' || run.status === 'running'
@@ -277,7 +290,6 @@ export interface autoresearchPipelineLogicValues {
     accuracyCutoff: AccuracyCutoff
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
-    agentNotes: AgentNotes | null
     agentSearch: AgentSearch
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
@@ -297,7 +309,9 @@ export interface autoresearchPipelineLogicValues {
     experimentLogGroups: ExperimentLogGroup[]
     firstCheck: dayjs.Dayjs | null
     hasLiveTrainingRun: boolean
+    hoveredSearchPoint: SearchPoint | null
     latestChampionPerformance: OnlinePerformanceRowApi | null
+    latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
@@ -307,6 +321,8 @@ export interface autoresearchPipelineLogicValues {
     onlinePerformance: OnlinePerformanceRowApi[]
     onlinePerformanceError: boolean
     onlinePerformanceLoading: boolean
+    openedExperiment: SearchPoint | null
+    personPropertyDisabledReason: string | undefined
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
@@ -318,16 +334,20 @@ export interface autoresearchPipelineLogicValues {
     probabilityDistributionError: boolean
     probabilityDistributionLoading: boolean
     probabilityHistogram: ProbabilityBucket[] | null
+    queuedSuggestionCount: number
     realizedAucPoints: RealizedAucPoint[]
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
+    runRoles: Record<string, RunRole>
     runs: AutoresearchRunApi[]
     runsError: boolean
     runsLoaded: boolean
     runsLoading: boolean
     savingCohortSegment: PredictionSegmentKey | null
+    savingWritePersonProperty: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
+    scoredChallenger: AutoresearchModelApi | null
     scoringCoverage: ScoringCoverage | null
     segmentCalibration: SegmentCalibration[]
     segmentDefinitions: PredictionSegmentDefinition[] | null
@@ -335,6 +355,7 @@ export interface autoresearchPipelineLogicValues {
     selectedTab: AutoresearchPipelineTab | null
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
+    statusBrief: StatusBrief | null
     suggestionDraft: string
     suggestionPriority: CreateSuggestionPriorityEnumApi
     suggestionSubmitResult: AutoresearchSuggestionApi | null
@@ -380,8 +401,14 @@ export interface autoresearchPipelineLogicActions {
         viewedArtifact: null
         payload?: any
     }
+    closeExperiment: () => {
+        value: true
+    }
     experimentDetailsOpened: (point: SearchPoint) => {
         point: SearchPoint
+    }
+    fullNotesOpened: () => {
+        value: true
     }
     loadDailyVolume: () => any
     loadDailyVolumeFailure: (
@@ -577,6 +604,13 @@ export interface autoresearchPipelineLogicActions {
         trainingRuns: AutoresearchTrainingRunApi[]
         payload?: any
     }
+    openExperiment: (
+        point: SearchPoint,
+        source: ExperimentOpenSource
+    ) => {
+        point: SearchPoint
+        source: ExperimentOpenSource
+    }
     pausePipeline: () => any
     pausePipelineFailure: (
         error: string,
@@ -658,6 +692,9 @@ export interface autoresearchPipelineLogicActions {
     setExperimentLogFilter: (filter: ExperimentLogFilter) => {
         filter: ExperimentLogFilter
     }
+    setHoveredSearchPoint: (point: SearchPoint | null) => {
+        point: SearchPoint | null
+    }
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
     }
@@ -672,6 +709,16 @@ export interface autoresearchPipelineLogicActions {
     }
     setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
         tab: AutoresearchPipelineTab | null
+    }
+    setWritePersonProperty: (
+        enabled: boolean,
+        source: PersonPropertyToggleSource
+    ) => {
+        enabled: boolean
+        source: PersonPropertyToggleSource
+    }
+    setWritePersonPropertyFinished: () => {
+        value: true
     }
     startScorePolling: () => {
         value: true
@@ -693,6 +740,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         startTrainingResult: AutoresearchTrainingRunApi | null
         payload?: any
+    }
+    steerOpened: () => {
+        value: true
     }
     submitSuggestion: () => any
     submitSuggestionFailure: (
@@ -784,14 +834,33 @@ export interface autoresearchPipelineLogicMeta {
         firstCheck: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => dayjs.Dayjs | null
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
-        agentSearch: (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null) => AgentSearch
+        scoredChallenger: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
+        runRoles: (
+            champion: AutoresearchModelApi | null,
+            scoredChallenger: AutoresearchModelApi | null
+        ) => Record<string, RunRole>
+        queuedSuggestionCount: (suggestions: AutoresearchSuggestionApi[]) => number
+        agentSearch: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            champion: AutoresearchModelApi | null,
+            scoredChallenger: AutoresearchModelApi | null
+        ) => AgentSearch
         experimentLogGroups: (
             trainingRuns: AutoresearchTrainingRunApi[],
             agentSearch: AgentSearch,
             experimentLogFilter: ExperimentLogFilter
         ) => ExperimentLogGroup[]
-        agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
+        statusBrief: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            champion: AutoresearchModelApi | null,
+            scoredChallenger: AutoresearchModelApi | null
+        ) => StatusBrief | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
+        latestPropertyCleanupRun: (runs: AutoresearchRunApi[]) => AutoresearchRunApi | null
+        personPropertyDisabledReason: (
+            pipeline: AutoresearchPipelineApi | null,
+            savingWritePersonProperty: boolean
+        ) => string | undefined
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
             defaultTab: AutoresearchPipelineTab
@@ -842,8 +911,15 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         toggleLogRun: (runId: string) => ({ runId }),
         searchPointClicked: (point: SearchPoint) => ({ point }),
         experimentDetailsOpened: (point: SearchPoint) => ({ point }),
+        openExperiment: (point: SearchPoint, source: ExperimentOpenSource) => ({ point, source }),
+        closeExperiment: true,
+        setHoveredSearchPoint: (point: SearchPoint | null) => ({ point }),
+        steerOpened: true,
+        fullNotesOpened: true,
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
+        setWritePersonProperty: (enabled: boolean, source: PersonPropertyToggleSource) => ({ enabled, source }),
+        setWritePersonPropertyFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
     }),
     reducers({
@@ -902,6 +978,19 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     current.includes(point.runId) ? current : [...current, point.runId],
             },
         ],
+        openedExperiment: [
+            null as SearchPoint | null,
+            {
+                openExperiment: (_, { point }) => point,
+                closeExperiment: () => null,
+            },
+        ],
+        hoveredSearchPoint: [
+            null as SearchPoint | null,
+            {
+                setHoveredSearchPoint: (_, { point }) => point,
+            },
+        ],
         suggestionDraft: [
             '',
             {
@@ -920,6 +1009,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 saveSegmentCohort: (_, { segment }) => segment,
                 saveSegmentCohortFinished: () => null,
+            },
+        ],
+        savingWritePersonProperty: [
+            false,
+            {
+                setWritePersonProperty: () => true,
+                setWritePersonPropertyFinished: () => false,
             },
         ],
         segmentThresholds: [
@@ -1406,10 +1502,29 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (s) => [s.trainingRuns],
             (trainingRuns: AutoresearchTrainingRunApi[]): boolean => trainingRuns.some(isTrainingRunLive),
         ],
+        scoredChallenger: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): AutoresearchModelApi | null => scoredChallenger(models),
+        ],
+        runRoles: [
+            (s) => [s.champion, s.scoredChallenger],
+            (
+                champion: AutoresearchModelApi | null,
+                scoredChallenger: AutoresearchModelApi | null
+            ): Record<string, RunRole> => runRoles(champion, scoredChallenger),
+        ],
+        queuedSuggestionCount: [
+            (s) => [s.suggestions],
+            (suggestions: AutoresearchSuggestionApi[]): number =>
+                suggestions.filter((suggestion) => suggestion.status === 'queued').length,
+        ],
         agentSearch: [
-            (s) => [s.trainingRuns, s.champion],
-            (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null): AgentSearch =>
-                buildAgentSearch(trainingRuns, champion),
+            (s) => [s.trainingRuns, s.champion, s.scoredChallenger],
+            (
+                trainingRuns: AutoresearchTrainingRunApi[],
+                champion: AutoresearchModelApi | null,
+                scoredChallenger: AutoresearchModelApi | null
+            ): AgentSearch => buildAgentSearch(trainingRuns, champion, scoredChallenger),
         ],
         experimentLogGroups: [
             (s) => [s.trainingRuns, s.agentSearch, s.experimentLogFilter],
@@ -1419,14 +1534,32 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 experimentLogFilter: ExperimentLogFilter
             ): ExperimentLogGroup[] => experimentLogGroups(trainingRuns, agentSearch, experimentLogFilter),
         ],
-        agentNotes: [
-            (s) => [s.trainingRuns],
-            (trainingRuns: AutoresearchTrainingRunApi[]): AgentNotes | null => latestAgentNotes(trainingRuns),
+        statusBrief: [
+            (s) => [s.trainingRuns, s.champion, s.scoredChallenger],
+            (
+                trainingRuns: AutoresearchTrainingRunApi[],
+                champion: AutoresearchModelApi | null,
+                scoredChallenger: AutoresearchModelApi | null
+            ): StatusBrief | null => statusBrief(trainingRuns, champion, scoredChallenger),
         ],
         defaultTab: [
             (s) => [s.pipeline],
             (pipeline: AutoresearchPipelineApi | null): AutoresearchPipelineTab =>
                 pipeline?.last_scored_at ? 'predictions' : 'agent_research',
+        ],
+        latestPropertyCleanupRun: [
+            (s) => [s.runs],
+            (runs: AutoresearchRunApi[]): AutoresearchRunApi | null =>
+                runs.find((run) => run.run_type === 'property_cleanup') ?? null,
+        ],
+        personPropertyDisabledReason: [
+            (s) => [s.pipeline, s.savingWritePersonProperty],
+            (pipeline: AutoresearchPipelineApi | null, savingWritePersonProperty: boolean): string | undefined =>
+                savingWritePersonProperty
+                    ? 'Wait for the person profile setting to save'
+                    : pipeline && !pipeline.write_person_property
+                      ? 'Turn on "Write scores to person profiles" to target people by score'
+                      : undefined,
         ],
         activeTab: [
             (s) => [s.selectedTab, s.defaultTab],
@@ -1544,6 +1677,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             if (values.activeScoreRun) {
                 actions.startScorePolling()
             }
+            // Follow the cleanup to the end, so the setting shows when it finished or failed.
+            const cleanup = values.latestPropertyCleanupRun
+            if (!cleanup || !isScoreRunInProgress(cleanup)) {
+                cache.disposables.dispose('cleanupPoll')
+            } else if (!cache.disposables.registry.has('cleanupPoll')) {
+                cache.disposables.add(() => {
+                    const timer = window.setInterval(() => actions.loadRuns(), PROPERTY_CLEANUP_POLL_INTERVAL_MS)
+                    return () => clearInterval(timer)
+                }, 'cleanupPoll')
+            }
         },
         startScorePolling: () => {
             if (cache.disposables.registry.has('scorePoll')) {
@@ -1637,6 +1780,35 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 iteration_number: point.iterationNumber,
                 status: point.status,
             })
+            actions.openExperiment(point, 'chart')
+        },
+        openExperiment: ({ point, source }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch agent research experiment opened', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
+                status: point.status,
+                source,
+            })
+            actions.experimentDetailsOpened(point)
+            if (!values.artifactsByRun[point.runId]) {
+                actions.loadRunArtifacts({ runId: point.runId })
+            }
+        },
+        steerOpened: () => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch agent research steer opened', {
+                pipeline_id: props.id,
+                queued_count: values.queuedSuggestionCount,
+            })
+        },
+        fullNotesOpened: () => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch agent research full notes opened', {
+                pipeline_id: props.id,
+                run_number: values.statusBrief?.runNumber ?? null,
+            })
         },
         experimentDetailsOpened: ({ point }) => {
             // pinned: analytics event name and properties. Renaming breaks insights built on them.
@@ -1690,6 +1862,44 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setAccuracyCutoff: ({ cutoff }) => {
             posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
         },
+        setWritePersonProperty: async ({ enabled, source }) => {
+            if (!values.currentTeamId) {
+                actions.setWritePersonPropertyFinished()
+                return
+            }
+            const teamId = String(values.currentTeamId)
+            try {
+                actions.loadPipelineSuccess(
+                    await autoresearchPartialUpdate(teamId, props.id, { write_person_property: enabled })
+                )
+                posthog.capture('autoresearch model person property toggled', {
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                if (enabled) {
+                    lemonToast.success(
+                        'Scores are now written to person profiles. People get the property over the next few scoring runs.'
+                    )
+                } else {
+                    // The cleanup records a run, so reload the runs to show it.
+                    actions.loadRuns()
+                    lemonToast.success(
+                        'Scores are no longer written to person profiles. The property is being removed.'
+                    )
+                }
+            } catch {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'person_property',
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                lemonToast.error("Couldn't change the setting. Try again.")
+            } finally {
+                actions.setWritePersonPropertyFinished()
+            }
+        },
         saveSegmentCohort: async ({ segment }) => {
             const { pipeline, currentProjectId, segmentThresholds } = values
             const definition = values.segmentDefinitions?.find(({ key }) => key === segment)
@@ -1710,7 +1920,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     segment,
                     cohort_id: cohort.id,
                     people: values.predictionSegments?.[segment].people,
-                    cut_points: segmentThresholds.base_rate != null ? 'base_rate' : 'fixed',
+                    cut_points:
+                        segmentThresholds.base_rate_source === 'realized'
+                            ? 'base_rate'
+                            : segmentThresholds.base_rate_source,
                 })
                 lemonToast.success('Cohort saved', {
                     button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },

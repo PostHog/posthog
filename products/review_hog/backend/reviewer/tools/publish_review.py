@@ -21,9 +21,14 @@ from products.review_hog.backend.reviewer.constants import (
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
+from products.review_hog.backend.reviewer.finding_budget import budget_note
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
+from products.review_hog.backend.reviewer.persistence import (
+    load_dropped_findings,
+    load_pr_snapshot,
+    load_valid_findings,
+)
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
 from products.review_hog.backend.reviewer.status_comment import large_pr_note, render_review_summary
 from products.review_hog.backend.reviewer.tools.github_client import (
@@ -91,6 +96,9 @@ def publish_persisted_review(
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
     footer: str = "",
+    draft_notice: str = "",
+    comment_commands_on: bool = False,
+    answers_request: bool = False,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -104,6 +112,10 @@ def publish_persisted_review(
     the threshold that actually gated each turn, not the user's live setting and not whichever
     threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
     event loop.
+
+    `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft.
+    `comment_commands_on` picks the trigger the finding budget note points to.
+    `answers_request` is set when a person asked for this turn (see `publish_review`).
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if review_already_published(report, head_sha, review_mode):
@@ -112,6 +124,13 @@ def publish_persisted_review(
         return PublishOutcome(posted=False)
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
+    over_budget = sum(
+        1
+        for dropped in load_dropped_findings(
+            team_id=team_id, report_id=report_id, run_index=run_index, head_sha=head_sha
+        )
+        if dropped.disposition == "budget"
+    )
     outcome = publish_review(
         owner=owner,
         repo=repo,
@@ -127,6 +146,9 @@ def publish_persisted_review(
         review_mode=review_mode,
         capped_lens_parts=capped_lens_parts,
         footer=footer,
+        findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
+        answers_request=answers_request,
+        budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -187,12 +209,30 @@ def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None
     return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
-def _large_pr_note_marker(report_id: str, head_sha: str) -> str:
-    """The hidden marker of a clean Standard turn's large pull request note, so a head gets at most one.
+def _large_pr_note_prefix(report_id: str) -> str:
+    """The start of every large pull request note marker of a report, whatever the head.
 
-    It differs from the published marker, so a later turn on the same head with findings still posts its review.
+    The note checks for this prefix, so a pull request gets the note once and not again on each re-review.
     """
-    return f"<!-- reviewhog:large-pr-note:{report_id}:{head_sha} -->"
+    return f"<!-- reviewhog:large-pr-note:{report_id}:"
+
+
+def _large_pr_note_marker(report_id: str, head_sha: str) -> str:
+    """The hidden marker of a clean Standard turn's large pull request note.
+
+    It differs from the published marker, so a later turn with findings still posts its review.
+    """
+    return f"{_large_pr_note_prefix(report_id)}{head_sha} -->"
+
+
+def _clean_reply_marker(report_id: str, head_sha: str) -> str:
+    """The hidden marker of the reply to a requested Standard turn that found nothing.
+
+    It is per head, not per turn: a workflow retry starts a new turn after the old one counted, so a turn
+    index would post the reply again. A later request on the same head also adds nothing, because the
+    first reply already answers it.
+    """
+    return f"<!-- reviewhog:clean-reply:{report_id}:{head_sha} -->"
 
 
 def publish_review(
@@ -211,6 +251,9 @@ def publish_review(
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
     footer: str = "",
+    findings_footer: str = "",
+    budget_note: str = "",
+    answers_request: bool = False,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -226,6 +269,14 @@ def publish_review(
 
     `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. A Standard
     review then carries the large pull request note, and a clean Standard turn posts a short review with it.
+
+    `findings_footer` follows `footer` only on a review that posts findings, never on the clean-turn note.
+
+    `budget_note` says the finding budget left findings out. An automatic turn that keeps nothing stays silent: once
+    the budget is spent an automatic review only looks for must-fix findings.
+
+    `answers_request` is set when a person asked for the turn, with the label, a comment, or the UI. A clean
+    Standard turn then posts a short review that says it found nothing. A Deep turn has its status comment for that.
     """
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
@@ -236,7 +287,7 @@ def publish_review(
     # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
     footer_block = f"{footer}\n\n" if footer else ""
     note_block = f"{large_pr_note(large_pr_parts)}\n\n" if large_pr_parts is not None else ""
-    body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
+    budget_block = f"{budget_note}\n\n" if budget_note else ""
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)
@@ -253,28 +304,37 @@ def publish_review(
     repository = f"{owner}/{repo}"
     if not publishable:
         logger.info("No publishable issues found, skipping review")
-        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran.
-        if standard:
+        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran. Once any turn
+        # published findings, the 👍 stays off, because a later clean turn does not clear those findings.
+        if standard and report.published_head_sha is None:
             add_pr_reaction(repository, pr_number, "+1", token=token, installation_id=installation_id)
-        if large_pr_parts is not None:
+        replies = standard and answers_request
+        if replies or large_pr_parts is not None:
             # Not a published turn: the watermark stays unset, so a later turn on this head can still publish.
-            note_marker = _large_pr_note_marker(report_id, head_sha)
             summary = render_review_summary(review_mode, head_sha, Counter(), large_pr_parts)
+            hidden = _clean_reply_marker(report_id, head_sha) if replies else ""
+            if large_pr_parts is not None:
+                hidden = f"{hidden}{_large_pr_note_marker(report_id, head_sha)}"
             _post_github_review(
                 owner,
                 repo,
                 pr_number,
-                f"{summary}\n\n{footer_block}{note_marker}",
+                f"{summary}\n\n{footer_block}{hidden}",
                 [],
                 token=token,
                 head_sha=head_sha,
-                marker=note_marker,
+                # A reply posts once per head. The large pull request note alone posts once per pull request.
+                marker=_clean_reply_marker(report_id, head_sha) if replies else _large_pr_note_prefix(report_id),
                 installation_id=installation_id,
                 review_mode=review_mode,
             )
         return PublishOutcome(posted=False)
     # An earlier clean turn's 👍 would sit next to this turn's findings and contradict them.
     remove_own_pr_reactions(repository, pr_number, "+1", token=token, installation_id=installation_id)
+    if findings_footer:
+        footer_block = f"{footer_block}{findings_footer}\n\n"
+    footer_block = f"{budget_block}{footer_block}"
+    body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
 
     # When every publishable finding has its own inline comment, the body's tally repeats what the
     # comments already show. A Deep review then posts only the hidden marker. A Standard review keeps

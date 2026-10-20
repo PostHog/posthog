@@ -68,7 +68,6 @@ async def _run_activity(
     credentials: AWSCredentials,
     properties_data_type: str,
     batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
@@ -91,7 +90,6 @@ async def _run_activity(
         backfill_details=None,
         is_backfill=False,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=redshift_default_fields(),
     )
@@ -138,7 +136,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=copy_inputs.batch_export.batch_export_model,
-            batch_export_schema=copy_inputs.batch_export.batch_export_schema,
             destination_default_fields=redshift_default_fields(),
         ),
     )
@@ -156,7 +153,7 @@ async def _run_activity(
         table_name=table_name,
         team_id=team.pk,
         date_ranges=[(data_interval_start, data_interval_end)],
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
         sort_key=sort_key,
@@ -214,12 +211,11 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     table_name = f"test_copy_activity_table__{ateam.pk}"
 
@@ -244,7 +240,6 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
@@ -590,7 +585,7 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
-@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
     clickhouse_client,
     activity_environment,
@@ -668,7 +663,7 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
-@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_copy_into_redshift_activity_handles_events_table_missing_columns(
     clickhouse_client,
     activity_environment,
@@ -747,7 +742,7 @@ async def test_copy_into_redshift_activity_handles_events_table_missing_columns(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
-@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_copy_into_redshift_activity_handles_data_over_string_limit(
     clickhouse_client,
     activity_environment,

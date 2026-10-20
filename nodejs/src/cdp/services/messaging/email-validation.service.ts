@@ -100,7 +100,7 @@ export class EmailValidationService {
 
         const rawEmail = invocation.state.globals.inputs?.email?.to?.email
         if (typeof rawEmail !== 'string' || rawEmail.trim().length === 0) {
-            // Missing recipient is handled (and surfaced) by the existing opt-out check.
+            // EmailService skips a missing recipient at send time and records email_missing_recipient.
             return null
         }
         const email = rawEmail.trim()

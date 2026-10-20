@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BraintrustSource(ResumableSource[BraintrustSourceConfig, BraintrustResumeConfig]):
+    codebase_detection = detect(
+        env=("^BRAINTRUST_",),
+        npm=("braintrust", "autoevals"),
+        pypi=("braintrust", "autoevals"),
+        go=(
+            "github.com/braintrustdata/braintrust-sdk-go",
+            "github.com/braintrustdata/braintrust-go",
+            "github.com/braintrustdata/braintrust-x-go",
+        ),
+        maven=(
+            "dev.braintrust:braintrust-sdk-java",
+            "dev.braintrust:braintrust-java-agent",
+            "dev.braintrust:braintrust-otel-extension",
+        ),
+        rubygems=("braintrust",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"

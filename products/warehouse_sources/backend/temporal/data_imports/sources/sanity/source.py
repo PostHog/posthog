@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SanitySource(ResumableSource[SanitySourceConfig, SanityResumeConfig]):
+    codebase_detection = detect(
+        env=("^SANITY_", "^(NEXT_PUBLIC|VITE|PUBLIC|NUXT_PUBLIC|GATSBY|REACT_APP|EXPO_PUBLIC)_SANITY_"),
+        npm=(
+            "sanity",
+            "@sanity/client",
+            "next-sanity",
+            "@sanity/image-url",
+            "groq",
+            "@sanity/cli",
+            "@sanity/sdk",
+            "@sanity/sdk-react",
+            "@sanity/vision",
+            "@sanity/visual-editing",
+            "@sanity/preview-kit",
+            "@sanity/astro",
+            "@sanity/react-loader",
+            "sanity-codegen",
+            "hydrogen-sanity",
+            "gatsby-source-sanity",
+            "@nuxtjs/sanity",
+            "picosanity",
+        ),
+        composer=("sanity/sanity-php",),
+        go=("github.com/sanity-io/client-go",),
+        pub=("sanity_client",),
+        rubygems=("sanity-ruby",),
+    )
+
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
     api_docs_url = "https://www.sanity.io/docs/content-lake/api-versioning"

@@ -251,6 +251,166 @@ class TestGetRows:
         assert result.saved_states == []
 
 
+class TestGetEventRows:
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    def test_walks_hourly_windows_from_one_window_behind_the_watermark(self) -> None:
+        result = _driver().run(
+            "events",
+            [
+                _jsonl_response(
+                    [{"id": "e1", "type": "AGENT_STATUS/LOGGED_IN", "timestamp": "2024-03-15T07:45:00.000Z"}],
+                    junk_lines=["{not json"],
+                ),
+                _jsonl_response([]),
+                _jsonl_response([{"id": "e2", "type": "TASK/CREATED", "timestamp": "2024-03-15T09:40:00.000Z"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-03-15T08:30:00.000Z",
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/events"] * 3
+        assert [(query["startAt"], query["endAt"]) for query in result.queries] == [
+            (("2024-03-15T07:30:00.000Z",), ("2024-03-15T08:30:00.000Z",)),
+            (("2024-03-15T08:30:00.000Z",), ("2024-03-15T09:30:00.000Z",)),
+            (("2024-03-15T09:30:00.000Z",), ("2024-03-15T10:00:00.000Z",)),
+        ]
+        assert set(result.queries[0]["entities"]) == set(GLADLY_ENDPOINTS["events"].event_entities)
+        assert [row["id"] for row in result.rows] == ["e1", "e2"]
+        # The empty window still advances the cursor, so a resumed run skips it.
+        assert [state.last_event_window_end for state in result.committed_states] == [
+            "2024-03-15T08:30:00.000Z",
+            "2024-03-15T09:30:00.000Z",
+            "2024-03-15T10:00:00.000Z",
+        ]
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @pytest.mark.parametrize(
+        "watermark, resume_state, expected_first_start, expected_windows, expect_warning",
+        [
+            (None, None, "2024-03-14T10:05:00.000Z", 24, False),
+            ("2024-03-10T00:00:00.000Z", None, "2024-03-14T10:05:00.000Z", 24, True),
+            ("not a timestamp", None, "2024-03-14T10:05:00.000Z", 24, True),
+            (
+                "2024-03-15T06:00:00.000Z",
+                GladlyResumeConfig(last_event_window_end="2024-03-15T08:00:00.000Z"),
+                "2024-03-15T08:00:00.000Z",
+                2,
+                False,
+            ),
+            (
+                "2024-03-15T10:00:00.000Z",
+                GladlyResumeConfig(last_event_window_end="2024-03-15T10:00:00.000Z"),
+                None,
+                0,
+                False,
+            ),
+        ],
+        ids=[
+            "first_sync_reads_the_retained_24_hours",
+            "stale_watermark_is_clamped_to_the_retention_limit",
+            "unparseable_watermark_reads_the_retained_24_hours",
+            "resume_state_supersedes_an_older_watermark",
+            "caught_up_run_makes_no_request",
+        ],
+    )
+    def test_start_of_the_first_window(
+        self, watermark, resume_state, expected_first_start, expected_windows, expect_warning
+    ) -> None:
+        logger = mock.MagicMock()
+        result = _driver().run(
+            "events",
+            always(_jsonl_response([])),
+            resume_state=resume_state,
+            should_use_incremental_field=watermark is not None,
+            db_incremental_field_last_value=watermark,
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == expected_windows
+        if expected_first_start is not None:
+            assert result.params("startAt")[0] == expected_first_start
+            assert result.params("endAt")[-1] == "2024-03-15T10:00:00.000Z"
+        assert logger.warning.called is expect_warning
+
+
+class TestGetVoiceTranscriptRows:
+    def test_fetches_transcripts_for_voice_items_only_and_skips_missing_ones(self) -> None:
+        def item(item_id: str, item_type: str) -> dict[str, Any]:
+            return {"id": item_id, "conversationId": f"conv-{item_id}", "content": {"type": item_type}}
+
+        files = ["conversation_items.jsonl"]
+        result = _driver().run(
+            "voice_transcripts",
+            [
+                ScriptedResponse(
+                    json=[
+                        _job("j2", "2024-01-02T00:00:00.000Z", files=files),
+                        _job("j1", "2024-01-01T00:00:00.000Z", files=files),
+                        _job("j0", "2024-01-01T12:00:00.000Z", files=["customers.jsonl"]),
+                    ]
+                ),
+                _jsonl_response(
+                    [item("chat-1", "CHAT_MESSAGE"), item("call-1", "PHONE_CALL"), item("vm-1", "VOICEMAIL")],
+                    junk_lines=["{not json"],
+                ),
+                ScriptedResponse(json={"paragraphs": [{"transcript": "Hello", "speaker": 0}], "language": "en"}),
+                ScriptedResponse(status=404),
+                _jsonl_response([item("vm-2", "VOICEMAIL")]),
+                ScriptedResponse(status=404),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/export/jobs",
+            "/api/v1/export/jobs/j1/files/conversation_items.jsonl",
+            "/api/v1/conversation-items/call-1/voice-transcript",
+            "/api/v1/conversation-items/vm-1/voice-transcript",
+            "/api/v1/export/jobs/j2/files/conversation_items.jsonl",
+            "/api/v1/conversation-items/vm-2/voice-transcript",
+        ]
+        assert result.rows == [
+            {
+                "paragraphs": [{"transcript": "Hello", "speaker": 0}],
+                "language": "en",
+                "conversation_item_id": "call-1",
+                "conversation_id": "conv-call-1",
+                "item_type": "PHONE_CALL",
+                "_job_id": "j1",
+                "_job_updated_at": "2024-01-01T00:00:00.000Z",
+            }
+        ]
+        # A job whose voice items have no transcript still advances the cursor.
+        assert [state.last_job_updated_at for state in result.committed_states] == [
+            "2024-01-01T00:00:00.000Z",
+            "2024-01-02T00:00:00.000Z",
+        ]
+
+    @mock.patch(f"{_MODULE}.MAX_RETRY_ATTEMPTS", 1)
+    @pytest.mark.parametrize(
+        "status_code, expected_error",
+        [(429, GladlyRetryableError), (500, GladlyRetryableError), (403, requests.HTTPError)],
+    )
+    def test_transcript_errors_other_than_not_found_fail_the_job(self, status_code, expected_error) -> None:
+        answers = {
+            "/api/v1/export/jobs": ScriptedResponse(
+                json=[_job("j1", "2024-01-01T00:00:00.000Z", files=["conversation_items.jsonl"])]
+            ),
+            "/api/v1/export/jobs/j1/files/conversation_items.jsonl": _jsonl_response(
+                [{"id": "call-1", "content": {"type": "PHONE_CALL"}}]
+            ),
+        }
+        # The transport retries a 429 and a 5xx, so the transcript answers every attempt.
+        result = _driver().run(
+            "voice_transcripts", lambda request: answers.get(request.path, ScriptedResponse(status=status_code))
+        )
+
+        assert isinstance(result.raised, expected_error)
+        assert result.saved_states == []
+
+
 class TestGetReportRows:
     @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     def test_work_session_report_uses_a_time_range_and_keys_rows_on_contact_and_agent(self) -> None:

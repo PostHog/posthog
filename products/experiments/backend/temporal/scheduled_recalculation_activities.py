@@ -27,6 +27,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     count_total_exposures,
     find_scheduled_recalculation_candidates,
     recent_recalculation_skip,
+    record_exposure_check,
 )
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +68,11 @@ def capture_started(experiment: Experiment, hour: int, recalculation_id: str) ->
 @database_sync_to_async_pool
 def _discover_scheduled_recalculation_candidates_sync() -> ScheduledRecalculationDiscovery:
     close_old_connections()
-    return find_scheduled_recalculation_candidates()
+    selection = find_scheduled_recalculation_candidates()
+    hour = selection.discovery.hour
+    for skip in selection.skips:
+        capture_skip(skip.experiment, hour, reason=skip.decision.reason, detail=dict(skip.decision.detail))
+    return selection.discovery
 
 
 @temporalio.activity.defn
@@ -75,7 +80,8 @@ async def discover_scheduled_recalculation_candidates() -> ScheduledRecalculatio
     """Experiments eligible for a scheduled recalculation now, before the exposure gate.
 
     Returns the hour it selected for alongside the candidates, so the workflow and the events
-    report the window without the workflow reading a clock of its own.
+    report the window without the workflow reading a clock of its own. Sends the skipped event
+    for each experiment that discovery rejects, so a skip costs the workflow no activity.
     """
     return await _discover_scheduled_recalculation_candidates_sync()
 
@@ -92,6 +98,7 @@ def _check_experiment_exposures_sync(experiment_id: int, hour: int) -> bool:
         capture_skip(experiment, hour, reason=SKIP_EXPOSURE_QUERY_FAILED, detail={"error_message": str(error)[:500]})
         logger.warning("scheduled_recalculation_exposure_query_failed", experiment_id=experiment_id)
         return False
+    record_exposure_check(experiment.id, total)
     if total < MIN_TOTAL_EXPOSURES:
         capture_skip(experiment, hour, reason=SKIP_INSUFFICIENT_EXPOSURES, detail={"total_exposures": total})
         return False

@@ -79,8 +79,6 @@ import type {
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
-    OfflineExperimentItemsRequestApi,
-    OfflineExperimentItemsResponseApi,
     OfflineExperimentPageApi,
     OfflineExperimentReadApi,
     OfflineHistoryPageApi,
@@ -115,6 +113,7 @@ import type {
     PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
+    PatchedOfflineExperimentMetadataApi,
     PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
@@ -134,7 +133,6 @@ import type {
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
-    TaggerCreateApi,
     TaggerUpdateApi,
     TaggersListParams,
     TestHogRequestApi,
@@ -338,6 +336,24 @@ export const aiObservabilityOfflineExperimentsRetrieve = async (
     return apiMutator<OfflineExperimentReadApi>(getAiObservabilityOfflineExperimentsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/`
+}
+
+export const aiObservabilityOfflineExperimentsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedOfflineExperimentMetadataApi?: PatchedOfflineExperimentMetadataApi,
+    options?: RequestInit
+): Promise<OfflineExperimentReadApi> => {
+    return apiMutator<OfflineExperimentReadApi>(getAiObservabilityOfflineExperimentsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedOfflineExperimentMetadataApi),
     })
 }
 
@@ -1855,26 +1871,6 @@ export const llmAnalyticsModelsRetrieve = async (
     })
 }
 
-export const getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/offline_evaluations/experiment_items/`
-}
-
-export const llmAnalyticsOfflineEvaluationsExperimentItemsCreate = async (
-    projectId: string,
-    offlineExperimentItemsRequestApi: OfflineExperimentItemsRequestApi,
-    options?: RequestInit
-): Promise<OfflineExperimentItemsResponseApi> => {
-    return apiMutator<OfflineExperimentItemsResponseApi>(
-        getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(offlineExperimentItemsRequestApi),
-        }
-    )
-}
-
 export const getLlmAnalyticsParserRecipesListUrl = (
     projectId: string,
     params?: LlmAnalyticsParserRecipesListParams
@@ -2949,23 +2945,6 @@ export const taggersList = async (
     return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTaggersCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersCreate = async (
-    projectId: string,
-    taggerCreateApi: TaggerCreateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerCreateApi),
     })
 }
 

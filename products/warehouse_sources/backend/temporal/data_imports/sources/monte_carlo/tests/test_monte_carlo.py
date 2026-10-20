@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -8,6 +9,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MonteCarloSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.monte_carlo import (
+    MONITOR_PAGE_SIZE,
     MonteCarloGraphQLError,
     MonteCarloResumeConfig,
     _execute_query,
@@ -41,6 +44,15 @@ def _driver() -> SourceDriver:
 
 def _response(data: dict) -> ScriptedResponse:
     return ScriptedResponse(json={"data": data})
+
+
+def _by_operation(answers: dict[str, Callable[[dict], dict]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        body = request.json()
+        operation = body["query"].split("query ", 1)[1].split("(", 1)[0].split()[0]
+        return _response(answers[operation](body["variables"]))
+
+    return respond
 
 
 class TestExecuteQuery:
@@ -106,7 +118,14 @@ class TestValidateCredentials:
 
 
 class TestRelayEndpoints:
-    @parameterized.expand([("domains", "getDomainsV2"), ("tables", "getTables"), ("users", "getUsersInAccount")])
+    @parameterized.expand(
+        [
+            ("dbt_runs", "getDbtRuns"),
+            ("domains", "getDomainsV2"),
+            ("tables", "getTables"),
+            ("users", "getUsersInAccount"),
+        ]
+    )
     def test_paginates_until_has_next_page_false(self, endpoint: str, data_path: str) -> None:
         responses = [
             _relay_page(data_path, [{"id": "1"}, {"id": "2"}], "cursor-1"),
@@ -299,12 +318,238 @@ class TestAlertsWindowing:
         assert result.requests[1].json()["variables"]["createdTime"]["after"] == "2026-07-01T00:00:00Z"
 
 
+class TestDbtTestResultsWindowing:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
+    @parameterized.expand(
+        [
+            ("first_sync", True, None, 13, "2025-07-15T12:00:00Z"),
+            # Re-reads two days before the watermark so late-arriving test results are not skipped.
+            ("incremental", True, datetime(2026, 6, 1, tzinfo=UTC), 2, "2026-05-30T00:00:00Z"),
+            ("full_refresh_ignores_watermark", False, datetime(2026, 6, 1, tzinfo=UTC), 13, "2025-07-15T12:00:00Z"),
+        ]
+    )
+    def test_walks_run_start_windows_to_now(
+        self,
+        _label: str,
+        use_incremental: bool,
+        watermark: datetime | None,
+        expected_windows: int,
+        expected_first_start: str,
+    ) -> None:
+        result = _driver().run(
+            "dbt_test_results",
+            always(_response(_relay_page("getDbtTestResults", [], None))),
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        variables = [request.json()["variables"] for request in result.requests]
+        assert len(variables) == expected_windows
+        assert variables[0]["runStartTime"] == expected_first_start
+        assert variables[-1]["runEndTime"] == "2026-07-15T12:00:00Z"
+        # Windows are contiguous, so no run start falls between two of them.
+        for previous, current in zip(variables, variables[1:]):
+            assert current["runStartTime"] == previous["runEndTime"]
+
+    def test_stages_cursor_before_the_page_and_resumes_into_the_pinned_window(self) -> None:
+        responses = [
+            _relay_page("getDbtTestResults", [{"runUuid": "r-1", "nodeId": "test.a"}], "cursor-1"),
+            _relay_page("getDbtTestResults", [{"runUuid": "r-1", "nodeId": "test.b"}], None),
+        ]
+        first = _driver().run(
+            "dbt_test_results",
+            [_response(data) for data in responses],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 7, 1, tzinfo=UTC),
+        )
+
+        assert first.raised is None
+        assert [row["nodeId"] for row in first.rows] == ["test.a", "test.b"]
+        assert first.requests[1].json()["variables"]["after"] == "cursor-1"
+        assert (
+            MonteCarloResumeConfig(
+                cursor="cursor-1", window_after="2026-06-29T00:00:00Z", window_before="2026-07-15T12:00:00Z"
+            )
+            in first.committed_states
+        )
+
+        resumed = _driver().run(
+            "dbt_test_results",
+            [_response(_relay_page("getDbtTestResults", [], None))] * 2,
+            resume_state=MonteCarloResumeConfig(
+                cursor="cursor-9", window_after="2026-06-01T00:00:00Z", window_before="2026-07-01T00:00:00Z"
+            ),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 7, 10, tzinfo=UTC),
+        )
+
+        assert resumed.raised is None
+        variables = [request.json()["variables"] for request in resumed.requests]
+        assert variables[0] == {
+            "first": 100,
+            "after": "cursor-9",
+            "runStartTime": "2026-06-01T00:00:00Z",
+            "runEndTime": "2026-07-01T00:00:00Z",
+        }
+        assert variables[1]["after"] is None
+        assert variables[1]["runStartTime"] == "2026-07-01T00:00:00Z"
+
+
+class TestMonitorFanOut:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
+    def test_fh_events_reads_each_metric_monitor_with_overlap_and_offset_pages(self) -> None:
+        page_size = MONTE_CARLO_ENDPOINTS["fh_events"].page_size
+        full_page = [{"eventUuid": f"e-{i}"} for i in range(page_size)]
+
+        def events(variables: dict) -> dict:
+            if variables["monitorId"] == "m-1" and variables["offset"] == 0:
+                return {"getFhEventsByMonitor": {"events": full_page}}
+            if variables["monitorId"] == "m-1":
+                return {"getFhEventsByMonitor": {"events": [{"eventUuid": "e-last"}]}}
+            return {"getFhEventsByMonitor": {"events": []}}
+
+        result = _driver().run(
+            "fh_events",
+            _by_operation(
+                {
+                    "PostHogGetMonitorUuids": lambda _: {"getMonitors": [{"uuid": "m-1"}, {"uuid": "m-2"}]},
+                    "PostHogGetFhEventsByMonitor": events,
+                }
+            ),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 7, 10, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == page_size + 1
+        assert {row["monitorUuid"] for row in result.rows} == {"m-1"}
+        monitor_list, *event_requests = [request.json()["variables"] for request in result.requests]
+        assert monitor_list["monitorTypes"] == ["STATS"]
+        assert [(v["monitorId"], v["offset"]) for v in event_requests] == [("m-1", 0), ("m-1", page_size), ("m-2", 0)]
+        # Re-reads two days before the watermark so late metric points are not skipped.
+        assert {v["startTime"] for v in event_requests} == {"2026-07-08T00:00:00Z"}
+        assert {v["endTime"] for v in event_requests} == {"2026-07-15T12:00:00Z"}
+        assert result.saved_states[-1] == MonteCarloResumeConfig(offset=1, window_after="2026-07-08T00:00:00Z")
+
+    def test_fh_events_resume_starts_at_saved_monitor_and_start_time(self) -> None:
+        result = _driver().run(
+            "fh_events",
+            _by_operation(
+                {
+                    "PostHogGetMonitorUuids": lambda _: {"getMonitors": [{"uuid": "m-5"}]},
+                    "PostHogGetFhEventsByMonitor": lambda _: {"getFhEventsByMonitor": {"events": []}},
+                }
+            ),
+            resume_state=MonteCarloResumeConfig(offset=4, window_after="2026-07-01T00:00:00Z"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 7, 10, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        variables = [request.json()["variables"] for request in result.requests]
+        assert variables[0]["offset"] == 4
+        assert variables[1]["startTime"] == "2026-07-01T00:00:00Z"
+
+    @parameterized.expand(
+        [
+            # One extra day of overlap for jobs that finished after the last sync.
+            ("incremental", True, datetime(2026, 7, 10, 18, tzinfo=UTC), 6),
+            ("first_sync", True, None, 365),
+            ("full_refresh_ignores_watermark", False, datetime(2026, 7, 10, tzinfo=UTC), 365),
+        ]
+    )
+    def test_job_executions_asks_for_days_since_watermark_per_monitor(
+        self, _label: str, use_incremental: bool, watermark: datetime | None, expected_days: int
+    ) -> None:
+        def executions(variables: dict) -> dict:
+            node = {"jobExecutionUuid": f"x-{variables['monitorUuid']}"}
+            return _relay_page("getJobExecutions", [node], None)
+
+        result = _driver().run(
+            "job_executions",
+            _by_operation(
+                {
+                    "PostHogGetMonitorUuids": lambda _: {"getMonitors": [{"uuid": "m-1"}, {"uuid": "m-2"}]},
+                    "PostHogGetJobExecutions": executions,
+                }
+            ),
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert [(row["monitorUuid"], row["jobExecutionUuid"]) for row in result.rows] == [
+            ("m-1", "x-m-1"),
+            ("m-2", "x-m-2"),
+        ]
+        monitor_list, *execution_requests = [request.json()["variables"] for request in result.requests]
+        assert "monitorTypes" not in monitor_list
+        assert {v["historyDays"] for v in execution_requests} == {expected_days}
+
+    def test_monitor_list_pages_until_short_page(self) -> None:
+        full_page = [{"uuid": f"m-{i}"} for i in range(MONITOR_PAGE_SIZE)]
+
+        def monitors(variables: dict) -> dict:
+            return {"getMonitors": full_page if variables["offset"] == 0 else []}
+
+        result = _driver().run(
+            "job_executions",
+            _by_operation(
+                {
+                    "PostHogGetMonitorUuids": monitors,
+                    "PostHogGetJobExecutions": lambda _: _relay_page("getJobExecutions", [], None),
+                }
+            ),
+        )
+
+        assert result.raised is None
+        monitor_offsets = [
+            request.json()["variables"]["offset"]
+            for request in result.requests
+            if "PostHogGetMonitorUuids" in request.json()["query"]
+        ]
+        assert monitor_offsets == [0, MONITOR_PAGE_SIZE]
+        assert len(result.requests) == MONITOR_PAGE_SIZE + 2
+
+    def test_job_schedules_reads_each_warehouse(self) -> None:
+        result = _driver().run(
+            "job_schedules",
+            _by_operation(
+                {
+                    "PostHogGetWarehouses": lambda _: {"getWarehouses": [{"uuid": "w-1"}, {"uuid": "w-2"}]},
+                    "PostHogGetJobSchedules": lambda v: {
+                        "getJobSchedules": [] if v["resourceUuid"] == "w-1" else [{"uuid": "s-1", "resourceId": "w-2"}]
+                    },
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"uuid": "s-1", "resourceId": "w-2"}]
+        assert [request.json()["variables"] for request in result.requests[1:]] == [
+            {"resourceUuid": "w-1"},
+            {"resourceUuid": "w-2"},
+        ]
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [
             ("alerts", ["uuid"], "desc"),
+            ("dbt_test_results", ["runUuid", "nodeId"], "desc"),
             ("domains", ["id"], "asc"),
             ("events", ["uuid"], "desc"),
+            ("fh_events", ["monitorUuid", "eventUuid"], "desc"),
+            ("job_executions", ["monitorUuid", "jobExecutionUuid"], "desc"),
             ("monitors", ["uuid"], "asc"),
             ("tables", ["id"], "asc"),
             ("users", ["id"], "asc"),
@@ -312,9 +557,12 @@ class TestSourceResponse:
         ]
     )
     def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
-        if endpoint == "alerts":
+        if endpoint in ("alerts", "dbt_test_results"):
+            data_path = "getAlerts" if endpoint == "alerts" else "getDbtTestResults"
             with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
-                result = _driver().run(endpoint, always(_response(_relay_page("getAlerts", [], None))))
+                result = _driver().run(endpoint, always(_response(_relay_page(data_path, [], None))))
+        elif endpoint in ("fh_events", "job_executions"):
+            result = _driver().run(endpoint, [_response({"getMonitors": []})])
         elif endpoint in ("monitors", "warehouses"):
             data_path = "getMonitors" if endpoint == "monitors" else "getWarehouses"
             result = _driver().run(endpoint, [_response({data_path: []})])

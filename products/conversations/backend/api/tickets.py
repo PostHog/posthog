@@ -292,7 +292,9 @@ class ComposeTicketSerializer(serializers.Serializer):
         help_text="Email subject line.",
     )
     email_config_id = serializers.UUIDField(
-        help_text="ID of the EmailChannel to send from.",
+        required=False,
+        allow_null=True,
+        help_text="ID of the support email channel to send from. Omit it to send from the team's default support channel.",
     )
     message = serializers.CharField(
         max_length=5000,
@@ -2030,15 +2032,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        email_config = EmailChannel.objects.filter(
-            id=data["email_config_id"],
-            team=team,
-            kind=EmailChannelKind.SUPPORT,
-            domain_verified=True,
-        ).first()
+        email_configs = EmailChannel.objects.filter(team=team, kind=EmailChannelKind.SUPPORT, domain_verified=True)
+        if data.get("email_config_id"):
+            email_config = email_configs.filter(id=data["email_config_id"]).first()
+        else:
+            email_config = email_configs.filter(is_default=True).first()
         if not email_config:
             return Response(
-                {"detail": "Email configuration not found or domain not verified."},
+                {
+                    "detail": "Email configuration not found or domain not verified."
+                    if data.get("email_config_id")
+                    else "No default support email channel with a verified domain. Pass email_config_id."
+                },
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

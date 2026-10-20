@@ -68,7 +68,6 @@ import {
     RefreshType,
     SpanTreeNode,
     TileFilters,
-    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -245,7 +244,6 @@ import type {
     ExternalDataSourceTypeEnumApi,
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -684,11 +682,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # User product list
-    public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
     }
 
     // # Plugins
@@ -1719,11 +1712,6 @@ export class ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
     }
 
-    // Max hands-free mode (ElevenLabs Scribe token proxy)
-    public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
-    }
-
     // Conversations (Support product)
     public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
@@ -2351,6 +2339,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            includeTags,
             signal,
         }: {
             parent?: string
@@ -2367,6 +2356,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            includeTags?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2386,6 +2376,7 @@ const api = {
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
+                    include_tags: includeTags,
                 })
                 .get({ signal })
         },
@@ -2473,17 +2464,6 @@ const api = {
         },
         async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
             return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
-        },
-    },
-
-    userProductList: {
-        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().get()
-        },
-        async bulkUpdate(
-            items: { product_path: string; enabled: boolean }[]
-        ): Promise<{ results: UserProductListItem[] }> {
-            return await new ApiRequest().userProductList().withAction('bulk_update').update({ data: { items } })
         },
     },
 
@@ -2825,7 +2805,7 @@ const api = {
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
                 .create({ signal, data: { ...query } })
         },
         async sparkline(
@@ -4933,6 +4913,8 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Inbox sort preset, for example `recommended`. The server ignores it when `ordering` is set. */
+            sort?: string
             /** Comma-separated source products. */
             source_product?: string
             /** Comma-separated P0–P4. */
@@ -6395,16 +6377,6 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
-        async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email',
-            sendsEmail?: boolean
-        ): Promise<BlastRadiusApi> {
-            return await new ApiRequest()
-                .hogFlows()
-                .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
-        },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
             data: {
@@ -6584,23 +6556,6 @@ const api = {
     schema: {
         async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
             return await new ApiRequest().queryUpgrade().create({ data })
-        },
-    },
-
-    maxHandsFree: {
-        async token(options?: ApiMethodOptions): Promise<{ token: string }> {
-            return await api.create(
-                new ApiRequest().maxHandsFree().withAction('token').assembleFullUrl(),
-                undefined,
-                options
-            )
-        },
-        async synthesize(text: string, options?: ApiMethodOptions): Promise<Response> {
-            return await api.createResponse(
-                new ApiRequest().maxHandsFree().withAction('synthesize').assembleFullUrl(),
-                { text },
-                options
-            )
         },
     },
 

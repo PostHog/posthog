@@ -2,6 +2,7 @@ from typing import cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -59,6 +60,86 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^HUBSPOT_",
+            "^PRIVATE_APP_ACCESS_TOKEN$",
+            "^NEXT_PUBLIC_HUBSPOT_",
+            "^NUXT_PUBLIC_HUBSPOT_",
+            "^VITE_HUBSPOT_",
+        ),
+        script_hosts=(
+            "js.hs-scripts.com",
+            "js.hsforms.net",
+            "js-eu1.hs-scripts.com",
+            "js-eu1.hsforms.net",
+            "js.hs-analytics.net",
+            "js.hs-banner.com",
+            "js.hscollectedforms.net",
+            "js.usemessages.com",
+            "js.hsadspixel.net",
+            "js.hsleadflows.net",
+            "js.hscta.net",
+            "js-eu1.hscta.net",
+            "js.hubspotfeedback.com",
+            "feedback.hubapi.com",
+            "feedback-eu1.hubapi.com",
+            "static.hsappstatic.net",
+        ),
+        npm=(
+            "@hubspot/api-client",
+            "@hubspot/sdk",
+            "@hubspot/cli",
+            "@hubspot/local-dev-lib",
+            "@hubspot/cli-lib",
+            "@hubspot/cms-lib",
+            "@hubspot/ui-extensions",
+            "@hubspot/ui-extensions-dev-server",
+            "@hubspot/cms-components",
+            "@hubspot/cms-dev-server",
+            "@hubspot/cms-component-library",
+            "@hubspot/serverless-dev-runtime",
+            "@hubspot/app-functions-dev-server",
+            "@hubspot/webpack-cms-plugins",
+            "@hubspot/calling-extensions-sdk",
+            "@hubspot/quote-dev-sdk",
+            "@hubspot/app-connect-sdk",
+            "@hubspot/mcp-server",
+            "hubspot",
+            "node-hubspot-api",
+            "next-hubspot",
+            "react-hubspot-form",
+            "@aaronhayes/react-use-hubspot-form",
+            "react-hubspot-tracking-code-hook",
+            "gatsby-plugin-hubspot",
+            "@analytics/hubspot",
+        ),
+        pypi=("hubspot-api-client", "hubspot-sdk", "hapipy", "hubspot3", "hubspot"),
+        cargo=("hubspot",),
+        composer=(
+            "hubspot/api-client",
+            "hubspot/sdk",
+            "hubspot/hubspot-php",
+            "ryanwinchester/hubspot-php",
+            "fungku/hubspot-php",
+            "fungku/hubspot",
+            "rossjcooper/laravel-hubspot",
+            "stechstudio/laravel-hubspot",
+            "socialiteproviders/hubspot",
+            "helpscout/oauth2-hubspot",
+            "flipboxdigital/oauth2-hubspot",
+        ),
+        go=("github.com/HubSpot/hubspot-sdk-go", "github.com/belong-inc/go-hubspot"),
+        maven=(
+            "com.hubspot.sdk:hubspot-java",
+            "com.hubspot.sdk:hubspot-java-core",
+            "com.hubspot.sdk:hubspot-java-client-okhttp",
+            "com.hubspot.mobilechatsdk:mobile-chat-sdk-android",
+        ),
+        rubygems=("hubspot-api-client", "hubspot-sdk", "hubspot-ruby", "omniauth-hubspot"),
+        swiftpm=("github.com/hubspot/mobile-chat-sdk-ios",),
+    )
+
     supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_09)
     default_version = HUBSPOT_API_VERSION_2026_09
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"

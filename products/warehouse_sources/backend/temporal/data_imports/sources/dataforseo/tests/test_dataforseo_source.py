@@ -65,10 +65,6 @@ class TestDataForSEOSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert DataForSEOSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1, names=["ranked_keywords"])
-        assert {s.name for s in schemas} == {"ranked_keywords"}
-
     @parameterized.expand(
         [
             ("valid", "example.com", True, True, None),
@@ -179,6 +175,7 @@ class TestDataForSEOSource:
             ("body_low_balance", "DataForSEO API error [40210]"),
             ("body_blocked", "DataForSEO API error [40201]"),
             ("body_daily_limit", "DataForSEO API error [40203]"),
+            ("body_invalid_language", "Invalid Field: 'language_name'"),
         ]
     )
     def test_non_retryable_errors_cover_permanent_failures(self, _name: str, expected_key: str) -> None:

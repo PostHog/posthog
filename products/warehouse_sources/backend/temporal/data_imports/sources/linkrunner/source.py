@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinkrunnerSource(ResumableSource[LinkrunnerSourceConfig, LinkrunnerResumeConfig]):
+    codebase_detection = detect(
+        env=("^LINKRUNNER_",),
+        script_hosts=("cdn.linkrunner.io",),
+        npm=("rn-linkrunner", "@linkrunner/web", "capacitor-linkrunner", "cordova-linkrunner", "expo-linkrunner"),
+        cocoapods=("LinkrunnerKit",),
+        maven=("io.linkrunner:android-sdk",),
+        pub=("linkrunner",),
+        swiftpm=("github.com/linkrunner-labs/linkrunner-ios", "github.com/linkrunner-labs/capacitor-linkrunner"),
+    )
+
     api_docs_url = "https://docs.linkrunner.io/api-reference/campaign-apis"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

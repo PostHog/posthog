@@ -2,6 +2,9 @@ from urllib.parse import urlsplit
 
 from requests.exceptions import HTTPError
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^UMAMI_", "^(NEXT_PUBLIC|VITE|PUBLIC|NUXT_PUBLIC|NUXT|GATSBY|REACT_APP)_UMAMI_"),
+        script_hosts=("cloud.umami.is",),
+        npm=(
+            "@umami/node",
+            "@umami/api-client",
+            "@types/umami-browser",
+            "@types/umami",
+            "@lukulent/svelte-umami",
+            "nuxt-umami",
+            "umami",
+            "@dipakparmar/docusaurus-plugin-umami",
+            "@yeskunall/astro-umami",
+            "@danielgtmn/umami-react",
+            "@jaseeey/vue-umami-plugin",
+            "ngx-umami",
+            "next-umami",
+            "@vuepress/plugin-umami-analytics",
+        ),
+        pypi=("umami-analytics",),
+        rubygems=("umami-ruby",),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.umami.is/docs/api"
 

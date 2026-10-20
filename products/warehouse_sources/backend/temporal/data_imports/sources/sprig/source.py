@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SprigSource(ResumableSource[SprigSourceConfig, SprigResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("cdn.sprig.com",),
+        npm=("@sprig-technologies/sprig-browser", "react-native-userleap"),
+        cocoapods=("UserLeapKit",),
+        maven=("com.userleap:userleap-android-sdk",),
+        pub=("sprig_flutter_plugin",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.sprig.com/reference/sprig-api/overview"
 

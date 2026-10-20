@@ -1,20 +1,30 @@
+from contextlib import nullcontext
+
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.ratelimits import describe_budgets
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_CLIENT_SECRET,
+    ProvisioningTestBase,
+    provisioning_config,
+    signing_required,
+)
 
 LIMITS_URL = "/api/agentic/provisioning/limits"
 
 
 class TestLimitsEndpoint(ProvisioningTestBase):
-    def _public_partner(self) -> OAuthApplication:
+    def _self_registered_partner(self, *, switched_to_private_key_jwt: bool = False) -> OAuthApplication:
         return OAuthApplication.objects.create(
             client_id="limits_public_partner",
             name="Limits Public Partner",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL
+            if switched_to_private_key_jwt
+            else OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri="https://partner.example.com/.well-known/jwks.json" if switched_to_private_key_jwt else None,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
@@ -41,7 +51,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
         assert res["RateLimit-Limit"]
 
     def test_client_authenticated_partner_sees_its_overrides(self):
-        self.partner.update_provisioning_rate_limits(resource_creates=7, wizard_runs=-1)
+        self.partner.update_provisioning_rate_limits(resource_creates=7, deep_links=-1)
 
         res = self.client.post(
             LIMITS_URL,
@@ -51,36 +61,50 @@ class TestLimitsEndpoint(ProvisioningTestBase):
         assert res.status_code == 200
         body = res.json()
         assert body["endpoints"]["resource_creates"]["per_hour"] == 7
-        assert body["endpoints"]["wizard_runs"] == {"unlimited": True}
+        assert body["endpoints"]["deep_links"] == {"unlimited": True}
 
     @parameterized.expand(
         [
             # A public partner's client_id is published, so honoring it would hand its
             # tier and live headroom to any caller, and charge its bucket to do it.
-            ("bare_client_id", "post", True, 401),
-            ("no_credentials", "post", False, 401),
+            ("bare_client_id", "post", True, False, 401),
+            ("no_credentials", "post", False, False, 401),
             # GET has nowhere to carry client authentication, so the verb is gone. If it
             # comes back, the bare client_id path comes back with it.
-            ("get_with_client_id", "get", True, 405),
+            ("get_with_client_id", "get", True, False, 405),
+            # Its grace lets it call unsigned elsewhere, but a client_id still proves nothing.
+            ("bare_client_id_of_a_switched_partner_in_grace", "post", True, True, 401),
         ]
     )
-    def test_caller_without_proof_is_rejected(self, _name: str, method: str, name_a_partner: bool, expected: int):
-        public = self._public_partner()
-        body = {"client_id": public.client_id} if name_a_partner else {}
+    def test_caller_without_proof_is_rejected(
+        self, _name: str, method: str, name_a_partner: bool, switched_to_private_key_jwt: bool, expected: int
+    ):
+        partner = self._self_registered_partner(switched_to_private_key_jwt=switched_to_private_key_jwt)
+        body = {"client_id": partner.client_id} if name_a_partner else {}
 
         res = getattr(self.client, method)(LIMITS_URL, body)
 
         assert res.status_code == expected
 
-    def test_deactivated_partner_bearer_is_rejected(self):
+    @parameterized.expand(
+        [
+            ("deactivated", {"active": False}, False),
+            ("grace_ended_without_a_private_key", {}, True),
+        ]
+    )
+    def test_bearer_is_rejected_after_partner_changes(
+        self, _name: str, change: dict[str, bool], grace_ended: bool
+    ) -> None:
         token = self._request_bearer_token().json()["access_token"]
-        self.partner.update_provisioning(active=False)
+        if change:
+            self.partner.update_provisioning(**change)
 
-        res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
+        with signing_required() if grace_ended else nullcontext():
+            res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert res.status_code == 401
 
     def test_describe_budgets_marks_endpoints_the_tier_blocks(self):
         # Reported as blocked rather than as a budget, so a partner is not told it has
         # headroom on an endpoint its tier refuses outright.
-        assert describe_budgets(self._public_partner())["deep_links"] == {"blocked": True}
+        assert describe_budgets(self._self_registered_partner())["deep_links"] == {"blocked": True}

@@ -379,7 +379,7 @@ export class IngestionApiServer implements NodeServer {
                 {
                     addr: this.config.PERSONHOG_IDENTITY_ADDR,
                     useTls: this.config.PERSONHOG_TLS,
-                    timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                    timeoutMs: this.config.PERSONHOG_IDENTITY_TIMEOUT_MS,
                     clientName: 'ingestion-persons-store',
                     initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
                     initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
@@ -436,6 +436,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: this.config.PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,

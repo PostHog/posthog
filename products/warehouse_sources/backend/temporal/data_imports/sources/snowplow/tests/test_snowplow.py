@@ -230,10 +230,60 @@ class TestFailedEventMetricsFanOut:
 
 
 class TestListEndpoints:
-    def test_pipelines_unwraps_the_wrapper_object(self) -> None:
-        pipelines = [{"id": "p1", "name": "prod"}]
-        result = _run_endpoint("pipelines", _api(lambda path, request: {"pipelines": pipelines}))
-        assert result.rows == pipelines
+    @parameterized.expand(
+        [
+            ("pipelines", "/pipelines/v1", "pipelines", {}),
+            (
+                "data_products",
+                "/data-products/v2",
+                "data",
+                {"includes": {"owners": [{"id": "g1"}], "eventSpecs": [{"id": "es9"}]}, "errors": []},
+            ),
+            ("event_specs", "/event-specs/v1", "data", {"includes": [{"eventSpecId": "x1"}], "metadata": {}}),
+            ("source_apps", "/source-apps/v1", "data", {}),
+        ]
+    )
+    def test_unwraps_the_wrapper_object(
+        self, endpoint: str, expected_path: str, data_key: str, siblings: dict[str, Any]
+    ) -> None:
+        rows = [{"id": "a1", "name": "first"}, {"id": "a2", "name": "second"}]
+        result = _run_endpoint(endpoint, _api(lambda path, request: {**siblings, data_key: rows}))
+        assert result.rows == rows
+        assert _data_calls(result) == [(expected_path, {})]
+
+    @parameterized.expand(
+        [
+            ("missing_key", "data_products", {"includes": {}}),
+            ("null_list", "event_specs", {"data": None}),
+            ("empty_list", "source_apps", {"data": []}),
+            ("empty_bare_array", "data_catalog", []),
+        ]
+    )
+    def test_empty_response_yields_no_rows(self, _name: str, endpoint: str, body: Any) -> None:
+        result = _run_endpoint(endpoint, _api(lambda path, request: body))
+        assert result.raised is None
+        assert result.rows == []
+
+    def test_data_catalog_yields_the_bare_array(self) -> None:
+        items = [
+            {
+                "vendor": "com.example",
+                "name": "checkout",
+                "format": "jsonschema",
+                "version": "1-0-0",
+                "itemType": "EVENT",
+            },
+            {
+                "vendor": "com.example",
+                "name": "checkout",
+                "format": "jsonschema",
+                "version": "1-0-0",
+                "itemType": "ENTITY",
+            },
+        ]
+        result = _run_endpoint("data_catalog", _api(lambda path, request: items))
+        assert result.rows == items
+        assert _data_calls(result) == [("/data-catalog/v1", {})]
 
     def test_users_yields_the_bare_array(self) -> None:
         users = [{"id": "u1", "email": "a@b.co"}]
@@ -328,6 +378,10 @@ class TestSourceResponse:
             ("users", "asc", None, ["id"]),
             ("data_models", "asc", None, ["name"]),
             ("data_structures", "asc", None, ["hash"]),
+            ("data_products", "asc", "createdAt", ["id"]),
+            ("event_specs", "asc", None, ["id", "version"]),
+            ("source_apps", "asc", None, ["id"]),
+            ("data_catalog", "asc", None, ["vendor", "name", "format", "version", "itemType"]),
             ("job_runs", "desc", "startTime", ["runId"]),
             ("job_run_steps", "desc", "runStartTime", ["runId", "name"]),
             ("failed_event_metrics", "desc", "window", ["pipelineId", "errorId", "window"]),

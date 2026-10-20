@@ -14,7 +14,7 @@ import { WizardFrameworkBadges } from './WizardModeShell'
 export type WizardInstallMode = 'cloud' | 'local'
 
 export interface WizardInstallOptionsProps {
-    /** The local "run it yourself" arm. Variants supply their own command block. */
+    /** The local "run it yourself" arm. Callers supply their own command block. */
     localBlock: React.ReactNode
     /** Keeps the compact onboarding card free of the wizard hedgehog. */
     hideHog?: boolean
@@ -23,9 +23,9 @@ export interface WizardInstallOptionsProps {
     /** Instrumentation hook, fired when the user switches between cloud and local. */
     onModeSelected?: (mode: WizardInstallMode) => void
     /**
-     * Force the cloud arm off regardless of the experiment flag. The self-driving flow runs a
-     * program the cloud runner cannot execute (it rejects `--ci` and needs an interactive terminal),
-     * so offering it there would queue a run that can never succeed.
+     * Force the cloud arm off regardless of the experiment flag. The cloud runner only executes the
+     * base integration program, so offering it for any other program would queue a run that can
+     * never succeed.
      */
     offerCloudRun?: boolean
     /**
@@ -40,9 +40,9 @@ export interface WizardInstallOptionsProps {
 
 /**
  * One wizard, two ways to run it: have us run it and open a PR (the cloud run), or run the CLI
- * yourself. A segmented control switches between them. Shared by both onboarding variants; the
- * cloud path only exists behind ONBOARDING_WIZARD_CLOUD_RUN (the AB test arm) on cloud/dev —
- * elsewhere this collapses to just the caller's local block, so the control arm is unchanged.
+ * yourself. A segmented control switches between them. The cloud path only exists behind
+ * ONBOARDING_WIZARD_CLOUD_RUN (the AB test arm) on cloud/dev. Elsewhere this collapses to just
+ * the caller's local block, so the control arm is unchanged.
  */
 export function WizardInstallOptions({
     localBlock,
@@ -74,8 +74,8 @@ export function WizardInstallOptions({
         setMode('local')
     }
 
-    // The frameworks are the same whichever way (and in whichever variant) the wizard runs, so the
-    // badge list rides with the options everywhere. Self-hosted gets no wizard, so no badges either.
+    // The frameworks are the same whichever way the wizard runs, so the badge list rides with the
+    // options everywhere. Self-hosted gets no wizard, so no badges either.
     const badges = isCloudOrDev && <div className="pb-2">{badgesOverride ?? <WizardFrameworkBadges />}</div>
 
     if (!offerCloud) {

@@ -8,10 +8,14 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 import structlog
+
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -24,6 +28,7 @@ from posthog.models import Team, User
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
@@ -44,7 +49,13 @@ from products.metrics.backend.facade.contracts import (
     PanelQueryCheckResult,
     SuggestedDashboard,
 )
-from products.metrics.backend.facade.enums import DashboardTemplateStatus, FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.facade.enums import (
+    DashboardTemplateStatus,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -57,6 +68,9 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
+from products.metrics.backend.variables import from_dashboard, with_values
 
 logger = structlog.get_logger(__name__)
 
@@ -117,15 +131,31 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
 
 
 def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
-    """The unit of one output series, resolved from the physical series it
+    """The ingested unit shared by the physical series one output series
     aggregated. The unit only applies when every contributing series carries
-    the same one — a disagreement, or a series with no unit at all, means the
-    merge has no correct single unit, so it carries none."""
-    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    the same one. A disagreement, or a mix of unit and no unit, means the
+    merge has no correct single unit, so it returns None. Series that all
+    carry no unit return "", which `_output_unit` needs to tell a unitless
+    counter (whose rate is still per second) apart from a disagreement."""
+    units = {units_by_fingerprint.get(fp, "") for fp in fingerprints}
     if len(units) != 1:
         return None
     (unit,) = units
     return unit
+
+
+def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
+    """The unit of the values a clause returns, which differs from the
+    ingested unit when the clause transforms the values. COUNT returns a
+    number of series, so it has no unit, even after a range function. RATE
+    divides by the bucket length in seconds, so it returns the ingested unit
+    per second, as a UCUM string the frontend formatter reads. Every other
+    aggregation keeps the ingested unit."""
+    if ingested is None or clause.aggregation is MetricAggregation.COUNT:
+        return None
+    if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
+        return f"{ingested or '1'}/s"
+    return ingested or None
 
 
 # Hard cap on series returned per clause; the largest series (by summed
@@ -137,8 +167,7 @@ MAX_SERIES_PER_CLAUSE = MAX_RAW_SERIES
 def _assemble_series(
     rows: list[dict[str, Any]],
     *,
-    metric_name: str,
-    clause_name: str,
+    clause: MetricQueryClause,
     grid: list[str],
     units_by_fingerprint: dict[int, str],
 ) -> list[MetricSeries]:
@@ -166,9 +195,9 @@ def _assemble_series(
         MetricSeries(
             labels=dict(key[0]),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
-            metric_name=metric_name,
-            clause=clause_name,
-            unit=_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
+            metric_name=clause.metric_name,
+            clause=clause.name,
+            unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -357,8 +386,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     series_by_clause = {
         clause.name: _assemble_series(
             rows_by_clause[clause.name],
-            metric_name=clause.metric_name,
-            clause_name=clause.name,
+            clause=clause,
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
         )
@@ -474,6 +502,55 @@ def list_metric_attribute_values(
         team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
     )
     return runner.run()
+
+
+def check_metric_variable_regex(regex: str | None) -> None:
+    """Raises `ValueError` for a variable regex that the options cannot use."""
+    compile_regex(regex)
+
+
+def list_metric_variable_options(
+    *,
+    team: Team,
+    source: MetricsDashboardVariableSource,
+    query: str | None = None,
+    custom_values: list[str] | None = None,
+    regex: str | None = None,
+    variables: Sequence[MetricsDashboardVariable] = (),
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    """`variables` are the selections of the other variables, which the query can refer to as `$name`.
+
+    `date_from` and `date_to` are a dashboard date filter, such as `-7d`, and resolve as they do for tiles.
+    Raises `ValueError` for a bad query or window, and `ConcurrencyLimitExceeded` when the organization
+    runs too many queries.
+    """
+    # `all` looks up the earliest event, which is a query, so it counts against the same limits.
+    lookup = query_concurrency_slots(team) if date_from == "all" else nullcontext()
+    try:
+        with lookup:
+            window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
+            resolved_from, resolved_to = window.date_from(), window.date_to()
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("The window of the variable options is not a valid date range.") from exc
+    check_options_window(resolved_from, resolved_to)
+    # The caller sends the options that All stands for, so an empty list is a known empty set.
+    selections = {
+        name: with_values(variable, variable.values) if variable.is_all else variable
+        for name, variable in from_dashboard(variables).items()
+    }
+    return list_variable_options(
+        team=team,
+        source=source,
+        query=query,
+        custom_values=custom_values,
+        regex=regex,
+        variables=selections,
+        date_from=resolved_from,
+        date_to=resolved_to,
+        slot=partial(query_concurrency_slots, team),
+    )
 
 
 def list_metric_event_samples(

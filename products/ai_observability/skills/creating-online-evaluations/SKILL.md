@@ -22,7 +22,9 @@ failure modes are identified and turns them into scoped, continuously-running ev
 
 **One eval per failure mode, and as many evals as the data justifies.** How many to create is a judgment
 call you make from what the traces actually showed — sometimes one, often three or four. Never assume the
-answer is one, and never bundle several modes into one evaluator.
+answer is one, and never bundle unrelated modes into one evaluator. The exception is a set of modes that are
+outcomes of the same check, such as the reasons a reply missed the user's request: one categorical eval with
+a category per mode fits that (2.1).
 
 **Propose before you create.** Bring the user a short list of candidate evals and let them pick which ones
 they want (Phase 1.1). Creating evals they didn't ask for costs them money and noise.
@@ -142,6 +144,29 @@ set into production, which is noise and (for a judge) cost the user didn't agree
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
 
+Then choose what one run returns. `hog` and `llm_judge` support all three output types:
+
+| `output_type` | When the failure mode is…                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| `boolean`     | One yes/no criterion. The default. Set `true_is_failure: true` when the check detects a problem.           |
+| `numeric`     | A matter of degree (a 1–5 quality rating) or a measured value (length, latency, cost).                     |
+| `categorical` | One check whose outcome falls into named buckets, such as which of several related failure modes happened. |
+
+- **Numeric:** set `min` and `max` so out-of-range scores are skipped, not graded. For pass rates and
+  reports, add a `passing_rule` (`gte` or `lte` a threshold). `step` is only a hint: a judge can return
+  a fractional score such as `3.7` with `step: 1`, and the score is stored as returned.
+- **Categorical:** define `options` as stable lowercase keys with display labels. Use `single` selection
+  when exactly one outcome applies, and `multiple` when several problems can co-occur. For pass rates and
+  reports, set `passing_rule.categories` to the keys that count as a pass. In `single` mode that is usually
+  a "no problem" key. In `multiple` mode, define no "no problem" key and set `categories: []`, so only an
+  empty result passes. Any listed key makes an empty result fail.
+- Without a passing rule, numeric and categorical results are still recorded, but there are no pass rates
+  or reports.
+
+When an `llm_judge` returns `numeric` or `categorical`, PostHog tells the judge the output format. The prompt
+only describes what each score or category means. Full config fields:
+[references/evaluation-payload.md](references/evaluation-payload.md).
+
 ### 2.2 — Choose the target
 
 | Target       | Behavior                                                                                                           |
@@ -235,6 +260,7 @@ posthog:llma-evaluation-judge-models      // {} → every provider and its model
 Confirm the provider and model with `llma-evaluation-judge-models`.
 Call it with no arguments to see the whole catalog at once.
 Providers PostHog funds no models for come back empty unless you pass `key_id` for one of the team's keys; the response's `providers` list flags which ones those are.
+A listed model is not a free model. Running any `llm_judge` needs one of the team's own provider keys, so enabling fails until a usable key exists.
 Prefer pinning the chosen key so a later team-wide active-key change does not change how the evaluation runs.
 Leave `provider_key_id` as `null` to run on the team's active key; before enabling, confirm with
 `llma-evaluation-config-get` that the active key is usable and its provider matches.
@@ -294,7 +320,9 @@ For generation targets, `count()` is the run volume. For trace targets, count di
 
 If volume is high, set `rollout_percentage` below 100 to sample. Spot-check the evaluator with
 `llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge; skip the
-spot-run for a judge with no usable key, per 2.3).
+spot-run for a judge with no usable key, per 2.3). For a numeric or categorical Hog eval, pass the same
+`output_type` and `output_config` to `llma-evaluation-test-hog`, so the preview validates the scores or
+category keys the saved eval will accept.
 Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
 but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
 
@@ -377,7 +405,8 @@ creating so the user can review and toggle it in the UI.
   back to a real bad output is noise.
 - **One eval, one failure mode — and as many evals as the data justifies.** Different failure modes need
   different evals; don't make one eval try to catch everything, and don't default to creating exactly one
-  when the traces showed several modes worth watching.
+  when the traces showed several modes worth watching. Related modes that one check tells apart are the
+  exception: they fit one categorical eval.
 - **Propose, then create what they picked.** Show the candidate set in plain language, a line or two each,
   and wait for the user to choose. Long per-eval write-ups get skimmed, not read.
 - **Nothing found still has an answer.** Traces read but no failure mode worth an eval means proposing a

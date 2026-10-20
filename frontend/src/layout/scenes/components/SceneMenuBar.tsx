@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { Children, ComponentProps, MouseEvent, ReactNode, useContext, useEffect } from 'react'
+import { Children, ComponentProps, ReactNode, useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
@@ -37,7 +38,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
 import { SceneContentContext } from './SceneContent'
-import { useSceneMenuBarSlot } from './SceneMenuBarSlotProvider'
+import { useFillSceneMenuBarSlot, useSceneMenuBarSlot } from './SceneMenuBarSlotProvider'
 import { getSceneSettingsUrl } from './sceneSettingsUrl'
 
 /**
@@ -70,8 +71,9 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
     const isPaddedLayout = PADDED_LAYOUTS.has(layout)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const titleSlot = useSceneMenuBarSlot()
-    // Under the Today layout the bar sits below the scene title. A scene without a title keeps it inline.
+    // Under the Today layout the menus sit in the title row after the scene name. A scene without a title keeps the bar.
     const slot = todayRailEnabled ? titleSlot : null
+    useFillSceneMenuBarSlot(!!slot)
 
     // A skipped product empty state parks its "isn't receiving data yet" reminder here so it
     // sits just below the bar. Null for every other scene, so nothing extra renders.
@@ -81,55 +83,74 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
         captureSceneMenuBar('scene menu bar shown')
     }, [])
 
-    const content = (
-        <>
-            <div
-                data-attr="scene-menu-bar"
-                data-scene-layout={layout}
-                className={cn(
-                    'scene-menu-bar px-0.5 py-0.5 border-b border-primary flex items-center justify-between',
-                    // The title slot places the bar itself. These offsets only fit the bar inline at the scene top.
-                    !slot && [
-                        // Below `lg` the navigation toggle floats over the top-left corner of the scene.
-                        'max-lg:pl-10',
-                        // Bleed past the scene container's padding so the bar feels full-width — only
-                        // safe when the layout actually has padding to cancel. Unpadded layouts
-                        // (app-raw, plain, etc.) would overflow.
-                        isPaddedLayout && '-mx-4 -mt-4',
-                        // When LemonTabs is the immediately preceding sibling it already bleeds with
-                        // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
-                        // bar up so they sit flush.
-                        '[.LemonTabs+&]:-mt-6',
-                    ],
-                    className
-                )}
-            >
-                {/*
+    const bar = (
+        <div
+            data-attr="scene-menu-bar"
+            data-scene-layout={layout}
+            className={cn(
+                'scene-menu-bar flex items-center',
+                // The title slot places the menus itself. This chrome and these offsets only fit the bar at the scene top.
+                !slot && [
+                    'px-0.5 py-0.5 border-b border-primary justify-between',
+                    // Below `lg` the navigation toggle floats over the top-left corner of the scene.
+                    'max-lg:pl-10',
+                    // Bleed past the scene container's padding so the bar feels full-width — only
+                    // safe when the layout actually has padding to cancel. Unpadded layouts
+                    // (app-raw, plain, etc.) would overflow.
+                    isPaddedLayout && '-mx-4 -mt-4',
+                    // When LemonTabs is the immediately preceding sibling it already bleeds with
+                    // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
+                    // bar up so they sit flush.
+                    '[.LemonTabs+&]:-mt-6',
+                ],
+                className
+            )}
+        >
+            {/*
                   Right-side cluster lives OUTSIDE <Menubar> so it doesn't pollute the Menubar's
                   CompositeRoot — that's what coordinates ArrowLeft/Right navigation and
                   hover-to-switch between menus.
                 */}
-                <Menubar className="gap-0 border-0">
-                    {children}
-                    {todayRailEnabled && <SceneMenuBarHelpMenu />}
-                </Menubar>
+            <Menubar className="gap-0 border-0">
+                {children}
+                {todayRailEnabled && <SceneMenuBarHelpMenu />}
+            </Menubar>
 
+            {!slot && (
                 <Badge className={cn('hidden @[800px]:flex', todayRailEnabled && 'me-1')}>OS-like menu (alpha)</Badge>
-                {!todayRailEnabled && <SceneMenuBarRightLinks />}
-            </div>
+            )}
+            {!todayRailEnabled && <SceneMenuBarRightLinks />}
+        </div>
+    )
+
+    return (
+        <>
+            {slot ? createPortal(bar, slot) : bar}
             {setupReminder}
         </>
     )
-
-    return slot ? createPortal(content, slot) : content
 }
 
 /** The last menu, as in macOS. Every scene gets it, so scenes never add their own. */
 function SceneMenuBarHelpMenu(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { productKey } = useContext(SceneContentContext)
+    const settingsUrl = getSceneSettingsUrl(productKey)
 
     return (
         <SceneMenuBarMenu label="Help" dataAttr="scene-menu-bar-help">
+            {settingsUrl && (
+                <>
+                    <SceneMenuBarItem
+                        data-attr="scene-menu-bar-settings"
+                        onClick={() => router.actions.push(settingsUrl)}
+                    >
+                        <IconGear />
+                        Settings
+                    </SceneMenuBarItem>
+                    <SceneMenuBarSeparator />
+                </>
+            )}
             <SceneMenuBarItem
                 data-attr="scene-menu-bar-docs"
                 onClick={() => window.open('https://posthog.com/docs', '_blank', 'noopener')}
@@ -294,6 +315,8 @@ export function SceneMenuBarMenu({
                 className={cn(
                     // Override DropdownMenuContent's default `w-(--anchor-width)` so menus size to content.
                     'w-auto min-w-max',
+                    // Items that render nothing can leave a separator at an edge or two in a row. Hide those.
+                    '[&_[role=separator]:is(:first-child,:last-child)]:hidden [&_[role=separator]+[role=separator]]:hidden',
                     contentClassName
                 )}
             >
@@ -326,7 +349,7 @@ export function SceneMenuBarItem({
     onClick,
     ...props
 }: SceneMenuBarItemProps): JSX.Element {
-    const handleClick = (e: MouseEvent<HTMLDivElement>): void => {
+    const handleClick: NonNullable<SceneMenuBarItemProps['onClick']> = (e) => {
         const dataAttr = (props as Record<string, unknown>)['data-attr']
         captureSceneMenuBar('scene menu bar item clicked', {
             item: typeof dataAttr === 'string' ? dataAttr : typeof children === 'string' ? children : undefined,

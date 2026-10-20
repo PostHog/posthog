@@ -32,6 +32,7 @@ from posthog.hogql.escape_sql import (
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -210,6 +211,9 @@ class ClickHousePrinter(BasePrinter):
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
+        # ClickHouse has no Nullable(Array) or Nullable(Map), so a nullable JSON input must become '' first.
+        elif self._returns_json_container(node) and self._json_input_needs_null_guard(node_args[0]):
+            args = [f"ifNull({self.visit(node_args[0])}, '')", *(self.visit(arg) for arg in node_args[1:])]
         else:
             args = [self.visit(arg) for arg in node_args]
 
@@ -332,6 +336,45 @@ class ClickHousePrinter(BasePrinter):
         args_part = f"({', '.join(args)}{order_by_part})"
         filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
         return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+
+    @staticmethod
+    def _returns_json_container(node: ast.Call) -> bool:
+        return (
+            node.name in JSON_FUNCTIONS
+            and bool(node.args)
+            and isinstance(node.type, ast.CallType)
+            and isinstance(node.type.return_type, (ast.ArrayType, ast.MapType))
+        )
+
+    def _json_input_needs_null_guard(self, node: ast.Expr) -> bool:
+        if self._reads_nullable_cte_column(node):
+            return True
+        input_type = node.type.resolve_constant_type(self.context) if node.type is not None else None
+        # A vacuous unknown is a plain NULL, which ClickHouse accepts as Nullable(Nothing) and returns as NULL.
+        if isinstance(input_type, ast.UnknownType) and not input_type.unanalyzable:
+            return False
+        return self._is_nullable(node)
+
+    def _reads_nullable_cte_column(self, node: ast.Expr) -> bool:
+        # A CTE column's own type keeps its nullability; the table rebuilt from the CTE drops it.
+        if isinstance(node, ast.Call):
+            return any(self._reads_nullable_cte_column(arg) for arg in node.args)
+        if isinstance(node, ast.Alias):
+            return self._reads_nullable_cte_column(node.expr)
+        field_type = resolve_field_type(node)
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        table_type = field_type.table_type
+        if isinstance(table_type, ast.CTETableAliasType):
+            table_type = table_type.cte_table_type
+        if not isinstance(table_type, ast.CTETableType):
+            return False
+        try:
+            column_type = table_type.select_query_type.resolve_column_constant_type(field_type.name, self.context)
+        except Exception:
+            return True
+        is_null_literal = isinstance(column_type, ast.UnknownType) and not column_type.unanalyzable
+        return column_type.nullable and not is_null_literal
 
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]
@@ -568,12 +611,10 @@ class ClickHousePrinter(BasePrinter):
             return self._maybe_apply_json_drop_keys(type, serialized)
         return self._maybe_apply_json_drop_keys(type, field_sql, mask_feature_flags=True)
 
-    def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
+    def _events_json_document_field(self, type: ast.FieldType) -> StringJSONDatabaseField | None:
+        """The field when it is a JSON document column of the native events table, otherwise None."""
         if not self.context.uses_new_events_schema():
             return None
-        if getattr(self, "_json_function_argument_depth", 0) > 0:
-            return None
-
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
@@ -581,8 +622,15 @@ class ClickHousePrinter(BasePrinter):
             return None
         if not isinstance(type.table_type, ast.BaseTableType):
             return None
-
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
+            return None
+        return resolved_field
+
+    def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
+        if getattr(self, "_json_function_argument_depth", 0) > 0:
+            return None
+        resolved_field = self._events_json_document_field(type)
+        if resolved_field is None:
             return None
 
         if resolved_field.name == "properties":
@@ -670,15 +718,14 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
+        is_events_json_document = self._events_json_document_field(type) is not None
         restricted_flags = restricted_feature_flag_names(keys_to_drop)
         mask_stored_feature_flags = (
             mask_feature_flags
             and bool(restricted_flags)
             and "$feature_flags" not in keys_to_drop
             and resolved_field.name == "properties"
-            and self.context.uses_new_events_schema()
-            and isinstance(type.table_type, ast.BaseTableType)
-            and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
+            and is_events_json_document
         )
         if mask_stored_feature_flags:
             keys_to_drop = {key for key in keys_to_drop if not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)} | {
@@ -687,6 +734,12 @@ class ClickHousePrinter(BasePrinter):
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
+        if not is_events_json_document:
+            # A String JSON column holds '' when its producer omits the value.
+            # The v12 json_drop_keys_udf binary fails to parse ''. Cloud and CI call it as JSONDropKeys_v12.
+            # ClickHouse short-circuits `if`. The UDF therefore receives only the rows that are not empty.
+            # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
+            stripped = f"if(empty({field_sql}), '', {stripped})"
         if not mask_stored_feature_flags:
             return stripped
 

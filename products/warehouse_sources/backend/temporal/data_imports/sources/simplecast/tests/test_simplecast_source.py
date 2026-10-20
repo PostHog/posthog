@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -75,9 +74,3 @@ class TestSimpleCastSource:
         assert kwargs["api_key"] == "sc-token"
         assert kwargs["endpoint"] == "podcasts"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Simplecast schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

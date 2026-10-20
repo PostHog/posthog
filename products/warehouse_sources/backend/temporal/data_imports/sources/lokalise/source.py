@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LokaliseSource(ResumableSource[LokaliseSourceConfig, LokaliseResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOKALISE_",),
+        npm=("@lokalise/node-api", "lokalise-file-exchange"),
+        pypi=("python-lokalise-api",),
+        cocoapods=("Lokalise",),
+        composer=("lokalise/php-lokalise-api",),
+        go=("github.com/lokalise/go-lokalise-api",),
+        hex=("elixir_lokalise_api",),
+        maven=("com.lokalise.android:ota-sdk",),
+        pub=("lokalise_flutter_sdk",),
+        rubygems=("ruby-lokalise-api", "lokalise_rails", "lokalise_manager"),
+        swiftpm=("github.com/lokalise/lokalise-ios-framework",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("api2",)
     default_version = "api2"

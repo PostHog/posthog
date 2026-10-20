@@ -1,8 +1,9 @@
 """Experiment scanner: a summarizer that watches one experiment's exposed sessions.
 
-The type is the summarizer with experiment context: the prompt names the experiment, the change
-under test, and the session's variant, so the summary can speak to the change rather than guess
-at it. Which sessions it watches comes from `experiment_id`/`variants` in the scanner config,
+The type is the summarizer with experiment context: the prompt names the experiment and the change
+under test, so the summary can speak to the change rather than guess at it. The prompt never names
+the session's variant: a model told the variant narrates what that variant should show, not what
+the recording shows, which also hides a broken flag gate. Which sessions it watches comes from `experiment_id`/`variants` in the scanner config,
 never from the persisted recordings query (see `ReplayScanner.experiment_scope`).
 """
 
@@ -45,18 +46,13 @@ class ExperimentScanner(SummarizerScanner, frozen=True):
         description="Saved disabled on a draft experiment; turned on when the experiment launches.",
     )
     # Scan-time context rather than persisted config, injected per scan by the apply workflow
-    # (like the classifier's `known_freeform_tags`). `exclude=True` keeps both out of dumps, so
-    # they can never leak into a stored scanner_config or snapshot.
+    # (like the classifier's `known_freeform_tags`). `exclude=True` keeps it out of dumps, so it
+    # can never leak into a stored scanner_config or snapshot.
     experiment_context: dict[str, Any] | None = Field(default=None, exclude=True)
-    session_variant: str | None = Field(default=None, exclude=True)
-    session_fields: ClassVar[frozenset[str]] = SummarizerScanner.session_fields | {
-        "experiment_context",
-        "session_variant",
-    }
+    session_fields: ClassVar[frozenset[str]] = SummarizerScanner.session_fields | {"experiment_context"}
 
     def prompt_context(self) -> dict[str, Any]:
         return {
             **super().prompt_context(),
             "experiment": self.experiment_context,
-            "session_variant": self.session_variant,
         }

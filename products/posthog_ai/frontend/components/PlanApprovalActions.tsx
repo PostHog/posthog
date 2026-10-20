@@ -232,6 +232,16 @@ export function PlanApprovalSelector({
         onReject(rejectOption.optionId, text)
     }
 
+    // The composer hides while an approval shows, so its focus falls to the page body. The run's Escape
+    // boundary ignores body focus in the side panel and after a click elsewhere in the main chat, so the
+    // card takes focus to keep "Esc to cancel" working. Focus that rests on a visible element stays.
+    useEffect(() => {
+        const active = document.activeElement
+        if (!active || active === document.body || active.closest('[hidden]')) {
+            containerRef.current?.focus({ preventScroll: true })
+        }
+    }, [])
+
     const moveSelection = (delta: number): void => {
         selectRow((selectedIndex + delta + rowCount) % rowCount)
     }

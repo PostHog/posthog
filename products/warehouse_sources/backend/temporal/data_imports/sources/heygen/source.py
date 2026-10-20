@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
+    codebase_detection = detect(env=("^(HEY_GEN|HEYGEN)_",), npm=("@heygen/streaming-avatar",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.heygen.com/endpoint-version-comparison"

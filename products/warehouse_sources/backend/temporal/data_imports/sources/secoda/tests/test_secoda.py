@@ -84,6 +84,15 @@ class TestTransientResponsesRetried:
         assert len(result.requests) == 2
 
 
+class TestRowShaping:
+    def test_integration_credentials_never_reach_the_warehouse(self) -> None:
+        row = {"id": "int-1", "name": "Warehouse", "type": "postgres", "credentials": {"password": "fake-pw"}}
+
+        result = _driver().run("integrations", [_page([row])])
+
+        assert result.rows == [{"id": "int-1", "name": "Warehouse", "type": "postgres"}]
+
+
 class TestValidateCredentials:
     def test_ok(self) -> None:
         with scripted_network([ScriptedResponse(status=200, json={})]) as network:

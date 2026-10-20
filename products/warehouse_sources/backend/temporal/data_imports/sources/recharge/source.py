@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]):
+    codebase_detection = detect(
+        env=("^RECHARGE_",), script_hosts=("static.rechargecdn.com",), npm=("@rechargeapps/storefront-client",)
+    )
+
     supported_versions = ("2021-11",)
     default_version = "2021-11"
     api_docs_url = "https://developer.rechargepayments.com"

@@ -151,6 +151,9 @@ export interface metricsUsageTrackingLogicActions {
     sampleRowExpanded: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
     }
+    seriesRowExpanded: () => {
+        value: true
+    }
     tracePivotClicked: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
     }
@@ -226,6 +229,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
     })),
     actions({
         // Component-only interactions with no source-logic action to listen to.
+        seriesRowExpanded: true,
         sampleRowExpanded: (sample: _MetricEventSampleApi) => ({ sample }),
         tracePivotClicked: (sample: _MetricEventSampleApi) => ({ sample }),
         exemplarDotClicked: (hasSpanId: boolean) => ({ hasSpanId }),
@@ -313,7 +317,10 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             // value can already differ if it changed while the save was in flight.
             const savedQuery = savedInsight.query as MetricsQuery | undefined
             posthog.capture('metrics insight saved', {
-                aggregation: viewerAggregationFromNode(savedQuery?.clauses?.[0]?.aggregation),
+                aggregation: viewerAggregationFromNode(
+                    savedQuery?.clauses?.[0]?.aggregation,
+                    savedQuery?.clauses?.[0]?.quantile
+                ),
                 range_function: savedQuery?.clauses?.[0]?.rangeFunction ?? null,
                 clause_count: savedQuery?.clauses?.length ?? null,
                 has_formula: !!savedQuery?.formula,
@@ -371,6 +378,9 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 sample_count: samples.length,
                 trace_coverage: samples.length ? Math.round((100 * withTrace) / samples.length) : 0,
             })
+        },
+        seriesRowExpanded: () => {
+            posthog.capture('metrics series row expanded')
         },
         sampleRowExpanded: ({ sample }) => {
             posthog.capture('metrics sample row expanded', {

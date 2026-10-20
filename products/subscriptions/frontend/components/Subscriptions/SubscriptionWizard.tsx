@@ -357,7 +357,8 @@ function SubscriptionDeliveryStep({
     subscription: SubscriptionType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { integrations, slackIntegrations } = useValues(integrationsLogic)
     const { preflight } = useValues(preflightLogic)
     const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
@@ -386,6 +387,11 @@ function SubscriptionDeliveryStep({
                                 allowCustomValues
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
+                                onFocus={() => {
+                                    if (!members) {
+                                        ensureAllMembersLoaded()
+                                    }
+                                }}
                                 placeholder="Enter an email address"
                             />
                         )}
