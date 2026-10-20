@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
+import { retainMountedLogic } from '../logics/retainedLogics'
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
@@ -66,6 +67,7 @@ interface RunSurfaceContextValue {
 }
 
 const FLOATING_INPUTS_GAP = 16
+const MAX_RETAINED_RUN_STREAMS = 3
 
 const RunSurfaceContext = createContext<RunSurfaceContextValue | null>(null)
 
@@ -80,6 +82,7 @@ function useRunSurfaceContext(): RunSurfaceContextValue {
 export interface RunSurfaceRootProps extends RunSurfaceProps {
     /** Custom composition of `RunSurface.*` slots. */
     children: ReactNode
+    retainAfterUnmount?: boolean
 }
 
 /**
@@ -95,6 +98,7 @@ function RunSurfaceRoot({
     conversationId,
     interaction = 'read-only',
     children,
+    retainAfterUnmount = false,
 }: RunSurfaceRootProps): JSX.Element {
     const replayOnly = interaction !== 'live'
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
@@ -102,6 +106,16 @@ function RunSurfaceRoot({
     const hasOptimisticClientStream = !!streamKey && streamKey !== runId
     const [floatingInputsHeight, setFloatingInputsHeight] = useState(0)
     const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
+    useEffect(() => {
+        if (retainAfterUnmount && !replayOnly && runId && logicKey === runId) {
+            retainMountedLogic(
+                'run-stream',
+                logicKey,
+                runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }),
+                MAX_RETAINED_RUN_STREAMS
+            )
+        }
+    }, [retainAfterUnmount, replayOnly, runId, logicKey, conversationId])
 
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
