@@ -16,6 +16,10 @@ const box = (id: number, y: number): LayoutItem => ({ i: String(id), x: 0, y, w:
 const band = (key: string): HTMLElement => {
     const element = document.createElement('div')
     element.setAttribute('data-dashboard-section', key)
+    // Mirrors DashboardItems.tsx: each band wraps a nested grid element finishTileDrag looks up by this attribute.
+    const grid = document.createElement('div')
+    grid.setAttribute('data-dashboard-section-grid', key)
+    element.append(grid)
     return element
 }
 
@@ -114,6 +118,49 @@ describe('useTileGroupDrag', () => {
 
         expect(moveTileToGroup).toHaveBeenCalledTimes(moved ? 1 : 0)
         expect(updateLayout.mock.calls).toEqual(restored ? [[layout]] : [])
+    })
+
+    it('places a cross-group drop at the pointer cell instead of always at the bottom', async () => {
+        const sourceBand = band('tiles-start')
+        const opsBand = band('group-ops')
+        dashboardRoot(sourceBand, opsBand)
+        const tileElement = document.createElement('div')
+        sourceBand.append(tileElement)
+        const grid = opsBand.querySelector('[data-dashboard-section-grid]') as HTMLElement
+        grid.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200 }) as DOMRect
+        tileElement.getBoundingClientRect = () => ({ left: 300, top: 160 }) as DOMRect
+        Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [opsBand] })
+        const moveTileToGroup = jest.fn()
+        const { result } = renderHook(() =>
+            useTileGroupDrag({
+                sections,
+                sectionLayouts: [[box(1, 0)], [box(2, 0)]],
+                layout,
+                collapsedTileGroupKeys: [],
+                compactor: getDashboardGridCompactor(),
+                rowHeight: 80,
+                margin: [0, 0],
+                enabled: true,
+                toggleTileGroup: jest.fn(),
+                moveTileToGroup,
+                updateLayout: jest.fn(),
+            })
+        )
+
+        const draggedItem = box(1, 40)
+        act(() => result.current.startTileDrag(draggedItem, tileElement))
+        act(() =>
+            result.current.finishTileDrag(
+                draggedItem,
+                tileElement,
+                new MouseEvent('mouseup', { clientX: 10, clientY: 10 })
+            )
+        )
+        await Promise.resolve()
+
+        // gridRect.width 1200 / 12 cols = 100px/col; tileRect.left 300 -> column 3. rowHeight 80, tileRect.top 160 -> row 2.
+        const movedTile = moveTileToGroup.mock.calls[0][2].find((item: LayoutItem) => item.i === '1')
+        expect(movedTile).toMatchObject({ x: 3, y: 2 })
     })
 
     it('ignores a drop once edit mode turns off mid-drag', async () => {
