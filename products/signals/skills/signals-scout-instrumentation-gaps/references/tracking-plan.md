@@ -76,6 +76,7 @@ State these in the report, so the pull request follows them:
 - Capture once per outcome, never per render, keystroke, or poll.
 - A minimal diff: add each call next to its outcome through the repository's own capture helper, keep the file's structure, and add no second SDK or initialization path.
 - Run the repository's own type check and linter on the touched files only.
+- Commit the files the repository generates from the touched code (typed logic or API types, snapshots, schema output), so the pull request opens with green checks. A pull request with failing checks does not get reviewed.
 - The matching PostHog instrumentation skill: `instrument-product-analytics` for events, properties, identify, and groups, `instrument-error-tracking` for exception context, `instrument-llm-analytics` for model calls.
 
 ## Example
