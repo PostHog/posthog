@@ -16,3 +16,7 @@ type Story = StoryObj<typeof TaggerCreationRetiredModal>
 export const Default: Story = {
     args: { isOpen: true, onClose: () => {} },
 }
+
+export const TurnBackOn: Story = {
+    args: { isOpen: true, onClose: () => {}, action: 'enable' },
+}

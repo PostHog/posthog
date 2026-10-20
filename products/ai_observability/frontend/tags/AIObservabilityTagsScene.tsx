@@ -77,9 +77,7 @@ function TaggerMetrics(): JSX.Element {
                     </div>
                 ) : (
                     <div className="flex-[2] bg-bg-light border rounded p-8 flex items-center justify-center">
-                        <div className="text-muted text-center">
-                            No enabled taggers to display. Enable a tagger to see metrics.
-                        </div>
+                        <div className="text-muted text-center">No enabled taggers to display.</div>
                     </div>
                 )}
 
@@ -119,6 +117,7 @@ function AIObservabilityTagsContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const taggerUrl = (id: string): string => combineUrl(urls.aiObservabilityTag(id), searchParams).url
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
+    const [isEnableRetiredModalOpen, setIsEnableRetiredModalOpen] = useState(false)
 
     const columns: LemonTableColumns<Tagger> = [
         {
@@ -167,7 +166,9 @@ function AIObservabilityTagsContent(): JSX.Element {
                         >
                             <LemonSwitch
                                 checked={tagger.enabled}
-                                onChange={() => toggleTaggerEnabled(tagger.id)}
+                                onChange={() =>
+                                    tagger.enabled ? toggleTaggerEnabled(tagger.id) : setIsEnableRetiredModalOpen(true)
+                                }
                                 size="small"
                                 data-attr="toggle-tagger-enabled"
                             />
@@ -314,6 +315,11 @@ function AIObservabilityTagsContent(): JSX.Element {
                 }}
                 nouns={['tagger', 'taggers']}
                 emptyState={<div className="text-center p-8 text-muted">No taggers found.</div>}
+            />
+            <TaggerCreationRetiredModal
+                action="enable"
+                isOpen={isEnableRetiredModalOpen}
+                onClose={() => setIsEnableRetiredModalOpen(false)}
             />
         </div>
     )

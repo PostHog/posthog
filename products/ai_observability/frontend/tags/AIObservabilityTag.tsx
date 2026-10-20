@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconArrowLeft, IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -377,8 +378,9 @@ function HogTaggerTestSection({ id }: { id: string }): JSX.Element {
 
 function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
     const logic = llmTaggerLogic({ id })
-    const { taggerForm, taggerFormChanged, isTaggerFormSubmitting } = useValues(logic)
+    const { tagger, taggerForm, taggerFormChanged, isTaggerFormSubmitting } = useValues(logic)
     const { setTaggerFormValues, submitTaggerForm, deleteTagger } = useActions(logic)
+    const [isEnableRetiredModalOpen, setIsEnableRetiredModalOpen] = useState(false)
 
     return (
         <BindLogic logic={llmTaggerLogic} props={{ id }}>
@@ -406,8 +408,17 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                         <div className="flex items-center gap-2">
                             <LemonSwitch
                                 checked={taggerForm.enabled}
-                                onChange={(checked) => setTaggerFormValues({ enabled: checked })}
+                                onChange={(checked) =>
+                                    checked && !tagger?.enabled
+                                        ? setIsEnableRetiredModalOpen(true)
+                                        : setTaggerFormValues({ enabled: checked })
+                                }
                                 label="Enabled"
+                            />
+                            <TaggerCreationRetiredModal
+                                action="enable"
+                                isOpen={isEnableRetiredModalOpen}
+                                onClose={() => setIsEnableRetiredModalOpen(false)}
                             />
                         </div>
                     </div>

@@ -189,6 +189,14 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        if self.instance is not None and not self.instance.enabled and data.get("enabled") is True:
+            raise serializers.ValidationError(
+                {
+                    "enabled": "Taggers are deprecated, so a switched-off tagger can't be turned back on. "
+                    "Create an evaluation with a categorical output instead."
+                }
+            )
+
         tagger_type = data.get("tagger_type", self.instance.tagger_type if self.instance else TaggerType.LLM)
         tagger_config = data.get("tagger_config")
 

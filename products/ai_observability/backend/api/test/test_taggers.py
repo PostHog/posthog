@@ -210,6 +210,22 @@ class TestTaggersApi(APIBaseTest):
         assert tagger.enabled is False
         assert tagger.tagger_config["prompt"] == "Updated prompt"
 
+    @parameterized.expand(
+        [("switched_off", False, status.HTTP_400_BAD_REQUEST), ("switched_on", True, status.HTTP_200_OK)]
+    )
+    def test_enabling_a_tagger(self, _name: str, currently_enabled: bool, expected_status: int):
+        tagger = self._create_tagger()
+        tagger.enabled = currently_enabled
+        tagger.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/", {"enabled": True}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        tagger.refresh_from_db()
+        assert tagger.enabled is currently_enabled
+
     def test_delete_method_returns_405(self):
         tagger = Tagger.objects.create(
             name="Test Tagger",

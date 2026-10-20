@@ -6,7 +6,22 @@ import { urls } from 'scenes/urls'
 
 const HedgehogTransformer = pngHoggie(transformerPng)
 
-export function TaggerCreationRetiredModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
+export type TaggerRetiredAction = 'create' | 'enable'
+
+const MESSAGES: Record<TaggerRetiredAction, string> = {
+    create: "New taggers can't be created. To tag generations, create an evaluation with a categorical output.",
+    enable: "Switched-off taggers can't be turned back on. To keep tagging generations, create an evaluation with a categorical output.",
+}
+
+export function TaggerCreationRetiredModal({
+    isOpen,
+    onClose,
+    action = 'create',
+}: {
+    isOpen: boolean
+    onClose: () => void
+    action?: TaggerRetiredAction
+}): JSX.Element {
     return (
         <LemonModal
             isOpen={isOpen}
@@ -17,7 +32,7 @@ export function TaggerCreationRetiredModal({ isOpen, onClose }: { isOpen: boolea
         >
             <div className="flex flex-col items-center gap-4 text-center pb-2">
                 <HedgehogTransformer className="w-28 h-28" />
-                <p>New taggers can't be created. To tag generations, create an evaluation with a categorical output.</p>
+                <p>{MESSAGES[action]}</p>
                 <LemonButton
                     type="primary"
                     to={urls.aiObservabilityEvaluationTemplates()}
