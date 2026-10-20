@@ -21,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -592,51 +593,58 @@ def _collect_planned_runs(
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
         # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.
         withheld_for_team = _resolve_withheld_skills(team.id, team_configs, default_team_config)
-        if needs_seed:
-            # Explicitly enrolled (a pinned / force-provisioned id): seed from nothing. The periodic
-            # tick is the reconciliation path. `sync_canonical_skills(prune=True)` tombstones rows
-            # whose canonical was removed from disk and propagates merged SKILL.md updates to
-            # harness-seeded rows the team hasn't edited, so a content change rolls out within one
-            # tick. Idempotent; a failure here doesn't abort the tick.
-            try:
-                sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
-            except Exception:
-                logger.exception(
-                    "signals_scout coordinator: canonical skill sync failed for team; continuing",
-                    team_id=team.id,
+        try:
+            if needs_seed:
+                # Explicitly enrolled (a pinned / force-provisioned id): seed from nothing. The periodic
+                # tick is the reconciliation path. `sync_canonical_skills(prune=True)` tombstones rows
+                # whose canonical was removed from disk and propagates merged SKILL.md updates to
+                # harness-seeded rows the team hasn't edited, so a content change rolls out within one
+                # tick. Idempotent; a failure here doesn't abort the tick.
+                try:
+                    sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
+                except Exception:
+                    logger.exception(
+                        "signals_scout coordinator: canonical skill sync failed for team; continuing",
+                        team_id=team.id,
+                    )
+                # This team's seed posture resolves like the tick cap: its own `team_configs` override
+                # layered over the fleet-wide `default_team_config`, most-specific first. Passing the
+                # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
+                # malformed per-team value doesn't clobber a valid fleet default.
+                seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
+                # `register_missing_configs` drops withheld skills from its return, so they're already
+                # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
+                live_skills = register_missing_configs(
+                    team.id, seed_config_layers, withheld_skill_names=withheld_for_team
                 )
-            # This team's seed posture resolves like the tick cap: its own `team_configs` override
-            # layered over the fleet-wide `default_team_config`, most-specific first. Passing the
-            # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
-            # malformed per-team value doesn't clobber a valid fleet default.
-            seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
-            # `register_missing_configs` drops withheld skills from its return, so they're already
-            # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
-            live_skills = register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld_for_team)
-        else:
-            # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
-            # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
-            # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
-            # of teams. Read only the live scout skill names (cheap) so a config whose skill was
-            # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
-            # SKILL.md updates still reach these teams: the runner cold-starts with its own
-            # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
-            # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
-            # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
-            # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
-            # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
-            # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
-            live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
-            # The one part of the reconcile the wildcard path still runs: an operational scout
-            # that stays off stops the checks and validation that run on it. Only teams with a
-            # row that needs it pay for the call, and a withheld scout is never a reason to call.
-            if reconcile_by_team.get(team.id, set()) - withheld_for_team:
-                _reconcile_wildcard_operational_configs(
-                    team.id,
-                    live_skills,
-                    withheld_for_team,
-                    [team_configs.get(team.id) or {}, default_team_config],
-                )
+            else:
+                # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
+                # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
+                # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
+                # of teams. Read only the live scout skill names (cheap) so a config whose skill was
+                # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
+                # SKILL.md updates still reach these teams: the runner cold-starts with its own
+                # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
+                # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
+                # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
+                # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
+                # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
+                # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
+                live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
+                # The one part of the reconcile the wildcard path still runs: an operational scout
+                # that stays off stops the checks and validation that run on it. Only teams with a
+                # row that needs it pay for the call, and a withheld scout is never a reason to call.
+                if reconcile_by_team.get(team.id, set()) - withheld_for_team:
+                    _reconcile_wildcard_operational_configs(
+                        team.id,
+                        live_skills,
+                        withheld_for_team,
+                        [team_configs.get(team.id) or {}, default_team_config],
+                    )
+        except TeamScopeError:
+            # The project was deleted during the tick. Skip it rather than fail the whole plan.
+            logger.info("signals_scout coordinator: team is gone, skipping it", team_id=team.id)
+            continue
         # The tools drop every output of a run without AI data processing consent, so the run
         # only spends model time. The configs keep their status and dispatch again after approval.
         if not _ai_data_processing_approved(team):

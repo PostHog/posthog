@@ -143,20 +143,21 @@ def join_with_group_n_table(
         right=ast.Constant(value=group_index),
     )
 
-    # If the outer query has a bounded prefilter on `events` (one that references `timestamp` —
+    # If the outer query has a bounded prefilter on its source table (one that references `timestamp` —
     # which is the strongest signal we have that the matched set is small), push an additional
-    # `group_key IN (SELECT $group_N FROM events WHERE <outer prefilter>)` predicate into the
+    # `group_key IN (SELECT $group_N FROM <source table> WHERE <outer prefilter>)` predicate into the
     # groups subquery. Without this filter, the LEFT JOIN materializes a hash table containing
     # every group of this type for the team, decompressing the (very wide) `group_properties`
     # blob row by row — on high-volume teams that's enough to OOM the whole query even when
-    # only a handful of events are actually being selected. With the filter, the hash table is
-    # bounded by the distinct `$group_N` values present in the matched events.
-    events_prefilter = _outer_events_prefilter(node, context)
-    if events_prefilter is not None:
+    # only a handful of rows are actually being selected. With the filter, the hash table is
+    # bounded by the distinct `$group_N` values present in the matched rows.
+    outer_prefilter = _outer_prefilter(node, context, join_to_add)
+    if outer_prefilter is not None:
+        prefilter_where, prefilter_source = outer_prefilter
         key_subquery = ast.SelectQuery(
             select=[ast.Field(chain=[f"$group_{group_index}"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=events_prefilter,
+            select_from=prefilter_source,
+            where=prefilter_where,
         )
         select_query.where = ast.And(
             exprs=[
@@ -184,11 +185,11 @@ def join_with_group_n_table(
     return join_expr
 
 
-# Static events-table aliases that resolve to a lazy join. Cloning a WHERE that references one
-# into the inner `SELECT $group_N FROM events` subquery re-triggers the same lazy join during
-# resolution and recurses, so the prefilter is skipped in that case (see `_guarded_events_aliases`,
+# Static source-table aliases that resolve to a lazy join. Cloning a WHERE that references one
+# into the inner `SELECT $group_N FROM <source table>` subquery re-triggers the same lazy join during
+# resolution and recurses, so the prefilter is skipped in that case (see `_guarded_aliases`,
 # which also picks up the per-project group-type-name aliases dynamically).
-EVENTS_LAZY_JOIN_ALIASES = frozenset(
+LAZY_JOIN_ALIASES = frozenset(
     {
         "person",
         "person_id",
@@ -210,43 +211,58 @@ EVENTS_LAZY_JOIN_ALIASES = frozenset(
 )
 
 
-def _guarded_events_aliases(context: HogQLContext) -> frozenset[str]:
-    """Events-table aliases whose reference must skip the prefilter: the static lazy joins,
-    plus every FieldTraverser on events (this catches the per-project group-type-name aliases
-    like `organization`; the always-present `person`/`person_id` traversers are already in the
-    static set, so the union just dedupes them)."""
+# The outer FROM tables whose WHERE the groups subquery can reuse. The last part of a chain is the only alias the
+# outer FROM may carry.
+_PREFILTER_SOURCE_CHAINS: frozenset[tuple[str, ...]] = frozenset({("events",), ("posthog", "flag_evaluations")})
+
+
+def _guarded_aliases(context: HogQLContext, source_chain: list[str]) -> frozenset[str]:
+    """Source-table aliases whose reference must skip the prefilter: the static lazy joins,
+    plus every FieldTraverser on the source table (this catches the per-project group-type-name
+    aliases like `organization`; the always-present `person`/`person_id` traversers are already in
+    the static set, so the union just dedupes them)."""
     if context.database is None:
-        return EVENTS_LAZY_JOIN_ALIASES
+        return LAZY_JOIN_ALIASES
     try:
-        events_table = context.database.get_table(["events"])
+        source_table = context.database.get_table(source_chain)
     except Exception:
-        return EVENTS_LAZY_JOIN_ALIASES
-    traversers = frozenset(name for name, field in events_table.fields.items() if isinstance(field, FieldTraverser))
-    return EVENTS_LAZY_JOIN_ALIASES | traversers
+        return LAZY_JOIN_ALIASES
+    traversers = frozenset(name for name, field in source_table.fields.items() if isinstance(field, FieldTraverser))
+    return LAZY_JOIN_ALIASES | traversers
 
 
-def _outer_events_prefilter(node: SelectQuery, context: HogQLContext):
+def _outer_prefilter(
+    node: SelectQuery, context: HogQLContext, join_to_add: LazyJoinToAdd
+) -> tuple[ast.Expr, ast.JoinExpr] | None:
     """
     Extract a clone of the outer query's WHERE that we can safely embed inside the groups
-    join subquery. We only return it when:
+    join subquery, together with the FROM that the subquery reads. We only return it when:
 
-    1. The outer's `FROM` is a plain unaliased `events` reference. Anything else (custom
-       alias like `FROM events AS e` in funnels, JOINed tables on the outer, or a subquery)
-       means the WHERE may reference symbols (`e.timestamp`, `p.id`, …) that don't exist
-       in our inner `SELECT $group_N FROM events` subquery — cloning a WHERE that names
-       them would raise `Unable to resolve field` when the resolver walks the clone.
-    2. The WHERE references the `timestamp` field — cheap heuristic for "the matched event
+    1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_CHAINS`, either unaliased or aliased
+       by the last part of its chain. Anything else (custom alias like `FROM events AS e` in funnels,
+       or a subquery) means the WHERE may reference symbols
+       (`e.timestamp`, …) that don't exist in our inner `SELECT $group_N FROM <source table>`
+       subquery — cloning a WHERE that names them would raise `Unable to resolve field` when the
+       resolver walks the clone.
+    2. The WHERE references the `timestamp` field — cheap heuristic for "the matched row
        set is bounded by a date range." Without that guard, a query whose WHERE is only
-       `team_id = X` (or empty) would push a key subquery that scans every event for the
+       `team_id = X` (or empty) would push a key subquery that scans every row for the
        team, which is strictly worse than no filter at all.
-    3. The WHERE does not reference any lazy-join alias on the events table — including the
+    3. The group join hangs off the outer FROM table, not a table the query joins explicitly. The outer
+       WHERE bounds only the outer table's rows, so it says nothing about the group keys of a joined table.
+    4. Every field in the WHERE resolves on the outer FROM table, directly or through its lazy joins and
+       virtual tables. A field of an explicitly joined table (`e.event`) or a SELECT or ARRAY JOIN alias does
+       not exist in the subquery. A clone that names one fails to compile. The check reads field types rather than
+       `select_from.next_join`, because the lazy table resolver links each generated join into `next_join`
+       before it builds the next one.
+    5. The WHERE does not reference any lazy-join alias on the source table — including the
        per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
        Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner
        subquery would re-trigger the resolver on the same lazy join during inner-subquery
        resolution.
     """
     # Deferred: lazy_tables imports the resolver, which imports database schema modules — circular.
-    from posthog.hogql.transforms.lazy_tables import find_field_chains  # noqa: PLC0415
+    from posthog.hogql.transforms.lazy_tables import find_field_chains, get_table_alias_for_lazy_join  # noqa: PLC0415
 
     where = node.where
     if where is None:
@@ -256,25 +272,35 @@ def _outer_events_prefilter(node: SelectQuery, context: HogQLContext):
     if select_from is None:
         return None
     table = select_from.table
-    if not isinstance(table, ast.Field) or table.chain != ["events"]:
+    if not isinstance(table, ast.Field):
         return None
-    if select_from.alias is not None and select_from.alias != "events":
+    source_chain = tuple(str(part) for part in table.chain)
+    if source_chain not in _PREFILTER_SOURCE_CHAINS:
+        return None
+    if select_from.alias is not None and select_from.alias != source_chain[-1]:
+        return None
+    if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != source_chain[-1]:
         return None
 
     if not _references_timestamp(where):
         return None
-    guarded_aliases = _guarded_events_aliases(context)
-    if any(_chain_hits_guarded_alias(chain, guarded_aliases) for chain in find_field_chains(where)):
+    guarded_aliases = _guarded_aliases(context, list(source_chain))
+    if any(_chain_hits_guarded_alias(chain, guarded_aliases, source_chain) for chain in find_field_chains(where)):
         return None
-    return clone_expr(where)
+    if select_from.type is None or _references_another_table(where, select_from.type):
+        return None
+    # The subquery repeats the outer FROM's alias. A WHERE that qualifies a field by that alias then still resolves.
+    return clone_expr(where), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
 
 
-def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str]) -> bool:
-    # Condition #1 guarantees the outer FROM's qualifier is literally `events`, so a leading
-    # `events` segment is transparent: `events.organization.x` names the same lazy join as
-    # `organization.x`. Peel it before matching, or the qualified form slips past the guard.
-    if len(chain) > 1 and chain[0] == "events":
-        chain = chain[1:]
+def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_chain: tuple[str, ...]) -> bool:
+    # Condition #1 guarantees the outer FROM's qualifier is the source table, so a leading qualifier is
+    # transparent: `events.organization.x` names the same lazy join as `organization.x`. Peel it before matching,
+    # or the qualified form slips past the guard. The qualifier is the full chain or its last part.
+    for qualifier in (list(source_chain), [source_chain[-1]]):
+        if len(chain) > len(qualifier) and chain[: len(qualifier)] == qualifier:
+            chain = chain[len(qualifier) :]
+            break
     return bool(chain) and isinstance(chain[0], str) and chain[0] in guarded
 
 
@@ -292,6 +318,47 @@ class _TimestampReferenceFinder(TraversingVisitor):
 
 def _references_timestamp(expr) -> bool:
     finder = _TimestampReferenceFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _ForeignFieldFinder(TraversingVisitor):
+    """Walks an expression to see whether a field resolves outside the given table."""
+
+    def __init__(self, table_type: ast.Type):
+        super().__init__()
+        self.table_type = table_type
+        self.found = False
+
+    def visit_field(self, node: ast.Field):
+        if not _resolves_on(node.type, self.table_type):
+            self.found = True
+
+    # A nested query resolves its fields against its own FROM. The key subquery copies that FROM too.
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        pass
+
+
+def _resolves_on(field_type: ast.Type | None, table_type: ast.Type) -> bool:
+    if isinstance(field_type, ast.FieldAliasType):
+        # The resolver types a lambda argument as an alias in the lambda's own scope. The key subquery copies the
+        # lambda too. A SELECT or ARRAY JOIN alias does not exist in the key subquery.
+        return isinstance(field_type.type, ast.LambdaArgumentType)
+    if isinstance(field_type, ast.PropertyType):
+        field_type = field_type.field_type
+    if not isinstance(field_type, (ast.FieldType, ast.ExpressionFieldType, ast.FieldTraverserType)):
+        return False
+    owner = field_type.table_type
+    while isinstance(owner, (ast.LazyJoinType, ast.VirtualTableType)):
+        owner = owner.table_type
+    return owner == table_type
+
+
+def _references_another_table(expr: ast.Expr, table_type: ast.Type) -> bool:
+    finder = _ForeignFieldFinder(table_type)
     finder.visit(expr)
     return finder.found
 

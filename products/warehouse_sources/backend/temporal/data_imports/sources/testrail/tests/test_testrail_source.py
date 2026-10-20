@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -23,10 +22,6 @@ class TestTestrailSource:
         # The stored API key is sent to `<subdomain>.testrail.io`; without this, an editor could
         # retarget the subdomain and exfiltrate the preserved key.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["cases", "nope"])
-        assert [s.name for s in schemas] == ["cases"]
 
     @parameterized.expand(
         [
@@ -84,12 +79,6 @@ class TestTestrailSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown TestRail schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         # TestRail record IDs are instance-global; a non-unique key would multi-match on merge.

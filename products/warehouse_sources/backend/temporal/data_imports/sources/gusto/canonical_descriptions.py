@@ -180,4 +180,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "_company_uuid": "The company that made this payment.",
         },
     },
+    "tax_payments": {
+        "description": "A tax payment Gusto has made, or scheduled, to a tax agency on behalf of a company.",
+        "docs_url": "https://docs.gusto.com/embedded-payroll/reference/get-tax-payments",
+        "columns": {
+            "uuid": "The unique identifier of the tax payment.",
+            "company_uuid": "The company the tax payment belongs to.",
+            "agency_name": "The name of the tax agency the payment is submitted to. Null for some legacy payments.",
+            "jurisdiction": "The tax jurisdiction of the payment: a two-letter state code, or US for federal.",
+            "period_start": "The first day of the tax period the payment covers.",
+            "period_end": "The last day of the tax period the payment covers.",
+            "due_date": "The date the payment is due to the agency.",
+            "payment_sent_on": "The date Gusto submitted the payment. Null until submitted, and cleared if the payment is returned or cancelled.",
+            "amount": "Total amount owed for the payment. Negative for corrections, refunds, or credits.",
+            "amount_paid": "Amount paid toward the payment so far. Equal to amount once fully paid.",
+            "_company_uuid": "The company this tax payment belongs to.",
+        },
+    },
 }

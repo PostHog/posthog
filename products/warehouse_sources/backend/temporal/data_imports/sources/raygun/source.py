@@ -94,7 +94,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             "fluent-plugin-raygun",
         ),
         swiftpm=("github.com/mindscapehq/raygun4apple",),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -179,7 +179,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             name=ExternalDataSourceType.RAYGUN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Raygun",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=RAYGUN_CAPTION,
             iconPath="/static/services/raygun.png",
             docsUrl="https://posthog.com/docs/cdp/sources/raygun",

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
+    AMPLITUDE_INVALID_ARCHIVE_ERROR,
     AmplitudeResumeConfig,
     amplitude_source,
     validate_credentials as validate_amplitude_credentials,
@@ -140,7 +141,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "github.com/amplitude/experiment-ios-client",
             "github.com/amplitude/amplitude-engagement-swift",
         ),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
     )
 
     api_docs_url = "https://amplitude.com/docs/apis/analytics"
@@ -161,6 +162,11 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "403 Client Error: Forbidden": message,
             "Invalid API Key": message,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A corrupt export body is a transient download problem, not a configuration error —
+        # Temporal retries the activity and re-downloads the same window from scratch.
+        return {AMPLITUDE_INVALID_ARCHIVE_ERROR}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.canonical_descriptions import (

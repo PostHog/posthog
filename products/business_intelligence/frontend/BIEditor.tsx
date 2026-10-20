@@ -2,11 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, type ReactNode, type Ref } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { BICalculatedMeasureModal } from 'products/business_intelligence/frontend/BICalculatedMeasureModal'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
@@ -48,6 +49,62 @@ export function BIEditor({
     }
     const { desiredSize } = useValues(resizerLogic(biEditorResizerProps))
     const biSidePaneWidth = Math.min(400, Math.max(180, desiredSize ?? 240))
+
+    const contextPanel = activePanel && (!config.querySnapshot || activePanel === 'display') && (
+        <aside
+            className="absolute inset-y-0 right-0 z-10 flex w-72 max-w-full flex-col border-l bg-surface-primary shadow-md @5xl/bi-editor:static @5xl/bi-editor:max-w-[25%] @5xl/bi-editor:shrink-0 @5xl/bi-editor:shadow-none"
+            aria-label={
+                activePanel === 'charts' ? 'Charts' : activePanel === 'analysis' ? 'Analysis' : 'Chart settings'
+            }
+            data-attr="bi-editor-context-panel"
+        >
+            <div className="flex items-center justify-between border-b px-2 py-1">
+                <span className="text-sm font-semibold">
+                    {activePanel === 'charts' ? 'Charts' : activePanel === 'analysis' ? 'Analysis' : 'Chart settings'}
+                </span>
+                <LemonButton
+                    icon={<IconX />}
+                    size="xsmall"
+                    type="tertiary"
+                    aria-label="Close panel"
+                    onClick={() => setActivePanel(null)}
+                    data-attr="bi-editor-close-panel"
+                />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" ref={settingsPanelRef}>
+                {activePanel === 'charts' && (
+                    <>
+                        <BIChartTypes />
+                        <BIMarksCard />
+                    </>
+                )}
+                {activePanel === 'analysis' && <BIAnalysisControls />}
+            </div>
+        </aside>
+    )
+
+    if (config.querySnapshot) {
+        return (
+            <BindLogic logic={biEditorLogic} props={{ tabId }}>
+                <div className="@container/bi-editor flex min-h-0 flex-1 flex-col" data-attr="bi-catalog-snapshot">
+                    <LemonBanner type="info">
+                        Query snapshot: dates and dimensions are fixed by the metric definition. Changing the chart does
+                        not regroup the data. This copy does not track later catalog edits.
+                        {config.catalogMetric && (
+                            <LemonButton size="xsmall" to={urls.dataCatalogMetric(config.catalogMetric)}>
+                                View catalog definition
+                            </LemonButton>
+                        )}
+                    </LemonBanner>
+                    <BIToolbar />
+                    <div className="relative flex min-h-0 flex-1">
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+                        {contextPanel}
+                    </div>
+                </div>
+            </BindLogic>
+        )
+    }
 
     return (
         <BindLogic logic={biEditorLogic} props={{ tabId }}>
@@ -156,46 +213,7 @@ export function BIEditor({
                         <BIFiltersCard />
                         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
                     </div>
-                    {activePanel && (
-                        <aside
-                            className="absolute inset-y-0 right-0 z-10 flex w-72 max-w-full flex-col border-l bg-surface-primary shadow-md @5xl/bi-editor:static @5xl/bi-editor:max-w-[25%] @5xl/bi-editor:shrink-0 @5xl/bi-editor:shadow-none"
-                            aria-label={
-                                activePanel === 'charts'
-                                    ? 'Charts'
-                                    : activePanel === 'analysis'
-                                      ? 'Analysis'
-                                      : 'Chart settings'
-                            }
-                            data-attr="bi-editor-context-panel"
-                        >
-                            <div className="flex items-center justify-between border-b px-2 py-1">
-                                <span className="text-sm font-semibold">
-                                    {activePanel === 'charts'
-                                        ? 'Charts'
-                                        : activePanel === 'analysis'
-                                          ? 'Analysis'
-                                          : 'Chart settings'}
-                                </span>
-                                <LemonButton
-                                    icon={<IconX />}
-                                    size="xsmall"
-                                    type="tertiary"
-                                    aria-label="Close panel"
-                                    onClick={() => setActivePanel(null)}
-                                    data-attr="bi-editor-close-panel"
-                                />
-                            </div>
-                            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" ref={settingsPanelRef}>
-                                {activePanel === 'charts' && (
-                                    <>
-                                        <BIChartTypes />
-                                        <BIMarksCard />
-                                    </>
-                                )}
-                                {activePanel === 'analysis' && <BIAnalysisControls />}
-                            </div>
-                        </aside>
-                    )}
+                    {contextPanel}
                 </div>
             </div>
         </BindLogic>

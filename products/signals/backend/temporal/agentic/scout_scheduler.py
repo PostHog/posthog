@@ -20,6 +20,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlrea
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -144,9 +145,14 @@ class EvaluateScoutPrecheckOutput:
 @close_db_connections
 async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
     """Evaluate the scout's effective pre-check query. A scout without one always runs."""
-    result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
-        input.team_id, input.skill_name
-    )
+    try:
+        result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
+            input.team_id, input.skill_name
+        )
+    except (TeamScopeError, Team.DoesNotExist):
+        # The project was deleted after the coordinator dispatched this run.
+        logger.info("signals_scout: team is gone, skipping the run", team_id=input.team_id, skill_name=input.skill_name)
+        return EvaluateScoutPrecheckOutput(should_run=False)
     if result is None:
         return EvaluateScoutPrecheckOutput(should_run=True)
     return EvaluateScoutPrecheckOutput(
@@ -156,10 +162,13 @@ async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) 
 
 def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
     """Whether the coordinator would still dispatch this scout: enabled, or paused by the failure
-    breaker, which the coordinator probes."""
+    breaker, which the coordinator probes. A deleted project is never runnable."""
+    try:
+        configs = SignalScoutConfig.objects.for_team(team_id)
+    except TeamScopeError:
+        return False
     return (
-        SignalScoutConfig.objects.for_team(team_id)
-        .filter(skill_name=skill_name)
+        configs.filter(skill_name=skill_name)
         .filter(
             Q(enabled=True)
             | Q(
@@ -555,6 +564,23 @@ def start_manual_signals_scout_run(
         source=TRIGGERED_BY_MANUAL,
         run_note=run_note,
     )
+
+
+@async_to_sync
+async def start_onboarding_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+    workflow_id = _off_schedule_run_workflow_id("signals-scout-onboarding", team_id, skill_name)
+    try:
+        await client.start_workflow(
+            RunSignalsScoutWorkflow.run,
+            RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_MANUAL),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    return workflow_id
 
 
 def trial_run_workflow_id(team_id: int, launch_id: str) -> str:

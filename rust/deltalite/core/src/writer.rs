@@ -179,6 +179,14 @@ impl StreamingWriter {
         self.open.values().map(OpenFile::buffer_len).sum()
     }
 
+    /// Encoded bytes in the row groups the open files have not closed yet.
+    pub(crate) fn in_progress_bytes(&self) -> usize {
+        self.open
+            .values()
+            .map(|f| f.writer.in_progress_size())
+            .sum()
+    }
+
     /// Rows in the row groups the open files have not closed yet.
     pub(crate) fn in_progress_rows(&self) -> usize {
         self.open

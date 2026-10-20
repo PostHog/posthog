@@ -157,4 +157,5 @@ def parse_html(body: bytes, url: str, content_type: str | None = None) -> tuple[
         except Exception:  # noqa: BLE001
             pass
 
-    return title, text
+    # Postgres text fields reject NUL, and the bs4 fallback keeps them from bodies that are not HTML.
+    return title.replace("\x00", ""), text.replace("\x00", "")

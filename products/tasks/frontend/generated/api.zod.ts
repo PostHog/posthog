@@ -2369,6 +2369,8 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneC
     '^[a-f0-9]{64}$'
 )
 
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemBaseArtifactIdMax = 255
+
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -2440,6 +2442,13 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     })
                     .optional()
                     .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
+                base_artifact_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemBaseArtifactIdMax)
+                    .optional()
+                    .describe(
+                        'ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.'
+                    ),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),

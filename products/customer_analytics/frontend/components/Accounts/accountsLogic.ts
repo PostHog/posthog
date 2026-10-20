@@ -385,8 +385,7 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined,
+            | import('~/queries/schema').TraceSpansTreeQueryResponse,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -418,7 +417,6 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
             | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined
     } // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true

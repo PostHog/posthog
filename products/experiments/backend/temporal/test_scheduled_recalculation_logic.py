@@ -1,4 +1,5 @@
 import contextlib
+from collections.abc import Callable
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.redis import get_client
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import (
@@ -21,17 +23,26 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
+    EXPOSURE_BACKOFF_INTERVAL,
+    EXPOSURE_BACKOFF_KEY_PREFIX,
+    EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS,
     MIN_EXPERIMENT_AGE,
     MIN_TIME_SINCE_LAST_RECALCULATION,
     SKIP_ACTIVE_RUN,
+    SKIP_EXPOSURE_BACKOFF,
+    SKIP_NO_METRICS,
     SKIP_RECENT_RUN,
+    SKIP_ZERO_ROLLOUT,
     count_total_exposures,
     find_scheduled_recalculation_candidates,
     recent_recalculation_skip,
+    record_exposure_check,
     team_has_scheduled_recalculation_enabled,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -41,14 +52,48 @@ def _metric() -> dict[str, Any]:
     return {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}
 
 
+FULL_ROLLOUT_FILTERS: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+LOGIC = "products.experiments.backend.temporal.scheduled_recalculation_logic"
+FLAG_PATH = f"{LOGIC}.feature_enabled_or_false"
+
+
+def _redis_down(key: str) -> contextlib.AbstractContextManager[object]:
+    return patch(f"{LOGIC}.get_client", side_effect=ConnectionError("redis down"))
+
+
+def _unreadable_value(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().set(key, "not json")
+    return contextlib.nullcontext()
+
+
+def _timestamp_out_of_range(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().set(key, '{"count": 3, "checked_at": 1e300}')
+    return contextlib.nullcontext()
+
+
+def _missing_key(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().delete(key)
+    return contextlib.nullcontext()
+
+
 # Pinned at the default recalculation hour: a team with no config falls to hour 2, so a
 # test that does not care about the hour still sees its experiments selected.
 @time_machine.travel("2026-09-15T02:30:00Z", tick=False)
 class TestScheduledRecalculationLogic(BaseTest):
-    def _experiment(self, *, team: Team | None = None, started_hours_ago: float = 48, **overrides: Any) -> Experiment:
+    def _experiment(
+        self,
+        *,
+        team: Team | None = None,
+        started_hours_ago: float = 48,
+        flag_filters: dict[str, Any] | None = None,
+        **overrides: Any,
+    ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
-            team=team, key=f"flag-{uuid4()}", created_by=self.user, filters={"groups": []}
+            team=team,
+            key=f"flag-{uuid4()}",
+            created_by=self.user,
+            filters=FULL_ROLLOUT_FILTERS if flag_filters is None else flag_filters,
         )
         # No status here: save() always recomputes it from start_date and end_date.
         defaults: dict[str, Any] = {
@@ -72,12 +117,22 @@ class TestScheduledRecalculationLogic(BaseTest):
         )
         with (
             clock,
-            patch(
-                "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
-                return_value=True,
-            ),
+            patch(FLAG_PATH, return_value=True),
         ):
-            return {c.experiment_id for c in find_scheduled_recalculation_candidates().candidates}
+            return {c.experiment_id for c in find_scheduled_recalculation_candidates().discovery.candidates}
+
+    def _discovery_skip_reason(self, experiment: Experiment) -> str | None:
+        with patch(FLAG_PATH, return_value=True):
+            selection = find_scheduled_recalculation_candidates()
+        reasons = {skip.experiment.id: skip.decision.reason for skip in selection.skips}
+        candidate_ids = {c.experiment_id for c in selection.discovery.candidates}
+        assert (experiment.id in candidate_ids) is (experiment.id not in reasons)
+        return reasons.get(experiment.id)
+
+    def _assert_discovery_and_start_skip(self, experiment: Experiment, reason: str | None) -> None:
+        decision = recent_recalculation_skip(experiment, self.team.id)
+        assert (decision.reason if decision else None) == reason
+        assert self._discovery_skip_reason(experiment) == reason
 
     def test_default_hour_picks_up_team_without_config(self):
         experiment = self._experiment()
@@ -171,17 +226,52 @@ class TestScheduledRecalculationLogic(BaseTest):
         experiment = self._experiment(started_hours_ago=started_hours_ago)
         assert (experiment.id in self._candidate_ids()) is expected
 
-    def test_experiment_without_metrics_is_a_candidate(self):
-        experiment = self._experiment(metrics=[])
-        assert experiment.id in self._candidate_ids(2)
+    @parameterized.expand(
+        [
+            ("inline_metric", [_metric()], False, None),
+            ("no_metrics", [], False, SKIP_NO_METRICS),
+            # Legacy metrics carry no metric_type, so the recalculation computes none of them.
+            ("legacy_metric_only", [{"kind": "ExperimentTrendsQuery", "uuid": str(uuid4())}], False, SKIP_NO_METRICS),
+            ("saved_metric_only", [], True, None),
+        ]
+    )
+    def test_discovery_skips_an_experiment_with_no_computable_metric(
+        self, _name: str, metrics: list[dict[str, Any]], with_saved_metric: bool, expected_reason: str | None
+    ):
+        experiment = self._experiment(metrics=metrics)
+        if with_saved_metric:
+            saved = ExperimentSavedMetric.objects.create(team=self.team, name="saved", query=_metric())
+            ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved)
+        assert self._discovery_skip_reason(experiment) == expected_reason
+
+    @parameterized.expand(
+        [
+            ("zero_rollout", {"groups": [{"properties": [], "rollout_percentage": 0}]}, SKIP_ZERO_ROLLOUT),
+            # The flags service matches nobody when a v1 flag has no release condition.
+            ("no_conditions", {"groups": []}, SKIP_ZERO_ROLLOUT),
+            # An absent rollout means 100% to the flags service.
+            ("missing_rollout", {"groups": [{"properties": []}]}, None),
+            (
+                "one_condition_above_zero",
+                {"groups": [{"properties": [], "rollout_percentage": 0}, {"properties": [], "rollout_percentage": 5}]},
+                None,
+            ),
+            # The rule reads v1 keys only, so another format is left to the exposure gate.
+            ("config_v2", {"version": 2, "rules": []}, None),
+            # A malformed value fails open, so one flag cannot stop discovery for the whole hour.
+            ("string_rollout", {"groups": [{"properties": [], "rollout_percentage": "50"}]}, None),
+        ]
+    )
+    def test_discovery_skips_a_flag_that_serves_nobody(
+        self, _name: str, flag_filters: dict[str, Any], expected_reason: str | None
+    ):
+        experiment = self._experiment(flag_filters=flag_filters)
+        assert self._discovery_skip_reason(experiment) == expected_reason
 
     def test_feature_flag_off_yields_no_candidates(self):
         self._experiment()
-        with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
-            return_value=False,
-        ):
-            assert find_scheduled_recalculation_candidates().candidates == []
+        with patch(FLAG_PATH, return_value=False):
+            assert find_scheduled_recalculation_candidates().discovery.candidates == []
 
     def test_flag_is_evaluated_once_per_team(self):
         for _ in range(3):
@@ -219,9 +309,7 @@ class TestScheduledRecalculationLogic(BaseTest):
             ExperimentMetricsRecalculation.objects.create(
                 team=self.team, experiment=experiment, status=status, trigger=trigger, started_at=timezone.now()
             )
-        decision = recent_recalculation_skip(experiment, self.team.id)
-        assert decision is not None
-        assert decision.reason == SKIP_ACTIVE_RUN
+        self._assert_discovery_and_start_skip(experiment, SKIP_ACTIVE_RUN)
 
     @parameterized.expand(
         [
@@ -238,7 +326,7 @@ class TestScheduledRecalculationLogic(BaseTest):
                 team=self.team, experiment=experiment, status=status, started_at=stale
             )
             ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(created_at=stale)
-        assert recent_recalculation_skip(experiment, self.team.id) is None
+        self._assert_discovery_and_start_skip(experiment, None)
 
     @parameterized.expand(
         [
@@ -269,6 +357,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         if decision is not None:
             assert decision.reason == SKIP_RECENT_RUN
             assert decision.detail["minutes_since_completion"] == 10
+        assert self._discovery_skip_reason(experiment) == (SKIP_RECENT_RUN if expected_skip else None)
 
     def test_old_completed_run_does_not_skip(self):
         experiment = self._experiment()
@@ -279,7 +368,7 @@ class TestScheduledRecalculationLogic(BaseTest):
                 status=ExperimentMetricsRecalculation.Status.COMPLETED,
                 completed_at=timezone.now() - MIN_TIME_SINCE_LAST_RECALCULATION - timedelta(minutes=1),
             )
-        assert recent_recalculation_skip(experiment, self.team.id) is None
+        self._assert_discovery_and_start_skip(experiment, None)
 
     def test_recent_timeseries_sync_run_is_ignored(self):
         # A sync row published at :00 is always fresher than the limit, so counting it
@@ -293,7 +382,7 @@ class TestScheduledRecalculationLogic(BaseTest):
                 trigger=ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC,
                 completed_at=timezone.now() - timedelta(minutes=5),
             )
-        assert recent_recalculation_skip(experiment, self.team.id) is None
+        self._assert_discovery_and_start_skip(experiment, None)
 
     def test_unfinished_failed_run_is_ignored(self):
         experiment = self._experiment()
@@ -304,7 +393,7 @@ class TestScheduledRecalculationLogic(BaseTest):
                 status=ExperimentMetricsRecalculation.Status.FAILED,
                 completed_at=None,
             )
-        assert recent_recalculation_skip(experiment, self.team.id) is None
+        self._assert_discovery_and_start_skip(experiment, None)
 
     def test_flag_helper_passes_group_properties(self):
         with patch(
@@ -351,3 +440,46 @@ class TestScheduledRecalculationLogic(BaseTest):
         ) as runner_class:
             assert count_total_exposures(experiment) == 20
         assert runner_class.call_args.kwargs["query"].holdout.id == holdout.id
+
+    def _back_off(self, experiment: Experiment) -> None:
+        for _ in range(EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS):
+            record_exposure_check(experiment.id, 0)
+
+    @parameterized.expand(
+        [
+            # Travel in whole days, so discovery still runs at the class hour.
+            ("inside_the_interval", EXPOSURE_BACKOFF_INTERVAL - timedelta(days=1), SKIP_EXPOSURE_BACKOFF),
+            ("after_the_interval", EXPOSURE_BACKOFF_INTERVAL, None),
+        ]
+    )
+    def test_exposure_backoff_holds_for_the_interval(self, _name: str, elapsed: timedelta, reason: str | None):
+        experiment = self._experiment()
+        self._back_off(experiment)
+        with time_machine.travel(timezone.now() + elapsed, tick=False):
+            assert self._discovery_skip_reason(experiment) == reason
+
+    @parameterized.expand(
+        [
+            ("redis_error", _redis_down),
+            ("unreadable_value", _unreadable_value),
+            ("timestamp_out_of_range", _timestamp_out_of_range),
+            ("missing_key", _missing_key),
+        ]
+    )
+    def test_exposure_backoff_fails_open(
+        self, _name: str, arrange: Callable[[str], contextlib.AbstractContextManager[object]]
+    ):
+        experiment = self._experiment()
+        self._back_off(experiment)
+        with arrange(f"{EXPOSURE_BACKOFF_KEY_PREFIX}:{experiment.id}"):
+            assert self._discovery_skip_reason(experiment) is None
+
+    def test_exposure_backoff_reads_every_candidate_in_one_round_trip(self):
+        experiments = [self._experiment() for _ in range(3)]
+        self._back_off(experiments[0])
+        client = get_client()
+        with patch.object(client, "mget", wraps=client.mget) as mget, patch.object(client, "get") as get:
+            assert self._discovery_skip_reason(experiments[0]) == SKIP_EXPOSURE_BACKOFF
+        mget.assert_called_once()
+        assert len(mget.call_args.args[0]) == len(experiments)
+        get.assert_not_called()

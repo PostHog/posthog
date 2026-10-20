@@ -67,7 +67,7 @@ class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConf
         maven=("com.logrocket:logrocket", "com.logrocket:compose"),
         pub=("logrocket_flutter",),
         swiftpm=("github.com/logrocket/logrocket-ios-swift-package",),
-        competes_with=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
+        alternative_to=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
     )
 
     lists_tables_without_credentials = True
@@ -85,7 +85,7 @@ class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConf
             label="LogRocket",
             iconPath="/static/services/logrocket.png",
             docsUrl="https://posthog.com/docs/cdp/sources/logrocket",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API key in LogRocket under Settings > API Keys. "
                 "Audit logging must be enabled by an admin on the Professional plan. "

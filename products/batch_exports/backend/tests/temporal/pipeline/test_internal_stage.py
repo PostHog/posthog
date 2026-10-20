@@ -1313,11 +1313,9 @@ class TestHogQLModel:
         )
 
         with patch("products.batch_exports.backend.temporal.pipeline.internal_stage._execute_query") as execute_query:
-            result = await activity_environment.run(insert_into_internal_stage_activity, inputs)
+            with pytest.raises(ValueError, match="requires user_id"):
+                await activity_environment.run(insert_into_internal_stage_activity, inputs)
 
-        assert result.error is not None
-        assert result.error.type == "UnsupportedHogQLQueryError"
-        assert "needs an active user" in result.error.message
         execute_query.assert_not_called()
         mock_clickhouse_client.expect_query_count(0)
 
@@ -1606,6 +1604,7 @@ class TestHogQLModel:
         BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,
         BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000,
         BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ=200_000_000_000,
+        BATCH_EXPORT_ARROW_COMPRESSION_METHOD="zstd",
     )
     async def test_applies_settings_and_log_comment(
         self,
@@ -1627,17 +1626,18 @@ class TestHogQLModel:
         """
         batch_export_id = str(uuid.uuid4())
 
-        await _run_activity(
-            activity_environment=activity_environment,
-            object_storage_client=object_storage_client,
-            team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events", user_id=auser.pk
-            ),
-            batch_export_id=batch_export_id,
-        )
+        with override_settings(BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS=[str(ateam.pk)]):
+            await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportModel(
+                    name="hogql", schema=None, hogql_query="SELECT event AS event FROM events", user_id=auser.pk
+                ),
+                batch_export_id=batch_export_id,
+            )
 
         # `Settings` in `system.query_log` records only settings changed from their default, so the
         # overflow modes are absent here (`throw` is already ClickHouse's default, and we pin it only
@@ -1652,6 +1652,7 @@ class TestHogQLModel:
                 "max_bytes_before_external_sort",
                 "max_bytes_ratio_before_external_sort",
                 "max_bytes_to_read",
+                "output_format_arrow_compression_method",
             ],
         )
-        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000"]]
+        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000", "zstd"]]

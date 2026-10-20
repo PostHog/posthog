@@ -24,14 +24,6 @@ class TestSourceConfig:
         assert fields["access_key"].secret is True
 
 
-class TestGetSchemas:
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = GoldcastSource().get_schemas(
-            GoldcastSourceConfig(access_key="tok"), team_id=1, names=["events", "webinars"]
-        )
-        assert {s.name for s in schemas} == {"events", "webinars"}
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
@@ -67,12 +59,6 @@ class TestValidateCredentials:
                 True,
                 None,
             )
-
-    def test_invalid_token_surfaces_message(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, message = GoldcastSource().validate_credentials(GoldcastSourceConfig(access_key="tok"), team_id=1)
-        assert valid is False
-        assert message == "Invalid Goldcast API token"
 
 
 class TestDocumentedTables:

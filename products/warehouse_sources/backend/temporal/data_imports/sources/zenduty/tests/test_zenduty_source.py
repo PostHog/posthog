@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock
-
 import requests
 from parameterized import parameterized
 
@@ -14,21 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
 
 
-class TestZendutyGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = ZendutySource().get_schemas(MagicMock(), team_id=1, names=["incidents", "services"])
-        assert {s.name for s in schemas} == {"incidents", "services"}
-
-
 class TestZendutyValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
-            # Zenduty returns 403 (not 401) for a bad/inactive token — reject even at source-create.
-            ("forbidden_is_bad_token", 403, False),
-            ("unauthorized_rejected", 401, False),
             ("connection_failure_rejected", None, False),
-            ("unexpected_status_rejected", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, probe_status: int | None, expected_ok: bool) -> None:

@@ -13,11 +13,19 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.alerts_platform.backend.facade.contracts import Grouping
 from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
+    PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
+    PlatformAlertOwner,
     PlatformAlertState,
 )
+
+
+def single_instance_grouping() -> dict[str, object]:
+    return Grouping().to_stored()
 
 
 # nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
@@ -38,6 +46,8 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     # the way every other model in the repo does.
     SourceKind = PlatformAlertConfigurationSourceKind
     RecurrenceUnit = PlatformAlertConfigurationRecurrenceUnit
+    Owner = PlatformAlertOwner
+    CheckStatus = PlatformAlertCheckStatus
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -53,6 +63,8 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
 
     source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     source_config = models.JSONField(default=dict)
+    # The stored form of the facade's `Grouping`.
+    grouping = models.JSONField(default=single_instance_grouping, db_default={"mode": "single", "keys": []})
 
     # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
     threshold_count = models.PositiveIntegerField(null=True, blank=True)
@@ -72,11 +84,27 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     schedule_restriction = models.JSONField(null=True, blank=True)
 
     next_check_at = models.DateTimeField(null=True, blank=True)
+    # Mutes every instance. An instance's own snooze mutes one group, and the later of the two holds.
+    snooze_until = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    check_status = models.CharField(
+        max_length=16, choices=CheckStatus.choices, default=CheckStatus.OK.value, db_default="ok"
+    )
 
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.
     legacy_configuration_id = models.UUIDField(null=True, blank=True, unique=True)
+    # When an operator switched this copy off. A write in the source never turns such a copy back
+    # on, so a rollout that retires a copy keeps it retired. Only a backfill run clears it.
+    switched_off_at = models.DateTimeField(null=True, blank=True)
+
+    # The source's own row records the same owner. Only the cutover and rollback commands write
+    # the two, in one transaction, so each stack can decide from its own row without reading the
+    # other product's table.
+    owner = models.CharField(
+        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.
@@ -127,6 +155,9 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
     # reader knows whether this firing was ever announced.
     firing_started_at = models.DateTimeField(null=True, blank=True)
+    # The last check that returned this group. Reaping reads it to free the slot of a group that
+    # stopped appearing. Null for a row no check has recorded since the column existed.
+    last_seen_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "alerts_platformalert"
@@ -183,5 +214,34 @@ class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["configuration", "grouping_key", "provider", "channel_target", "episode_started_at"],
                 name="platform_alert_thread_one_per_conversation",
+            )
+        ]
+
+
+class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
+    """The path one firing of one group delivers through, fixed by the first delivery about it.
+
+    The path is read from the alert's destinations at send time, and those can change mid-firing.
+    Without this row a firing sent through HogFunctions could resolve natively, and an incident
+    manager would hold the first incident open, because the two paths key incidents differently.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(
+        PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="delivery_paths"
+    )
+
+    grouping_key = models.CharField(max_length=255, default="", db_default="")
+    episode_started_at = models.DateTimeField()
+    path = models.CharField(max_length=16, choices=DeliveryPath.choices)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdeliverypath"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuration", "grouping_key", "episode_started_at"],
+                name="platform_alert_delivery_path_one_per_episode",
             )
         ]

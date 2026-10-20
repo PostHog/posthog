@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -146,10 +147,75 @@ class TestDevelocity(TestCase):
 
     @parameterized.expand(
         [
-            (200, None, True, None),
-            (200, "gradle_builds", True, None),
-            (401, None, False, "invalid or expired"),
-            (401, "builds", False, "invalid or expired"),
+            ("build_tests", "/api/tests/build/", {}, False, None, "0"),
+            ("build_failures", "/api/failures/builds/", {"maxFailures": "1000"}, False, None, "0"),
+            ("build_tests", "/api/tests/build/", {}, True, 5000, "4999"),
+            ("build_failures", "/api/failures/builds/", {"maxFailures": "1000"}, True, 5000, "4999"),
+        ]
+    )
+    def test_child_tables_fan_out_over_builds(
+        self,
+        name: str,
+        child_path: str,
+        child_params: dict[str, str],
+        incremental: bool,
+        last_value: int | None,
+        from_instant: str,
+    ) -> None:
+        builds_pages = {None: [build("build-one", 6000)], "build-one": [build("build-two", 7000)], "build-two": []}
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/builds":
+                return ScriptedResponse(json=builds_pages[request.param("fromBuild")])
+            return ScriptedResponse(json={"buildToolType": "gradle", "path": request.path})
+
+        result = self.driver.run(
+            name,
+            answer,
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+            incremental_field="availableAt",
+        )
+        assert result.raised is None
+        assert result.rows == [
+            {"buildToolType": "gradle", "path": f"{child_path}build-one", "buildId": "build-one", "availableAt": 6000},
+            {"buildToolType": "gradle", "path": f"{child_path}build-two", "buildId": "build-two", "availableAt": 7000},
+        ]
+        builds_requests = [request for request in result.requests if request.path == "/api/builds"]
+        assert [request.param("fromBuild") for request in builds_requests] == [None, "build-one", "build-two"]
+        assert {request.param("fromInstant") for request in builds_requests} == {from_instant}
+        for request in result.requests:
+            if request.path != "/api/builds":
+                assert {key: values[0] for key, values in request.query.items()} == child_params
+        assert result.response is not None
+        assert result.response.primary_keys == ["buildId"] and result.response.sort_mode == "asc"
+        assert result.response.supports_resume is False
+        assert result.saved_states == []
+
+    @parameterized.expand(
+        [
+            ("urn:gradle:enterprise:api:problems:build-model-not-applicable", None),
+            ("urn:gradle:enterprise:api:problems:validation", HTTPError),
+        ]
+    )
+    def test_child_bad_request(self, problem_type: str, raised: type[BaseException] | None) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/builds":
+                return ScriptedResponse(
+                    json=[build("docker-build", 1000)] if request.param("fromBuild") is None else []
+                )
+            if request.path.endswith("/docker-build"):
+                return ScriptedResponse(json={"type": problem_type, "status": 400}, status=400)
+            return ScriptedResponse(json={"buildToolType": "docker"})
+
+        result = self.driver.run("build_failures", answer)
+        if raised is None:
+            assert result.raised is None and result.rows == []
+        else:
+            assert isinstance(result.raised, raised)
+
+    @parameterized.expand(
+        [
             (403, None, True, None),
             (403, "maven_builds", False, "Access build data via the API"),
         ]

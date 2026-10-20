@@ -2,6 +2,8 @@ import { context, propagation, trace } from '@opentelemetry/api'
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node'
 import { register } from 'prom-client'
 
+import * as posthogUtils from '~/common/utils/posthog'
+
 import { instrumentFn, startDetachedSpan } from './tracing-utils'
 
 describe('instrumentFn', () => {
@@ -47,5 +49,17 @@ describe('instrumentFn', () => {
         const byName = Object.fromEntries(exporter.getFinishedSpans().map((span) => [span.name, span]))
         expect(Object.keys(byName).sort()).toEqual(['batch', 'step', 'unrelated'])
         expect(byName.step.parentSpanContext?.spanId).toBe(byName.batch.spanContext().spanId)
+    })
+
+    it('captures a failure while its span is active, so the error carries its trace id', async () => {
+        let activeSpanIdAtCapture: string | undefined
+        jest.spyOn(posthogUtils, 'captureException').mockImplementationOnce(() => {
+            activeSpanIdAtCapture = trace.getActiveSpan()?.spanContext().spanId
+        })
+
+        await expect(instrumentFn('failing_step', () => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
+
+        const [span] = exporter.getFinishedSpans()
+        expect(activeSpanIdAtCapture).toBe(span.spanContext().spanId)
     })
 })
