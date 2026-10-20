@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
 import structlog
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+TaskContractCheck = Literal["one_live_run", "one_live_run_local"]
 # Why a warm Run died unused. `released` is a deliberate hand-back (the composer cancels the run when
 # the draft is abandoned) and is the cheap, expected miss; `idle_timeout` means nobody released it and
 # it sat until the workflow reclaimed it, which is the wasteful one to drive down.
@@ -164,6 +166,12 @@ LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
     "Task-run log appends that did not hold the per-object lock: refused on contention past the wait "
     "(the agent retries them) or run unserialized while redis is unavailable.",
     labelnames=["reason"],
+)
+
+TASK_CONTRACT_MISMATCH_TOTAL = Counter(
+    "posthog_tasks_contract_mismatch_total",
+    "Times a task broke a task contract rule that still runs in shadow mode",
+    labelnames=["check", "profile"],
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(
@@ -557,6 +565,23 @@ def observe_task_run_workflow_start(
         outcome=outcome,
         reason=reason,
     ).inc()
+
+
+def observe_live_run_overlap(task_run: "TaskRun", live_runs: Sequence["TaskRun"]) -> None:
+    check: TaskContractCheck = (
+        "one_live_run" if any(run.environment == "cloud" for run in live_runs) else "one_live_run_local"
+    )
+    profile = origin_product_label(task_run)
+    TASK_CONTRACT_MISMATCH_TOTAL.labels(check=check, profile=profile).inc()
+    logger.warning(
+        "task_live_run_overlap",
+        check=check,
+        task_id=str(task_run.task_id),
+        run_id=str(task_run.id),
+        run_environment=task_run.environment,
+        origin_product=profile,
+        live_runs=[{"run_id": str(run.id), "status": run.status, "environment": run.environment} for run in live_runs],
+    )
 
 
 def observe_prewarmed_activated(task_run: "TaskRun") -> None:

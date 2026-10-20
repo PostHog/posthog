@@ -12,6 +12,7 @@ from django.test import TestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
@@ -1121,6 +1122,59 @@ class TestTaskRun(TestCase):
         self.assertEqual(call_args.args[1]["type"], "task_run_state")
         self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
         self.assertEqual(call_args.args[1]["branch"], "main")
+
+    def _contract_mismatches(self, check: str) -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "posthog_tasks_contract_mismatch_total", {"check": check, "profile": Task.OriginProduct.USER_CREATED}
+            )
+            or 0.0
+        )
+
+    @parameterized.expand(
+        [
+            ("no_runs", [], None),
+            (
+                "terminal_runs",
+                [
+                    (TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD),
+                    (TaskRun.Status.FAILED, TaskRun.Environment.CLOUD),
+                    (TaskRun.Status.CANCELLED, TaskRun.Environment.CLOUD),
+                ],
+                None,
+            ),
+            ("scheduled_cloud", [(TaskRun.Status.NOT_STARTED, TaskRun.Environment.CLOUD)], "one_live_run"),
+            ("queued_cloud", [(TaskRun.Status.QUEUED, TaskRun.Environment.CLOUD)], "one_live_run"),
+            ("in_progress_cloud", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD)], "one_live_run"),
+            ("queued_local", [(TaskRun.Status.QUEUED, TaskRun.Environment.LOCAL)], "one_live_run_local"),
+            (
+                "local_and_cloud",
+                [
+                    (TaskRun.Status.QUEUED, TaskRun.Environment.LOCAL),
+                    (TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD),
+                ],
+                "one_live_run",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_create_run_counts_overlapping_live_runs(
+        self,
+        _name: str,
+        existing_runs: list[tuple[str, str]],
+        expected_check: str | None,
+        _mock_publish_stream_event,
+    ) -> None:
+        for status, environment in existing_runs:
+            TaskRun.objects.create(task=self.task, team=self.team, status=status, environment=environment)
+        checks = ["one_live_run", "one_live_run_local"]
+        before = {check: self._contract_mismatches(check) for check in checks}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run()
+
+        counted = {check: self._contract_mismatches(check) - before[check] for check in checks}
+        self.assertEqual(counted, {check: 1.0 if check == expected_check else 0.0 for check in checks})
 
     def test_create_run_does_not_inject_permission_mode_by_default(self):
         run = self.task.create_run(mode="interactive")

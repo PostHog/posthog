@@ -59,7 +59,11 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
-from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.metrics import (
+    observe_live_run_overlap,
+    observe_task_run_created,
+    observe_task_run_dispatch_callback,
+)
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
@@ -916,6 +920,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
+            live_runs = list(
+                task.runs.filter(
+                    team_id=task.team_id,
+                    status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+                ).only("id", "status", "environment")[:10]
+            )
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
@@ -948,6 +958,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "startup_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
                     },
                 )
+                if live_runs:
+                    observe_live_run_overlap(task_run, live_runs)
 
             execute_after_commit(emit_created_events)
             return task_run
