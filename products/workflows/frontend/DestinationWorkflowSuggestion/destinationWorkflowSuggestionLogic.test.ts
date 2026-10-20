@@ -10,8 +10,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AppContext, HogFunctionTemplateType, UserType } from '~/types'
 
+import { loadEntrySource } from '../Broadcasts/broadcastUsage'
 import { workflowDataSuggestionsBuildForEvents } from '../generated/api'
 import {
+    DESTINATION_SUGGESTION_ENTRY_SOURCE,
     DESTINATION_WORKFLOW_SUGGESTION_SEEN_KEY,
     destinationWorkflowSuggestionLogic,
 } from './destinationWorkflowSuggestionLogic'
@@ -40,6 +42,7 @@ describe('destinationWorkflowSuggestionLogic', () => {
         aiApproved?: boolean
     } = {}): void => {
         initKeaTests()
+        sessionStorage.clear()
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
             resource_access_control: { hog_flow: workflowAccess },
@@ -115,6 +118,9 @@ describe('destinationWorkflowSuggestionLogic', () => {
         await expectation.toMatchValues({ template: null, dismissed: chosen })
         expect(onContinue).toHaveBeenCalledTimes(action === 'continueWithDestination' ? 1 : 0)
         expect(router.values.location.pathname).toMatch(path)
+        expect(router.values.location.search).toBe(
+            action === 'openWorkflowEditor' ? `?source=${DESTINATION_SUGGESTION_ENTRY_SOURCE}` : ''
+        )
     })
 
     it.each([
@@ -123,20 +129,23 @@ describe('destinationWorkflowSuggestionLogic', () => {
             () => Promise.resolve({ status: 'ready', workflow_ids: ['workflow-1'] }),
             /\/workflows\/workflow-1\/workflow$/,
             { dismissed: true, buildState: null },
+            DESTINATION_SUGGESTION_ENTRY_SOURCE,
         ],
         [
             'keeps the modal open to retry when the build fails',
             () => Promise.resolve({ status: 'failed', workflow_ids: [] }),
             /\/pipeline$/,
             { dismissed: false, buildState: 'failed', canBuildWorkflows: true },
+            null,
         ],
         [
             'offers the manual workflow when the API refuses to build',
             () => Promise.reject({ status: 403 }),
             /\/pipeline$/,
             { dismissed: false, buildState: null, canBuildWorkflows: false },
+            null,
         ],
-    ] as const)('%s', async (_label, response, path, values) => {
+    ] as const)('%s', async (_label, response, path, values, entrySource) => {
         setUp()
         router.actions.push('/pipeline')
         jest.mocked(workflowDataSuggestionsBuildForEvents).mockImplementation(response as any)
@@ -154,5 +163,6 @@ describe('destinationWorkflowSuggestionLogic', () => {
             retry: true,
         })
         expect(router.values.location.pathname).toMatch(path)
+        expect(loadEntrySource('workflow-1')).toBe(entrySource)
     })
 })

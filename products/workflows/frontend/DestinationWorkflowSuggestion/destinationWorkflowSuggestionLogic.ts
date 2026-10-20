@@ -16,11 +16,16 @@ import {
     UserType,
 } from '~/types'
 
+import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { workflowDataSuggestionsBuildForEvents } from '../generated/api'
 import { isMessagingDestinationTemplate } from './messagingDestinations'
 
 // pinned: key into user.has_seen_product_intro_for - renaming shows the modal again to everyone who answered it
 export const DESTINATION_WORKFLOW_SUGGESTION_SEEN_KEY = 'workflows_destination_suggestion'
+
+// pinned: entry source value - 'workflow draft created' and 'workflow enabled' report it, so renaming breaks the funnel
+export const DESTINATION_SUGGESTION_ENTRY_SOURCE = 'destination_suggestion'
 
 // A build plans up to five workflows one after another, each with its own model calls, so it can take minutes.
 // The budget matches how long the backend holds the build lock.
@@ -242,7 +247,9 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
             posthog.capture('workflows destination suggestion opened new workflow', templateProperties(values.template))
             actions.rememberAnswer()
             actions.resetSuggestion()
-            router.actions.push(urls.workflowNew())
+            router.actions.push(urls.workflowNew(), {
+                [SOURCE_PREFILL_PARAM]: DESTINATION_SUGGESTION_ENTRY_SOURCE,
+            })
         },
         createWorkflows: async (_, breakpoint) => {
             const template = values.template
@@ -272,6 +279,8 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                     ...properties,
                     workflow_count: result.workflow_ids.length,
                 })
+                // Carries the funnel past the draft: 'workflow enabled' reads it back for each of these ids.
+                result.workflow_ids.forEach((id) => saveEntrySource(id, DESTINATION_SUGGESTION_ENTRY_SOURCE))
                 actions.rememberAnswer()
                 actions.resetSuggestion()
                 router.actions.push(
