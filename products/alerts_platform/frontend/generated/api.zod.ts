@@ -333,6 +333,6 @@ export const PlatformAlertsSnoozeGroupCreateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .nullable()
         .describe(
-            "Time until which this group's notifications are muted. Must be in the future. Null clears the group's snooze. The group keeps being checked, and its firing stays open."
+            "Time until which this group's notifications are muted. Must be in the future and at most 30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open."
         ),
 })

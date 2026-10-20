@@ -6,7 +6,8 @@ and the next check reads back. Writing the copy here would fork it, so those are
 
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Final
 from uuid import UUID
 
 from django.db import transaction
@@ -129,6 +130,10 @@ def update_configuration(
     )
 
 
+# A snoozed group keeps its slot under `max_instances`, so a forgotten long snooze would hold it.
+MAX_GROUP_SNOOZE: Final = timedelta(days=30)
+
+
 def snooze_group(
     *,
     team_id: int,
@@ -149,6 +154,10 @@ def snooze_group(
     now = django_timezone.now()
     if snooze_until is not None and snooze_until <= now:
         raise InvalidPlatformAlertEdit("snooze_until", "Pick a time in the future, or send null to unsnooze.")
+    if snooze_until is not None and snooze_until > now + MAX_GROUP_SNOOZE:
+        raise InvalidPlatformAlertEdit(
+            "snooze_until", f"A group can be snoozed for up to {MAX_GROUP_SNOOZE.days} days. Pick an earlier time."
+        )
     with transaction.atomic():
         # The configuration before its instance, the order `record_outcomes` locks them in.
         configuration = (

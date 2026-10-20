@@ -448,6 +448,13 @@ class TestPlatformAlertAPI(APIBaseTest):
                 status.HTTP_400_BAD_REQUEST,
                 "snooze_until",
             ),
+            (
+                "time_past_the_limit",
+                {},
+                {"snooze_until": "2026-11-15T12:00:00Z"},
+                status.HTTP_400_BAD_REQUEST,
+                "snooze_until",
+            ),
             ("ungrouped_alert", {"grouped": False}, {}, status.HTTP_400_BAD_REQUEST, "grouping_key"),
         ]
     )

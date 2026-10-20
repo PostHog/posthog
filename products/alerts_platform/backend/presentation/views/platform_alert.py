@@ -287,8 +287,8 @@ class PlatformAlertGroupSnoozeSerializer(serializers.Serializer):
     )
     snooze_until = serializers.DateTimeField(
         allow_null=True,
-        help_text="Time until which this group's notifications are muted. Must be in the future. "
-        "Null clears the group's snooze. The group keeps being checked, and its firing stays open.",
+        help_text="Time until which this group's notifications are muted. Must be in the future and at most "
+        "30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.",
     )
 
 

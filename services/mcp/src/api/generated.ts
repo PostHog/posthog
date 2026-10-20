@@ -89594,7 +89594,7 @@ export namespace Schemas {
          */
       grouping_key: string;
       /**
-         * Time until which this group's notifications are muted. Must be in the future. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
+         * Time until which this group's notifications are muted. Must be in the future and at most 30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
          * @nullable
          */
       snooze_until: string | null;
