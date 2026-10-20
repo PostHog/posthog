@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -112,27 +111,24 @@ export function InsightSelector({
                 )}
             </div>
             {unavailableSelectedIds.length > 0 && (
-                <LemonBanner type="error" hideIcon={false}>
-                    <div className="space-y-2">
-                        <p className="mb-0">
-                            {unavailableSelectedIds.length === 1
-                                ? '1 insight is no longer on this dashboard but is still selected in this subscription.'
-                                : `${unavailableSelectedIds.length} insights are no longer on this dashboard but are still selected in this subscription.`}
-                        </p>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status="danger"
-                            data-attr="subscription-remove-all-unavailable-insights"
-                            onClick={() => {
-                                setUserHasInteracted()
-                                onChange(validSelectedIds)
-                            }}
-                        >
-                            Remove all missing insights
-                        </LemonButton>
-                    </div>
-                </LemonBanner>
+                <div className="space-y-2 text-sm">
+                    <p className="mb-0 text-danger">
+                        {unavailableSelectedIds.length === 1
+                            ? '1 insight is no longer on this dashboard but is still selected in this subscription.'
+                            : `${unavailableSelectedIds.length} insights are no longer on this dashboard but are still selected in this subscription.`}
+                    </p>
+                    <LemonButton
+                        size="small"
+                        status="danger"
+                        data-attr="subscription-remove-all-unavailable-insights"
+                        onClick={() => {
+                            setUserHasInteracted()
+                            onChange(validSelectedIds)
+                        }}
+                    >
+                        Remove all missing insights
+                    </LemonButton>
+                </div>
             )}
         </div>
     )
