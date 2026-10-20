@@ -149,6 +149,9 @@ export function HogFunctionMapping({
                         onInputChange={(key, value) => {
                             onChange({ ...mapping, inputs: { ...mapping.inputs, [key]: value } })
                         }}
+                        onInputsChange={(changes) => {
+                            onChange({ ...mapping, inputs: { ...mapping.inputs, ...changes } })
+                        }}
                         showSource={showSource}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />

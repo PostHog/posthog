@@ -13,9 +13,11 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -172,6 +174,7 @@ function InternalNewSourceScene({
     sourceWizardLogicProps: SourceWizardLogicProps
 }): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent>
@@ -179,15 +182,21 @@ function InternalNewSourceScene({
                 name="New data warehouse source"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-form-cancel-button"
-                        onClick={closeWizard}
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" data-attr="source-form-cancel-button" onClick={closeWizard}>
+                            Cancel
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                            size="small"
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
                 }
             />
             <InternalSourcesWizard sourceWizardLogicProps={sourceWizardLogicProps} />

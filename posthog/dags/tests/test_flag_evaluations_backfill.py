@@ -808,7 +808,7 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
 )
 def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:
     with pytest.raises(dagster.Failure):
-        resolve_backfill_days(FlagEvaluationsBackfillConfig(**overrides), today=date(2026, 3, 10))
+        resolve_backfill_days(**overrides, today=date(2026, 3, 10))
 
 
 @pytest.mark.parametrize(
@@ -823,6 +823,6 @@ def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any
 def test_resolve_backfill_days_lists_each_day_newest_first(
     overrides: dict[str, Any], newest: date, oldest: date, count: int
 ) -> None:
-    days = resolve_backfill_days(FlagEvaluationsBackfillConfig(**overrides), today=date(2026, 3, 10))
+    days = resolve_backfill_days(**overrides, today=date(2026, 3, 10))
 
     assert (days[0], days[-1], len(days)) == (newest, oldest, count)
