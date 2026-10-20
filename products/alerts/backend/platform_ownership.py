@@ -76,6 +76,8 @@ def on_deleted(alert: AlertConfiguration) -> None:
     A copy whose alert is deleted another way, such as with its insight, switches itself off at its
     next check.
     """
+    if not alert.platform_owned:
+        return
     locked = AlertConfiguration.objects.select_for_update(no_key=True, of=("self",)).filter(id=alert.id).first()
     if locked is not None and locked.platform_owned:
         delete_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id)
