@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
@@ -285,13 +286,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         with patch(f"{_MODULE}.cancel_query_on_cluster") as cancel:
             retried = readmit_retried_check(
-                self.team.id, str(held.id), previous_query_id="run:1:1", held_until=expires_at
+                self.team.id, str(held.id), previous_query_id="run:1:1", held_until=expires_at, attempt=2
             )
+            # The timed-out attempt's thread finishes late and releases the slot it took.
+            release_evaluation_slot(str(held.id), held_until=expires_at, key=INFLIGHT_KEY)
             over_the_limit = readmit_retried_check(
-                self.team.id, str(waiting.id), previous_query_id="run:2:1", held_until=expires_at
+                self.team.id, str(waiting.id), previous_query_id="run:2:1", held_until=expires_at, attempt=2
             )
 
-        assert (retried, over_the_limit) == (True, False)
+        assert retried is not None and over_the_limit is None
+        assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)

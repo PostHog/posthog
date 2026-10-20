@@ -165,12 +165,16 @@ def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> Sour
 
     info = activity.info()
     key = inputs.evaluation.batch_key
-    if info.attempt > 1 and not readmit_retried_check(
-        key.team_id,
-        inputs.configuration_id,
-        previous_query_id=f"{info.workflow_run_id}:{info.activity_id}:{info.attempt - 1}",
-        held_until=inputs.held_until,
-    ):
+    held_until: float | None = inputs.held_until
+    if info.attempt > 1:
+        held_until = readmit_retried_check(
+            key.team_id,
+            inputs.configuration_id,
+            previous_query_id=f"{info.workflow_run_id}:{info.activity_id}:{info.attempt - 1}",
+            held_until=inputs.held_until,
+            attempt=info.attempt,
+        )
+    if held_until is None:
         # No outcome keeps the check due, so a later tick evaluates it once the pool has room.
         return None
     return evaluate_insight_check(
@@ -178,7 +182,7 @@ def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> Sour
         key.slot,
         dt.datetime.fromisoformat(inputs.evaluation.cutoff),
         inputs.configuration_id,
-        held_until=inputs.held_until,
+        held_until=held_until,
         evaluation_id=f"{info.workflow_run_id}:{info.activity_id}:{info.attempt}",
     )
 
