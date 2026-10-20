@@ -608,6 +608,21 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 None,
             ),
             (
+                "day_key_inside_a_cte_read_from_a_subquery",
+                "WITH good AS (SELECT toStartOfDay(timestamp) AS ts FROM events GROUP BY ts) "
+                "SELECT toStartOfDay(sub.ts) AS day, count() AS c FROM (SELECT ts FROM good) AS sub GROUP BY day",
+                {"day": "DateTime", "c": "UInt64"},
+                DAY_KEY,
+            ),
+            (
+                "date_key_that_wraps_inside_a_cte_read_from_a_subquery",
+                "WITH bad AS (SELECT toDate(subtractYears(timestamp, toYear(timestamp) - 2000)) AS ts FROM events "
+                "GROUP BY ts) SELECT toStartOfDay(sub.ts) AS day, count() AS c FROM (SELECT ts FROM bad) AS sub "
+                "GROUP BY day",
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
                 "array_join_over_a_subquery",
                 GROUPED.replace(" GROUP BY", " ARRAY JOIN (SELECT groupArray(event) FROM events) AS labels GROUP BY"),
                 {"day": "DateTime", "c": "UInt64"},

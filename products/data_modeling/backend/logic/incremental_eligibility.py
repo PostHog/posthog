@@ -279,7 +279,10 @@ def _reads_a_data_dependent_value(select: ast.SelectQuery) -> bool:
     )
 
 
-def _advances_with_time(select: ast.SelectQuery, column: str) -> bool:
+def _advances_with_time(
+    select: ast.SelectQuery, column: str, outer_ctes: Optional[Mapping[str, ast.CTE]] = None
+) -> bool:
+    ctes = {**(outer_ctes or {}), **(select.ctes or {})}
     expression = find_key_expression(select, column)
     while isinstance(expression, ast.Alias) or (
         isinstance(expression, ast.Call) and expression.name.lower() in TIME_ORDER_PRESERVING_FUNCTIONS
@@ -290,15 +293,15 @@ def _advances_with_time(select: ast.SelectQuery, column: str) -> bool:
             expression = expression.args[0] if expression.args else None
     if not isinstance(expression, ast.Field):
         return False
-    source = _row_source(select, expression.chain)
+    source = _row_source(select, expression.chain, ctes)
     if source is None:
         return False
     if not isinstance(source, (ast.SelectQuery, ast.SelectSetQuery)):
         return True
-    return all(_advances_with_time(leaf, str(expression.chain[-1])) for leaf in _leaf_selects(source))
+    return all(_advances_with_time(leaf, str(expression.chain[-1]), ctes) for leaf in _leaf_selects(source))
 
 
-def _row_source(select: ast.SelectQuery, chain: list[str | int]) -> Optional[ast.Expr]:
+def _row_source(select: ast.SelectQuery, chain: list[str | int], ctes: Mapping[str, ast.CTE]) -> Optional[ast.Expr]:
     joins: list[ast.JoinExpr] = []
     join = select.select_from
     while join is not None:
@@ -312,7 +315,7 @@ def _row_source(select: ast.SelectQuery, chain: list[str | int]) -> Optional[ast
     if found is None:
         return None
     table_name = _table_name(found)
-    cte = (select.ctes or {}).get(table_name) if table_name else None
+    cte = ctes.get(table_name) if table_name else None
     if cte is not None and cte.cte_type == "subquery":
         return cte.expr
     return found.table
