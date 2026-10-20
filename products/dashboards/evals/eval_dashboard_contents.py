@@ -15,6 +15,8 @@ from products.product_analytics.backend.facade.api import get_or_create_saved_in
 from products.product_analytics.backend.facade.models import Insight
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
+NO_SEND_LOGS = True
+
 DASHBOARD_NAME = "File activity overview"
 SIGNUPS_NAME = "Saved daily signups"
 UPLOADS_NAME = "Saved daily file uploads"
@@ -68,6 +70,7 @@ def seed_existing_dashboard(context: CustomPromptSandboxContext) -> dict[str, An
 
 async def eval_dashboard_contents(ctx: EvalContext) -> None:
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-dashboards-saved-contents-cli",
         offline_suite=offline_suite(
             "dashboards/eval_dashboard_contents::eval_dashboard_contents",

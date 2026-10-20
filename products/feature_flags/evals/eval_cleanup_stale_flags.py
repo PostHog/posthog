@@ -89,6 +89,8 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 
+NO_SEND_LOGS = True
+
 SKILL_NAME = "cleaning-up-stale-feature-flags"
 TRIGGER_SCORER_NAME = "cleanup_skill_triggered"
 EDIT_SCORER_NAME = "code_edit_direction"
@@ -227,6 +229,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-cleanup-stale-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_cleanup_stale_flags::eval_cleanup_stale_flags",

@@ -10,6 +10,8 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
+NO_SEND_LOGS = True
+
 SIGNUPS_DASHBOARD_NAME = "Signups and uploads (SQL)"
 BILLING_DASHBOARD_NAME = "Billing and downloads (SQL)"
 
@@ -23,6 +25,7 @@ def seed_team(context: CustomPromptSandboxContext) -> dict[str, Any]:
 
 async def eval_dashboard_sql_date_range(ctx: EvalContext) -> None:
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-dashboards-sql-date-range-cli",
         offline_suite=offline_suite(
             "dashboards/eval_dashboard_sql_date_range::eval_dashboard_sql_date_range",
