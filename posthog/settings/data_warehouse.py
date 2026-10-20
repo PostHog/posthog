@@ -90,6 +90,16 @@ DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
 )
 
+# The size-driven split budget for tables that upsert on a primary key (incremental, webhook, xmin).
+# Those upserts go through deltalite, whose peak memory does not grow with partition size, while on an
+# md5 table every extra partition adds one more rewritten file to each merge. The delta-rs MERGE runs on
+# such a table only for a batch that deltalite fails, and this larger cap bounds partition size for that
+# fallback. The OOM-history trigger still splits a table whose fallback runs out of memory.
+# A value below DATA_WAREHOUSE_TARGET_PARTITION_BYTES has no effect.
+DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000, type_cast=int
+)
+
 # How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
 # Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
 # entirely (the fleet kill switch — hooks become no-ops and no thread starts).
@@ -217,12 +227,19 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
 # so a set must stay inside the memory slice the deltalite governor sizes per concurrent upsert
 # (memory_governor.py): with a 29 GiB pod, 16 groups in flight and a 2 GiB reserve, that slice is
 # about 1.3 GiB, of which 750 MiB goes to four partition workers. The row cap equals one extraction
-# chunk, the largest single batch the loader already takes, and the byte cap counts parquet on disk,
-# which decodes to Arrow several times its size. The count cap is only a backstop.
+# chunk, the largest single batch the loader already takes. The count cap is only a backstop.
+# When each batch records its decoded Arrow size and the pod limit is known, the copies of a set the
+# loader holds may use SLOT_SHARE of that slice, and the set's Arrow size never exceeds
+# MAX_ARROW_BYTES. Otherwise MAX_BYTES caps the parquet on disk, which decodes to Arrow several
+# times its size.
 DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES", 128, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE = get_from_env("DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE", 0.4, type_cast=float)
+DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES", 512 * 1024 * 1024, type_cast=int
 )
 
 # Consecutive configuration errors (bad credentials, unknown database, unreachable host) after which

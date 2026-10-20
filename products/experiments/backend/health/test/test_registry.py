@@ -35,6 +35,7 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
     hours_since_launch=72,
+    counts_groups=False,
 )
 
 UNEVEN_FLAG = FlagState(
@@ -58,12 +59,28 @@ Key = ExperimentHealthCheckKey
 Status = ExperimentHealthCheckStatus
 NOT_LOOKED = (Status.NOT_APPLICABLE, Status.NOT_CHECKED)
 FLAG_CHANGE_KEYS = (Key.SPLIT_CHANGED_MID_RUN, Key.BUCKETING_CHANGED_MID_RUN, Key.RELEASE_CONDITIONS_CHANGED_MID_RUN)
+EVEN_SPLIT_FLAG = FlagState(
+    active=True,
+    deleted=False,
+    release_groups=(),
+    variants=(FlagVariant(key="control", rollout_percentage=50), FlagVariant(key="test", rollout_percentage=50)),
+    reachable_conditions=(),
+)
+
+
+def _totals_with_multiple(multiple: int, total: int) -> ExposureTotals:
+    single = total - multiple
+    return replace(
+        UNEVEN_SPLIT_TOTALS,
+        total_exposures={"control": single - single // 2, "test": single // 2, "$multiple": multiple},
+    )
 
 
 def _raise(_ctx: HealthContext) -> Any:
     raise ValueError("malformed")
 
 
+MULTIPLE_VARIANTS_CHECK = next(check for check in EXPOSURE_HEALTH_CHECKS if check.key == Key.MULTIPLE_VARIANTS_SHARE)
 FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", find=_raise, skip=lambda _ctx: None)
 
 
@@ -102,6 +119,23 @@ class TestEvaluate(TestCase):
                 },
                 [],
             ),
+            (
+                "multiple_variants_share_on_an_even_split",
+                {"flag": EVEN_SPLIT_FLAG, "exposures": _totals_with_multiple(60, 1000)},
+                [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
+            (
+                "multiple_variants_share_after_the_end",
+                {**ENDED, "exposures": _totals_with_multiple(60, 1000)},
+                [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
+            ("no_multiple_variants_share_at_the_threshold", {**ENDED, "exposures": _totals_with_multiple(5, 100)}, []),
+            ("no_multiple_variants_share_under_5_users", {**ENDED, "exposures": _totals_with_multiple(4, 40)}, []),
+            (
+                "multiple_variants_share_under_100_exposures",
+                {**ENDED, "exposures": _totals_with_multiple(5, 60)},
+                [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
         ]
     )
     def test_exposure_checks(
@@ -124,6 +158,7 @@ class TestEvaluate(TestCase):
                     Key.NO_METRIC: Status.NOT_APPLICABLE,
                     Key.ZERO_EXPOSURES: Status.NOT_APPLICABLE,
                     Key.SRM: Status.NOT_APPLICABLE,
+                    Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_APPLICABLE,
                 },
             ),
             (
@@ -146,6 +181,15 @@ class TestEvaluate(TestCase):
                 {Key.ZERO_EXPOSURES: Status.NOT_APPLICABLE, Key.SRM: Status.NOT_APPLICABLE},
             ),
             (
+                "multiple_variants_are_not_counted_under_first_seen",
+                {
+                    "exposures": replace(
+                        _totals_with_multiple(60, 1000), multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN
+                    )
+                },
+                {Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED, Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.PASSED},
+            ),
+            (
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},
@@ -162,6 +206,18 @@ class TestEvaluate(TestCase):
         self.assertEqual(
             [check.key for check in health.checks if (check.reason is None) == (check.status in NOT_LOOKED)], []
         )
+
+    @parameterized.expand(
+        [
+            ("persons", False, "Many users were exposed to multiple variants"),
+            ("groups", True, "Many groups were exposed to multiple variants"),
+        ]
+    )
+    def test_multiple_variants_share_names_the_counted_unit(self, _name: str, counts_groups: bool, title: str) -> None:
+        exposures = replace(_totals_with_multiple(60, 1000), counts_groups=counts_groups)
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **ENDED, exposures=exposures), (MULTIPLE_VARIANTS_CHECK,))
+
+        self.assertEqual([finding.title for finding in health.findings], [title])
 
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:
         with patch.object(registry, "capture_exception") as capture:

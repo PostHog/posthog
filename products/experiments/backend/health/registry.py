@@ -24,6 +24,10 @@ from products.experiments.backend.health.checks.forced_variant import (
     forced_variant_release_condition,
     forced_variant_skip,
 )
+from products.experiments.backend.health.checks.multiple_variants import (
+    multiple_variants_share,
+    multiple_variants_share_skip,
+)
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_skip
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm, srm_skip
@@ -110,9 +114,15 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.BIAS_RISK_MULTIPLE_EXCLUDED,
-        name="Users exposed to multiple variants",
+        name="Bias from an uneven split",
         find=bias_risk_multiple_excluded,
         skip=bias_risk_skip,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.MULTIPLE_VARIANTS_SHARE,
+        name="Users exposed to multiple variants",
+        find=multiple_variants_share,
+        skip=multiple_variants_share_skip,
     ),
 )
 

@@ -9946,6 +9946,7 @@ export namespace Schemas {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -9961,6 +9962,7 @@ export namespace Schemas {
         | "flag_live_after_end"
         | "flag_live_before_launch"
         | "bias_risk_multiple_excluded"
+        | "multiple_variants_share"
         | "no_metric"
         | "srm"
         | "zero_exposures"
@@ -10006,6 +10008,7 @@ export namespace Schemas {
          * * `flag_live_after_end` - Flag Live After End
          * * `flag_live_before_launch` - Flag Live Before Launch
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
@@ -10061,6 +10064,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      */
     export type ExperimentHealthCheckKeyEnum =
         | "flag_state"
@@ -10073,7 +10077,8 @@ export namespace Schemas {
         | "no_metric"
         | "zero_exposures"
         | "srm"
-        | "bias_risk_multiple_excluded";
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     /**
      * * `passed` - Passed
      * * `finding` - Finding
@@ -10100,6 +10105,7 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
@@ -10459,7 +10465,8 @@ export namespace Schemas {
     export type ExperimentExposureHealthCheckKey =
         | "zero_exposures"
         | "srm"
-        | "bias_risk_multiple_excluded";
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentExposureHealthCheckStatus =
         | "passed"
         | "finding"
@@ -10490,7 +10497,8 @@ export namespace Schemas {
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
-        | "bias_risk_multiple_excluded";
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -12438,6 +12446,8 @@ export namespace Schemas {
      * * `Leantime` - Leantime
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13837,7 +13847,9 @@ export namespace Schemas {
         | "Creem"
         | "Leantime"
         | "Testomatio"
-        | "GoogleAdMob";
+        | "GoogleAdMob"
+        | "Klar"
+        | "ConectoCRM";
     /**
      * * `web` - web
      * * `api` - api
@@ -15246,6 +15258,8 @@ export namespace Schemas {
          * * `Leantime` - Leantime
          * * `Testomatio` - Testomatio
          * * `GoogleAdMob` - GoogleAdMob
+         * * `Klar` - Klar
+         * * `ConectoCRM` - ConectoCRM
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

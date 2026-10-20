@@ -6321,7 +6321,11 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
-export type ExperimentExposureHealthFindingCode = 'zero_exposures' | 'srm' | 'bias_risk_multiple_excluded'
+export type ExperimentExposureHealthFindingCode =
+    | 'zero_exposures'
+    | 'srm'
+    | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6350,7 +6354,11 @@ export interface ExperimentExposureHealthFinding {
     diagnostic_ref: string | null
 }
 
-export type ExperimentExposureHealthCheckKey = 'zero_exposures' | 'srm' | 'bias_risk_multiple_excluded'
+export type ExperimentExposureHealthCheckKey =
+    | 'zero_exposures'
+    | 'srm'
+    | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
