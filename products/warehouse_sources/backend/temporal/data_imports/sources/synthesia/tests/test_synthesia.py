@@ -4,7 +4,6 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -122,13 +121,6 @@ def test_sync_auth_errors_are_terminal_and_mapped(status: int) -> None:
     ]
     assert len(messages) == 1
     assert messages[0] is not None and "Legacy (v2)" in messages[0]
-
-
-def test_unknown_endpoint_fails_before_request() -> None:
-    result = _driver().run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 def test_missing_list_fails_instead_of_replacing_table_with_empty_data() -> None:

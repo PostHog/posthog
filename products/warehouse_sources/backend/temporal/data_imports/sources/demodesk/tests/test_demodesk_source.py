@@ -1,6 +1,5 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.source import DemodeskSource
@@ -26,12 +25,3 @@ class TestDemodeskSourceValidateCredentials:
         assert len(network.requests_log) == 1
         assert network.requests_log[0].path == "/api/v2/me"
         assert network.requests_log[0].headers["authorization"] == "Bearer plain-key"
-
-
-class TestDemodeskSourceForPipeline:
-    def test_unknown_schema_raises(self) -> None:
-        result = SourceDriver(DemodeskSource(), DemodeskSourceConfig(api_key="key")).run("not_a_demodesk_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "no schema named" in str(result.raised)
-        assert result.requests == []

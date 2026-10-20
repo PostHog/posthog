@@ -253,9 +253,12 @@ class ProjectRouteMatch(Scorer):
 
         got = _routes_to(output)
         wanted = want.get("integration_id")
+        # Null keeps the run on the default, so naming the default and answering null
+        # answer from the same data.
+        matched = got == wanted or (got is None and want.get("is_default", False))
         return Score(
             name=self._name(),
-            score=1.0 if got == wanted else 0.0,
+            score=1.0 if matched else 0.0,
             metadata={"expected_integration_id": wanted, "actual_integration_id": got},
         )
 

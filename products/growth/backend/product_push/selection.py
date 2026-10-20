@@ -12,6 +12,10 @@ Usage granularity is per project: ProductIntent rows are project-scoped
 "using" a product when a majority of its projects do. A product adopted by a
 minority of projects still gets pushed to the rest of the org — the promo card
 is hidden in the projects that already use it (see the API's team_id handling).
+
+Growth owns the product push program, including both product lists below. Other
+teams must not add, remove, or reorder products here. Ask #team-growth to run a
+push for your product instead.
 """
 
 from collections import defaultdict

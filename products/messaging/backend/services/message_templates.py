@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db import models, transaction
 from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
+from django.utils import timezone
 
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
@@ -100,6 +101,14 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
     _apply_fields(template, fields)
     template.save()
     return template
+
+
+def save_draft(team_id: int, template_id: UUID | str, draft: dict[str, Any] | None) -> MessageTemplate:
+    # Writes only the draft, so a draft save that races a publish, a delete or a conversion can't undo it.
+    MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id).update(
+        draft_content=draft, updated_at=timezone.now()
+    )
+    return team_template(team_id, template_id)
 
 
 def edit_content_locked(
