@@ -231,7 +231,7 @@ def wide_row_target_file_size(add_actions: pa.Table) -> int | None:
     """
     if add_actions.num_rows == 0 or not {"size_bytes", "num_records"} <= set(add_actions.column_names):
         return None
-    counted = add_actions.filter(pc.greater(add_actions["num_records"], 0))
+    counted = add_actions.filter(pc.greater(add_actions["num_records"], pa.scalar(0)))
     stored_bytes = pc.sum(counted["size_bytes"]).as_py() or 0
     rows = pc.sum(counted["num_records"]).as_py() or 0
     if rows == 0 or stored_bytes < WIDE_ROW_MIN_TABLE_BYTES:
