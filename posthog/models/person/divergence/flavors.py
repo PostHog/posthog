@@ -191,9 +191,8 @@ def classify_mapping(pg: PgMapping | None, ch: ChMapping | None, *, ch_owner_pg_
         return _verdict("mapping", "ghost", sub)
 
     if pg.is_deleted:
-        if ch_live and ch is not None and ch.winner_version >= pg.version:
-            return _verdict("mapping", "deleted_visible")
-        return _verdict("mapping", "ok_deleted")
+        # A live winner at any version still resolves the id, so the tombstone has not reached ClickHouse.
+        return _verdict("mapping", "deleted_visible" if ch_live else "ok_deleted")
 
     # None is an orphan row whose person is gone; ingestion re-attaches it like any other stray.
     if pg.person_is_deleted is not False:

@@ -123,12 +123,13 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
             person_id=990_001,
             uuid=str(uuid4()),
             version=0,
-            distinct_ids=["gone", "holder-1"],
-            distinct_id_versions={"gone": 3},
-            tombstoned_distinct_ids=["gone"],
+            distinct_ids=["gone", "unpublished", "holder-1"],
+            distinct_id_versions={"gone": 3, "unpublished": 3},
+            tombstoned_distinct_ids=["gone", "unpublished"],
         )
         self._ch_person(holder.uuid, 0, {})
         self._ch_mapping("gone", holder.uuid, 5)
+        self._ch_mapping("unpublished", holder.uuid, 1)
         self._ch_mapping("holder-1", holder.uuid, 0)
         stray_owner = fake.add_person(
             team_id=self.team.pk,
@@ -143,12 +144,17 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert before == {
             str(deleted.uuid): ("deleted_visible", "bury"),
             "gone": ("deleted_visible", "bury"),
+            "unpublished": ("deleted_visible", "bury"),
             "stray-1": ("stray", None),
         }
 
         buried = self._run(scan_dir, "bury", apply=True)
 
-        assert {a["key"]: a["outcome"] for a in buried} == {str(deleted.uuid): "republished", "gone": "buried"}
+        assert {a["key"]: a["outcome"] for a in buried} == {
+            str(deleted.uuid): "republished",
+            "gone": "buried",
+            "unpublished": "buried",
+        }
         assert self._scan()[1] == {"stray-1": ("stray", None)}
 
     def _hidden_person_with_stale_mapping(self) -> str:
