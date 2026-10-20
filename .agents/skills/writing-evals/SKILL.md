@@ -48,7 +48,9 @@ async def eval_my_thing(ctx: EvalContext) -> None:
 
 - One suite = one Braintrust experiment. Bundle related cases into one suite; split only when the scorecard would be heterogeneous (self-skipping scorers stretch a shared scorer list across mildly different cases, but a scorecard where half the scorers skip half the cases is a sign to split).
 - `experiment_name` is the Braintrust history key — renaming it resets cross-run comparison. Existing sandboxed suites end in `-cli` because the MCP server serves the `cli` surface.
-- `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust and PostHog, including available input, output, and expected values. `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written. PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients. See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md).
+- `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when `offline_suite` is configured. `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service by default; local logs are still written. Set `send_to_posthog=True` with `offline_suite` to publish only to PostHog, or `send_to_posthog=False` to disable that destination independently. These options also apply to one-shot suites. Ordinary SDK and trace clients still honor `OPT_OUT_CAPTURE`. See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md).
+- To enroll a suite in PostHog reporting, register its scorer kinds and immutable version UUIDs in the owning `offline_config.py` catalog, then pass `offline_suite=offline_suite("<domain>/<module>::<function>", metrics=[...])` to the runner. Use the PostHog AI catalog for built-in suites and the Slack app catalog for Slack suites. List every explicit scorer's `_name()` in `metrics`; the catalog adds `exit_code_zero` only for sandboxed suites. For one-shot suites, pass `suite_kind=SUITE_KIND`. The enrollment test discovers catalog-using modules and checks every suite function against its scorer list.
+- Uploading and tagging require `POSTHOG_OFFLINE_EVAL_API_KEY` to be a personal key with `offline_evaluation_ingestion:write` and `evaluation:write`. Ingestion-only personal or project secret keys can upload without tags. Upload success is recorded before the separate, bounded tag update, so a tagging failure or interruption keeps the results link.
 
 ## One-shot suites
 
@@ -135,7 +137,7 @@ class MyCheck(Scorer):
 
 Rules that apply to both:
 
-- The harness adds `ExitCodeZero` to every experiment. Do not include it in a suite's `scorers`; an explicit duplicate is rejected.
+- The sandboxed harness adds `ExitCodeZero` to every experiment. Do not include it in a suite's `scorers`; an explicit duplicate is rejected. One-shot suites do not receive it.
 - Reuse the other generic scorers first: `NoToolCall`, `RequiredToolCall`, and `LastToolCallNot` (all in `products.posthog_ai.eval_harness.scorers`).
 - Always parse logs via `LogParser.cached(...)` so a case's log is parsed once, not once per scorer.
 - Count only successful tool calls (`is_error=False`) — the agent is free to attempt and fail.
