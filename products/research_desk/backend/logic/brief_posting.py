@@ -38,19 +38,19 @@ def _due_sessions(now: datetime) -> list[ResearchSession]:
     )
 
 
-def _claim(session_id: UUID, now: datetime) -> bool:
+def _claim(team_id: int, session_id: UUID, now: datetime) -> bool:
     # The conditional update runs on the writer, so of two overlapping runs only one wins the row,
     # even when the candidate list came from a lagging replica.
     return (
         ResearchSession.objects.filter(
-            id=session_id, brief_posted_at__isnull=True, status=SessionStatus.SCHEDULED
+            team_id=team_id, id=session_id, brief_posted_at__isnull=True, status=SessionStatus.SCHEDULED
         ).update(brief_posted_at=now)
         == 1
     )
 
 
-def _release(session_id: UUID) -> None:
-    ResearchSession.objects.filter(id=session_id, slack_message_ts="").update(brief_posted_at=None)
+def _release(team_id: int, session_id: UUID) -> None:
+    ResearchSession.objects.filter(team_id=team_id, id=session_id, slack_message_ts="").update(brief_posted_at=None)
 
 
 def post_due_briefs(now: datetime | None = None) -> int:
@@ -79,7 +79,7 @@ def post_due_briefs(now: datetime | None = None) -> int:
     posted: list[UUID] = []
     with team_scope(team_id):
         for session in _due_sessions(now):
-            if not _claim(session.id, now):
+            if not _claim(team_id, session.id, now):
                 continue
             dto = session_to_dto(session)
             try:
@@ -88,10 +88,10 @@ def post_due_briefs(now: datetime | None = None) -> int:
                 ts = post_with_join(slack, channel_id, brief.blocks, brief.text)
             except Exception as e:
                 # A failed post releases the claim so the next run retries it.
-                _release(session.id)
+                _release(team_id, session.id)
                 logger.exception("research_desk_brief_post_failed", session_id=str(session.id), error=str(e))
                 continue
-            ResearchSession.objects.filter(id=session.id).update(slack_message_ts=ts or "")
+            ResearchSession.objects.filter(team_id=team_id, id=session.id).update(slack_message_ts=ts or "")
             posted.append(session.id)
 
     if posted:
