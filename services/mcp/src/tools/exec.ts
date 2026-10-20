@@ -257,7 +257,6 @@ export interface ExecToolOptions {
      * is the case where an agent has no way to reach a built-in skill at all.
      */
     builtInSkillHint?: BuiltInSkillHint
-    /** OAuth client id from token introspection, so scope recovery text can fit the client that picks the scopes. */
     oauthClientId?: string | undefined
 }
 
@@ -1658,8 +1657,6 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
 }
 
 function missingScopeRecovery(context: Context | undefined, oauthClientId: string | undefined): string {
-    // The app requests a fixed scope list set on OpenAI's side, so telling its users to
-    // reauthorize sends them around a loop whenever the missing scope is not on that list.
     if (isChatGptAppConnection(oauthClientId)) {
         return 'The PostHog app in ChatGPT and Codex does not request every PostHog scope, so reconnecting it adds these scopes only if the app asks for them. If the user already reconnected and approved all access, this tool is not available through the app yet. Continue with the other tools.'
     }
