@@ -848,6 +848,8 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     row lock and writes the source's owner in the same transaction, so both rows change together.
     Returns False, changing nothing, when the copy is inside a firing of its own: a team on live
     delivery can have one open while its source is quiet, and replacing it would orphan the incident.
+    A grouped copy carries only the configuration's fields. Its source holds one state for the whole
+    alert, which no group inherits, and each group's row comes from the check that finds it.
     Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
     """
     if handover.state not in _HANDOVER_STATES:
@@ -858,10 +860,18 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             .select_for_update()
             .get(legacy_configuration_id=handover.legacy_configuration_id)
         )
-        key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
-        alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
+        alert: PlatformAlert | None = None
+        if Grouping.from_stored(configuration.grouping).mode == GroupingMode.SINGLE:
+            key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
+            alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
+            alerts = [alert]
+        else:
+            # No grouped check writes the empty key, so a row for it would only hold a slot of the cap.
+            alerts = _instances_by_configuration(handover.team_id, [configuration]).get(str(configuration.id), [])
         # A failing check status means the machine already ended the firing the row still holds.
-        live_firing = alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None
+        live_firing = any(
+            instance.state == PlatformAlertState.FIRING or instance.firing_started_at is not None for instance in alerts
+        )
         if live_firing and configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK:
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
@@ -879,10 +889,11 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             update_fields=["owner", "owner_changed_at", "consecutive_failures", "next_check_at", "check_status"]
         )
 
-        alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
-        alert.firing_started_at = None
-        alert.last_notified_at = handover.last_notified_at
-        alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
+        if alert is not None:
+            alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
+            alert.firing_started_at = None
+            alert.last_notified_at = handover.last_notified_at
+            alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     return True
 
 
