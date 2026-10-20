@@ -1976,6 +1976,10 @@ class TestSharedInsightsExecutionMode(BaseTest):
     @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
     def test_async_payload_pins_a_resolved_native_table(self, mock_enqueue: mock.MagicMock) -> None:
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            direct.query = direct.query.model_copy(update={"connectionId": "direct"})
+            with mock.patch.object(HogQLQueryRunner, "_validate_direct_connection"):
+                assert "useNewEventsSchema" not in direct.get_cache_payload()["hogql_modifiers"]
             runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False):
