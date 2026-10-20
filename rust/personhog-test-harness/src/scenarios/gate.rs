@@ -829,7 +829,7 @@ async fn run_gate(
                 .await?;
         violations.extend(publish::verify_published_merges(
             &expected_merges,
-            &published_merges.pairs,
+            &published_merges,
         ));
         println!(
             "  {} mappings and {} merge events for {} pairs read back from Kafka ({foreign_rows} rows and {} events of other teams skipped)",
