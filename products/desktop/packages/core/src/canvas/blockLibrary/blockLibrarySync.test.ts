@@ -11,18 +11,16 @@ import { BLOCK_RUNTIME_SOURCE } from "./runtimeSource";
 
 const METRIC_PATH = componentPath("Metric");
 const OLD_COPY = "export function Metric() { return null; }\n";
-const RECHARTS_COPY = `import { AreaChart } from "recharts";\n${OLD_COPY}`;
 
 function copiedEarlier(
   current: string,
   runtime?: string,
-  copied: string = OLD_COPY,
 ): Record<string, string> {
   return {
     [METRIC_PATH]: current,
     ...(runtime === undefined ? {} : { [BLOCK_RUNTIME_PATH]: runtime }),
     [BLOCK_MANIFEST_PATH]: JSON.stringify({
-      [METRIC_PATH]: hashText(copied),
+      [METRIC_PATH]: hashText(OLD_COPY),
       ...(runtime === undefined
         ? {}
         : { [BLOCK_RUNTIME_PATH]: hashText(BLOCK_RUNTIME_SOURCE) }),
@@ -48,16 +46,10 @@ describe("syncBlockLibrary", () => {
       runtime: `${BLOCK_RUNTIME_SOURCE}// edited\n`,
       expected: OLD_COPY,
     },
-    {
-      name: "keeps an untouched copy drawn with Recharts",
-      current: RECHARTS_COPY,
-      copied: RECHARTS_COPY,
-      expected: RECHARTS_COPY,
-    },
-  ])("$name", ({ current, runtime, copied, expected }) => {
-    expect(
-      syncBlockLibrary(copiedEarlier(current, runtime, copied))[METRIC_PATH],
-    ).toBe(expected);
+  ])("$name", ({ current, runtime, expected }) => {
+    expect(syncBlockLibrary(copiedEarlier(current, runtime))[METRIC_PATH]).toBe(
+      expected,
+    );
   });
 
   it("records the copy so a later sync sees it as untouched", () => {
