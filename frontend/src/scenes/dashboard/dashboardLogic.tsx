@@ -258,6 +258,11 @@ function startQueryAbortController(cache: Record<string, any>): AbortController 
     return cache.abortController
 }
 
+// A refresh that deferred every insight aborted the old controller and started none, and later requests must stay abortable.
+function currentQuerySignal(cache: Record<string, any>): AbortSignal {
+    return (cache.abortController ?? startQueryAbortController(cache)).signal
+}
+
 // One limiter per dashboard and request kind, so opening several closed groups during a refresh
 // cannot multiply the concurrent requests.
 async function runWithSharedLimit(
@@ -5103,8 +5108,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             cache.tileGroupPreloadedAt = { ...cache.tileGroupPreloadedAt, [groupKey]: performance.now() }
-            // A refresh that deferred every tile started no controller, and these requests must stay abortable.
-            const signal = (cache.abortController ?? startQueryAbortController(cache)).signal
+            const signal = currentQuerySignal(cache)
 
             const widgetTileIds = values.widgetTiles
                 .map((tile) => tile.id)
@@ -5194,8 +5198,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
             // Read before queueing: an abort clears cache.abortController while a chunk still waits for the limiter.
-            // A refresh that deferred every insight aborted the old controller and started none.
-            const signal = (cache.abortController ?? startQueryAbortController(cache)).signal
+            const signal = currentQuerySignal(cache)
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
                 try {
                     if (signal.aborted) {
