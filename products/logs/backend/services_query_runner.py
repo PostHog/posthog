@@ -1,7 +1,5 @@
 import datetime as dt
-import contextvars
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property
 from typing import Any
 
@@ -17,6 +15,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 
 from products.logs.backend.agent_window import utc_iso, window_echo
 from products.logs.backend.compare_windows import baseline_bounds
@@ -318,7 +317,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
         return ServicesQueryRunner(
             team=self.team,
-            query=self.query.model_copy(update={"dateRange": date_range}),
+            query=self.query.model_copy(deep=True, update={"dateRange": date_range}),
             service_name_search=self.service_name_search,
             environment=self.environment,
             limit_context=self.limit_context,
@@ -360,6 +359,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         if not edges:
             return _WindowCounts(counts=counts, total_services=total, source="rollup")
         edge_counts, edge_total = _counts_by_service(self._execute(self._aggregates_query(edges)))
+        if max(len(counts), len(edge_counts)) >= SERVICES_LIMIT:
+            counts, total = _counts_by_service(self._execute(self._aggregates_query()))
+            return _WindowCounts(counts=counts, total_services=total, source="raw")
         for name, edge in edge_counts.items():
             merged = counts.setdefault(name, {**edge, **dict.fromkeys(_COUNT_COLUMNS, 0)})
             for column in _COUNT_COLUMNS:
@@ -370,13 +372,14 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def _calculate(self) -> LogsQueryResponse:
         baseline_runner = self._baseline_runner
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            baseline_future = (
-                pool.submit(contextvars.copy_context().run, baseline_runner._window_counts) if baseline_runner else None
-            )
-            window = self._window_counts()
-            current, total_services, source = window.counts, window.total_services, window.source
-            baseline = baseline_future.result().counts if baseline_future else None
+        runners = [self, baseline_runner] if baseline_runner else [self]
+        windows = map_in_caller_context(
+            lambda runner: runner._window_counts(), runners, thread_name_prefix="logs_services"
+        )
+        current, total_services, source = windows[0].counts, windows[0].total_services, windows[0].source
+        baseline = windows[1].counts if baseline_runner else None
+        current_cut = len(current) >= SERVICES_LIMIT
+        baseline_cut = baseline is not None and len(baseline) >= SERVICES_LIMIT
 
         # Sparklines cover only the top services by volume; callers wanting
         # trends for other rows re-request with `serviceNames` scoped to the
@@ -390,9 +393,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         silent_names = [
             name
             for name, counts in (baseline or {}).items()
-            if name not in current and counts["log_count"] >= SILENT_MIN_BASELINE_LOGS
+            if name not in current and counts["log_count"] >= SILENT_MIN_BASELINE_LOGS and not current_cut
         ]
-        silent_last_seen = self._last_seen_in_rollup(silent_names) if silent_names else {}
+        silent_last_seen = self._last_seen_in_rollup(silent_names) if silent_names and self._use_rollup() else {}
 
         enabled_rules = list(
             LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
@@ -425,7 +428,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                         "summary_string": _sampling_rule_summary(rule),
                     }
                 )
-            verdict = classify_service(counts, base, baseline is not None)
+            verdict = classify_service(
+                counts, base, baseline is not None and not (baseline_cut and name not in baseline)
+            )
             status, reason = verdict.status, verdict.reason
             last_seen = counts["last_seen"] or silent_last_seen.get(name)
             base_count = base["log_count"] if base else None
@@ -497,7 +502,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     },
                     "truncated": total_services > len(current),
                 },
-                "next": _next_steps(services, current_window, baseline_window),
+                "next": _next_steps(services, current_window, baseline_window, self._scope()),
             }
         )
 
@@ -603,11 +608,24 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         exprs = [_time_range_expr("time_bucket", until - ROLLUP_RETENTION, until), *self._rollup_where()]
         exprs.append(parse_expr("service_name IN {names}", placeholders={"names": _tuple(service_names)}))
         query = parse_select(
-            "SELECT service_name, max(time_bucket) FROM posthog.logs_volume_buckets WHERE {where} GROUP BY service_name",
-            placeholders={"where": ast.And(exprs=exprs)},
+            "SELECT service_name, max(time_bucket) FROM posthog.logs_volume_buckets WHERE {where} GROUP BY service_name LIMIT {limit}",
+            placeholders={"where": ast.And(exprs=exprs), "limit": ast.Constant(value=len(service_names))},
         )
         assert isinstance(query, ast.SelectQuery)
         return {row[0]: row[1] for row in self._execute(query)}
+
+    def _scope(self) -> dict[str, Any]:
+        filters = [
+            prop.model_dump(exclude_none=True)
+            for group in (self.query.filterGroup.values if self.query.filterGroup else [])
+            for prop in getattr(group, "values", [])
+        ]
+        scope = {
+            "searchTerm": self.query.searchTerm,
+            "filterGroup": filters,
+            "severityLevels": self.query.severityLevels,
+        }
+        return {key: value for key, value in scope.items() if value}
 
     def _sparkline_query(self, service_names: list[str]) -> ast.SelectQuery:
         query = parse_select(
@@ -646,18 +664,18 @@ def _time_range_expr(field: str, lower: dt.datetime, upper: dt.datetime) -> ast.
     )
 
 
-def _next_steps(services: list[dict], current: tuple, baseline: tuple | None) -> list[dict]:
+def _next_steps(services: list[dict], current: tuple, baseline: tuple | None, scope: dict) -> list[dict]:
     window = {"date_from": utc_iso(current[0]), "date_to": utc_iso(current[1])}
     steps: list[dict] = []
     silent = next((s["service_name"] for s in services if s["status"] == "silent"), None)
     if silent and baseline:
         since_baseline = {"date_from": utc_iso(baseline[0]), "date_to": window["date_to"]}
-        query = {"dateRange": since_baseline, "serviceNames": [silent], "targetBuckets": 24}
+        query = {**scope, "dateRange": since_baseline, "serviceNames": [silent], "targetBuckets": 24}
         steps.append({"tool": "logs-count-ranges", "why": f"when {silent} stopped logging", "query": query})
     worse = next((s["service_name"] for s in services if s["status"] in ("regressed", "degraded")), None)
     if worse:
-        errors = {"dateRange": window, "serviceNames": [worse], "severityLevels": ["error", "fatal"]}
+        errors = {**scope, "dateRange": window, "serviceNames": [worse], "severityLevels": ["error", "fatal"]}
         steps.append({"tool": "logs-patterns-diff", "why": f"error patterns behind {worse}", "query": errors})
-        onset = {**errors, "targetBuckets": 30, "detect": "onset"}
-        steps.append({"tool": "logs-count-ranges", "why": f"when errors in {worse} started", "query": onset})
+        spike = {**errors, "targetBuckets": 30}
+        steps.append({"tool": "logs-count-ranges", "why": f"when errors in {worse} started", "query": spike})
     return steps[:3]

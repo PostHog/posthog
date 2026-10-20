@@ -8,7 +8,7 @@ Each row has `log_count`, `error_count`, `error_rate_pct` and `last_seen`. With 
 The status is `ok`, `degraded` (5% errors or more), `regressed` or `improved` (error rate up or down by 1 pp and 2x), `recovered`, `new` (no baseline logs) or `silent` (baseline logs, none now).
 Silent services appear only with a baseline.
 This is the entry point for "which services are silent, new or worse".
-Use `logs-group-by` for counts by pattern or attribute, `logs-patterns-diff` for the error patterns behind a regression, and `logs-count-ranges` with `detect: "onset"` for when a spike started.
+Use `logs-group-by` for counts by pattern or attribute, `logs-patterns-diff` for the error patterns behind a regression, and `logs-count-ranges` for when a spike started.
 
 `compare` is `none` (default), `previous_period`, `previous_day` or `previous_week`. `baselineDateRange`, next to `query`, sets an explicit baseline.
 `environment` matches the first set resource attribute of `deployment.environment.name`, `deployment.environment` and `env`.

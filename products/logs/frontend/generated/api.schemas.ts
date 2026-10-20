@@ -1665,15 +1665,6 @@ export interface _LogsCountResponseApi {
     count: number
 }
 
-/**
- * * `onset` - Onset
- */
-export type LogsDetectModeEnumApi = (typeof LogsDetectModeEnumApi)[keyof typeof LogsDetectModeEnumApi]
-
-export const LogsDetectModeEnumApi = {
-    Onset: 'onset',
-} as const
-
 export interface _LogsCountRangesBodyApi {
     /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
     dateRange?: _DateRangeApi
@@ -1691,10 +1682,6 @@ export interface _LogsCountRangesBodyApi {
     searchTerm?: string
     /** Property filters applied before bucketing. Same shape as `query-logs`. */
     filterGroup?: _LogPropertyFilterApi[]
-    /** "onset" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.
-     *
-     * * `onset` - Onset */
-    detect?: LogsDetectModeEnumApi | null
 }
 
 export interface _LogsCountRangesRequestApi {
@@ -1711,31 +1698,11 @@ export interface _LogsCountRangeBucketApi {
     count: number
 }
 
-export interface _LogsCountRangesOnsetApi {
-    /** When the spike starts, ISO 8601 UTC, from the finer second pass. */
-    start: string
-    /**
-     * When the spike ends. Null when it lasts to the window end.
-     * @nullable
-     */
-    end: string | null
-    /** Start of the bucket with the most logs in the spike. */
-    peak_at: string
-    /** Expected logs per minute before the spike. */
-    baseline_per_min: number
-    /** Logs per minute in the peak bucket. */
-    peak_per_min: number
-    /** high, medium or low. low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets. */
-    confidence: string
-}
-
 export interface _LogsCountRangesResponseApi {
     /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
     ranges: _LogsCountRangeBucketApi[]
     /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
     interval: string
-    /** Only with detect "onset". Null when no spike was found. */
-    onset?: _LogsCountRangesOnsetApi | null
 }
 
 export interface ExplainRequestApi {

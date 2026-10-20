@@ -64855,16 +64855,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `onset` - Onset
-     */
-    export type LogsDetectModeEnum = typeof LogsDetectModeEnum[keyof typeof LogsDetectModeEnum];
-
-
-    export const LogsDetectModeEnum = {
-      Onset: 'onset',
-    } as const;
-
-    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -117663,28 +117653,6 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before bucketing. Same shape as `query-logs`. */
       filterGroup?: _LogPropertyFilter[];
-      /** "onset" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.
-       *
-       * * `onset` - Onset */
-      detect?: LogsDetectModeEnum | null;
-    }
-
-    export interface _LogsCountRangesOnset {
-      /** When the spike starts, ISO 8601 UTC, from the finer second pass. */
-      start: string;
-      /**
-         * When the spike ends. Null when it lasts to the window end.
-         * @nullable
-         */
-      end: string | null;
-      /** Start of the bucket with the most logs in the spike. */
-      peak_at: string;
-      /** Expected logs per minute before the spike. */
-      baseline_per_min: number;
-      /** Logs per minute in the peak bucket. */
-      peak_per_min: number;
-      /** high, medium or low. low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets. */
-      confidence: string;
     }
 
     export interface _LogsCountRangesRequest {
@@ -117697,8 +117665,6 @@ export namespace Schemas {
       ranges: _LogsCountRangeBucket[];
       /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
       interval: string;
-      /** Only with detect "onset". Null when no spike was found. */
-      onset?: _LogsCountRangesOnset | null;
     }
 
     export interface _LogsCountRequest {

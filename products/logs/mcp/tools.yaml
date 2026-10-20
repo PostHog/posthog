@@ -393,7 +393,6 @@ tools:
             include:
                 - ranges
                 - interval
-                - onset
     logs-facet-values-create:
         operation: logs_facet_values_create
         enabled: true
@@ -470,11 +469,12 @@ tools:
         title: List services with health status
         description_file: ./prompts/logs-services.md
         response:
-            exclude:
+            include:
+                - services
                 - sparkline
-                - services.*.error_rate
-                - services.*.severity_breakdown
-                - services.*.active_rules
+                - window
+                - summary
+                - next
     logs-sparkline-query:
         operation: logs_sparkline_create
         enabled: true

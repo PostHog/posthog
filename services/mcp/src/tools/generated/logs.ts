@@ -640,7 +640,7 @@ const logsCountRanges = (): ToolBase<ReturnType<typeof LogsCountRangesSchema>, S
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count-ranges/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['ranges', 'interval', 'onset']) as typeof result
+        const filtered = pickResponseFields(result, ['ranges', 'interval']) as typeof result
         return filtered
     },
 })
@@ -786,11 +786,12 @@ const logsServicesCreate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/services/`,
             body,
         })
-        const filtered = omitResponseFields(result, [
+        const filtered = pickResponseFields(result, [
+            'services',
             'sparkline',
-            'services.*.error_rate',
-            'services.*.severity_breakdown',
-            'services.*.active_rules',
+            'window',
+            'summary',
+            'next',
         ]) as typeof result
         return filtered
     },

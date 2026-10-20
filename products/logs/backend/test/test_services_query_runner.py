@@ -467,6 +467,24 @@ class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
         assert result["window"]["baseline"] == {"from": "2026-06-22T12:00:00Z", "to": "2026-06-22T13:00:00Z"}
         assert {row["status"] for row in result["services"]} == {"new"}
 
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_next_keeps_the_original_scope(self) -> None:
+        result = self._services(compare="previous_period", searchTerm="log line")
+
+        assert result["next"]
+        for step in result["next"]:
+            assert step["query"]["searchTerm"] == "log line"
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_a_capped_scan_does_not_invent_silent_or_new_services(self) -> None:
+        with patch("products.logs.backend.services_query_runner.SERVICES_LIMIT", 2):
+            result = self._services(compare="previous_period")
+
+        assert not {row["status"] for row in result["services"]} & {"silent", "new"}
+
+    def test_environment_must_be_a_string(self) -> None:
+        self._services(expected_status=status.HTTP_400_BAD_REQUEST, environment=["production"])
+
     def test_unknown_compare_mode_is_rejected(self) -> None:
         response = self._services(expected_status=status.HTTP_400_BAD_REQUEST, compare="yesterday")
         assert "compare" in json.dumps(response)

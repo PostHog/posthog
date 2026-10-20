@@ -47,10 +47,8 @@ from products.logs.backend.column_expressions import canonical_key
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
-    DETECT_MODES,
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
-    LogsDetectMode,
 )
 from products.logs.backend.group_by_query_runner import (
     DEFAULT_GROUP_LIMIT,
@@ -643,15 +641,6 @@ class _LogsCountRangesBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters applied before bucketing. Same shape as `query-logs`.",
     )
-    detect = serializers.ChoiceField(
-        choices=LogsDetectMode.choices,
-        required=False,
-        allow_null=True,
-        help_text=(
-            '"onset" adds `onset`: when the first sustained spike in the window starts, refined by a second, '
-            "finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to."
-        ),
-    )
 
 
 class _LogsCountRangesRequestSerializer(serializers.Serializer):
@@ -668,17 +657,6 @@ class _LogsCountRangeBucketSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Log entries matching the filters within this bucket.")
 
 
-class _LogsCountRangesOnsetSerializer(serializers.Serializer):
-    start = serializers.CharField(help_text="When the spike starts, ISO 8601 UTC, from the finer second pass.")
-    end = serializers.CharField(allow_null=True, help_text="When the spike ends. Null when it lasts to the window end.")
-    peak_at = serializers.CharField(help_text="Start of the bucket with the most logs in the spike.")
-    baseline_per_min = serializers.FloatField(help_text="Expected logs per minute before the spike.")
-    peak_per_min = serializers.FloatField(help_text="Logs per minute in the peak bucket.")
-    confidence = serializers.CharField(
-        help_text="high, medium or low. low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets.",
-    )
-
-
 class _LogsCountRangesResponseSerializer(serializers.Serializer):
     ranges = _LogsCountRangeBucketSerializer(
         many=True,
@@ -692,9 +670,6 @@ class _LogsCountRangesResponseSerializer(serializers.Serializer):
             'Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). '
             "Informational only — use each bucket's `date_from`/`date_to` for follow-up queries."
         ),
-    )
-    onset = _LogsCountRangesOnsetSerializer(
-        required=False, allow_null=True, help_text='Only with detect "onset". Null when no spike was found.'
     )
 
 
@@ -1858,10 +1833,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
-        detect = query_data.get("detect")
-        if detect is not None and detect not in DETECT_MODES:
-            return Response({"error": 'detect must be "onset" or null'}, status=status.HTTP_400_BAD_REQUEST)
-        runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets, detect=detect)
+        runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1904,6 +1876,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return Response(
                 {"error": f"compare must be one of {', '.join(COMPARE_MODES)}"}, status=status.HTTP_400_BAD_REQUEST
             )
+        if not isinstance(query_data.get("environment") or "", str):
+            return Response({"error": "environment must be a string"}, status=status.HTTP_400_BAD_REQUEST)
         baseline_data = request.data.get("baselineDateRange")
         runner = ServicesQueryRunner(
             team=self.team,
