@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 import posthoganalytics
@@ -212,14 +212,19 @@ class CohortAddPersonsPayloadSerializer(serializers.Serializer):
     )
 
 
+class IssueAssigneeType(models.TextChoices):
+    USER = "user"
+    ROLE = "role"
+
+
 class IssueAssigneePayloadSerializer(serializers.Serializer):
     """An error tracking assignee: a user id or a role uuid."""
 
-    type = serializers.ChoiceField(choices=["user", "role"], help_text="Assign to a user or to a role.")
+    type = serializers.ChoiceField(choices=IssueAssigneeType.choices, help_text="Assign to a user or to a role.")
     id = serializers.CharField(max_length=64, help_text="User id (number) or role uuid.")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs["type"] == "user":
+        if attrs["type"] == IssueAssigneeType.USER:
             try:
                 attrs["id"] = int(attrs["id"])
             except ValueError:
