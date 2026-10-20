@@ -1127,7 +1127,8 @@ class EvenPicker(Generic[K]):
         weight_sum = sum(weights.values())
         for key, weight in weights.items():
             self._deficit[key] = self._deficit.get(key, 0.0) + amount * weight / weight_sum
-        picked = max(weights, key=lambda k: self._deficit[k])
+        # A key whose weight dropped to zero can keep a deficit from earlier picks, but must not win.
+        picked = max((k for k, w in weights.items() if w > 0), key=lambda k: self._deficit[k])
         self._deficit[picked] -= amount
         return picked
 
