@@ -57,6 +57,7 @@ from products.ai_observability.backend.llm.decisions import (
 )
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -909,7 +910,7 @@ def call_llm_judge(
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
-    except UnsupportedModelError:
+    except UnsupportedModelError as e:
         # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
         if (
             provider == "openrouter"
@@ -925,7 +926,9 @@ def call_llm_judge(
         increment_user_errors("model_not_supported", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("model_not_supported", is_byok=is_byok),
-            message=f"Model '{model}' does not support chat completions. Choose a chat model.",
+            message=str(e)
+            if isinstance(e, ClaudeDeploymentOnAzureOpenAIError)
+            else f"Model '{model}' does not support chat completions. Choose a chat model.",
             allows_na=allows_na,
             output_type=output_type,
             provider=provider,

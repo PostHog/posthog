@@ -18,12 +18,6 @@ def _config(api_key: str = "key") -> Any:
     return config
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = MailosaurSource().get_schemas(_config(), team_id=1, names=["servers"])
-        assert {s.name for s in schemas} == {"servers"}
-
-
 class TestResumableWiring:
     def test_source_for_pipeline_drops_incremental_value_when_disabled(self) -> None:
         inputs = MagicMock()

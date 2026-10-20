@@ -10,7 +10,7 @@ from products.actions.backend.models.action import Action
 
 @mutable_receiver(model_activity_signal, sender=Action)
 def handle_action_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
 ) -> None:
     # Detect soft delete/restore by checking the deleted field
     if before_update and after_update:
@@ -24,7 +24,7 @@ def handle_action_change(
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by,
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,

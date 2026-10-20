@@ -38,7 +38,6 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     KAFKA_ROUTING_FLAG,
-    REFRESH_ROUTING_FLAG,
     SHADOW_COMPARE_FLAG,
     _blank_inactive_filters,
     _compare_flag_fields,
@@ -1220,28 +1219,13 @@ class TestRefreshRoutingHook(SimpleTestCase):
 
     @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=False)
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
-    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
-    def test_the_deployment_switch_off_declines_the_team_without_reading_the_flag(self, mock_gate, mock_produce):
-        assert route_refresh_to_kafka(self.TEAM_ID) is False
-
-        # Checked before the flag, which resolves against one project key for every
-        # region and so cannot hold routing off in the lagging one.
-        mock_gate.assert_not_called()
-        mock_produce.assert_not_called()
-
-    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
-    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=False)
-    def test_gate_off_declines_the_team_and_produces_nothing(self, mock_gate, mock_produce):
+    def test_the_deployment_switch_off_declines_the_team_and_produces_nothing(self, mock_produce):
         assert route_refresh_to_kafka(self.TEAM_ID) is False
 
         mock_produce.assert_not_called()
-        # The sweep must not read the edit path's flag, which is pinned at 100%.
-        assert mock_gate.call_args.args[0] == REFRESH_ROUTING_FLAG
-        assert REFRESH_ROUTING_FLAG != KAFKA_ROUTING_FLAG
 
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
-    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
-    def test_gate_on_produces_a_message_the_builder_reads_as_a_refresh(self, mock_gate, mock_producer_scope):
+    def test_the_deployment_switch_on_produces_a_message_the_builder_reads_as_a_refresh(self, mock_producer_scope):
         mock_producer = MagicMock()
         mock_producer_scope.return_value.__enter__.return_value = mock_producer
 
@@ -1254,25 +1238,8 @@ class TestRefreshRoutingHook(SimpleTestCase):
         assert envelope.source == "refresh"
         assert envelope.shadow is False
 
-    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
-    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
-    @patch(
-        "products.feature_flags.backend.flags_cache.feature_enabled_or_false",
-        side_effect=RuntimeError("posthoganalytics borked"),
-    )
-    def test_a_broken_gate_leaves_the_build_to_python_without_ticking_the_tombstone(
-        self, mock_gate, mock_produce, mock_tombstone
-    ):
-        assert route_refresh_to_kafka(self.TEAM_ID) is False
-
-        mock_produce.assert_not_called()
-        # A run evaluates the gate once per team, so a tick here would hold a constant
-        # rate on a panel that means "rare anomaly".
-        mock_tombstone.labels.assert_not_called()
-
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
-    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
-    def test_a_produce_failure_is_reported_rather_than_counted_as_enqueued(self, mock_gate, mock_producer_scope):
+    def test_a_produce_failure_is_reported_rather_than_counted_as_enqueued(self, mock_producer_scope):
         mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
 
         # Never True: the sweep counts a team as enqueued from this returning True, so
@@ -1419,7 +1386,6 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         # the gate reports its own failure as "shadow off".
         assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_compare_flag_evaluation_failed"
 
-    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     # `_shadow_compare_enabled` reaches the SDK through ph_client rather than this
     # module's import. Patching here still covers it, because both names resolve to
@@ -1427,15 +1393,12 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
     @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
     def test_every_gate_evaluates_locally_and_captures_nothing(self, mock_feature_enabled, mock_produce):
         publish_shadow_invalidation(self.TEAM_ID)
-        route_refresh_to_kafka(self.TEAM_ID)
 
         # A remote evaluation would put a blocking flags-API call inside every cache
-        # build, and an event capture would bill each rebuild as product usage. The
-        # refresh gate runs once per team of every hourly run, so it costs the most.
+        # build, and an event capture would bill each rebuild as product usage.
         assert {call.args[0] for call in mock_feature_enabled.call_args_list} == {
             KAFKA_ROUTING_FLAG,
             SHADOW_COMPARE_FLAG,
-            REFRESH_ROUTING_FLAG,
         }
         for call in mock_feature_enabled.call_args_list:
             assert call.kwargs["only_evaluate_locally"] is True
@@ -1492,14 +1455,8 @@ class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
     def test_flags_config_binds_the_refresh_routing_hook(self):
         # The lambda on the config is the only wire between the sweep and the hook.
         # Unbound, the sweep silently keeps building in Python and the enqueued gauge
-        # stays at zero, which looks the same as the flag being off.
-        with (
-            patch("products.feature_flags.backend.flags_cache._produce_invalidation") as mock_produce,
-            patch(
-                "products.feature_flags.backend.flags_cache.feature_enabled_or_false",
-                return_value=True,
-            ),
-        ):
+        # stays at zero, which looks the same as the setting being off.
+        with patch("products.feature_flags.backend.flags_cache._produce_invalidation") as mock_produce:
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn is not None
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(42) is True
 

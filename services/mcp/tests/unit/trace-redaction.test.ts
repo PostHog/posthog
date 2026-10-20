@@ -84,6 +84,18 @@ describe('trace redaction', () => {
         expect(properties.$session_id).toBe('session-1')
     })
 
+    it.each(['full', 'summary'] as const)('retains cached-image spend metadata at %s detail', (detail) => {
+        const trace = {
+            id: 'trace-1',
+            events: [{ id: 'e1', properties: { $ai_cache_read_image_tokens: 16, custom_secret: SECRETS.credential } }],
+        }
+
+        const { results } = compactTraceResponse({ results: redactTraceResults([trace]) }, detail) as any
+
+        expect(results[0].events[0].properties.$ai_cache_read_image_tokens).toBe(16)
+        expect(secretsIn(results)).toEqual([])
+    })
+
     it('withholds every non-AI property value and reports its name instead', () => {
         const event = (redactTrace(traceWithSecrets()) as any).events[0]
 

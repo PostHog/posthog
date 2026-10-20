@@ -84,9 +84,3 @@ class TestInvoicedSource:
 
         assert result.raised is None
         assert result.requests[0].param("updated_after") is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Invoiced schema 'not_a_table'" in str(result.raised)

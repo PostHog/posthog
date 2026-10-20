@@ -11,6 +11,13 @@ Reference: <https://docs.withpersona.com/reference> · Base URL: `https://api.wi
   `created-at`. No `updated-at` filter exists, so only `created_at` is advertised as an incremental cursor
   (updates to existing records are captured on full refresh, not incrementally).
 - **Rate limit:** 300 req/min; `429` with reset headers on excess (handled by retry + backoff).
+- **Versions:** dated, selected per request with a `Persona-Version` header; without it the API key's
+  dashboard-configured version applies ([versioning](https://docs.withpersona.com/versioning)). The legacy
+  `v1` label sends no header, so those pins keep following the key's version. `2026-09-29` (the default
+  for new sources) sends `Persona-Version: 2026-09-29`. Its only breaking change this source reads is in
+  `verifications`: `immigration-status` on UK share code verifications now carries the Home Office status
+  text verbatim instead of a mapped value
+  ([changelog](https://docs.withpersona.com/api-reference/versioning/api-changelog)).
 
 ## Endpoints synced
 
