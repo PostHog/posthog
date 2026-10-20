@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { Button, Dot, Popover, PopoverContent, PopoverTrigger, Text } from '@posthog/quill'
+import { Accordion, Button, Dot, Popover, PopoverContent, PopoverTrigger, Text } from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -43,7 +43,7 @@ export interface DataChecksPopoverProps {
 
 export function DataChecksPopover({ insightProps, trigger, children }: DataChecksPopoverProps): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
-    const { checks, checkedQuery, result, status } = useValues(logic)
+    const { visibleChecks, checkedQuery, result, status } = useValues(logic)
     const { loadDataChecks, reportDataChecksViewed } = useActions(logic)
     const titleId = useId()
 
@@ -60,29 +60,35 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
             </PopoverTrigger>
             <PopoverContent
                 align="end"
-                className="w-80 gap-2"
+                className="w-96 gap-2"
                 aria-labelledby={titleId}
                 data-attr="insight-data-checks-list"
             >
                 <Text id={titleId} size="sm" weight="medium">
                     Checks we've run on this data
                 </Text>
-                <ul className="-mx-2 my-0 flex list-none flex-col p-0">
-                    {status === 'checking'
-                        ? Object.entries(DATA_CHECK_NAMES).map(([key, name]) => (
-                              <li key={key} className="flex items-start gap-2 px-2 py-1">
-                                  <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                                      <Dot variant="default" pulse />
-                                  </span>
-                                  <Text size={null} variant="muted" render={<span />}>
-                                      {name}
-                                  </Text>
-                              </li>
-                          ))
-                        : checks.map((check) => (
-                              <InsightDataCheckRow key={check.key} insightProps={insightProps} check={check} />
-                          ))}
-                </ul>
+                {visibleChecks.length > 0 ? (
+                    <Accordion>
+                        {visibleChecks.map((check) => (
+                            <InsightDataCheckRow key={check.key} insightProps={insightProps} check={check} />
+                        ))}
+                    </Accordion>
+                ) : (
+                    status === 'checking' && (
+                        <ul className="-mx-2 my-0 flex list-none flex-col p-0">
+                            {Object.entries(DATA_CHECK_NAMES).map(([key, name]) => (
+                                <li key={key} className="flex items-start gap-2 px-2 py-1">
+                                    <span className="flex h-5 w-4 shrink-0 items-center justify-center">
+                                        <Dot variant="default" pulse />
+                                    </span>
+                                    <Text size={null} variant="muted" render={<span />}>
+                                        {name}
+                                    </Text>
+                                </li>
+                            ))}
+                        </ul>
+                    )
+                )}
                 <Text size="xs" variant="muted">
                     {summary(status, result?.coverage)}
                 </Text>
