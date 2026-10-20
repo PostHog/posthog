@@ -52,6 +52,7 @@ export interface WorkflowsFilters {
     status: WorkflowStatusFilter
     type: WorkflowTypeFilter
     triggerType: WorkflowTriggerTypeFilter
+    tags: string[]
     page: number
 }
 
@@ -61,6 +62,7 @@ const DEFAULT_FILTERS: WorkflowsFilters = {
     status: 'all',
     type: 'all',
     triggerType: 'all',
+    tags: [],
     page: 1,
 }
 
@@ -72,6 +74,7 @@ interface WorkflowsListParams {
     created_by?: string
     type?: HogFlowListType[]
     trigger?: string
+    tags?: string
     suggestions_first?: boolean
     limit: number
     offset: number
@@ -433,6 +436,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 type: filters.type !== 'all' ? [filters.type] : WORKFLOWS_PAGE_TYPES,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
+                tags: filters.tags.length ? JSON.stringify(filters.tags) : undefined,
                 // Only this page sorts a waiting suggestion above recency; every other reader of the
                 // list keeps recency, so one stale workflow cannot push fresh ones off their first page.
                 suggestions_first: true,
@@ -521,7 +525,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         const buildURL = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const searchParams = { ...router.values.searchParams }
 
-            const setOrDelete = (key: string, value: string | number | null | undefined): void => {
+            const setOrDelete = (key: string, value: string | number | string[] | null | undefined): void => {
                 if (value) {
                     searchParams[key] = value
                 } else {
@@ -534,6 +538,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             setOrDelete('status', values.filters.status !== 'all' ? values.filters.status : null)
             setOrDelete('type', values.filters.type !== 'all' ? values.filters.type : null)
             setOrDelete('trigger_type', values.filters.triggerType !== 'all' ? values.filters.triggerType : null)
+            setOrDelete('tags', values.filters.tags.length ? values.filters.tags : null)
             setOrDelete('page', values.filters.page > 1 ? values.filters.page : null)
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -548,12 +553,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
             const status = searchParams['status']
             const type = searchParams['type']
             const triggerType = searchParams['trigger_type']
+            const tags = searchParams['tags']
             const parsed: WorkflowsFilters = {
                 search: searchParams['search'] ? String(searchParams['search']) : '',
                 createdBy: searchParams['created_by'] ? String(searchParams['created_by']) : null,
                 status: WORKFLOW_STATUS_FILTERS.includes(status) ? status : 'all',
                 type: WORKFLOW_TYPE_FILTERS.includes(type) ? type : 'all',
                 triggerType: WORKFLOW_TRIGGER_TYPE_FILTERS.includes(triggerType) ? triggerType : 'all',
+                // kea-router parses a JSON array in the URL back into an array.
+                tags: Array.isArray(tags) ? tags.map(String) : typeof tags === 'string' && tags ? [tags] : [],
                 // Anything unparseable, zero, or negative falls back to page 1 rather than reaching
                 // the offset maths as NaN or a negative number.
                 page: Math.max(1, parseInt(String(searchParams['page'])) || 1),

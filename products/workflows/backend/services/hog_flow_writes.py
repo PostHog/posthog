@@ -7,6 +7,9 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_tags_on_object
+from posthog.models.tag import tagify
+
 from products.workflows.backend.facade.contracts import (
     WorkflowEditState,
     WorkflowHasNoDraft,
@@ -42,9 +45,12 @@ def field_values(flow: HogFlow) -> dict[str, object]:
 def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dict) -> WorkflowWriteResult:
     with transaction.atomic():
         data = dict(validated_data)
+        tags = data.pop("tags", None)
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
+        if tags:
+            set_tags_on_object(tags, instance)
         HogFlowRevision.objects.create(
             team_id=team_id,
             hog_flow=instance,
@@ -301,6 +307,9 @@ def update_workflow(
     # avoids false positives from timestamp round-tripping - equal means the client is already current.
     # Callers that omit `base_updated_at` keep the previous last-writer-wins behavior.
     base_stamp = _parse_stamp(base_updated_at)
+    # Tags are metadata on their own rows: they apply live, never to the draft, and never version the workflow.
+    validated_data = dict(validated_data)
+    tags = validated_data.pop("tags", None)
 
     with transaction.atomic():
         before_update = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
@@ -364,6 +373,11 @@ def update_workflow(
                 _save_live(instance, validated_data)
             if bump:
                 _append_revisions(team_id, user_id, instance, before_update)
+
+        # The editor sends the tags with every save, so only write them when they change.
+        if tags is not None and {tagify(tag) for tag in tags} != current_tag_names(instance):
+            set_tags_on_object(tags, instance)
+            cleanup_orphan_tags(team_id)
 
     paused = 0
     if not route_to_draft:

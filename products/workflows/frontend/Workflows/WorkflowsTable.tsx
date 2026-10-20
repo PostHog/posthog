@@ -15,6 +15,8 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -136,7 +138,8 @@ export function WorkflowsTable(): JSX.Element {
         !filters.search &&
         filters.createdBy === null &&
         filters.status === 'all' &&
-        filters.triggerType === 'all'
+        filters.triggerType === 'all' &&
+        filters.tags.length === 0
     const {
         loadWorkflows,
         toggleWorkflowStatus,
@@ -234,6 +237,18 @@ export function WorkflowsTable(): JSX.Element {
                                 }
                                 description={item.description}
                                 truncateDescription
+                            />
+                        )}
+                        {!!item.tags?.length && (
+                            <ObjectTags
+                                className="mt-1"
+                                tags={item.tags}
+                                staticOnly
+                                onTagClick={(tag) => {
+                                    if (!filters.tags.includes(tag)) {
+                                        setFilters({ tags: [...filters.tags, tag] })
+                                    }
+                                }}
                             />
                         )}
                         {stepMatches.length > 0 && <WorkflowStepMatches workflow={item} matches={stepMatches} />}
@@ -465,6 +480,15 @@ export function WorkflowsTable(): JSX.Element {
                         <MemberSelect
                             value={filters.createdBy}
                             onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                        />
+                        <span className="ml-1">
+                            <b>Tags</b>
+                        </span>
+                        <TagSelect
+                            size="small"
+                            defaultLabel="Any tags"
+                            value={filters.tags}
+                            onChange={(tags) => setFilters({ tags })}
                         />
                     </div>
                 </div>

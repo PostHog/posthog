@@ -17,6 +17,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -251,6 +252,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("name_match", "search=welcome", {"Welcome email"}),
             ("case_insensitive", "search=WELCOME", {"Welcome email"}),
             ("description_match", "search=quarterly", {"Digest"}),
+            ("tag_match", "search=retent", {"Digest"}),
             ("space_matches_separators", "search=password reset", {"Password reset"}),
             ("step_name_match", "search=monthly invoice", {"Billing"}),
             ("email_subject_match", "search=for march", {"Billing"}),
@@ -279,7 +281,12 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
         HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+        set_tags_on_object(
+            ["retention"],
+            HogFlow.objects.create(
+                team=self.team, name="Digest", description="quarterly summary", created_by=self.user
+            ),
+        )
         HogFlow.objects.create(team=self.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=self.user)
         HogFlow.objects.create(
             team=self.team,
@@ -405,6 +412,67 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+
+    @parameterized.expand(
+        [
+            ("one_tag", '["growth"]', {"Onboarding", "Upsell"}),
+            ("any_of_several_tags", '["billing", "support"]', {"Upsell", "Refunds"}),
+            ("unused_tag", '["unknown"]', set()),
+        ]
+    )
+    def test_list_filter_by_tags(self, _name, tags_param, expected_names):
+        for name, tags in (
+            ("Onboarding", ["growth"]),
+            ("Upsell", ["growth", "billing"]),
+            ("Refunds", ["support"]),
+            ("Untagged", []),
+        ):
+            set_tags_on_object(tags, HogFlow.objects.create(team=self.team, name=name, created_by=self.user))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", {"tags": tags_param})
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    @parameterized.expand([("not_json", "growth"), ("not_a_list", '"growth"'), ("not_strings", "[1]")])
+    def test_list_rejects_malformed_tags_filter(self, _name, tags_param):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", {"tags": tags_param})
+        assert response.status_code == 400, response.json()
+
+    def test_tags_round_trip_through_create_update_and_list(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "tags": ["Onboarding", "growth"]}, format="json"
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        response = self.client.patch(url, {"tags": ["growth"]}, format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["tags"] == ["growth"]
+        tag_changes = [
+            change
+            for entry in ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="updated")
+            for change in entry.detail["changes"] or []
+            if change["field"] == "tag"
+        ]
+        assert {(change["action"], change["before"], change["after"]) for change in tag_changes} == {
+            ("created", None, "growth"),
+            ("created", None, "onboarding"),
+            ("deleted", "onboarding", None),
+        }
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert [flow["tags"] for flow in list_response.json()["results"]] == [["growth"]]
+
+        response = self.client.patch(url, {"tags": []}, format="json")
+        assert response.json()["tags"] == []
 
     @parameterized.expand(
         [
