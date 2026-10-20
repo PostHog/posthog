@@ -73,6 +73,14 @@ Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
 It does not retry these requests automatically.
 
+## Project and organization context
+
+Resolve tool targets through `context.stateManager.getProjectId()` or `getOrgID()`. The Hono server snapshots the active selection for each request and stores it per credential and MCP transport session. Separate sessions can use the same credential concurrently in different organizations and projects, with or without URL pins. Unpinned sessions initialize from the user's active selection within the credential's allowed scope; later website changes do not retarget an existing session. Organization switches clear the previous project, and project switches keep the organization consistent with the selected project.
+
+The shared token cache holds credential and entity metadata. Its `orgId` and `projectId` selection keys remain only for requests without an MCP session ID. Session-aware tools must use the state manager instead of reading those keys directly. Session selections expire after 24 hours without requests; clients without an MCP session ID should pin a project explicitly.
+
+Session defaults are saved once with `SET NX` and kept separate from explicit selections. Lazy organization and project resolution updates only the request snapshot, so a delayed read cannot replace a newer switch in the same session.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface

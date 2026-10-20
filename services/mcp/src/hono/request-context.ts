@@ -229,8 +229,7 @@ export class RequestContext {
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        const stateManager = new StateManager(this.tokenCache, api, this.pinnedContext)
-        const sessionScopedCache = this.sessionScopedCache
+        const stateManager = new StateManager(this.tokenCache, api, this.pinnedContext, this.sessionScopedCache)
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.tokenCache,
@@ -238,16 +237,6 @@ export class RequestContext {
             stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
-            ...(sessionScopedCache
-                ? {
-                      setSessionActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
-                          await sessionScopedCache.setMany({
-                              ...(updates.orgId ? { activeOrgId: updates.orgId } : {}),
-                              ...(updates.projectId ? { activeProjectId: updates.projectId } : {}),
-                          })
-                      },
-                  }
-                : {}),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)

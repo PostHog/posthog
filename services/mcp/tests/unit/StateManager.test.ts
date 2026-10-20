@@ -6,7 +6,7 @@ import { PostHogApiError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
-import type { State } from '@/tools/types'
+import type { PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -33,6 +33,109 @@ describe('StateManager', () => {
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
     })
+
+    it.each([
+        {
+            lookup: 'organization',
+            context: { pin: { projectId: '456' }, projectId: '456' },
+            resolve: (manager: StateManager) => manager.getOrgID(),
+            expected: 'org-1',
+        },
+        {
+            lookup: 'project',
+            context: { pin: { organizationId: 'org-1' }, orgId: 'org-1' },
+            resolve: (manager: StateManager) => manager.getProjectId(),
+            expected: '456',
+        },
+        {
+            lookup: 'default',
+            context: { pin: {} },
+            resolve: (manager: StateManager) => manager.setDefaultOrganizationAndProject(),
+            expected: { organizationId: 'org-1', projectId: 456 },
+        },
+        {
+            lookup: 'initialization',
+            context: { pin: {} },
+            resolve: (manager: StateManager) => manager.setDefaultOrganizationAndProject(),
+            expected: { organizationId: 'org-2', projectId: 789 },
+        },
+    ])(
+        'preserves a newer selection when an older $lookup lookup finishes',
+        async ({ lookup, context, resolve, expected }) => {
+            const sessionCache = new MemoryCache<SessionScopedState>(`stale-${lookup}`)
+            await sessionCache.clear()
+            await cache.setMany({ apiKey: mockApiKey, apiKeyFetchedAt: Date.now() })
+            let finishLookup!: () => void
+            let lookupRequested!: () => void
+            const requested = new Promise<void>((resolve) => {
+                lookupRequested = resolve
+            })
+            const gate = new Promise<void>((resolve) => {
+                finishLookup = resolve
+            })
+            const api = {
+                config: { apiToken: 'phx_test' },
+                users: () => ({
+                    me: async () => {
+                        if (lookup === 'default' || lookup === 'initialization') {
+                            lookupRequested()
+                            await gate
+                        }
+                        return { success: true, data: mockUser }
+                    },
+                }),
+                projects: () => ({
+                    get: async () => {
+                        lookupRequested()
+                        await gate
+                        return { success: true, data: { id: 456, organization: 'org-1' } }
+                    },
+                }),
+            } as unknown as ApiClient
+            const snapshot = (): PinnedActiveContext => ({
+                ...context,
+                sessionScoped: true,
+            })
+            const older = new StateManager(cache, api, snapshot(), sessionCache)
+            const currentApi = {
+                ...api,
+                users: () => ({
+                    me: async () => ({
+                        success: true,
+                        data: {
+                            ...mockUser,
+                            organization: { id: 'org-2', name: 'Other organization' },
+                            team: { id: 789, name: 'Other project', organization: 'org-2' },
+                        },
+                    }),
+                }),
+            } as unknown as ApiClient
+            const newer = new StateManager(cache, currentApi, snapshot(), sessionCache)
+            const pending = resolve(older)
+            await requested
+            try {
+                if (lookup === 'initialization') {
+                    await newer.setDefaultOrganizationAndProject()
+                } else {
+                    await newer.setActiveContext({ orgId: 'org-2', projectId: '789' })
+                }
+            } finally {
+                finishLookup()
+            }
+
+            const resolved = await pending
+            const defaults = await sessionCache.get('defaultContext')
+            expect({
+                resolved,
+                orgId: (await sessionCache.get('activeOrgId')) ?? defaults?.organizationId,
+                projectId: (await sessionCache.get('activeProjectId')) ?? defaults?.projectId?.toString(),
+            }).toEqual({
+                resolved: expected,
+                orgId: 'org-2',
+                projectId: '789',
+            })
+        }
+    )
 
     it.each([true, false, undefined])('reports lookup errors with cached suppression=%s', async (suppressed) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})

@@ -689,7 +689,6 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     describe('pinned project/org context', () => {
-        // What the switch-project handler records on the session (Context.setSessionActiveContext).
         const simulateSwitch = (mcpSessionId: string, projectId: string, orgId?: string): void => {
             const store = mockSessionScopedStores.get(mcpSessionId)
             store?.set('activeProjectId', projectId)
@@ -764,14 +763,23 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(mockPinned.last?.projectId).toBe('1')
         })
 
-        it('renews the session-scoped keys TTL on every pinned request', async () => {
+        it.each([
+            ['pinned', '1'],
+            ['unpinned', undefined],
+        ])('renews the session-scoped keys TTL on every %s request', async (_label, projectId) => {
             // The keys carry a write-based TTL; without a per-request refresh a
             // switch recorded early in a long session expires first, reads back as
             // a changed pin, and the pin silently wins again.
-            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            await makeResolver().resolve(makeProps({ projectId }))
 
             expect(mockRefreshTtlCalls).toContainEqual(
-                expect.arrayContaining(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+                expect.arrayContaining([
+                    'appliedPinOrgId',
+                    'appliedPinProjectId',
+                    'activeOrgId',
+                    'activeProjectId',
+                    'defaultContext',
+                ])
             )
         })
     })

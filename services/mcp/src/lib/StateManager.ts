@@ -13,7 +13,14 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { CachedOrg, CachedProject, CachedUser, PinnedActiveContext, State } from '@/tools/types'
+import type {
+    CachedOrg,
+    CachedProject,
+    CachedUser,
+    PinnedActiveContext,
+    SessionScopedState,
+    State,
+} from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
@@ -34,10 +41,17 @@ export class StateManager {
     private _user?: ApiUser
     private _pinned: PinnedActiveContext | undefined
     private _pinnedOrgProject: Promise<string> | undefined
-    constructor(cache: ScopedCache<State>, api: ApiClient, pinned?: PinnedActiveContext) {
+    private _sessionCache: ScopedCache<SessionScopedState> | undefined
+    constructor(
+        cache: ScopedCache<State>,
+        api: ApiClient,
+        pinned?: PinnedActiveContext,
+        sessionCache?: ScopedCache<SessionScopedState>
+    ) {
         this._cache = cache
         this._api = api
         this._pinned = pinned
+        this._sessionCache = sessionCache
     }
 
     get pinnedContext(): PinnedActiveContext | undefined {
@@ -45,11 +59,8 @@ export class StateManager {
     }
 
     /**
-     * Set the active org and project. On a pinned request the ids only update the
-     * request-scoped context: the session store records the switch, and the token
-     * cache must not, because other sessions on the same credential read it. A
-     * pinned request without a session still persists the keys the pin leaves open.
-     * A project pin also fixes the org, because the project owns it.
+     * Session selections never enter the token cache because other sessions on
+     * the credential share it. Sessionless pins persist only the keys they leave open.
      */
     async setActiveContext(updates: { orgId?: string; projectId?: string }): Promise<void> {
         const pinned = this._pinned
@@ -61,13 +72,21 @@ export class StateManager {
             return
         }
         if (updates.orgId) {
+            if (updates.orgId !== pinned.orgId && !updates.projectId) {
+                pinned.projectId = undefined
+            }
             pinned.orgId = updates.orgId
         }
         if (updates.projectId) {
             pinned.projectId = updates.projectId
         }
         this._pinnedOrgProject = undefined
-        if (!pinned.sessionScoped) {
+        if (pinned.sessionScoped) {
+            await this._sessionCache?.setMany({
+                activeOrgId: pinned.orgId ?? null,
+                activeProjectId: pinned.projectId ?? null,
+            })
+        } else {
             await this._cache.setMany({
                 ...(updates.orgId && !pinned.pin.organizationId && !pinned.pin.projectId
                     ? { orgId: updates.orgId }
@@ -200,20 +219,26 @@ export class StateManager {
         return _distinctId
     }
 
-    /**
-     * Resolve a default `(organizationId, projectId)` for a session that hasn't
-     * pinned them via header. The user's currently active team/org from
-     * `users/@me` is the source of truth; the API key's `scoped_teams` /
-     * `scoped_organizations` are treated as filters, not directives.
-     *
-     * Never throws. The agent can always recover via `switch-project` /
-     * `switch-organization` tools, so an opaque 500 here would be strictly
-     * worse than a best-effort default.
-     */
-    private async _getDefaultOrganizationAndProject(): Promise<{
-        organizationId?: string
-        projectId?: number
-    }> {
+    private async _getDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
+        const sessionCache = this._pinned?.sessionScoped ? this._sessionCache : undefined
+        if (!sessionCache) {
+            return this._fetchDefaultOrganizationAndProject()
+        }
+        const saved = await sessionCache.get('defaultContext')
+        if (saved) {
+            return saved
+        }
+        const defaults = await this._fetchDefaultOrganizationAndProject()
+        if (!defaults.organizationId && defaults.projectId === undefined) {
+            return defaults
+        }
+        if (await sessionCache.setIfAbsent('defaultContext', defaults)) {
+            return defaults
+        }
+        return (await sessionCache.get('defaultContext')) ?? defaults
+    }
+
+    private async _fetchDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
         const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
         const { organization: activeOrganization, team: activeTeam } = user
 
@@ -319,12 +344,11 @@ export class StateManager {
     }> {
         const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
 
-        if (organizationId) {
-            await this._cache.set('orgId', organizationId)
-        }
-
-        if (projectId !== undefined) {
-            await this._cache.set('projectId', projectId.toString())
+        if (this._pinned?.sessionScoped) {
+            this._pinned.orgId = organizationId
+            this._pinned.projectId = projectId?.toString()
+        } else {
+            await this.setActiveContext({ orgId: organizationId, projectId: projectId?.toString() })
         }
 
         return { organizationId, projectId }
@@ -353,6 +377,9 @@ export class StateManager {
             const project = await this.getCachedOrFetchProject().catch(() => undefined)
             pinned.orgId = project?.organization ?? undefined
             return pinned.orgId
+        }
+        if (pinned) {
+            return undefined
         }
 
         const cached = await this._cache.get('orgId')
@@ -405,11 +432,9 @@ export class StateManager {
     }
 
     /**
-     * An organization pin selects an org but no project. The shared token cache and
-     * the user's default can name a project in another org, so accept a candidate
-     * only when its lookup proves that it belongs to the selected org. A failed
-     * lookup rejects the candidate. The choice is never written to the shared
-     * cache, because other sessions on the credential read it.
+     * An organization selection can outlive its project, so accept a default only
+     * when its lookup proves that it belongs to the selected org. Sessionless
+     * requests also consider the token selection for compatibility.
      */
     private async _resolvePinnedOrgProjectId(pinned: PinnedActiveContext): Promise<string> {
         const orgId = pinned.orgId
@@ -421,13 +446,16 @@ export class StateManager {
             return project?.organization === orgId
         }
 
-        const cachedCandidate = await this._cache.get('projectId')
+        const cachedCandidate = pinned.sessionScoped ? undefined : await this._cache.get('projectId')
         if (await belongsToOrg(cachedCandidate)) {
             return cachedCandidate!
         }
         const { projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({ projectId: undefined }))
         const defaultCandidate = projectId?.toString()
         if (defaultCandidate !== cachedCandidate && (await belongsToOrg(defaultCandidate))) {
+            if (pinned.sessionScoped) {
+                pinned.projectId = defaultCandidate
+            }
             return defaultCandidate!
         }
         throw new MissingProjectContextError({ organizationId: orgId })

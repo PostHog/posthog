@@ -1,7 +1,7 @@
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type DefaultBodyType, type StrictRequest } from 'msw'
 import { setupServer } from 'msw/node'
 import { createHash } from 'node:crypto'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import { RedisCache, type RedisLike } from '@/hono/cache/RedisCache'
@@ -18,8 +18,21 @@ const OTHER_ORG = '019d85ef-7e7d-0000-090c-000000000002'
 const MISSING_PROJECT = '404'
 
 const apiPaths: string[] = []
+const apiPathsByIntent = new Map<string, string[]>()
+
+function recordApiPath(request: StrictRequest<DefaultBodyType>): void {
+    const path = new URL(request.url).pathname
+    apiPaths.push(path)
+    const intent = request.headers.get('x-posthog-intent')
+    if (intent) {
+        const paths = apiPathsByIntent.get(intent) ?? []
+        paths.push(path)
+        apiPathsByIntent.set(intent, paths)
+    }
+}
 
 const mswServer = setupServer(
+    http.get('*/api/projects/:projectId/integrations/', () => HttpResponse.json({ results: [] })),
     http.get('*/api/projects/:projectId/', ({ params }) =>
         params.projectId === MISSING_PROJECT
             ? HttpResponse.json({ detail: 'Not found.' }, { status: 404 })
@@ -31,11 +44,11 @@ const mswServer = setupServer(
               })
     ),
     http.post('*/api/environments/:projectId/mcp_tools/execute_sql/', ({ request }) => {
-        apiPaths.push(new URL(request.url).pathname)
+        recordApiPath(request)
         return HttpResponse.json({ success: true, content: 'ok' })
     }),
     http.get('*/api/organizations/:orgId/billing/subscription/', ({ request }) => {
-        apiPaths.push(new URL(request.url).pathname)
+        recordApiPath(request)
         return HttpResponse.json({})
     }),
     ...handlers,
@@ -49,7 +62,10 @@ function createInMemoryRedis(): RedisLike & {
     const store = new Map<string, string>()
     return {
         get: async (key) => store.get(key) ?? null,
-        set: async (key, value) => {
+        set: async (key, value, ...args) => {
+            if (args.includes('NX') && store.has(key)) {
+                return null
+            }
             store.set(key, String(value))
             return 'OK'
         },
@@ -75,6 +91,10 @@ beforeAll(async () => {
 
 afterAll(() => {
     mswServer.close()
+})
+
+afterEach(() => {
+    mswServer.resetHandlers()
 })
 
 type CallOptions = {
@@ -240,14 +260,19 @@ describe('pinned project with switch-project (Hono)', () => {
         const sessionId = await initialize({ token, query: pinQuery })
 
         expect(await targets({ token, sessionId, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+        expect(
+            (await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, { token, sessionId, query: '' }))
+                .isError
+        ).toBeFalsy()
 
         // The saved pin belongs to the credential: another token that reuses the session id keeps its own state.
         const otherToken = `phx_init_${kind}_other`
         await cacheOtherProjectOnToken(otherToken)
         expect(await targets({ token: otherToken, sessionId, query: '' })).toEqual({
-            project: OTHER_PROJECT,
-            org: OTHER_ORG,
+            project: PINNED_PROJECT,
+            org: PINNED_ORG,
         })
+        expect(await targets({ token, sessionId, query: '' })).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
     })
 
     it("reports missing context instead of using another session's org when the pinned project lookup fails", async () => {
@@ -271,20 +296,112 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(otherOrg.text).toContain('sends no MCP session id')
         expect(await runBilling({ token })).toEqual({ isError: undefined, paths: billingPathFor(PINNED_ORG) })
     })
-    it('keeps an unpinned session on the shared token selection across repeated switches', async () => {
-        const token = 'phx_unpinned_switches'
-        const session = { token, sessionId: await initialize({ token, query: '' }), query: '' }
-        const otherRequest = { token, query: '' }
+    it.each([
+        ['pinned across organizations', `?project_id=${PINNED_PROJECT}`, OTHER_PROJECT, OTHER_ORG],
+        ['unpinned across organizations', '', OTHER_PROJECT, OTHER_ORG],
+        ['unpinned within an organization', '', '3', PINNED_ORG],
+    ])('isolates %s across repeated switches', async (label, query, switchedProject, switchedOrg) => {
+        const token = `phx_${label.replaceAll(' ', '_')}_switches`
+        const session = { token, sessionId: await initialize({ token, query }), query }
+        const otherSession = { token, sessionId: await initialize({ token, query }), query }
 
         for (const [projectId, orgId] of [
-            [OTHER_PROJECT, OTHER_ORG],
+            [switchedProject, switchedOrg],
             [PINNED_PROJECT, PINNED_ORG],
-            [OTHER_PROJECT, OTHER_ORG],
+            [switchedProject, switchedOrg],
         ]) {
             expect((await callTool('switch-project', { projectId: Number(projectId) }, session)).isError).toBeFalsy()
             expect(await targets(session)).toEqual({ project: projectId, org: orgId })
-            expect(await targets(otherRequest)).toEqual({ project: projectId, org: orgId })
+            expect(await targets(otherSession)).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
         }
+    })
+
+    it('starts an unpinned session from the user default instead of another connection’s token selection', async () => {
+        const token = 'phx_unpinned_default'
+        await cacheOtherProjectOnToken(token)
+        const sessionId = await initialize({ token, query: '' })
+
+        expect(await targets({ token, sessionId, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+    })
+
+    it.each([
+        ['unpinned', ''],
+        ['organization-pinned', `?organization_id=${PINNED_ORG}`],
+    ])('keeps a %s session on its project when the website selection changes', async (label, query) => {
+        const token = `phx_website_selection_${label}`
+        const sessionId = await initialize({ token, query })
+        const user = {
+            distinct_id: 'website-selection-test',
+            email: 'test@example.com',
+            team: { id: Number(OTHER_PROJECT), name: 'Other project', organization: OTHER_ORG },
+            organization: { id: OTHER_ORG, name: 'Other organization' },
+        }
+        mswServer.use(http.get('*/api/users/@me/', () => HttpResponse.json(user)))
+        const newSessionId = await initialize({ token, query: '' })
+
+        expect(await targets({ token, sessionId, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+        expect(await targets({ token, sessionId: newSessionId, query: '' })).toEqual({
+            project: OTHER_PROJECT,
+            org: OTHER_ORG,
+        })
+    })
+
+    it('routes overlapping calls from unpinned sessions to their own organizations and projects', async () => {
+        const token = 'phx_concurrent_sessions'
+        const sessions = await Promise.all(
+            [PINNED_PROJECT, OTHER_PROJECT].map(async (projectId) => {
+                const session = { token, sessionId: await initialize({ token, query: '' }), query: '' }
+                const result = await callTool('switch-project', { projectId: Number(projectId) }, session)
+                expect(result.isError).toBeFalsy()
+                return session
+            })
+        )
+        apiPaths.length = 0
+        apiPathsByIntent.clear()
+
+        const pathsBySession = await Promise.all(
+            sessions.map(async (session, index) => {
+                const context = `concurrent-session-${index}`
+                await Promise.all([
+                    callTool('execute-sql', { query: 'SELECT 1', context }, session),
+                    callTool('billing-subscription-get', { context }, session),
+                ])
+                return [...(apiPathsByIntent.get(context) ?? [])].sort()
+            })
+        )
+
+        expect(pathsBySession).toEqual([
+            pathsFor(PINNED_PROJECT, PINNED_ORG).sort(),
+            pathsFor(OTHER_PROJECT, OTHER_ORG).sort(),
+        ])
+    })
+
+    it.each([
+        ['pinned', `?project_id=${PINNED_PROJECT}`],
+        ['unpinned', ''],
+    ])('clears the previous project when a %s session switches organizations', async (label, query) => {
+        const token = `phx_${label}_org_switch`
+        const session = { token, sessionId: await initialize({ token, query }), query }
+        expect((await callTool('switch-organization', { orgId: OTHER_ORG }, session)).isError).toBeFalsy()
+
+        expect(await targets(session)).toEqual({ project: null, org: OTHER_ORG })
+        expect((await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, session)).isError).toBeFalsy()
+        expect(await targets(session)).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
+    })
+
+    it('preserves the session selection when the destination organization is inaccessible', async () => {
+        const token = 'phx_inaccessible_organization'
+        const session = { token, sessionId: await initialize({ token, query: '' }), query: '' }
+        mswServer.use(
+            http.get(`*/api/organizations/${OTHER_ORG}/`, () =>
+                HttpResponse.json({ detail: 'Not found.' }, { status: 404 })
+            )
+        )
+
+        const result = await callTool('switch-organization', { orgId: OTHER_ORG }, session)
+
+        expect(result.isError).toBe(true)
+        expect(await targets(session)).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
     })
 
     it.each([
@@ -293,7 +410,7 @@ describe('pinned project with switch-project (Hono)', () => {
             initPin: `?project_id=${PINNED_PROJECT}`,
             switchTo: undefined,
             replacementPin: `?organization_id=${OTHER_ORG}`,
-            expected: { project: OTHER_PROJECT, org: OTHER_ORG },
+            expected: { project: null, org: OTHER_ORG },
         },
         {
             label: 'an organization pin replaced by a project pin',
@@ -436,6 +553,6 @@ describe('pinned project with switch-project (Hono)', () => {
         await cacheOtherProjectOnToken(token)
         await seedLegacySession(sessionId, { activeProjectId: PINNED_PROJECT, activeOrgId: PINNED_ORG })
 
-        expect(await targets({ token, sessionId, query: '' })).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
+        expect(await targets({ token, sessionId, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
     })
 })
