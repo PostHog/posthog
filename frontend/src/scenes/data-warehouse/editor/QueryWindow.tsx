@@ -8,7 +8,6 @@ import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/ico
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -17,7 +16,6 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
@@ -121,7 +119,6 @@ export function QueryWindow({
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
-    const { currentOrganization } = useValues(organizationLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
@@ -260,13 +257,6 @@ export function QueryWindow({
                           <LemonSwitch
                               checked={sendRawQueryEnabled}
                               onChange={setSendRawQuery}
-                              disabledReason={
-                                  sourceQuery.source.executionTarget === 'managed_trino' &&
-                                  !sendRawQueryEnabled &&
-                                  (currentOrganization?.membership_level ?? 0) < OrganizationMembershipLevel.Admin
-                                      ? 'Raw Trino queries require organization admin access'
-                                      : undefined
-                              }
                               label={sendRawQueryLabel}
                               size="small"
                               fullWidth

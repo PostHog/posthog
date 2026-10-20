@@ -143,11 +143,11 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
 
 
 @pytest.mark.parametrize(
-    "access_method,is_admin,error",
-    [(None, False, "organization admin"), *[(method, True, "browser session") for method in AccessMethod]],
+    "access_method,has_project_access,error",
+    [(None, False, "access to this project"), *[(method, True, "browser session") for method in AccessMethod]],
 )
 def test_raw_target_rejects_unauthorized_callers_before_cached_results(
-    team: Team, access_method: AccessMethod | None, is_admin: bool, error: str
+    team: Team, access_method: AccessMethod | None, has_project_access: bool, error: str
 ) -> None:
     runner = object.__new__(HogQLQueryRunner)
     runner.query = HogQLQuery(query="SELECT 1", executionTarget="managed_trino", sendRawQuery=True)
@@ -156,9 +156,9 @@ def test_raw_target_rejects_unauthorized_callers_before_cached_results(
     with (
         patch("posthoganalytics.feature_enabled", return_value=True),
         patch(
-            "products.managed_warehouse.backend.query_execution.UserAccessControl.is_organization_admin",
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
             new_callable=PropertyMock,
-            return_value=is_admin,
+            return_value=has_project_access,
         ),
         patch(
             "products.managed_warehouse.backend.query_execution.get_query_tags",
@@ -183,7 +183,7 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
     with (
         patch("posthoganalytics.feature_enabled", return_value=True),
         patch(
-            "products.managed_warehouse.backend.query_execution.UserAccessControl.is_organization_admin",
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
             new_callable=PropertyMock,
             return_value=True,
         ),

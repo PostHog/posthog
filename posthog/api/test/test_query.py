@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
     QueryScanAnalysis,
@@ -1323,20 +1324,36 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestManagedTrinoRawQuery(APIBaseTest):
-    def test_project_restricted_api_key_cannot_execute_raw_trino(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+            ("owner", OrganizationMembership.Level.OWNER, False, 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 400),
+        ]
+    )
+    def test_raw_trino_execution_requires_a_project_browser_session(
+        self, _name: str, membership_level: int, token: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
         self.organization_membership.save()
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="project-restricted query",
-            user=self.user,
-            secure_value=hash_key_value(value),
-            scopes=["query:read"],
-            scoped_teams=[self.team.pk],
-        )
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
         with (
             patch("posthoganalytics.feature_enabled", return_value=True),
-            patch("posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query") as execute,
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query",
+                return_value=HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]]),
+            ) as execute,
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/query/",
@@ -1349,11 +1366,14 @@ class TestManagedTrinoRawQuery(APIBaseTest):
                     }
                 },
                 format="json",
-                headers={"Authorization": f"Bearer {value}"},
+                headers=headers,
             )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn("browser session", response.json()["detail"])
-        execute.assert_not_called()
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["results"], [[1]])
+        else:
+            self.assertIn("browser session", response.json()["detail"])
+            execute.assert_not_called()
 
 
 class TestQueryRetrieve(APIBaseTest):
@@ -1472,12 +1492,12 @@ class TestQueryRetrieve(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("member", OrganizationMembership.Level.MEMBER, False, 403),
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
             ("admin", OrganizationMembership.Level.ADMIN, False, 200),
             ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 403),
         ]
     )
-    def test_raw_trino_results_require_current_admin_browser_session(
+    def test_raw_trino_results_require_current_project_access_and_browser_session(
         self, _name: str, membership_level: int, token: bool, expected_status: int
     ) -> None:
         self.organization_membership.level = membership_level
@@ -1506,8 +1526,7 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.content)
         if expected_status == 200:
             self.assertEqual(response.json()["query_status"]["results"], ["warehouse result"])
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
+            self.organization_membership.delete()
             response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/")
             self.assertEqual(response.status_code, 403, response.content)
             self.assertNotIn("warehouse result", response.content.decode())

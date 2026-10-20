@@ -41,10 +41,8 @@ def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
         raise ExposedHogQLError(
             "Raw Trino queries require a browser session. Turn off Send raw query to use HogQL with a token."
         )
-    if not UserAccessControl(user=user, team=team).is_organization_admin:
-        raise ExposedHogQLError(
-            "Raw Trino queries require organization admin access. Turn off Send raw query to use HogQL."
-        )
+    if not UserAccessControl(user=user, team=team).has_project_access:
+        raise ExposedHogQLError("You do not have access to this project.")
 
 
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:

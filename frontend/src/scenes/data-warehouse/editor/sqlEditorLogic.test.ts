@@ -2671,7 +2671,7 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            [OrganizationMembershipLevel.Member, false],
+            [OrganizationMembershipLevel.Member, true],
             [OrganizationMembershipLevel.Admin, true],
             [OrganizationMembershipLevel.Owner, true],
         ])('switches hosted execution for role %s with raw mode %s', async (membershipLevel, rawMode) => {
