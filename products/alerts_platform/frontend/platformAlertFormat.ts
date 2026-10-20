@@ -117,3 +117,13 @@ export function describeOverflow(configuration: PlatformAlertConfigurationApi): 
     const groups = count === 1 ? 'group' : 'groups'
     return `At its group limit: ${configuration.overflow_is_lower_bound ? 'at least ' : ''}${count} ${groups} not tracked`
 }
+
+export function describeOverflowDetail(configuration: PlatformAlertConfigurationApi): string {
+    const limit = configuration.grouping.max_instances
+    return `The last check found more groups than this alert's limit${
+        limit !== undefined ? ` of ${limit}` : ''
+    }, so it left the new ones out. To track them, raise the group limit or narrow the alert so fewer groups match.`
+}
+
+export const GROUP_SNOOZE_EXPLANATION =
+    'The group keeps being checked, and a firing group stays firing. Only its notifications are held.'

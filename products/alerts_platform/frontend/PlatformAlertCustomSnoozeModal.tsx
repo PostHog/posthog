@@ -5,6 +5,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
+import { GROUP_SNOOZE_EXPLANATION } from './platformAlertFormat'
 import { platformAlertLogic } from './platformAlertLogic'
 
 export function PlatformAlertCustomSnoozeModal(): JSX.Element {
@@ -17,7 +18,7 @@ export function PlatformAlertCustomSnoozeModal(): JSX.Element {
             onClose={closeCustomSnooze}
             title="Snooze group until"
             hideCloseButton
-            description="Pick a time within the next 30 days. The group keeps being checked, and a firing group stays firing. Only its notifications are held."
+            description={`Pick a time within the next 30 days. ${GROUP_SNOOZE_EXPLANATION}`}
         >
             {customSnoozeGroupKey !== null && (
                 <LemonCalendarSelect

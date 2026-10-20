@@ -17,7 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PlatformAlertConfigurationDetails } from './PlatformAlertConfigurationDetails'
 import { PlatformAlertCustomSnoozeModal } from './PlatformAlertCustomSnoozeModal'
-import { SOURCE_KINDS, describeOverflow, sourceAlertUrl } from './platformAlertFormat'
+import { SOURCE_KINDS, describeOverflow, describeOverflowDetail, sourceAlertUrl } from './platformAlertFormat'
 import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
 
@@ -108,13 +108,7 @@ export function PlatformAlertScene(): JSX.Element {
                 {overflow && (
                     <LemonBanner type="warning">
                         <p className="m-0 font-semibold">{overflow}</p>
-                        <p className="m-0">
-                            {`The last check found more groups than this alert's limit${
-                                configuration.grouping.max_instances !== undefined
-                                    ? ` of ${configuration.grouping.max_instances}`
-                                    : ''
-                            }, so it left the new ones out. To track them, raise the group limit or narrow the alert so fewer groups match.`}
-                        </p>
+                        <p className="m-0">{describeOverflowDetail(configuration)}</p>
                     </LemonBanner>
                 )}
                 <PlatformAlertGroupsTable

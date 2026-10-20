@@ -3,16 +3,20 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
 import { PlatformAlertApi } from './generated/api.schemas'
+import { GROUP_SNOOZE_EXPLANATION } from './platformAlertFormat'
 import { GROUP_SNOOZE_DURATIONS, platformAlertLogic } from './platformAlertLogic'
 
 export function PlatformAlertGroupSnoozeMenu({ alert }: { alert: PlatformAlertApi }): JSX.Element {
     const { snoozingGroupKey } = useValues(platformAlertLogic)
     const { snoozeGroupFor, unsnoozeGroup, openCustomSnooze } = useActions(platformAlertLogic)
 
-    const snoozed = alert.snooze_until !== null && dayjs(alert.snooze_until).isAfter(dayjs())
+    const activeSnoozeUntil =
+        alert.snooze_until !== null && dayjs(alert.snooze_until).isAfter(dayjs()) ? alert.snooze_until : null
+    const snoozed = activeSnoozeUntil !== null
     const inFlight = snoozingGroupKey === alert.grouping_key
 
     return (
@@ -32,12 +36,7 @@ export function PlatformAlertGroupSnoozeMenu({ alert }: { alert: PlatformAlertAp
                             'data-attr': 'platform-alert-group-snooze-custom',
                         },
                     ],
-                    footer: (
-                        <p className="text-xs text-secondary max-w-60 m-0 px-2 py-1">
-                            The group keeps being checked, and a firing group stays firing. Only its notifications are
-                            held.
-                        </p>
-                    ),
+                    footer: <p className="text-xs text-secondary max-w-60 m-0 px-2 py-1">{GROUP_SNOOZE_EXPLANATION}</p>,
                 },
                 snoozed
                     ? {
@@ -57,7 +56,14 @@ export function PlatformAlertGroupSnoozeMenu({ alert }: { alert: PlatformAlertAp
                 size="xsmall"
                 sideIcon={<IconChevronDown />}
                 loading={inFlight}
-                tooltip={snoozed ? `Snoozed until ${dayjs(alert.snooze_until).format('MMM D, HH:mm')}` : undefined}
+                tooltip={
+                    activeSnoozeUntil ? (
+                        <>
+                            Snoozed until{' '}
+                            <TZLabel time={activeSnoozeUntil} timestampStyle="absolute" showPopover={false} />
+                        </>
+                    ) : undefined
+                }
                 disabledReason={
                     snoozingGroupKey !== null && !inFlight ? 'Wait for the other group to finish saving' : undefined
                 }
