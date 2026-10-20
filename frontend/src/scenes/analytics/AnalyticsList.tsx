@@ -89,8 +89,9 @@ function AnalyticsListContent(): JSX.Element {
         mode,
         scope,
         loadedCount,
+        feedQuery,
     } = useValues(analyticsListLogic)
-    const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
+    const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
     const { ref: endRef, inView: endInView } = useInView({
@@ -102,7 +103,12 @@ function AnalyticsListContent(): JSX.Element {
         scope === 'mine'
             ? urls.analyticsMine(analyticsListUrlParams(filters))
             : urls.analyticsList(analyticsListUrlParams(filters))
-    const columns = analyticsListColumns({ backUrl, showSpace: mode === 'feed' })
+    const columns = analyticsListColumns({
+        backUrl,
+        showSpace: mode === 'feed',
+        orderBy: feedQuery.orderBy,
+        onOrderByChange: (orderBy) => setFilters({ orderBy }),
+    })
     const rows = useMemo<AnalyticsListRow[]>(
         () => [
             ...subfolders.map((folder) => ({ kind: 'folder' as const, folder })),
@@ -225,10 +231,11 @@ function AnalyticsListContent(): JSX.Element {
                         fullWidth
                         size="sm"
                         stickyHeader
-                        // The title column soaks up the slack, and `max-w-0` stops a long title from widening
-                        // the table past its container, so the filters above keep their width across types.
-                        // Below the minimum width the table scrolls sideways instead of squeezing the title away.
-                        className="w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
+                        className={
+                            mode === 'feed'
+                                ? 'w-full min-w-0 **:data-expand:max-w-0 @max-[64rem]/analytics:[&_tr>:nth-child(2)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(3)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(4)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(6)]:hidden'
+                                : 'w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208'
+                        }
                         empty={<Text size="sm">Nothing in this collection.</Text>}
                     />
                 )}

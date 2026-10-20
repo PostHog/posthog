@@ -78,6 +78,22 @@ describe('analyticsListLogic', () => {
         ])
     })
 
+    it('keeps the chosen sort on return and gives each scope its own default', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsMine())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('-last_viewed_at')
+        logic.actions.setFilters({ orderBy: 'last_viewed_at' })
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push(urls.analyticsList())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('-created_at')
+        router.actions.push(urls.analyticsMine())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('last_viewed_at')
+    })
+
     it('reports a folder visit once, however it starts, and a space only when it changes', async () => {
         const logic = analyticsListLogic()
         logic.mount()
@@ -106,6 +122,7 @@ describe('analyticsListLogic', () => {
         userLogic.actions.loadUserSuccess({ ...userLogic.values.user! })
 
         expect(query.createdByMe).toBe(true)
+        expect(query.orderBy).toBe('-last_viewed_at')
         expect(logic.values.feedQuery).toBe(query)
     })
 })

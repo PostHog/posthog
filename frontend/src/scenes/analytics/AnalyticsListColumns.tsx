@@ -1,7 +1,16 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconEllipsis, IconFolder, IconFolderMove, IconFolderOpen, IconShare, IconTrash, IconX } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconEllipsis,
+    IconFolder,
+    IconFolderMove,
+    IconFolderOpen,
+    IconShare,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
 import {
     Button,
     Chip,
@@ -17,7 +26,7 @@ import {
 } from '@posthog/quill'
 import type { DataTableProps } from '@posthog/quill-components'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +34,7 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
+import type { AnalyticsFeedQuery } from './analyticsFeed'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
@@ -45,24 +55,11 @@ function EmptyCell(): JSX.Element {
     )
 }
 
-function TimeCell({ time, label }: { time: string | null; label?: string }): JSX.Element {
+function TimeCell({ time }: { time: string | null }): JSX.Element {
     if (!time) {
-        return (
-            <Text size="xs" variant="muted">
-                –
-            </Text>
-        )
+        return <EmptyCell />
     }
-    return (
-        <Tooltip>
-            <TooltipTrigger
-                render={<span className="text-xs whitespace-nowrap text-muted-foreground" translate="no" />}
-            >
-                {label ? `${label} ${dayjs(time).fromNow()}` : dayjs(time).fromNow()}
-            </TooltipTrigger>
-            <TooltipContent>{dayjs(time).format('LLL')}</TooltipContent>
-        </Tooltip>
-    )
+    return <TZLabel time={time} className="text-xs whitespace-nowrap text-muted-foreground" />
 }
 
 // Two chips fit the fixed tags column; the rest fold into a count.
@@ -298,9 +295,13 @@ function ItemTitle({
 export function analyticsListColumns({
     backUrl,
     showSpace,
+    orderBy,
+    onOrderByChange,
 }: {
     backUrl: string
     showSpace: boolean
+    orderBy: AnalyticsFeedQuery['orderBy']
+    onOrderByChange: (orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>) => void
 }): AnalyticsListColumns {
     const draggable = !showSpace
     return [
@@ -355,9 +356,57 @@ export function analyticsListColumns({
                 />
             ),
         },
+        ...(showSpace
+            ? ([
+                  {
+                      id: 'last_viewed',
+                      header: () => (
+                          <Button
+                              variant="default"
+                              size="xs"
+                              className="px-0"
+                              data-attr="analytics-list-sort-last-viewed"
+                              onClick={() =>
+                                  onOrderByChange(orderBy === '-last_viewed_at' ? 'last_viewed_at' : '-last_viewed_at')
+                              }
+                          >
+                              You last viewed
+                              {orderBy === '-last_viewed_at' && <IconChevronDown />}
+                              {orderBy === 'last_viewed_at' && <IconChevronDown className="rotate-180" />}
+                          </Button>
+                      ),
+                      enableSorting: false,
+                      cell: ({ row }) => (
+                          <div className="w-24">
+                              <TimeCell
+                                  time={
+                                      row.original.kind === 'item'
+                                          ? (row.original.item.entry?.last_viewed_at ?? null)
+                                          : null
+                                  }
+                              />
+                          </div>
+                      ),
+                  },
+              ] satisfies AnalyticsListColumns)
+            : []),
         {
             id: 'created',
-            header: 'Created',
+            header: () =>
+                showSpace ? (
+                    <Button
+                        variant="default"
+                        size="xs"
+                        className="px-0"
+                        data-attr="analytics-list-sort-created"
+                        onClick={() => onOrderByChange('-created_at')}
+                    >
+                        Created
+                        {orderBy === '-created_at' && <IconChevronDown />}
+                    </Button>
+                ) : (
+                    'Created'
+                ),
             enableSorting: false,
             cell: ({ row }) => (
                 <div className="w-24">

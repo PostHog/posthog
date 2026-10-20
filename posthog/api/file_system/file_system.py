@@ -9,7 +9,20 @@ from uuid import UUID
 
 from django.apps import apps
 from django.db import transaction
-from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -50,7 +63,11 @@ from posthog.models.file_system.file_system import (
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
+from posthog.models.file_system.file_system_view_log import (
+    FileSystemViewLog,
+    get_recent_file_system_items,
+    recent_view_logs,
+)
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
@@ -566,12 +583,26 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         queryset = self._filter_by_access_control(queryset)
 
+        if type_param or type__startswith_param:
+            views = FileSystemViewLog.objects.filter(
+                team_id=OuterRef("team_id"),
+                user_id=cast(User, self.request.user).id,
+                type=OuterRef("type"),
+                ref=OuterRef("ref"),
+            )
+            queryset = queryset.annotate(last_viewed_at=Subquery(views.values("viewed_at")[:1]))
+
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
             queryset = queryset.order_by("shortcut")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
-                queryset = queryset.order_by(order_by_param)
+                queryset = queryset.order_by(order_by_param, "id")
+            elif order_by_param in ("-last_viewed_at", "last_viewed_at") and (type_param or type__startswith_param):
+                viewed_order = F("last_viewed_at").desc(nulls_last=True)
+                if order_by_param == "last_viewed_at":
+                    viewed_order = F("last_viewed_at").asc(nulls_last=True)
+                queryset = queryset.order_by(viewed_order, "-created_at", "id")
             else:
                 # `last_viewed_at` ordering (Recents, with or without a search term) is served
                 # view-log-first in `_list_recents`, so it never reaches this queryset path.
@@ -725,7 +756,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         order_by_param = request.query_params.get("order_by")
         # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
         # search term — one query function, no join, no COUNT(*).
-        if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
+        typed_list = request.query_params.get("type") or request.query_params.get("type__startswith")
+        if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated and not typed_list:
             response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
         else:
             response = super().list(request, *args, **kwargs)
