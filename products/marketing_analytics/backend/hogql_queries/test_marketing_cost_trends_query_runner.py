@@ -17,6 +17,8 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     MarketingAnalyticsCostFallback,
+    MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsTableQuery,
     TrendsQuery,
     TrendsQueryResponse,
 )
@@ -26,13 +28,29 @@ from posthog.hogql import ast
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team, User
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationExecutor,
+    LazyComputationResult,
+    compute_query_hash,
+    ensure_precomputed,
+)
+from products.marketing_analytics.backend.hogql_queries.adapters.base import (
+    GoogleAdsConfig,
+    MarketingSourceAdapter,
+    QueryContext,
+)
+from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
+from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
+    MarketingAnalyticsTableQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_runner import (
     MarketingCostTrendsQueryRunner,
 )
+from products.marketing_analytics.dags.marketing_precompute import _ensure_costs_for_team
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 MODULE = "products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_runner"
 
@@ -80,7 +98,10 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
             self.adapters.append(adapter)
         self.factory = self.enterContext(patch(f"{MODULE}.MarketingSourceFactory"))
         self.factory.return_value.get_valid_adapters.return_value = self.adapters
-        self.database = self.enterContext(patch(f"{MODULE}.Database.create_for"))
+        self.factory.return_value.build_materialization_queries.side_effect = (
+            MarketingSourceFactory.build_materialization_queries
+        )
+        self.database = self.enterContext(patch("posthog.hogql_queries.query_runner.Database.create_for"))
         self.ensure = self.enterContext(patch(f"{MODULE}.ensure_precomputed"))
         self.config = self.enterContext(patch(f"{MODULE}.MarketingAnalyticsConfig.from_team"))
         self.config.return_value = MarketingAnalyticsConfig(costs_precomputation_enabled=True)
@@ -90,7 +111,7 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
                 return_value=HogQLQueryModifiers(),
             )
         )
-        self.enterContext(patch(f"{MODULE}.create_default_modifiers_for_team", return_value=HogQLQueryModifiers()))
+        self.enterContext(patch("posthog.hogql_queries.query_runner.get_instance_setting", return_value=True))
 
     def runner(self) -> MarketingCostTrendsQueryRunner:
         runner = get_query_runner(self.query.model_dump(mode="json"), team=self.team, user=self.user)
@@ -168,7 +189,7 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
         assert result.breakdownFilter is None
         if case != "inaccessible_source":
             assert self.database.call_args.kwargs["user"] is self.user
-            assert self.database.call_args.kwargs["bypass_warehouse_access_control"] is False
+            assert not self.database.call_args.kwargs.get("bypass_warehouse_access_control", False)
 
     @parameterized.expand([(True,), (False,)])
     def test_only_selected_sources_and_current_period_need_coverage(self, ready: bool) -> None:
@@ -219,3 +240,62 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
             response = self.runner().calculate()
         expected = ["marketing_costs_precomputed"] if ready else ["source_a_stats", "source_b_stats"]
         assert [result["label"] for result in response.results] == expected
+
+    def test_coverage_and_warmer_hash_the_same_real_adapter(self) -> None:
+        assert self.query.marketingAnalyticsCostFallback is not None
+        self.query.marketingAnalyticsCostFallback.sourceIds = ["a"]
+        self.query.marketingAnalyticsCostFallback.series = self.live_series[:1]
+        runner = self.runner()
+        adapter_config = GoogleAdsConfig(
+            source_type="GoogleAds",
+            source_id="a",
+            campaign_table=DataWarehouseTable(name="googleads_campaign", columns={}),
+            stats_table=DataWarehouseTable(name="googleads_campaign_stats", columns={}),
+        )
+
+        def initialize_factory(factory: MarketingSourceFactory, context: QueryContext) -> None:
+            factory.context = context
+
+        def create_adapters(factory: MarketingSourceFactory) -> list[MarketingSourceAdapter]:
+            return [GoogleAdsAdapter(adapter_config, factory.context)]
+
+        self.factory.side_effect = MarketingSourceFactory
+        self.ensure.side_effect = ensure_precomputed
+        base_module = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner"
+        with (
+            patch.object(MarketingSourceFactory, "__init__", initialize_factory),
+            patch.object(MarketingSourceFactory, "create_adapters", create_adapters),
+            patch(f"{base_module}.MarketingSourceFactory", MarketingSourceFactory),
+            patch(f"{base_module}.marketing_ensure_precomputed", side_effect=ensure_precomputed),
+            patch.object(
+                LazyComputationExecutor, "execute", return_value=LazyComputationResult(ready=True, job_ids=[])
+            ) as execute,
+        ):
+            series = runner.resolve_query().series[0]
+            assert isinstance(series, DataWarehouseNode)
+            assert series.table_name == "marketing_costs_precomputed"
+            trend_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
+            execute.reset_mock()
+            warmer = MarketingAnalyticsTableQueryRunner(
+                query=MarketingAnalyticsTableQuery(properties=[]), team=self.team, user=self.user
+            )
+            warmer.__dict__["_shared_hogql_database"] = runner.shared_database
+            for date_range in (runner.query_date_range, runner.query_previous_date_range):
+                warmer._build_costs_from_precompute(date_range)
+            warmer_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
+            execute.reset_mock()
+            dag_module = "products.marketing_analytics.dags.marketing_precompute"
+            with patch(f"{dag_module}.COST_MATERIALIZATION_GRAINS", [MarketingAnalyticsDrillDownLevel.CAMPAIGN]):
+                _ensure_costs_for_team(
+                    Mock(),
+                    self.team,
+                    runner.query_date_range.date_from(),
+                    runner.query_date_range.date_to(),
+                    30,
+                    database=runner.shared_database,
+                )
+            scheduled_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
+        assert len(trend_hashes) == 2
+        assert trend_hashes[0] == trend_hashes[1]
+        assert trend_hashes == warmer_hashes
+        assert scheduled_hashes == trend_hashes[:1]

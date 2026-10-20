@@ -11,9 +11,6 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -44,35 +41,25 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
         selected_ids = set(fallback.sourceIds)
         if not selected_ids or not date_ranges:
             return None
-        database = Database.create_for(
-            team=self.team,
-            user=self.user,
-            modifiers=create_default_modifiers_for_team(self.team, self.modifiers),
-            timings=self.timings,
-            build_postgres_foreign_keys=False,
-            bypass_warehouse_access_control=False,
-        )
-        for date_range in date_ranges:
-            factory = MarketingSourceFactory(
-                context=QueryContext(
-                    date_range=date_range,
-                    team=self.team,
-                    base_currency=self.team.base_currency or DEFAULT_CURRENCY,
-                    drill_down_level=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
-                    database=database,
-                )
+        grain = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+        factory = MarketingSourceFactory(
+            context=QueryContext(
+                date_range=date_ranges[0],
+                team=self.team,
+                base_currency=self.team.base_currency or DEFAULT_CURRENCY,
+                drill_down_level=grain,
+                database=self.shared_database,
             )
-            adapters = factory.get_valid_adapters(factory.create_adapters())
-            adapters = [adapter for adapter in adapters if adapter.get_source_id() in selected_ids]
-            source_ids = {str(adapter.get_source_id()) for adapter in adapters}
-            if not source_ids or source_ids != selected_ids:
-                return None
-            for adapter in adapters:
-                if not adapter.supports_level(MarketingAnalyticsDrillDownLevel.CAMPAIGN):
-                    return None
-                insert_query = adapter.build_materialization_query(adapter.get_source_id())
-                if insert_query is None:
-                    return None
+        )
+        adapters = factory.get_valid_adapters(factory.create_adapters())
+        adapters = [adapter for adapter in adapters if adapter.get_source_id() in selected_ids]
+        queries = factory.build_materialization_queries(adapters, grain)
+        if set(queries) != selected_ids or any(query is None for query in queries.values()):
+            return None
+        for date_range in date_ranges:
+            for insert_query in queries.values():
+                assert insert_query is not None
+                # The chart excludes expired rows, so the marketing wrapper's stale grace cannot apply.
                 result = ensure_precomputed(
                     team=self.team,
                     insert_query=insert_query,
@@ -128,7 +115,7 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
         return precomputed_query
 
     def _calculate(self) -> TrendsQueryResponse:
-        return TrendsQueryRunner(
+        runner = TrendsQueryRunner(
             query=self.resolve_query(),
             team=self.team,
             timings=self.timings,
@@ -137,4 +124,6 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
             user=self.user,
             workload=self.workload,
             hogql_settings=self.hogql_settings,
-        ).calculate()
+        )
+        runner._shared_database = self._shared_database
+        return runner.calculate()

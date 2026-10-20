@@ -393,7 +393,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if integration_filter and integration_filter.integrationSourceIds:
             selected_ids = integration_filter.integrationSourceIds
             mat_adapters = [a for a in mat_adapters if a.get_source_id() in selected_ids]
-        mat_adapters = [a for a in mat_adapters if a.supports_level(grain)]
+        materialization_queries = mat_factory.build_materialization_queries(mat_adapters, grain)
+        mat_adapters = [a for a in mat_adapters if str(a.get_source_id()) in materialization_queries]
         grain_value = str(grain.value)
         if not mat_adapters:
             logger.info(
@@ -412,7 +413,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         s3_fallback_adapters: list[MarketingSourceAdapter] = []
         for adapter in mat_adapters:
             with self.timings.measure("ma_precompute_build_mat_query"):
-                insert_query = adapter.build_materialization_query(adapter.get_source_id())
+                insert_query = materialization_queries[str(adapter.get_source_id())]
             if insert_query is None:
                 logger.info(
                     "marketing_costs_precompute",
