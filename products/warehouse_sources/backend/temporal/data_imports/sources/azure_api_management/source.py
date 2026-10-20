@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.azure_log_analytics import (
+    AzureLogAnalyticsResumeConfig,
     WorkspaceCredentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.source import (
@@ -18,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapimanagement import (
     AzureApiManagementSourceConfig,
 )
@@ -94,3 +97,13 @@ Register an app in Microsoft Entra ID, create a client secret for it, and give i
 
     def tables_checked_at_creation(self, config: AzureApiManagementSourceConfig) -> list[str]:
         return API_MANAGEMENT_TABLES
+
+    def source_for_pipeline(
+        self,
+        config: AzureApiManagementSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AzureLogAnalyticsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        if inputs.schema_name not in API_MANAGEMENT_TABLES:
+            raise ValueError(f"Unknown Azure API Management schema '{inputs.schema_name}'")
+        return super().source_for_pipeline(config, resumable_source_manager, inputs)
