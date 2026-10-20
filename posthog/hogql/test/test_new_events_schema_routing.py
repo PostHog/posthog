@@ -28,7 +28,7 @@ from posthog.api.services.query import NATIVE_EVENTS_CLUSTER_USER_FLAG, native_e
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 
@@ -94,23 +94,34 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             "posthog.api.services.query.posthoganalytics.feature_enabled",
             side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
         ):
-            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query, is_query_service=False)
+            modifiers = native_events_cluster_modifiers_for_user(
+                self.team, self.user, query, is_query_service=False, execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS
+            )
         self.assertEqual(modifiers, expected)
 
     @parameterized.expand(
-        [("personal_api_key", True, {}), ("project_schema_choice", False, {"useNewEventsSchema": False})]
+        [
+            ("personal_api_key", True, {}, True),
+            ("project_schema_choice", False, {"useNewEventsSchema": False}, True),
+            ("queued_before_async_is_enabled", False, {}, False),
+        ]
     )
     def test_rollout_flag_leaves_api_traffic_and_project_schema_choices_alone(
-        self, _name: str, is_query_service: bool, team_modifiers: dict[str, bool]
+        self, _name: str, is_query_service: bool, team_modifiers: dict[str, bool], async_enabled: bool
     ) -> None:
         self.team.modifiers = team_modifiers
+        self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = async_enabled
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         with patch(
             "posthog.api.services.query.posthoganalytics.feature_enabled",
             side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
         ):
             modifiers = native_events_cluster_modifiers_for_user(
-                self.team, self.user, query, is_query_service=is_query_service
+                self.team,
+                self.user,
+                query,
+                is_query_service=is_query_service,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             )
         self.assertIsNone(modifiers)
 

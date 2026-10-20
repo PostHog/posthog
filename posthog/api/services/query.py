@@ -71,7 +71,7 @@ from posthog.hogql_queries.query_runner import (
     query_node_modifiers,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import native_events_cluster_ineligibility
+from posthog.models.event.new_events_schema import native_events_async_enabled, native_events_cluster_ineligibility
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -85,6 +85,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 NATIVE_EVENTS_CLUSTER_USER_FLAG = "native-events-cluster-queries"
+_NEVER_ENQUEUED_EXECUTION_MODES = (
+    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+)
 
 
 @frozen
@@ -476,10 +481,18 @@ def process_query_dict(
 
 
 def native_events_cluster_modifiers_for_user(
-    team: Team, user: User | AnonymousUser | None, query: BaseModel, *, is_query_service: bool
+    team: Team,
+    user: User | AnonymousUser | None,
+    query: BaseModel,
+    *,
+    is_query_service: bool,
+    execution_mode: ExecutionMode,
 ) -> HogQLQueryModifiers | None:
     # The flag covers app queries only. Personal API key traffic keeps its usual cluster.
     if is_query_service or not isinstance(user, User) or isinstance(query, HogQLQuery):
+        return None
+    # A queued query would fail while async native execution is off, so it keeps the legacy cluster.
+    if execution_mode not in _NEVER_ENQUEUED_EXECUTION_MODES and not native_events_async_enabled():
         return None
     if isinstance(team.modifiers, dict) and team.modifiers.get("useNewEventsSchema") is not None:
         return None

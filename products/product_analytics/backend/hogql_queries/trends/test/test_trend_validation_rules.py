@@ -503,6 +503,7 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_ASYNC", True),
             patch(
                 "posthog.api.services.query.posthoganalytics.feature_enabled",
                 side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
@@ -511,7 +512,9 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
             patch("posthog.hogql_queries.query_runner.groups", return_value={}),
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
-            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query, is_query_service=False)
+            modifiers = native_events_cluster_modifiers_for_user(
+                self.team, self.user, query, is_query_service=False, execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS
+            )
             request = get_query_runner(query, self.team, user=self.user, modifiers=modifiers)
             request.enqueue_async_calculation(cache_manager=cache_manager, user=self.user)
             state = enqueue.call_args.kwargs["runner_state"]

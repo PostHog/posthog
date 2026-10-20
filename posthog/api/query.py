@@ -343,7 +343,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     self.team,
                     query,
                     modifiers=native_events_cluster_modifiers_for_user(
-                        self.team, request.user, query, is_query_service=is_query_service
+                        self.team,
+                        request.user,
+                        query,
+                        is_query_service=is_query_service,
+                        execution_mode=execution_mode,
                     ),
                     execution_mode=execution_mode,
                     query_id=client_query_id,
