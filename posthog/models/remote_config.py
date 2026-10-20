@@ -21,6 +21,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -65,6 +66,23 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
+
+
+# Converting a trigger group's flag object starts recordings that the group never made before.
+# This PostHog flag targets the project group by id. PostHog turns it on for a team only after it notifies that team.
+TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT = "replay-trigger-group-object-flags"
+
+
+def _converts_trigger_group_object_flags(team_id: int) -> bool:
+    # Local evaluation keeps a config build from waiting on a remote call. A flag that cannot be evaluated reads as off.
+    return feature_enabled_or_false(
+        TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+        f"team-{team_id}",
+        groups={"project": str(team_id)},
+        group_properties={"project": {"id": str(team_id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 def _flag_for_sdk(flag: dict[str, Any]) -> str | dict[str, Any] | None:
@@ -211,7 +229,12 @@ class RemoteConfig(UUIDTModel):
                 # Converting a missing or empty key would send an empty flag.
                 # The SDK reads an empty flag as no flag condition.
                 # A group with no other condition then records every session.
-                if isinstance(flag, dict) and isinstance(key := flag.get("key"), str) and key:
+                if (
+                    isinstance(flag, dict)
+                    and isinstance(key := flag.get("key"), str)
+                    and key
+                    and _converts_trigger_group_object_flags(team.id)
+                ):
                     conditions = {**conditions, "flag": _flag_for_sdk(flag)}
                 normalized_groups.append({**group, "conditions": conditions})
 

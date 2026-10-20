@@ -17,6 +17,7 @@ from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import (
     REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
     RemoteConfig,
     RemoteConfigTokenChangeSyncError,
     UnreadableTriggerGroupsError,
@@ -417,7 +418,13 @@ class TestRemoteConfig(_RemoteConfigBase):
         expect_reported: bool,
     ) -> None:
         self.team.session_recording_trigger_groups = stored
-        with patch("posthog.models.remote_config.capture_exception") as mock_capture_exception:
+        with (
+            patch("posthog.models.remote_config.capture_exception") as mock_capture_exception,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+            ),
+        ):
             self.team.save()
             self.sync_remote_config()
         reported = any(
@@ -430,6 +437,15 @@ class TestRemoteConfig(_RemoteConfigBase):
         else:
             assert session_recording["version"] == 2
             assert session_recording["triggerGroups"] == expected_trigger_groups
+
+    def test_session_recording_trigger_group_flag_object_sent_as_stored_while_rollout_is_off(self) -> None:
+        flag = {"id": 7, "key": "k", "variant": "test"}
+        self.team.session_recording_trigger_groups = {"version": 2, "groups": [_flag_group(flag, events=["purchase"])]}
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["triggerGroups"] == [
+            _flag_group(flag, events=[{"name": "purchase"}])
+        ]
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
