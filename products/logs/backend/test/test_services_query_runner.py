@@ -295,7 +295,6 @@ _COMPARE_NOW = "2026-06-23T13:00:00Z"
 _CURRENT = {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"}
 _PRODUCTION = {"deployment.environment.name": "production"}
 _STAGING = {"deployment.environment": "staging"}
-# service -> (resource attributes, (baseline info, baseline errors), (current info, current errors))
 _COMPARE_SERVICES: dict[str, tuple[dict[str, str], tuple[int, int], tuple[int, int]]] = {
     "checkout": (_PRODUCTION, (200, 2), (200, 20)),
     "billing": (_PRODUCTION, (50, 0), (0, 0)),

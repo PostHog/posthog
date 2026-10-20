@@ -248,7 +248,6 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 self._log(service="checkout", severity="error", minute=4, pattern="timeout after <*> ms"),
                 self._log(service="checkout", severity="info", minute=2, pattern="request done"),
                 self._log(service="billing", severity="error", minute=3, pattern="timeout after <*> ms"),
-                # Not stamped: an empty pattern is not a group.
                 self._log(service="billing", severity="error", minute=5),
             ]
         )

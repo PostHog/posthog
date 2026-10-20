@@ -552,8 +552,6 @@ class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestLogValuesQuerySerializer:
-    # The MCP tool schema is generated from this serializer. Agents send `value: ""` to mean
-    # "no search", so a blank value must validate and read as absent.
     def test_blank_value_is_accepted(self) -> None:
         serializer = _LogsValuesQuerySerializer(data={"key": "level", "value": ""})
 
