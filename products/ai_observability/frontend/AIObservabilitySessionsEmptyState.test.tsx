@@ -1,9 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -69,10 +66,6 @@ describe('AIObservabilitySessionsEmptyState', () => {
         mockHasRecentAIEvents.mockResolvedValue(true)
         mockRetrieve.mockResolvedValue(checklistWith(InstrumentationCheckStatusEnumApi.Warning))
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: true,
-        })
         sharedLogic = aiObservabilitySharedLogic()
         sharedLogic.mount()
         checklistLogic = instrumentationChecklistLogic()
@@ -84,7 +77,6 @@ describe('AIObservabilitySessionsEmptyState', () => {
         cleanup()
         checklistLogic.unmount()
         sharedLogic.unmount()
-        featureFlagLogic.unmount()
     })
 
     it('names the missing instrumentation on an unfiltered view', () => {

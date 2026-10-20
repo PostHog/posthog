@@ -1391,3 +1391,14 @@ export const WorkflowDataSuggestionsGenerateBody = () => zod.object({
         .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
         .describe('Make new suggestions even when the cached ones are still valid.'),
 })
+
+/**
+ * Whether a project is set up to send messages from workflows.
+ */
+export const WorkflowSetupStatusParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})

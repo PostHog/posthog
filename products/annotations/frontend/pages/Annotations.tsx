@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -50,6 +52,7 @@ export function Annotations(): JSX.Element {
 
     const { loadingNext, next } = useValues(annotationsModel)
     const { loadAnnotationsNext } = useActions(annotationsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -169,15 +172,26 @@ export function Annotations(): JSX.Element {
                         interaction="click"
                         scope={Scene.Annotations}
                     >
-                        <LemonButton
-                            type="primary"
-                            data-attr="create-annotation"
-                            onClick={() => openModalToCreateAnnotation()}
-                            size="small"
-                            tooltip="New annotation"
-                        >
-                            New annotation
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                data-attr="create-annotation"
+                                onClick={() => openModalToCreateAnnotation()}
+                                tooltip="New annotation"
+                            >
+                                New annotation
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                data-attr="create-annotation"
+                                onClick={() => openModalToCreateAnnotation()}
+                                size="small"
+                                tooltip="New annotation"
+                            >
+                                New annotation
+                            </LemonButton>
+                        )}
                     </Shortcut>
                 }
             />

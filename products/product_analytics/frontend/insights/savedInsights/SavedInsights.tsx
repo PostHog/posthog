@@ -2,6 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis, IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Tooltip as QuillTooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import 'scenes/saved-insights/SavedInsights.scss'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -12,6 +22,7 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -103,6 +114,7 @@ export function SavedInsights(): JSX.Element {
     } = useActions(dashboardChoiceLogic)
     const { isLoading: dashboardCreationLoading } = useValues(newDashboardLogic)
     const { addDashboard, setAsHomeTabDashboardAfterCreation, showNewDashboardModal } = useActions(newDashboardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { tab } = filters
 
@@ -400,12 +412,57 @@ export function SavedInsights(): JSX.Element {
                     type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
-                        <NewInsightButton compact={tab === SavedInsightsTabs.Home && showHomeTab} />
-                        {currentTeam?.home_tab_dashboard && (
-                            <div className="@min-[48rem]/saved-insights:hidden">{homeDashboardActions}</div>
-                        )}
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <NewInsightButton compact={tab === SavedInsightsTabs.Home && showHomeTab} />
+                            {currentTeam?.home_tab_dashboard && tab === SavedInsightsTabs.Home && showHomeTab && (
+                                <div className="@min-[48rem]/saved-insights:hidden">
+                                    <DropdownMenu>
+                                        <QuillTooltip>
+                                            <TooltipTrigger
+                                                delay={0}
+                                                render={
+                                                    <DropdownMenuTrigger
+                                                        render={
+                                                            <Button
+                                                                size="icon"
+                                                                aria-label="Home dashboard options"
+                                                                data-attr="home-tab-dashboard-options"
+                                                            />
+                                                        }
+                                                    />
+                                                }
+                                            >
+                                                <IconEllipsis />
+                                            </TooltipTrigger>
+                                            <TooltipContent>Home dashboard options</TooltipContent>
+                                        </QuillTooltip>
+                                        <DropdownMenuContent align="end" className="min-w-48">
+                                            <DropdownMenuItem
+                                                onClick={openHomeDashboardStarter}
+                                                data-attr="home-tab-choose-dashboard"
+                                            >
+                                                Change Home dashboard
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                                onClick={restorePostHogHome}
+                                                data-attr="home-tab-restore-posthog-home"
+                                            >
+                                                Use PostHog Home
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <NewInsightButton compact={tab === SavedInsightsTabs.Home && showHomeTab} />
+                            {currentTeam?.home_tab_dashboard && (
+                                <div className="@min-[48rem]/saved-insights:hidden">{homeDashboardActions}</div>
+                            )}
+                        </>
+                    )
                 }
             />
             <LemonTabs

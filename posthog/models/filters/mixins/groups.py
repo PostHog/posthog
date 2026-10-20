@@ -1,8 +1,9 @@
+from functools import cached_property
 from typing import Optional
 
 from posthog.constants import AGGREGATION_GROUP_TYPE_INDEX
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import include_dict
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 
 

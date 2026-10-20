@@ -47,11 +47,11 @@ export const todayToolsLogic = kea<todayToolsLogicType>([
     actions({ setSearch: (search: string) => ({ search }) }),
     reducers({ search: ['', { setSearch: (_, { search }) => search }] }),
     selectors({
-        // Tools whose pages open another pane, like dashboards and notebooks under Views, stay out of Products.
+        // Tools whose pages open another pane, like dashboards and notebooks under Analytics, stay out of Products.
         productTools: [
             (s) => [s.tools],
             (tools: FileSystemImport[]): FileSystemImport[] =>
-                tools.filter((tool) => !tool.href || railPaneForPath(tool.href.split('?')[0]) !== 'views'),
+                tools.filter((tool) => !tool.href || railPaneForPath(tool.href.split('?')[0]) !== 'analytics'),
         ],
         toolGroups: [
             (s) => [s.productTools, s.search],

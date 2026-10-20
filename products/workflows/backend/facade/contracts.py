@@ -13,6 +13,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    SetupStepKey,
     WorkflowProposalStatus,
 )
 
@@ -79,6 +80,17 @@ class WorkflowVisionScanDailyLimits:
 
 
 @frozen
+class RealtimeAudienceCohort:
+    """A realtime cohort a batch audience sends to from the realtime pipeline's membership."""
+
+    id: int
+    name: str
+    ready: bool
+    # False when the realtime pipeline doesn't run for the cohort's project, so it never becomes ready.
+    can_finish: bool
+
+
+@frozen
 class WorkflowBatchJob:
     """One batch run of a workflow.
 
@@ -115,6 +127,38 @@ class WorkflowSchedule:
     next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@frozen
+class SendCalendarBatchJob:
+    """One batch run, with only the fields the send calendar shows."""
+
+    id: UUID
+    status: HogFlowBatchJobState
+    created_at: datetime
+
+
+@frozen
+class SendCalendarFlow:
+    """An active, scheduled email workflow, with only the fields a send calendar card shows.
+
+    The email fields come from the first email step. ``audience_properties`` and ``audience_type``
+    come from a batch trigger's filters, and ``email_to`` only from a schedule trigger, which has no
+    audience. ``batch_jobs`` holds only the runs inside the requested range.
+    """
+
+    id: UUID
+    name: str | None
+    origin_product: str | None
+    created_by: "User | None"
+    user_access_level: str | None
+    trigger_type: str
+    audience_properties: list[dict[str, Any]]
+    audience_type: str | None
+    email_to: str | None
+    message_category_id: str | None
+    schedules: tuple[WorkflowSchedule, ...]
+    batch_jobs: tuple[SendCalendarBatchJob, ...]
 
 
 class WorkflowScheduleNotFound(Exception):
@@ -171,6 +215,17 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class RealtimeCohortStatus:
+    """How far a realtime cohort audience is from having its membership calculated."""
+
+    id: int
+    name: str
+    # A CohortRealtimeState value: "ready", "building", "rebuilding" or "needs_attention".
+    state: str
+    percent_complete: int | None
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -178,6 +233,10 @@ class AudienceSize:
     total: int
     limit: int
     dedupe_key: str | None
+    # Set when the audience is one realtime cohort. A send waits until that cohort is ready.
+    realtime_cohort: RealtimeCohortStatus | None = None
+    # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
+    realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
 
 
 @frozen
@@ -787,3 +846,11 @@ class EmailDraft:
     text: str
     generated_by: EmailDraftOrigin
     fallback_reason: EmailDraftFallbackReason | None = None
+
+
+@frozen
+class SetupStep:
+    """One messaging setup step and whether the project has done it."""
+
+    key: SetupStepKey
+    done: bool
