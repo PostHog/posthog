@@ -48,6 +48,7 @@ export function OfflineOverviewTrend(
                                 to={
                                     combineUrl(urls.aiObservabilityOfflineScorerHistory(props.scorerId), {
                                         ...props.filters,
+                                        version: periodSummary?.scorer.id,
                                         date_from: props.dateFrom || 'all',
                                         date_to: props.dateTo,
                                     }).url

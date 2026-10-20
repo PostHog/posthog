@@ -104,7 +104,7 @@ export interface offlineOverviewTrendLogicMeta {
         versionSummaries: (points: OfflineHistoryPointApi[]) => OfflineScoreHistorySummary[]
         periodSummary: (
             versionSummaries: OfflineScoreHistorySummary[],
-            selectedVersionId: any
+            selectedVersionId: string | null
         ) => OfflineScoreHistorySummary | null
     }
 }

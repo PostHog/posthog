@@ -57,6 +57,7 @@ The offline evaluations overview shows the author and supports filtering experim
 including experiments with no author. Choose "Any author" to clear the filter.
 Each scorer chart displays the versions with results in the selected date range and filters as separate series,
 while the summary defaults to the latest matching version. The version arrows change only the summary.
+Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
 The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
 
 The suite uses these existing scorers:
