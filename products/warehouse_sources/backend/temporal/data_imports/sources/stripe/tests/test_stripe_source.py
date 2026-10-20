@@ -239,34 +239,37 @@ class TestStripeGetRowsIncrementalCursor:
         assert len(tables) > 1
 
 
-def _windowed_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[RecordedRequest], ScriptedResponse]:
+def _stripe_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[RecordedRequest], ScriptedResponse]:
     # Stripe filters on `created` even for an object that only shows another timestamp, such as an invoice item's `date`.
     def respond(request: RecordedRequest) -> ScriptedResponse:
         newer_than, up_to = request.param("created[gt]"), request.param("created[lte]")
         rows = [
             obj
-            for obj in sorted(objects, key=lambda obj: -obj[field])
+            for obj in sorted(objects, key=lambda obj: (-obj[field], obj["id"]))
             if (newer_than is None or obj[field] > int(newer_than)) and (up_to is None or obj[field] <= int(up_to))
         ]
-        starting_after = request.param("starting_after")
-        if starting_after is not None:
-            rows = rows[[obj["id"] for obj in rows].index(starting_after) + 1 :]
+        ids = [obj["id"] for obj in rows]
         limit = int(request.param("limit") or DEFAULT_LIMIT)
-        return ScriptedResponse(
-            json={"object": "list", "url": "/v1/charges", "data": rows[:limit], "has_more": len(rows) > limit}
-        )
+        starting_after, ending_before = request.param("starting_after"), request.param("ending_before")
+        if ending_before is not None:
+            newer = rows[: ids.index(ending_before)]
+            page, has_more = newer[-limit:], len(newer) > limit
+        else:
+            older = rows[ids.index(starting_after) + 1 :] if starting_after is not None else rows
+            page, has_more = older[:limit], len(older) > limit
+        return ScriptedResponse(json={"object": "list", "url": "/v1/list", "data": page, "has_more": has_more})
 
     return respond
 
 
-class TestStripeWindowedIncrementalListing:
+class TestStripeLatestObjectsOldestFirst:
     def _sync(self, resource: str, objects: list[dict[str, Any]], field: str, watermark: int) -> DriveResult:
         result = SourceDriver(
             StripeSource(),
             StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")),
         ).run(
             resource,
-            _windowed_list_api(objects, field),
+            _stripe_list_api(objects, field),
             incremental_field=field,
             db_incremental_field_last_value=watermark,
             api_version=STRIPE_API_VERSION_ACACIA,
@@ -276,8 +279,12 @@ class TestStripeWindowedIncrementalListing:
 
     @pytest.mark.parametrize(
         "resource, object_type, field",
-        [(CHARGE_RESOURCE_NAME, "charge", "created"), (INVOICE_ITEM_RESOURCE_NAME, "invoiceitem", "date")],
-        ids=["charge", "invoice_item_by_date"],
+        [
+            (CHARGE_RESOURCE_NAME, "charge", "created"),
+            (INVOICE_ITEM_RESOURCE_NAME, "invoiceitem", "date"),
+            (INVOICE_RESOURCE_NAME, "invoice", "created"),
+        ],
+        ids=["charge", "invoice_item_by_date", "invoice_with_lines"],
     )
     @pytest.mark.parametrize(
         "run_seconds, several_runs", [(15 * 60, False), (0, True)], ids=["within_budget", "budget_spent"]
@@ -286,12 +293,18 @@ class TestStripeWindowedIncrementalListing:
         self, resource: str, object_type: str, field: str, run_seconds: int, several_runs: bool
     ) -> None:
         now = int(time.time())
-        # More than a page, so the read uses windows: a dense recent stretch and a sparse old one.
-        offsets = [60 * i for i in range(1, 121)] + [20 * 86_400, 30 * 86_400]
-        objects: list[dict[str, Any]] = [
-            {"id": f"obj_{offset}", "object": object_type, field: now - offset} for offset in offsets
-        ]
         watermark = now - 40 * 86_400
+        # Older objects are loaded already. Pairs share a timestamp, so a run must not stop between them.
+        timestamps = [watermark - 86_400, watermark] + [now - 600 * (i // 2) for i in range(250)]
+        objects: list[dict[str, Any]] = [
+            {
+                "id": f"obj_{i:03}",
+                "object": object_type,
+                field: timestamp,
+                "lines": {"object": "list", "data": [], "has_more": False, "url": "/v1/lines"},
+            }
+            for i, timestamp in enumerate(timestamps)
+        ]
         loaded: list[str] = []
         runs = 0
         with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", run_seconds):
@@ -303,8 +316,21 @@ class TestStripeWindowedIncrementalListing:
                 # The pipeline stages the newest value a desc source read as the run's watermark.
                 watermark = max(row[field] for row in rows)
 
-        assert sorted(loaded) == sorted(obj["id"] for obj in objects)
+        assert sorted(loaded) == sorted(obj["id"] for obj in objects[2:])
         assert (runs > 1) is several_runs
+
+    def test_a_backlog_with_nothing_at_or_before_the_watermark_loads_in_one_run(self) -> None:
+        now = int(time.time())
+        charges: list[dict[str, Any]] = [
+            {"id": f"ch_{i:03}", "object": "charge", "created": now - 60 * i} for i in range(150)
+        ]
+
+        with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", 0):
+            result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", now - 86_400)
+
+        assert sorted(row["id"] for table in result.items for row in table.to_pylist()) == sorted(
+            charge["id"] for charge in charges
+        )
 
     def test_a_read_within_one_page_keeps_one_request(self) -> None:
         now = int(time.time())
@@ -314,20 +340,6 @@ class TestStripeWindowedIncrementalListing:
 
         assert len(result.requests) == 1
         assert [row["id"] for table in result.items for row in table.to_pylist()] == ["ch_1", "ch_300"]
-
-    @pytest.mark.parametrize(
-        "window_seconds, rows, expected",
-        [
-            (86_400, 0, 172_800),
-            (86_400, 40_000, 21_600),
-            (86_400, 100, 345_600),
-            (3_600, 1_000_000, 3_600),
-            (300 * 86_400, 0, 365 * 86_400),
-        ],
-        ids=["empty_doubles", "dense_shrinks", "sparse_grows_at_most_4x", "never_below_an_hour", "never_above_a_year"],
-    )
-    def test_the_next_window_targets_the_row_count(self, window_seconds: int, rows: int, expected: int) -> None:
-        assert stripe_module.next_window_seconds(window_seconds, rows, target_rows=10_000) == expected
 
 
 class TestStripeFlatResourceResumeCursor:

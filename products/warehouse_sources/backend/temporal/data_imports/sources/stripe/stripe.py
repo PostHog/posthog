@@ -143,17 +143,10 @@ NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
 # take long enough that a worker shutdown waits on the sweep instead of handing it off.
 NESTED_SWEEP_CHECKPOINT_SECONDS = 60.0
 
-# An incremental read that is far behind ends at a window boundary after this long, and the run
-# completes. Import workers restart often, and a run that the restart interrupts loses its rows, so a
-# longer read finishes less often. A read that is not behind ends long before this.
+# An incremental read that is far behind stops after this long, and the run completes. Import
+# workers restart often, and a run that a restart interrupts loses its rows, so a longer read
+# finishes less often. A read that is not behind ends long before this.
 INCREMENTAL_RUN_SECONDS = 15 * 60
-# The budget is checked between windows only, so a window holds about this much reading. The rows
-# that fit come from the rate the read observes, because some resources fetch more per row.
-INCREMENTAL_WINDOW_TARGET_SECONDS = 120
-INCREMENTAL_WINDOW_MIN_ROWS = 1_000
-INCREMENTAL_WINDOW_MAX_ROWS = 50_000
-INCREMENTAL_WINDOW_MIN_SECONDS = 60 * 60
-INCREMENTAL_WINDOW_MAX_SECONDS = 365 * 24 * 60 * 60
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -1268,110 +1261,66 @@ def get_rows(
             yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
             return
 
-        yield from _windowed_latest_listing(
+        latest_objects = _latest_objects_oldest_first(
             resource,
             {**default_params, **resource.params},
             watermark,
             incremental_field_name,
-            batcher,
             logger,
             started_at=incremental_started_at,
         )
+        yield from _batch_and_yield(latest_objects, batcher)
 
 
-def window_target_rows(rows_per_second: float) -> int:
-    """How many objects a window holds at the observed read rate."""
-    target = int(rows_per_second * INCREMENTAL_WINDOW_TARGET_SECONDS)
-    return min(max(target, INCREMENTAL_WINDOW_MIN_ROWS), INCREMENTAL_WINDOW_MAX_ROWS)
-
-
-def next_window_seconds(window_seconds: int, rows: int, target_rows: int) -> int:
-    """The span of the next `created` window, sized so that it holds about `target_rows`.
-
-    The density of the window just read predicts the next one. Each step changes the span by at
-    most four times, so one burst or one quiet stretch does not swing the size.
-    """
-    if rows == 0:
-        proposed = window_seconds * 2
-    else:
-        proposed = window_seconds * target_rows // rows
-        proposed = min(max(proposed, window_seconds // 4), window_seconds * 4)
-    return min(max(proposed, INCREMENTAL_WINDOW_MIN_SECONDS), INCREMENTAL_WINDOW_MAX_SECONDS)
-
-
-def _windowed_latest_listing(
+def _latest_objects_oldest_first(
     resource: StripeResource,
     params: dict[str, Any],
     watermark: int,
     incremental_field_name: str,
-    batcher: Batcher,
     logger: FilteringBoundLogger,
     started_at: float,
-) -> Iterator[pa.Table]:
-    """Read the objects created after `watermark`, in `created` windows oldest first when they fill more than a page.
+) -> Iterator[Any]:
+    """Yield the objects created after `watermark`, oldest first when they fill more than a page.
 
-    Stripe lists newest first, and the watermark moves only when a run completes. A run that reads
-    from an old watermark in one listing can outlast the worker, and every retry starts again from
-    the same watermark. Each window is read in full before the next one, so the newest value read so
-    far is always a safe watermark. After `INCREMENTAL_RUN_SECONDS` the run ends at the next window
-    boundary, completes, and the next sync continues from its watermark.
+    Stripe lists newest first, and the watermark moves only when a run completes, so a newest-first
+    read has no safe place to stop. `ending_before` the newest object at or before the watermark
+    lists the newer objects oldest first. The newest value read is then always a safe watermark, so
+    after `INCREMENTAL_RUN_SECONDS` the read stops between two values and the run completes.
     """
 
-    def batches(objects: Iterator[Any]) -> Iterator[pa.Table]:
-        # Some endpoints filter on `created` and track another field, which the cut-off still guards.
-        return _batch_and_yield(
-            objects, batcher, incremental_field_name=incremental_field_name, stop_at_or_before=watermark
+    def listing(extra_params: dict[str, Any]) -> Generator[Any]:
+        return _iter_cleaning_errors(
+            _call_stripe(resource.method, params={**params, **extra_params}).auto_paging_iter()
         )
 
-    def listing(window_params: dict[str, Any]) -> Generator[Any]:
-        return _iter_cleaning_errors(_call_stripe(resource.method, params=window_params).auto_paging_iter())
+    page_size = int(params.get("limit", DEFAULT_LIMIT))
+    newest_first = listing({"created[gt]": watermark})
+    first_page = list(itertools.islice(newest_first, page_size + 1))
+    anchor = next(listing({"created[lte]": watermark, "limit": 1}), None) if len(first_page) > page_size else None
+    if anchor is None:
+        # Almost every sync reads one page. Without an object at or before the watermark, for example
+        # after Stripe dropped its old events, nothing marks where an oldest-first read starts.
+        objects: Iterator[Any] = itertools.chain(first_page, newest_first)
+    else:
+        newest_first.close()
+        objects = listing({"ending_before": anchor["id"]})
 
-    probe_started_at = time.monotonic()
-    probe = listing({**params, "created[gt]": watermark})
-    newest = list(itertools.islice(probe, DEFAULT_LIMIT + 1))
-    if len(newest) <= DEFAULT_LIMIT:
-        # Almost every sync reads less than a page, so it keeps the single request it always made.
-        yield from batches(iter(newest))
-        return
-
-    # The newest page shows how dense the source is and how fast it reads, so it sizes the first window.
-    target_rows = window_target_rows(len(newest) / max(time.monotonic() - probe_started_at, 1e-3))
-    newest_span = int(time.time()) - int(newest[DEFAULT_LIMIT - 1][incremental_field_name])
-    window_seconds = min(
-        max(newest_span * target_rows // DEFAULT_LIMIT, INCREMENTAL_WINDOW_MIN_SECONDS),
-        INCREMENTAL_WINDOW_MAX_SECONDS,
-    )
-    if watermark + window_seconds >= time.time():
-        # One open window holds the whole read, which is the listing the probe started.
-        yield from batches(itertools.chain(newest, probe))
-        return
-    # Loading the newest page now would move the watermark past older rows, so the last window reads it again.
-    probe.close()
-
-    lower = watermark
-    while True:
-        upper = lower + window_seconds
-        window_started_at = time.monotonic()
-        if upper >= time.time():
-            # The last window has no upper bound, so it also reads objects created during the run.
-            yield from batches(listing({**params, "created[gt]": lower}))
-            return
-        rows = 0
-        for table in batches(listing({**params, "created[gt]": lower, "created[lte]": upper})):
-            rows += table.num_rows
-            yield table
-        if rows:
-            target_rows = window_target_rows(rows / max(time.monotonic() - window_started_at, 1e-3))
-        lower = upper
-        window_seconds = next_window_seconds(window_seconds, rows, target_rows)
-        # Only a window with rows moves the watermark, so the run stops after one. A run that stopped
-        # after empty windows would leave the next sync to read them again.
-        if rows and time.monotonic() - started_at >= INCREMENTAL_RUN_SECONDS:
+    last_value: int | None = None
+    for obj in objects:
+        value: int = obj[incremental_field_name]
+        # Some endpoints filter on `created` and track another field, so the watermark is checked again.
+        if value <= watermark:
+            continue
+        # The read stops only between two values, because the next sync skips the objects at the last value.
+        out_of_time = anchor is not None and time.monotonic() - started_at >= INCREMENTAL_RUN_SECONDS
+        if out_of_time and last_value is not None and value != last_value:
             logger.warning(
-                f"Stripe: this sync read objects created up to {datetime.fromtimestamp(lower, tz=UTC).isoformat()}. "
+                f"Stripe: this sync read objects created up to {datetime.fromtimestamp(last_value, tz=UTC).isoformat()}. "
                 "The next sync continues from there."
             )
             return
+        last_value = value
+        yield obj
 
 
 # How far an invoice is through its lifecycle. An uncollectible invoice can still be paid or voided.
