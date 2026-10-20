@@ -231,7 +231,7 @@ describe('SharingModal (dashboard)', () => {
         )
 
         await screen.findByText(`Share ${resource} publicly`)
-        const banner = screen.queryByText(new RegExp(`Access controls do not apply to public ${resource}s`))
+        const banner = screen.queryByText(new RegExp(`Access controls do not apply when viewing public ${resource}s`))
         const link = screen.queryByText('Disable public sharing for your organization')
         if (warning) {
             expect(banner).toBeInTheDocument()

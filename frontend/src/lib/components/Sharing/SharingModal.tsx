@@ -28,7 +28,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -244,7 +244,7 @@ export function SharingModalContent({
                             sharingConfiguration.has_relevant_access_controls && (
                                 <LemonBanner type="warning" className="mb-3">
                                     <p className="mb-0">
-                                        {`Anyone with the public link can view this ${resource} and its data, including people outside your organization. Access controls do not apply to public ${resource}s.`}
+                                        {`Anyone with the public link can view this ${resource} and its data, including people outside your organization. Access controls do not apply when viewing public ${pluralizeResource(getResourceType(dashboardId, insightShortId, recordingId, notebookShortId))}.`}
                                     </p>
                                     {canManagePublicSharing && (
                                         <p className="mt-2 mb-0">
