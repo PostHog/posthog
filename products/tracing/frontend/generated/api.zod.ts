@@ -1045,6 +1045,83 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe('The tracing spans query to execute.'),
 })
 
+export const tracingSpansServiceHealthCreateBodyQueryOneCompareDefault = `previous_period`
+export const tracingSpansServiceHealthCreateBodyQueryOneServiceNamesMax = 100
+
+export const tracingSpansServiceHealthCreateBodyQueryOneSpanScopeDefault = `entry`
+export const tracingSpansServiceHealthCreateBodyQueryOneOrderByDefault = `status`
+export const tracingSpansServiceHealthCreateBodyQueryOneLimitDefault = 25
+export const tracingSpansServiceHealthCreateBodyQueryOneLimitMax = 200
+
+export const TracingSpansServiceHealthCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod.string().nullish().describe('Relative (-30m, -6h, -7d) or ISO 8601.'),
+                    date_to: zod.string().nullish().describe('Same format. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('The window to score. Defaults to the last hour.'),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - none\n\* `previous_period` - previous_period\n\* `previous_day` - previous_day\n\* `previous_week` - previous_week'
+                )
+                .default(tracingSpansServiceHealthCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.\n\n\* `none` - none\n\* `previous_period` - previous_period\n\* `previous_day` - previous_day\n\* `previous_week` - previous_week'
+                ),
+            environment: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.'
+                ),
+            serviceNames: zod
+                .array(zod.string())
+                .max(tracingSpansServiceHealthCreateBodyQueryOneServiceNamesMax)
+                .optional()
+                .describe('Only these services.'),
+            spanScope: zod
+                .enum(['entry', 'all'])
+                .describe('\* `entry` - Entry\n\* `all` - All')
+                .default(tracingSpansServiceHealthCreateBodyQueryOneSpanScopeDefault)
+                .describe(
+                    'entry (default) counts root, server and consumer spans, one per request. all counts every span.\n\n\* `entry` - Entry\n\* `all` - All'
+                ),
+            orderBy: zod
+                .enum(['status', 'error_rate', 'p95', 'throughput', 'error_count'])
+                .describe(
+                    '\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
+                )
+                .default(tracingSpansServiceHealthCreateBodyQueryOneOrderByDefault)
+                .describe(
+                    'status (default) puts silent, regressed and degraded first. The others sort high to low.\n\n\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
+                ),
+            include: zod
+                .array(zod.enum(['top_operations']).describe('\* `top_operations` - Top Operations'))
+                .optional()
+                .describe(
+                    'top_operations adds the 3 operations with the most errors for each regressed or degraded service.'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(tracingSpansServiceHealthCreateBodyQueryOneLimitMax)
+                .default(tracingSpansServiceHealthCreateBodyQueryOneLimitDefault)
+                .describe('Max service rows, 1-200.'),
+        })
+        .describe('The service health query. Every field is optional.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod.string().nullish().describe('Relative (-30m, -6h, -7d) or ISO 8601.'),
+            date_to: zod.string().nullish().describe('Same format. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('An explicit baseline window. Overrides query.compare.'),
+})
+
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = false
 

@@ -68,6 +68,18 @@ tools:
             include:
                 - results
                 - count
+    apm-service-health:
+        operation: tracing_spans_service_health_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Service health against a baseline
+        description_file: ./prompts/apm-service-health.md
+        feature_flag: tracing
     apm-services-list:
         operation: tracing_spans_service_names_retrieve
         enabled: true
@@ -118,6 +130,7 @@ tools:
         response:
             include:
                 - count
+                - traceCount
     apm-spans-duration-histogram:
         operation: tracing_spans_duration_histogram_create
         enabled: true

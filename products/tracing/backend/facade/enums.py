@@ -11,3 +11,40 @@ products need to interpret contract objects also belong here.
 Internal-only constants (DB magic values, feature flags, etc.)
 should stay in the implementation (logic.py, models.py).
 """
+
+from posthog.enums import LabeledStrEnum
+
+
+class ServiceHealthCompare(LabeledStrEnum):
+    NONE = "none"
+    PREVIOUS_PERIOD = "previous_period"
+    PREVIOUS_DAY = "previous_day"
+    PREVIOUS_WEEK = "previous_week"
+    CUSTOM = "custom"
+
+
+class ServiceHealthSpanScope(LabeledStrEnum):
+    ENTRY = "entry"
+    ALL = "all"
+
+
+class ServiceHealthOrderBy(LabeledStrEnum):
+    STATUS = "status"
+    ERROR_RATE = "error_rate"
+    P95 = "p95"
+    THROUGHPUT = "throughput"
+    ERROR_COUNT = "error_count"
+
+
+class ServiceHealthInclude(LabeledStrEnum):
+    TOP_OPERATIONS = "top_operations"
+
+
+class ServiceHealthStatus(LabeledStrEnum):
+    OK = "ok"
+    DEGRADED = "degraded"
+    REGRESSED = "regressed"
+    IMPROVED = "improved"
+    NEW = "new"
+    SILENT = "silent"
+    RECOVERED = "recovered"

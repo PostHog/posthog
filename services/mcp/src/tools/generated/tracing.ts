@@ -49,6 +49,9 @@ const apmAttributeValuesList = (): ToolBase<ReturnType<typeof ApmAttributeValues
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 key: params.key,
                 limit: params.limit,
                 offset: params.offset,
@@ -78,6 +81,9 @@ const apmAttributesList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -86,6 +92,32 @@ const apmAttributesList = (): ToolBase<
         })
         const filtered = pickResponseFields(result, ['results', 'count']) as typeof result
         return filtered
+    },
+})
+
+const ApmServiceHealthSchema = () => {
+    const TracingSpansServiceHealthCreateBody = orvalSchemas.TracingSpansServiceHealthCreateBody()
+    return TracingSpansServiceHealthCreateBody
+}
+
+const apmServiceHealth = (): ToolBase<ReturnType<typeof ApmServiceHealthSchema>, Schemas.ServiceHealthResponse> => ({
+    name: 'apm-service-health',
+    schema: ApmServiceHealthSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmServiceHealthSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.baselineDateRange !== undefined) {
+            body['baselineDateRange'] = params.baselineDateRange
+        }
+        const result = await context.api.request<Schemas.ServiceHealthResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service_health/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -107,6 +139,8 @@ const apmServicesList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
                 dateRange: params.dateRange,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 search: params.search,
             },
         })
@@ -161,7 +195,7 @@ const apmSpansCount = (): ToolBase<ReturnType<typeof ApmSpansCountSchema>, Schem
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/count/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['count']) as typeof result
+        const filtered = pickResponseFields(result, ['count', 'traceCount']) as typeof result
         return filtered
     },
 })
@@ -332,6 +366,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-breakdown': apmAttributeBreakdown,
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
+    'apm-service-health': apmServiceHealth,
     'apm-services-list': apmServicesList,
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-count': apmSpansCount,
