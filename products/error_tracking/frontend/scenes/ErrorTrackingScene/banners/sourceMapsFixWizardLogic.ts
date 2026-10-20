@@ -7,10 +7,10 @@ import { getSurveyIdBasedResponseKey, getSurveyResponseKey } from 'scenes/survey
 
 import { SurveyEventName, SurveyEventProperties } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from '../../../../../../frontend/src/lib/logic/featureFlagLogic'
 
 export type WizardRating = 'good' | 'bad'
-export type WizardOpenSource = 'issues_list' | 'recommendations'
+export type WizardOpenSource = 'issues_list'
 
 export const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
@@ -49,7 +49,7 @@ export interface sourceMapsFixWizardLogicActions {
         value: true
     }
     openModal: (source: WizardOpenSource) => {
-        source: WizardOpenSource
+        source: 'issues_list'
     }
     rateWizard: (rating: WizardRating) => {
         rating: WizardRating
@@ -83,15 +83,7 @@ export type sourceMapsFixWizardLogicType = MakeLogicType<
 >
 
 export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
-    path([
-        'products',
-        'error_tracking',
-        'scenes',
-        'ErrorTrackingScene',
-        'tabs',
-        'recommendations',
-        'sourceMapsFixWizardLogic',
-    ]),
+    path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'banners', 'sourceMapsFixWizardLogic']),
 
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
