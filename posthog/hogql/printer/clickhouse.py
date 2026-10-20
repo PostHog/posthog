@@ -735,7 +735,9 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         if is_events_json_document:
             # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
-            stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({field_sql}, {keys_placeholder})"
+            # The UDF reads RowBinary, which encodes a JSON column differently from a String. Without toString the
+            # worker misreads the row and waits for more input until ClickHouse times out the pipe.
+            stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(toString({field_sql}), {keys_placeholder})"
         else:
             # A String JSON column holds '' when its producer omits the value, and the UDF fails to parse ''.
             # ClickHouse can evaluate both branches of `if`, so the UDF gets '{}' in place of '' and the outer
