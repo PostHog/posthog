@@ -53,7 +53,6 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
         buttonTileId,
         terraformModalOpen,
         addWidgetModalOpen,
-        dashboardWidgetsEnabled,
         addWidgetTileLoading,
     } = useValues(dashboardLogic)
     const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles, closeTileModal } = useActions(dashboardLogic)
@@ -61,11 +60,10 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
     const isSharingOpen = dashboardMode === DashboardMode.Sharing
-    const isAddWidgetOpen = dashboardWidgetsEnabled && addWidgetModalOpen
     // Grace-extended so each modal's exit animation finishes before its lazy subtree unmounts.
     const shouldRenderSubscriptions = useKeepMountedWhileOpen(showSubscriptions)
     const shouldRenderSharing = useKeepMountedWhileOpen(isSharingOpen)
-    const shouldRenderAddWidget = useKeepMountedWhileOpen(isAddWidgetOpen)
+    const shouldRenderAddWidget = useKeepMountedWhileOpen(addWidgetModalOpen)
     const shouldRenderTerraform = useKeepMountedWhileOpen(terraformModalOpen)
     const textRouteTile =
         textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(textTileId)) : undefined
@@ -163,13 +161,13 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                         <Suspense
                             fallback={
                                 <DashboardModalLoading
-                                    isOpen={isAddWidgetOpen}
+                                    isOpen={addWidgetModalOpen}
                                     onClose={() => setAddWidgetModalOpen(false)}
                                 />
                             }
                         >
                             <AddWidgetModal
-                                isOpen={isAddWidgetOpen}
+                                isOpen={addWidgetModalOpen}
                                 onClose={() => setAddWidgetModalOpen(false)}
                                 loading={addWidgetTileLoading}
                                 onAdd={async (widgets) => {

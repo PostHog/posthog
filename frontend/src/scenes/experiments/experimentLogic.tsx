@@ -1303,10 +1303,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 duplicateSharedMetricAsInlineMetric: (state, { sharedMetricId, isSecondary, newUuid }) => {
-                    const metricType = isSecondary ? 'secondary' : 'primary'
+                    const role = isSecondary ? 'secondary' : 'primary'
                     const savedMetric = (state?.saved_metrics || []).find(
-                        (m: ExperimentSavedMetric) =>
-                            m.saved_metric === sharedMetricId && m.metadata?.type === metricType
+                        (m: ExperimentSavedMetric) => m.saved_metric === sharedMetricId && m.metadata?.type === role
                     )
 
                     if (!savedMetric) {
@@ -2455,7 +2454,11 @@ export const experimentLogic = kea<experimentLogicType>([
             null as ExperimentHealthApi | null,
             {
                 loadExperimentHealth: async (trigger: ExperimentHealthLoadTrigger, breakpoint) => {
-                    if (typeof values.experimentId !== 'number' || values.currentProjectId === null) {
+                    if (
+                        typeof values.experimentId !== 'number' ||
+                        values.experimentMissing ||
+                        values.currentProjectId === null
+                    ) {
                         return null
                     }
                     if (trigger === 'experiment_update') {

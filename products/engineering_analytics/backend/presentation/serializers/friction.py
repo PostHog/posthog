@@ -20,7 +20,7 @@ class FrictionGroupShareSerializer(DataclassSerializer):
         extra_kwargs = {
             "group": {
                 "help_text": "ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue "
-                "time and kickouts), or rework (own failures and extra pushes)."
+                "time and failed queue attempts), or rework (own failures and extra pushes)."
             },
             "score": {"help_text": "This group's part of the score, in the same 'x typical' unit. The parts add up."},
         }
@@ -151,7 +151,11 @@ class PullRequestFrictionBreakdownSerializer(DataclassSerializer):
             },
             "pushes_after_approval": {"help_text": "Pushes after the first approval. Null without an approval."},
             "queue_seconds": {"help_text": "Time in the merge queue. Null when the pull request never entered it."},
-            "kickout_count": {"help_text": "Times the merge queue removed the pull request. Null without queue data."},
+            "kickout_count": {
+                "help_text": "Merge queue attempts where at least one workflow run failed. A failed check the queue "
+                "does not require leaves the pull request in the queue, so this is an upper bound on the times "
+                "the queue removed it. Null when the pull request never entered the merge queue."
+            },
         }
 
 

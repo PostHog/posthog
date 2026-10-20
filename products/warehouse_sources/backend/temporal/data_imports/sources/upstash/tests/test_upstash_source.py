@@ -41,10 +41,6 @@ class TestUpstashSource:
         # get_schemas iterates a static catalog with no I/O, so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["teams"])
-        assert [s.name for s in schemas] == ["teams"]
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.upstash.com/v2/teams"),

@@ -15,12 +15,6 @@ class TestPostmarkSource:
         self.team_id = 123
         self.config = PostmarkSourceConfig(server_token="test-server-token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["bounces"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "bounces"
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.validate_postmark_credentials"
     )

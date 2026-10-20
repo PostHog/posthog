@@ -20,7 +20,6 @@ import {
     LogsAlertDestinationGroup,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { logsAlertsDestinationsDeleteCreate, logsAlertsRetrieve } from 'products/logs/frontend/generated/api'
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsAlertConfigurationDetailApi } from '../../generated/api.schemas'
 
@@ -33,7 +32,7 @@ export interface LogsAlertNotificationDetailSceneLogicProps {
 export interface logsAlertNotificationDetailSceneLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
-    alert: LogsAlertConfigurationApi | null
+    alert: LogsAlertConfigurationDetailApi | null
     alertId: string
     alertLoading: boolean
     breadcrumbs: Breadcrumb[]
@@ -45,6 +44,7 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     hogFunctionsError: string | null
     hogFunctionsLoading: boolean
     isDeleting: boolean
+    messageCustomized: boolean
     togglingHogFunctionIds: string[]
 }
 
@@ -103,8 +103,12 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         hogFunctionId: (arg: any) => string
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
+        messageCustomized: (
+            alert: LogsAlertConfigurationDetailApi | null,
+            destinationGroup: LogsAlertDestinationGroup | null
+        ) => boolean
         breadcrumbs: (
-            alert: LogsAlertConfigurationApi | null,
+            alert: LogsAlertConfigurationDetailApi | null,
             destinationGroup: LogsAlertDestinationGroup | null,
             alertId: string
         ) => Breadcrumb[]
@@ -176,7 +180,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
 
     loaders(({ values, props }) => ({
         alert: [
-            null as LogsAlertConfigurationApi | null,
+            null as LogsAlertConfigurationDetailApi | null,
             {
                 loadAlert: async () => {
                     if (!values.currentTeamId) {
@@ -218,10 +222,20 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 return groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
             },
         ],
+        messageCustomized: [
+            (s) => [s.alert, s.destinationGroup],
+            (alert: LogsAlertConfigurationDetailApi | null, group: LogsAlertDestinationGroup | null): boolean => {
+                const groupIds = new Set(group?.hogFunctions.map((hogFunction) => hogFunction.id))
+                return (alert?.destinations ?? []).some(
+                    (destination) =>
+                        destination.message_customized && destination.hog_function_ids.some((id) => groupIds.has(id))
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.alert, s.destinationGroup, s.alertId],
             (
-                alert: LogsAlertConfigurationApi | null,
+                alert: LogsAlertConfigurationDetailApi | null,
                 group: LogsAlertDestinationGroup | null,
                 alertId: string
             ): Breadcrumb[] => [

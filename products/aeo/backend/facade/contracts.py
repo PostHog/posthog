@@ -53,3 +53,39 @@ class CitationGap:
     @property
     def citation_rate(self) -> float:
         return self.cited_checks / self.checks if self.checks else 0.0
+
+
+AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+PROMPT_TOPIC_MAX_LENGTH = 200
+
+
+@frozen
+class Prompt:
+    id: str
+    prompt: str
+    topic: str
+    prompt_source: str
+    rank: float
+    active: bool
+    last_checked_at: dt.datetime | None
+    external_visibility: float | None
+    created_at: dt.datetime
+    updated_at: dt.datetime | None
+
+
+@frozen
+class PromptImport:
+    prompt: str
+    topic: str = ""
+    external_visibility: float | None = None
+
+
+@frozen
+class PromptImportResult:
+    created: int
+    updated: int
+    skipped: int
+
+
+class PromptNotFoundError(Exception):
+    pass

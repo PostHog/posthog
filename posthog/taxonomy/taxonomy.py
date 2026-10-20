@@ -2768,28 +2768,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
             "description": "The type of evaluation that was run.",
             "examples": ["llm_judge", "hog"],
         },
-        "$ai_expected": {
-            "label": "AI expected output (LLM)",
-            "description": "The expected output for comparison in this evaluation.",
-        },
         "$ai_experiment_id": {
             "label": "AI experiment ID (LLM)",
             "description": "The unique identifier of the experiment this event belongs to.",
-        },
-        "$ai_experiment_item_id": {
-            "label": "AI experiment item ID (LLM)",
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-        },
-        "$ai_experiment_item_name": {
-            "label": "AI experiment item name (LLM)",
-            "description": "The name of the individual item being evaluated in an experiment.",
         },
         "$ai_experiment_name": {
             "label": "AI experiment name (LLM)",
@@ -2827,10 +2815,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [1024, 4096],
             "type": "Numeric",
         },
-        "$ai_metric_version": {
-            "label": "AI metric version (LLM)",
-            "description": "The version of the metric used for evaluation.",
-        },
         "$ai_output": {
             "label": "AI output (LLM)",
             "description": "The output text from a generation or the text being evaluated.",
@@ -2838,26 +2822,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_project_name": {
             "label": "AI project name (LLM)",
             "description": "The project name associated with this AI event.",
-        },
-        "$ai_result_type": {
-            "label": "AI result type (LLM)",
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-        },
-        "$ai_score": {
-            "label": "AI score (LLM)",
-            "description": "The numeric score assigned by this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_max": {
-            "label": "AI score max (LLM)",
-            "description": "The maximum possible score for this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_min": {
-            "label": "AI score min (LLM)",
-            "description": "The minimum possible score for this evaluation metric.",
-            "type": "Numeric",
         },
         "$ai_span_type": {
             "label": "AI span type (LLM)",
@@ -3421,6 +3385,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {
@@ -3474,6 +3444,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_cache_read_audio_tokens": {
             "label": "AI cache read audio tokens (LLM)",
             "description": "The number of audio tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
             "examples": [16],
             "type": "Numeric",
         },

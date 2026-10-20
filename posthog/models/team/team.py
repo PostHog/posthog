@@ -1,7 +1,6 @@
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -21,11 +20,13 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project_secret_api_key import delete_project_secret_api_keys_for_token
+from posthog.models.project_secret_api_key import (
+    create_project_secret_api_key_for_token,
+    delete_project_secret_api_keys_for_token,
+)
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -47,7 +48,7 @@ from posthog.week_start_day import WeekStartDay  # noqa: F401
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
-from .extensions import get_or_create_team_extension
+from .extensions import TeamExtensionDescriptor
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -749,35 +750,21 @@ class Team(UUIDTClassicModel):
     # without raising. A config no serializer exposes needs no accessor here, and is reached through
     # the helper the way TeamFeatureFlagDefaultsConfig is.
 
-    @cached_property
-    def revenue_analytics_config(self):
-        from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamRevenueAnalyticsConfig)
-
-    @cached_property
-    def marketing_analytics_config(self):
-        from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamMarketingAnalyticsConfig)
-
-    @cached_property
-    def customer_analytics_config(self):
-        from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
-
-    @cached_property
-    def workflows_config(self):
-        from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
-
-        return get_or_create_team_extension(self, TeamWorkflowsConfig)
-
-    @cached_property
-    def feature_flag_policy_config(self):
-        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
-
-        return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
+    revenue_analytics_config = TeamExtensionDescriptor(
+        "posthog.models.team.team_revenue_analytics_config", "TeamRevenueAnalyticsConfig"
+    )
+    marketing_analytics_config = TeamExtensionDescriptor(
+        "posthog.models.team.team_marketing_analytics_config", "TeamMarketingAnalyticsConfig"
+    )
+    customer_analytics_config = TeamExtensionDescriptor(
+        "products.customer_analytics.backend.facade.team_extension", "TeamCustomerAnalyticsConfig"
+    )
+    workflows_config = TeamExtensionDescriptor(
+        "products.workflows.backend.facade.team_extension", "TeamWorkflowsConfig"
+    )
+    feature_flag_policy_config = TeamExtensionDescriptor(
+        "products.feature_flags.backend.models.team_feature_flag_policy_config", "TeamFeatureFlagPolicyConfig"
+    )
 
     @property
     def default_modifiers(self) -> dict:
@@ -876,10 +863,6 @@ class Team(UUIDTClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
-    @cached_property
-    def persons_seen_so_far(self) -> int:
-        return self.count_persons_seen_so_far()
-
     def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
         from posthog.schema import HogQLQueryModifiers
 
@@ -901,10 +884,6 @@ class Team(UUIDTClassicModel):
                 # each query's modifiers at print time, not from the database.
                 context=HogQLContext(team_id=self.pk, database=database),
             ).results[0][0]
-
-    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
-    def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        return self.count_groups_seen_so_far(group_type_index)
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
         from posthog.hogql import ast  # noqa: PLC0415 — breaks team import cycle
@@ -1006,21 +985,24 @@ class Team(UUIDTClassicModel):
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        # Rotate the tokens
-        old_primary_token = self.secret_api_token
         new_token = generate_random_token_secret()
-        expired_token = self.secret_api_token_backup
         # One transaction with the signal receivers: the conversations signing secret must
         # never diverge from the column, so a failed copy rolls the rotation back whole.
         try:
             with transaction.atomic():
+                # A rotation racing this one would overwrite the token this save writes while
+                # its mirror row lives on as a working credential, so read under lock.
+                locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
+                old_primary_token = locked.secret_api_token
+                expired_token = locked.secret_api_token_backup
                 self.secret_api_token = new_token
                 self.secret_api_token_backup = old_primary_token
                 self.save()
                 if expired_token:
-                    # The migrated PSAK row holding this exact token (#63111 backfill) must
-                    # retire with it, or the dropped token keeps authenticating via PSAK.
+                    # Retire the expiring token's mirror row with it, or it keeps authenticating.
                     delete_project_secret_api_keys_for_token(self.id, expired_token)
+                # With the legacy verifiers off, only the mirror row authenticates the new token.
+                create_project_secret_api_key_for_token(self.id, new_token)
                 secret_api_token_rotated.send(sender=self.__class__, team=self)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
@@ -1152,21 +1134,24 @@ class Team(UUIDTClassicModel):
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        old_backup_token = self.secret_api_token_backup
-        if not old_backup_token:
-            # Nothing to delete.
-            return
-
-        masked_old_backup_token = mask_key_value(old_backup_token)
         try:
             with transaction.atomic():
+                # A rotation racing this delete rewrites the backup column, so read under lock.
+                # No in-memory precheck: this instance may predate a rotation that set the backup.
+                locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
+                old_backup_token = locked.secret_api_token_backup
+                if not old_backup_token:
+                    return
+                # save() writes every field, so a stale primary here would clobber a
+                # concurrently rotated token while its mirror row keeps authenticating.
+                self.secret_api_token = locked.secret_api_token
                 self.secret_api_token_backup = None
                 self.save()
                 delete_project_secret_api_keys_for_token(self.id, old_backup_token)
         except Exception:
             # save() already cached this team (post_save) with the cleared backup, which
             # the rollback discarded. Rewrite that entry from the committed row.
-            self.refresh_from_db(fields=["secret_api_token_backup"])
+            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
             set_team_in_cache(self.api_token, self)
             raise
         set_team_in_cache(old_backup_token, None)
@@ -1186,7 +1171,7 @@ class Team(UUIDTClassicModel):
                         type="Team",
                         action="deleted",
                         field="secret_api_token_backup",
-                        before=masked_old_backup_token,
+                        before=mask_key_value(old_backup_token),
                         after=None,
                     )
                 ],

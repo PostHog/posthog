@@ -24,10 +24,6 @@ if TYPE_CHECKING:
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
 
-POSTHOG_EVALUATIONS_URL = (
-    "https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/{experiment_id}?offline_date_from=-1d"
-)
-
 CaseStatus = Literal["ok", "timeout", "error"]
 
 
@@ -86,6 +82,7 @@ class ProgressReporter:
         self._trial_stats: dict[str, Sequence[ScorerTrialStats]] = {}
         self._experiment_totals: dict[str, int] = {}
         self._posthog_urls: dict[str, str] = {}
+        self._posthog_offline_statuses: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
         self._active_cases: dict[str, _CaseProgress] = {}
         self._started = time.monotonic()
@@ -341,9 +338,12 @@ class ProgressReporter:
             progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
             await asyncio.to_thread(_emit, f"EXPERIMENT DONE  {experiment_name}  {progress}")
 
-    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
+    async def record_posthog_offline_result(self, experiment_name: str, status: str, *, url: str | None = None) -> None:
         async with self._lock:
-            self._posthog_urls[experiment_name] = POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id)
+            self._posthog_offline_statuses[experiment_name] = status
+            if url is not None:
+                self._posthog_urls[experiment_name] = url
+            await asyncio.to_thread(_emit, f"POSTHOG OFFLINE  {experiment_name}  {url or status}")
 
     def print_final_summary(
         self,
@@ -440,6 +440,8 @@ class ProgressReporter:
         posthog_url = self._posthog_urls.get(experiment_name)
         if posthog_url:
             lines.append(f"  PostHog: {posthog_url}")
+        if (offline_status := self._posthog_offline_statuses.get(experiment_name)) and offline_status != "uploaded":
+            lines.append(f"  PostHog offline: {offline_status}")
         lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:

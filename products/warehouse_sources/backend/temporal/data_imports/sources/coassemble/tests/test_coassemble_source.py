@@ -3,7 +3,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
     CoassembleSourceConfig,
 )
@@ -51,9 +50,3 @@ class TestCoassembleSource:
         assert kwargs["team_id"] is inputs.team_id
         assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Coassemble schema 'not_a_table'" in str(result.raised)

@@ -601,6 +601,17 @@ WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the transactional email route (an API call sending one email from a message
+# template). The web tier mints, the plugin server verifies. Its own key per the one-key-per-surface
+# rule above. Comma-separated, newest first. Empty outside dev/test, so sends fail closed until
+# provisioned. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET",
+        "local-dev-workflows-transactional-email-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -742,6 +753,13 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
+# A replica that lags would hide the result and the lock, so another tile would run the same query again.
+CACHES["metrics_variable_options"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -808,6 +826,7 @@ if TEST:
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["metrics_variable_options"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

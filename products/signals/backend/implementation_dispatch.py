@@ -11,6 +11,8 @@ import structlog
 from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ImplementationDecision,
@@ -178,7 +180,7 @@ class ImplementationDispatcher:
                 team_id=team_id, report_id=str(decision.report_id), attribution=ArtefactAttribution.system()
             )
             outcome = async_to_sync(maybe_autostart_from_report_artefacts)(
-                team_id=team_id, report_id=str(decision.report_id), dispatch=reservation
+                team_id=team_id, report_id=str(decision.report_id), dispatch=reservation, ch_user=ClickHouseUser.SIGNALS
             )
         except Exception:
             logger.exception("signals_implementation_dispatch_failed", decision_id=decision_id)

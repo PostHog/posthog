@@ -1,7 +1,9 @@
 import os
 import time
 import subprocess
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 import pytest
 
@@ -23,6 +25,37 @@ def _path_with_fake_curl(tmp_path: Path, body: str, delay_seconds: float) -> dic
     curl.write_text(f"#!/bin/bash\nsleep {delay_seconds}\nprintf '%s' '{body}'\n")
     curl.chmod(0o755)
     return {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
+
+
+def test_health_check_ignores_curl_config(tmp_path: Path) -> None:
+    requests: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            requests.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok","hasSession":true}')
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        port = server.server_port
+        (tmp_path / ".curlrc").write_text(f'url = "http://127.0.0.1:{port}/unexpected"\n')
+        thread = Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            result = subprocess.run(
+                ["bash", "-c", build_health_check_command(port, 1, 0.0)],
+                env={**os.environ, "CURL_HOME": str(tmp_path)},
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0, result.stderr
+    assert requests == ["/health"]
 
 
 @pytest.mark.parametrize(

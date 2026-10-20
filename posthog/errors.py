@@ -513,7 +513,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),
     122: ErrorCodeMeta("INCOMPATIBLE_COLUMNS", user_safe=True),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
-    124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
+    124: ErrorCodeMeta(
+        "INCORRECT_ELEMENT_OF_SET",
+        user_safe="An element of an IN set is invalid. Make sure each tuple in the IN list has the same number "
+        "of elements as the left side, and that each element is a constant.",
+    ),
     125: ErrorCodeMeta(
         "INCORRECT_RESULT_OF_SCALAR_SUBQUERY",
         user_safe="A scalar subquery returned more than one row, or an empty result that cannot be nullable. "
