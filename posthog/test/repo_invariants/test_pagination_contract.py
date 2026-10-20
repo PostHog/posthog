@@ -118,6 +118,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet",
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
+    "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",

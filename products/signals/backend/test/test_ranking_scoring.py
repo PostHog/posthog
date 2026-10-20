@@ -33,6 +33,7 @@ from products.signals.backend.ranking.features import (
     MIN_PROJECT_HISTORY_REPORTS,
     PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
@@ -597,6 +598,43 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         }
         assert self.store.reads.count(serving_manifest_key(PREFIX)) == 1
         assert captured.scopes == (0 if shared_pass else 1)
+
+    def _judge(self, report_id: str, priority: str, created_at: datetime.datetime) -> None:
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": priority}),
+        )
+        SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=created_at)
+
+    def test_a_priority_model_scores_each_report_by_its_latest_priority_judgment(self) -> None:
+        self.team_id = self.team.id
+        feature_names = REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.feature_names
+        rng = np.random.default_rng(0)
+        x = pd.DataFrame(np.zeros((40, len(feature_names))), columns=list(feature_names))
+        x["priority_P0"] = np.arange(40) % 2
+        x["emb_0"] = rng.normal(size=40)
+        booster = xgb.XGBClassifier(n_estimators=3, max_depth=2).fit(x, x["priority_P0"]).get_booster()
+        served = self.store.publish_model("nn_with_prio", REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET)
+        for head in HEADS:
+            self.store.objects[f"{served.prefix}/{head}.ubj"] = bytes(booster.save_raw("ubj"))
+        self.store.publish_manifest([served])
+        now_p0, now_p4 = self._report(self.team.id), self._report(self.team.id)
+        self._judge(now_p0, "P4", NOW - datetime.timedelta(days=2))
+        self._judge(now_p0, "P0", NOW - datetime.timedelta(days=1))
+        self._judge(now_p4, "P0", NOW - datetime.timedelta(days=2))
+        self._judge(now_p4, "P4", NOW - datetime.timedelta(days=1))
+        vector = ReportVector(embedding=_vector(1), inserted_at=LANDED)
+
+        outcomes, _, _ = self._score(
+            [now_p0, now_p4], {EMBEDDING_RENDERING_TITLE_SUMMARY: {now_p0: vector, now_p4: vector}}, persist=False
+        )
+
+        scores = {
+            outcome.report_id: outcome.score.results[served.key].scores["open"] for outcome in outcomes if outcome.score
+        }
+        assert scores[now_p0] > scores[now_p4]
 
     def test_without_persist_nothing_is_written_or_captured(self) -> None:
         self.team_id = self.team.id

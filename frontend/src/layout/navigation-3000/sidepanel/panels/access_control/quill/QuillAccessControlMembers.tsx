@@ -2,6 +2,7 @@ import { useAsyncActions, useValues } from 'kea'
 
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,7 +15,6 @@ import {
 } from '~/types'
 
 import { QuillPeopleAvatars } from '../../../components/QuillPeopleAvatars'
-import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 import { accessControlLogic } from '../accessControlLogic'
 import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 import { QuillAccessSection } from './QuillAccessSection'

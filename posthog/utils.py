@@ -486,6 +486,27 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+APP_EVALUATION_CONTEXT = "posthog-web-app"
+
+
+def flags_for_app_evaluation_context(
+    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """
+    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts.
+    """
+    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
+    if flags is None:
+        return None
+    excluded = {
+        definition["key"]
+        for definition in definitions or []
+        if definition.get("evaluation_contexts") and APP_EVALUATION_CONTEXT not in definition["evaluation_contexts"]
+    }
+    return {key: value for key, value in flags.items() if key not in excluded}
+
+
 @frozen
 class _FlagIdentity:
     person_properties: dict[str, Any]
@@ -781,7 +802,9 @@ def _build_template_context(
                 group_properties=identity.group_properties,
             )
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
-        posthog_bootstrap["featureFlags"] = feature_flags
+        posthog_bootstrap["featureFlags"] = flags_for_app_evaluation_context(
+            feature_flags, posthoganalytics.feature_flag_definitions()
+        )
 
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the

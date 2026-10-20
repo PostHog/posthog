@@ -255,6 +255,7 @@ class AccountRequestsView(StripeProvisioningAPIView):
                     requested_team_id,
                     code_challenge,
                     code_challenge_method,
+                    data["kyc_email_verified"],
                 )
             )
 

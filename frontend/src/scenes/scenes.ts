@@ -123,6 +123,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
+        deferSceneMeasurementsDuringResize: true,
         activityScope: ActivityScope.DASHBOARD,
         iconType: 'dashboard',
     },

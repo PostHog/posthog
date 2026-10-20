@@ -40,6 +40,19 @@ export interface AIReplyPlaybookApi {
     readonly max_chars: number
 }
 
+export interface SigningSecretApi {
+    /**
+     * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email

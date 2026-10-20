@@ -9014,6 +9014,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-parity-monitor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "metrics",
+ "personhog-common",
+ "rdkafka",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-proto"
 version = "0.1.0"
 dependencies = [

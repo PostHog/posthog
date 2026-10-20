@@ -48,6 +48,20 @@ CLARIFAI_ENDPOINTS: dict[str, ClarifaiEndpointConfig] = {
             data_selector="eval_metrics",
             params={"show_failed_metrics": "true"},
         ),
+        # Without this flag the API leaves out label order tasks.
+        ClarifaiEndpointConfig(
+            name="tasks",
+            path="tasks",
+            data_selector="tasks",
+            params={"including_label_order_tasks": "true"},
+        ),
+        # Without this flag the API leaves out deleted collaborators, which hides past access.
+        ClarifaiEndpointConfig(
+            name="collaborators",
+            path="collaborators",
+            data_selector="collaborators",
+            params={"list_all_collaborators": "true"},
+        ),
         # Dataset inputs carry no ID of their own, so the key combines the dataset ID and the input ID.
         ClarifaiEndpointConfig(
             name="dataset_inputs",
