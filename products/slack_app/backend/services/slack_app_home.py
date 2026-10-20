@@ -33,7 +33,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -103,6 +103,7 @@ ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
+ACTION_SET_OWN_PLAN = "slack_app_home:set_own_plan"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -130,6 +131,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
+        ACTION_SET_OWN_PLAN,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -410,6 +412,20 @@ class GitHubState:
 
 
 @dataclass(frozen=True)
+class OwnPlanState:
+    """The viewer's choice to bill the Codex tasks they start from Slack to their ChatGPT plan.
+
+    Stored per project, so it belongs to the project this viewer's mentions launch in.
+    """
+
+    team_id: int
+    user_id: int
+    connected: bool
+    enabled: bool
+    settings_url: str | None = None
+
+
+@dataclass(frozen=True)
 class RunDefaultsState:
     """The central PostHog default a Slack run resolves to; only a model named in
     the mention sits above it, and Slack's hardcoded floor below. The card reads
@@ -443,6 +459,7 @@ def render_home_view(
     untagged_followup_mode: UntaggedFollowupMode | None = None,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
     auto_model_choice: bool | None = None,
+    own_plan: OwnPlanState | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
 ) -> dict:
@@ -483,6 +500,8 @@ def render_home_view(
     # `None` means no PostHog user is linked to this viewer.
     if auto_model_choice is not None:
         blocks.extend(_auto_model_choice_blocks(auto_model_choice))
+    if own_plan is not None:
+        blocks.extend(_own_plan_blocks(own_plan))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own.
@@ -939,6 +958,47 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
                 {
                     "type": "mrkdwn",
                     "text": "A model you name in your message still wins, and follow-ups keep the model of their task.",
+                }
+            ],
+        },
+    ]
+
+
+OWN_PLAN_VALUE = "on"
+
+
+def _own_plan_blocks(state: OwnPlanState) -> list[dict]:
+    if not state.connected:
+        connect = (
+            f"<{state.settings_url}|Connect your ChatGPT plan>" if state.settings_url else "Connect your ChatGPT plan"
+        )
+        return [
+            _subsection_label("ChatGPT plan"),
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": f"{connect} in PostHog to use it for Codex tasks you start here."}
+                ],
+            },
+        ]
+    option = {
+        "text": {"type": "mrkdwn", "text": "*Use my ChatGPT plan*"},
+        # Slack rejects the whole `views.publish` call when a description is over 75 characters.
+        "description": {"type": "mrkdwn", "text": "Codex tasks you start from Slack use your plan."},
+        "value": OWN_PLAN_VALUE,
+    }
+    checkbox: dict[str, Any] = {"type": "checkboxes", "action_id": ACTION_SET_OWN_PLAN, "options": [option]}
+    if state.enabled:
+        checkbox["initial_options"] = [option]
+    return [
+        _subsection_label("ChatGPT plan"),
+        {"type": "actions", "elements": [checkbox]},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "Other tasks use PostHog credits. While a task runs on your plan, only you can send it messages.",
                 }
             ],
         },
@@ -1713,6 +1773,24 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_OWN_PLAN:
+        own_plan = _resolve_own_plan_state(
+            integration, slack_user_id, accessible=_accessible_integrations(integration, slack_user_id)
+        )
+        # Only a connected plan is offered, so a stale view cannot turn on a plan that cannot run.
+        if own_plan is not None and own_plan.connected:
+            from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
+            enabled = any(option.get("value") == OWN_PLAN_VALUE for option in action.get("selected_options") or [])
+            tasks_facade.set_preferred_model_access(
+                own_plan.team_id, own_plan.user_id, "codex", "own-subscription" if enabled else "posthog-gateway"
+            )
+            capture_slack_event(
+                integration, "slack app own plan toggled", slack_user_id=slack_user_id, enabled=enabled, plan="codex"
+            )
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
         slack = SlackIntegration(integration)
         if not _is_admin(slack, integration, slack_user_id):
@@ -2159,6 +2237,7 @@ def _build_home_view(
             if _auto_model_choice_offered(integration, slack_user_id)
             else None
         ),
+        own_plan=_resolve_own_plan_state(integration, slack_user_id, accessible=accessible),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2404,6 +2483,40 @@ def _resolve_run_defaults_state(
         source=resolved.source,
         settings_url=settings_url,
     )
+
+
+def _resolve_own_plan_state(
+    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+) -> OwnPlanState | None:
+    """The ChatGPT plan card for this viewer, or `None` when the card is not offered."""
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
+    try:
+        user = _resolve_home_user(integration, slack_user_id)
+        if user is None or not is_slack_app_byos_enabled(integration, user.distinct_id):
+            return None
+        target = _routed_project_integration(integration, slack_user_id, accessible=accessible)
+        if target is None:
+            return None
+        organization_id = str(target.team.organization_id)
+        if not tasks_facade.own_subscription_cloud_enabled(
+            "codex", distinct_id=user.distinct_id, organization_id=organization_id
+        ):
+            return None
+        site_url = (settings.SITE_URL or "").rstrip("/")
+        return OwnPlanState(
+            team_id=target.team_id,
+            user_id=user.id,
+            connected=tasks_facade.can_bill_plan_unattended(user, "codex", organization_id=organization_id),
+            enabled=tasks_facade.get_preferred_model_access(target.team_id, user.id, "codex") == "own-subscription",
+            settings_url=(
+                f"{site_url}/project/{target.team_id}/settings/environment-ai-subscriptions" if site_url else None
+            ),
+        )
+    except Exception:
+        # The card is optional; a lookup failure must not cost the whole Home tab.
+        logger.exception("slack_app_home_own_plan_resolution_failed", slack_user_id=slack_user_id)
+        return None
 
 
 def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:

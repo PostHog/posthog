@@ -105,12 +105,19 @@ from products.tasks.backend.facade.gateway import mint_private_gateway_token, re
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     is_workflow_dispatch_shadow_enabled,
+    own_subscription_cloud_enabled as _own_subscription_cloud_enabled,
     pi_cloud_runtime_enabled,
 )
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.model_access import (
+    InvalidModelAccess,
+    ModelAccessMode,
+    SubscriptionAdapter,
+    resolve_model_access,
+)
+from products.tasks.backend.logic.services import subscription_preferences
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
@@ -249,6 +256,12 @@ __all__ = [
     "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
     "ensure_subscription_owner",
+    "get_run_plan",
+    "get_preferred_model_access",
+    "set_preferred_model_access",
+    "can_bill_plan_unattended",
+    "own_subscription_cloud_enabled",
+    "unattended_model_access_state",
     "beacon_task_presence",
     "bootstrap_task_run",
     "SANDBOX_REPOSITORIES_ROOT",
@@ -4065,6 +4078,44 @@ def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) 
                 "error": str(error),
             },
         )
+
+
+def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
+    """The plan a run bills to, or `None` for a run on PostHog credits."""
+    try:
+        access = resolve_model_access(state or {})
+    except InvalidModelAccess:
+        return None
+    if access.adapter is None:
+        return None
+    return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
+
+
+def get_preferred_model_access(team_id: int, user_id: int, adapter: SubscriptionAdapter) -> ModelAccessMode:
+    return subscription_preferences.get_preferred_model_access(team_id, user_id, adapter)
+
+
+def set_preferred_model_access(team_id: int, user_id: int, adapter: SubscriptionAdapter, mode: ModelAccessMode) -> None:
+    subscription_preferences.set_preferred_model_access(team_id, user_id, adapter, mode)
+
+
+def own_subscription_cloud_enabled(
+    adapter: SubscriptionAdapter, *, distinct_id: str | None, organization_id: str
+) -> bool:
+    return _own_subscription_cloud_enabled(adapter, distinct_id=distinct_id, organization_id=organization_id)
+
+
+def can_bill_plan_unattended(user: User, adapter: SubscriptionAdapter, *, organization_id: str) -> bool:
+    return subscription_preferences.can_bill_plan_unattended(user, adapter, organization_id=organization_id)
+
+
+def unattended_model_access_state(
+    *, team_id: int, user_id: int, organization_id: str, runtime_adapter: str | None
+) -> dict[str, str]:
+    """See `subscription_preferences.unattended_model_access_state`."""
+    return subscription_preferences.unattended_model_access_state(
+        team_id=team_id, user_id=user_id, organization_id=organization_id, runtime_adapter=runtime_adapter
+    )
 
 
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:

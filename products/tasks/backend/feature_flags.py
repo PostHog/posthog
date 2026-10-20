@@ -12,6 +12,7 @@ from products.tasks.backend.constants import (
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
+    OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
@@ -153,6 +154,29 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
         )
     except Exception:
         logger.exception("agent_otel_telemetry_flag_check_failed")
+        return False
+
+
+def own_subscription_cloud_enabled(adapter: str, *, distinct_id: str | None, organization_id: str) -> bool:
+    """Whether a cloud run may bill to its owner's plan for this adapter; fail-closed when evaluation fails.
+
+    `distinct_id` is the plan owner's, not the id of whoever started the run.
+    """
+    if not distinct_id:
+        return False
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS[adapter],
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("own_subscription_cloud_flag_check_failed", extra={"adapter": adapter})
         return False
 
 

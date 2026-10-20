@@ -1173,6 +1173,48 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
 
+    @parameterized.expand([("owner", "U_ALICE", True), ("someone_else", "U_BOB", False)])
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_only_the_plan_owner_can_message_a_run_on_their_plan(
+        self, _name, slack_user_id, delivered, mock_slack_cls, mock_resolve, mock_signal
+    ):
+        self.task_run.state = {
+            **self.task_run.state,
+            "runtime_adapter": "codex",
+            "codex_model_access": "own-subscription",
+            "codex_subscription_user_id": self.user.id,
+            "slack_plan_owner_slack_user_id": "U_ALICE",
+        }
+        self.task_run.save()
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", slack_user_id, "<@BOT> ship it", "1234.5679"
+        )
+
+        assert result is True
+        assert mock_signal.called is delivered
+        refusals = [
+            call.kwargs["text"]
+            for call in mock_slack_instance.client.chat_postMessage.call_args_list
+            if "ChatGPT plan" in call.kwargs.get("text", "")
+        ]
+        assert refusals == (
+            []
+            if delivered
+            else [
+                "This task is running on <@U_ALICE>'s ChatGPT plan, so only they can send it messages "
+                "while it runs. To work on it yourself, start a new thread."
+            ]
+        )
+
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_followup_unmapped_user_delegates_feedback_to_resolver(self, mock_slack_cls, mock_resolve):

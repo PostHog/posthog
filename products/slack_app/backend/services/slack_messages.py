@@ -687,6 +687,10 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 UNFURL_OPT_OUT_PARAM = "unfurl"
 
 
+# Run state the Slack app writes when a run bills to a user's own plan: the Slack user who owns it.
+PLAN_OWNER_SLACK_USER_STATE_KEY = "slack_plan_owner_slack_user_id"
+
+
 @dataclass(frozen=True)
 class RunFooter:
     """What a reply knows about the run behind it.
@@ -708,6 +712,8 @@ class RunFooter:
     # The project the thread's task belongs to, so a reader can tell which project's
     # data the answer was drawn from.
     project: str | None = None
+    # Whose plan pays for the run, for example "Your ChatGPT plan". Absent on PostHog credits.
+    plan: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -717,7 +723,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.model, self.project))
+        return any((self.task_url, self.model, self.project, self.plan))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -764,6 +770,37 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
     return team.name if team else None
 
 
+def _plan_label(state: dict[str, Any] | None, *, integration_id: int | None) -> str | None:
+    """Whose plan pays for the run, as the reader of this turn's reply sees it.
+
+    The person who sent the turn reads "Your". Anyone else in the thread reads the owner's
+    Slack name as plain text, because a real mention would notify the owner on every reply.
+    """
+    from products.slack_app.backend.models import SlackUserProfileCache  # noqa: PLC0415
+    from products.tasks.backend.facade.api import get_run_plan  # noqa: PLC0415
+
+    plan = get_run_plan(state)
+    if plan is None:
+        return None
+    run_state = state or {}
+    owner_slack_user_id = run_state.get(PLAN_OWNER_SLACK_USER_STATE_KEY)
+    if not owner_slack_user_id:
+        return plan.plan_name
+    if owner_slack_user_id == run_state.get("slack_actor_slack_user_id"):
+        return f"Your {plan.plan_name}"
+    profile = (
+        SlackUserProfileCache.objects.filter(integration_id=integration_id, slack_user_id=owner_slack_user_id)
+        .only("display_name", "real_name")
+        .first()
+        if integration_id is not None
+        else None
+    )
+    name = (profile.display_name or profile.real_name) if profile is not None else None
+    if not name:
+        return plan.plan_name
+    return f"@{escape_slack_mrkdwn(name)}'s {plan.plan_name}"
+
+
 def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
     """Describe a run for the footer.
 
@@ -800,6 +837,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
                 integration_id=integration_id,
                 created_by_id=run.created_by_id,
             ),
+            plan=_plan_label(run.state, integration_id=integration_id),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
@@ -807,7 +845,8 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
 
 
 def _run_context_segments(footer: RunFooter) -> list[str]:
-    """What the run is, as footer segments: the model, then the project it answered from.
+    """What the run is, as footer segments: the model, the plan that pays for it, then the
+    project it answered from.
 
     Shared by the reply footer and the progress message so the two cannot describe one
     run differently, and so the escaping below has a single home.
@@ -815,6 +854,8 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
     segments: list[str] = []
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.plan:
+        segments.append(footer.plan)
     if footer.project:
         # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
         # and `<url|label>` renders a link the reader reads as the bot's. Escaped here

@@ -5,12 +5,14 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
+from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     load_run_footer,
@@ -54,6 +56,12 @@ class TestRunFooter(SimpleTestCase):
                 RunFooter(project="<!channel> & <https://evil/|View on web>"),
                 None,
                 "Project: *&lt;!channel&gt; &amp; &lt;https://evil/|View on web&gt;*",
+            ),
+            (
+                "plan_follows_the_model",
+                RunFooter(model="claude-opus-5", plan="Your ChatGPT plan", project="Fernwood staging"),
+                None,
+                "*Claude Opus 5* · Your ChatGPT plan · Project: *Fernwood staging*",
             ),
             (
                 "configure_only",
@@ -101,6 +109,46 @@ class TestLoadRunFooter(SimpleTestCase):
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
         assert load_run_footer("run-1", integration_id=None) == RunFooter()
+
+
+class TestLoadRunFooterPlan(TestCase):
+    def setUp(self) -> None:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="team")
+        self.integration = Integration.objects.create(team=team, kind="slack", integration_id="T1", config={})
+        SlackUserProfileCache.objects.create(
+            integration=self.integration, slack_user_id="U_VOJTA", display_name="vojta"
+        )
+
+    @parameterized.expand(
+        [
+            ("posthog_credits", {}, None),
+            ("the_owner_is_speaking", {"slack_actor_slack_user_id": "U_VOJTA"}, "Your ChatGPT plan"),
+            # A real mention here would notify the owner under every reply in the thread.
+            ("someone_else_is_speaking", {"slack_actor_slack_user_id": "U_ANA"}, "@vojta's ChatGPT plan"),
+            (
+                "the_owner_has_no_cached_name",
+                {"slack_actor_slack_user_id": "U_ANA", "slack_plan_owner_slack_user_id": "U_GONE"},
+                "ChatGPT plan",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_names_whose_plan_pays_for_the_run(
+        self, _name: str, state: dict, expected: str | None, mock_get_run
+    ) -> None:
+        if state:
+            state = {
+                "runtime_adapter": "codex",
+                "codex_model_access": "own-subscription",
+                "codex_subscription_user_id": 1,
+                "slack_plan_owner_slack_user_id": "U_VOJTA",
+                **state,
+            }
+        mock_get_run.return_value = SimpleNamespace(
+            id=uuid4(), task_id=uuid4(), team_id=1, state=state, created_by_id=None
+        )
+
+        assert load_run_footer("run-1", integration_id=self.integration.id).plan == expected
 
 
 class TestViewerHasCodeAccess(SimpleTestCase):

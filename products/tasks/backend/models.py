@@ -4141,6 +4141,9 @@ class UserTasksConfig(TeamScopedRootMixin):
     ai_run_preferences = models.JSONField(null=True, blank=True)
     agent_instructions = models.TextField(blank=True, default="", db_default="")
     task_defaults = models.JSONField(null=True, blank=True)
+    # Keyed by runtime adapter. Read only where no client sends `{adapter}_model_access`
+    # with the run, such as the Slack app.
+    model_access_preferences = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
