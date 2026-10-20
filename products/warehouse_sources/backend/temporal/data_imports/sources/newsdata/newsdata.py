@@ -121,7 +121,7 @@ def get_rows(
         ],
     }
 
-    # Only date-filter endpoints (archive, crypto) accept from_date; on the first incremental sync
+    # Only date-filter endpoints (archive, crypto, market) accept from_date; on the first incremental sync
     # the lookback floor seeds it, on later syncs the stored watermark advances it.
     if config.supports_date_filter and should_use_incremental_field:
         incremental: IncrementalConfig = {

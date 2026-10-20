@@ -746,6 +746,9 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.logo_media_id !== undefined) {
+            body['logo_media_id'] = params.logo_media_id
+        }
         if (params.product_description !== undefined) {
             body['product_description'] = params.product_description
         }

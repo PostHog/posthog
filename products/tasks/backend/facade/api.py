@@ -211,8 +211,6 @@ TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
-WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
-
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
 # pinned because these runs route to the unbilled `onboarding` gateway product, which allowlists a
 # narrow model set; the string form avoids pulling the temporal RuntimeAdapter enum onto this path.
@@ -228,6 +226,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "is_current_task_run_actor",
     "mint_private_gateway_token",
     "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
@@ -2345,6 +2344,7 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+        _observe_claimed_terminal(run, error_type=None)
     return True
 
 
@@ -2365,8 +2365,19 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True
+
+
+def _observe_claimed_terminal(run: TaskRun, *, error_type: str | None) -> None:
+    # The conditional update already wrote the terminal status, so mark_* sees a terminal run and
+    # skips its own count. The claim winner counts the transition here instead.
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_task_run_terminal,
+    )
+
+    observe_task_run_terminal(run, error_type=error_type, termination_reason=None)
 
 
 def redispatch_task_run(run_id: str | UUID) -> str:
@@ -3305,28 +3316,6 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
-def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
-    user = run.task.created_by
-    if user is None or not user.distinct_id:
-        return False
-    try:
-        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
-        organization_id = str(team.organization_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
-                user.distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
-        return False
-
-
 def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
     if not repository:
         return False
@@ -3364,8 +3353,6 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
             "wizard_pr_ready_email_invalid_pr_url",
             extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
         )
-        return
-    if not _is_wizard_pr_ready_email_enabled(run):
         return
 
     if not run.task.mark_pr_ready_email_queued(pr_url):
@@ -3492,6 +3479,7 @@ def update_task_run(
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
+        observe_task_run_terminal,
         observe_wizard_run_unbound,
     )
 
@@ -3632,6 +3620,13 @@ def update_task_run(
         run.publish_stream_state_event()
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        # This PATCH performed the transition, so the status-update activity skips its count.
+        observe_task_run_terminal(
+            run,
+            error_type=validated_data.get("error_type")
+            or ("agent_reported" if new_status == TaskRun.Status.FAILED else None),
+            termination_reason=None,
+        )
         try:
             if run.environment == TaskRun.Environment.CLOUD:
                 refresh_task_run_cost(run_id=run.id, team_id=run.team_id)
@@ -12401,3 +12396,14 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
+
+
+def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415
+        get_task_run_actor_user,
+        user_has_current_team_access,
+    )
+
+    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
+    actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
+    return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)

@@ -165,6 +165,7 @@ def _health_inputs_traffic(traffic: ConditionSetTraffic) -> dict[str, Any]:
         ],
         "calls": traffic.calls,
         "remotely_evaluated_calls": traffic.remotely_evaluated_calls,
+        "people_assigned_outside": traffic.people_assigned_outside,
     }
 
 

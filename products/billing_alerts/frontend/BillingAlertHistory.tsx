@@ -11,22 +11,24 @@ import {
     AlertEvaluationHistoryPoint,
     AlertEvaluationThreshold,
 } from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
+import type {
+    BillingAlertConfigurationApi,
+    BillingAlertEventApi,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import { formatBillingValue, thresholdView } from './billingAlertDisplay'
 import { billingAlertHistoryLogic, HISTORY_PAGE_SIZE } from './billingAlertHistoryLogic'
-import type { BillingAlertConfigurationApi, BillingAlertEventApi } from './generated/api.schemas'
 
 export function eventValue(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): number | null {
     return thresholdView(alert).pickEventValue(event)
 }
 
 export function wouldFire(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): boolean {
-    if (event.current_value === null || event.current_value === undefined) {
-        return false
-    }
-    const current = Number(event.current_value)
-    const minimum = Number(alert.minimum_value ?? 0)
-    if (!Number.isFinite(current) || current < minimum) {
+    if (
+        event.current_value === null ||
+        event.current_value === undefined ||
+        !Number.isFinite(Number(event.current_value))
+    ) {
         return false
     }
     const view = thresholdView(alert)

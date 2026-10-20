@@ -2,10 +2,13 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonTable, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,6 +31,7 @@ export function BIWorksheetsScene(): JSX.Element {
     const { worksheets, worksheetsLoading, search, page, recent, error } = useValues(biWorksheetsLogic)
     const { setSearch, setPage, setRecent, loadWorksheets } = useActions(biWorksheetsLogic)
     useMountedLogic(biAgentSyncLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     useSceneAgentPanel({
         sceneKey: 'business-intelligence',
         contextItems: LIBRARY_CONTEXT,
@@ -41,13 +45,23 @@ export function BIWorksheetsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Worksheets"
+                name="Business Intelligence"
                 description="Explore your data with visual worksheets."
                 resourceType={{ type: 'business_intelligence' }}
                 actions={
-                    <LemonButton type="primary" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
-                        New worksheet
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="primary"
+                            render={<LinkPrimitive to={`${urls.businessIntelligenceNew()}#q=`} />}
+                        >
+                            <IconPlus />
+                            New worksheet
+                        </Button>
+                    ) : (
+                        <LemonButton type="primary" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
+                            New worksheet
+                        </LemonButton>
+                    )
                 }
             />
             <BIStarters />

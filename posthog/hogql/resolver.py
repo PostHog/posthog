@@ -51,6 +51,7 @@ from posthog.hogql.functions.traffic_type import (
     has_user_agent_rule,
     is_bot,
 )
+from posthog.hogql.functions.with_icon import with_icon
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
@@ -2054,6 +2055,8 @@ class Resolver(CloningVisitor):
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recordingButton":
                 return self.visit(recording_button(node=node, args=node.args))
+            if node.name == "withIcon":
+                return self.visit(with_icon(node=node, args=node.args))
             if node.name == "explainCSPReport":
                 return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":

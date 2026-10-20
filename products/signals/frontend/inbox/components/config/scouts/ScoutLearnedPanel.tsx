@@ -17,33 +17,34 @@ const INITIAL_VISIBLE = 3
  * scout that looks like a cron job and one that visibly gets better at its job.
  */
 export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Element {
-    const { entries, entriesLoading, loadFailed } = useValues(scratchpadLogic)
-    const { loadEntries } = useActions(scratchpadLogic)
+    const { scoutEntries, scoutEntriesLoadFailed } = useValues(scratchpadLogic)
+    const { loadScoutEntries } = useActions(scratchpadLogic)
     const { setScratchpadOpen } = useActions(inboxSceneLogic)
     const [showAll, setShowAll] = useState(false)
 
-    if (entriesLoading && entries === null) {
-        return <LemonSkeleton className="h-16 w-full rounded" />
-    }
+    const entries = entriesForSkill(scoutEntries, skillName)
 
     // A failed load is not an empty memory: say so, rather than silently showing nothing.
-    if (loadFailed && entries === null) {
+    if (scoutEntriesLoadFailed && entries === null) {
         return (
             <div className="flex flex-col items-center gap-2 rounded border border-danger bg-danger-highlight px-4 py-6 text-center text-sm text-danger">
                 <span>Couldn't load what this scout has learned.</span>
-                <LemonButton size="xsmall" type="secondary" onClick={() => loadEntries()}>
+                <LemonButton size="xsmall" type="secondary" onClick={() => loadScoutEntries(skillName)}>
                     Try again
                 </LemonButton>
             </div>
         )
     }
 
-    const scoutEntries = entriesForSkill(entries, skillName)
-    const visible = showAll ? scoutEntries : scoutEntries.slice(0, INITIAL_VISIBLE)
+    if (entries === null) {
+        return <LemonSkeleton className="h-16 w-full rounded" />
+    }
+
+    const visible = showAll ? entries : entries.slice(0, INITIAL_VISIBLE)
 
     return (
         <div className="flex flex-col gap-2">
-            {scoutEntries.length === 0 ? (
+            {entries.length === 0 ? (
                 <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Nothing yet. Scouts write here when they settle on a baseline or rule something out.
                 </div>
@@ -52,14 +53,14 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
                     {visible.map((entry) => (
                         <ScratchpadEntryCard key={entry.key} entry={entry} titled />
                     ))}
-                    {scoutEntries.length > visible.length && (
+                    {entries.length > visible.length && (
                         <LemonButton
                             size="xsmall"
                             type="tertiary"
                             className="self-start"
                             onClick={() => setShowAll(true)}
                         >
-                            Show all {pluralize(scoutEntries.length, 'entry', 'entries')}
+                            Show all {pluralize(entries.length, 'entry', 'entries')}
                         </LemonButton>
                     )}
                 </>
