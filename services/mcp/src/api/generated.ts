@@ -89078,6 +89078,35 @@ export namespace Schemas {
       error_code?: string | null;
     }
 
+    export interface PatchedWorkflowSendingRules {
+      /** The project these sending rules belong to. */
+      readonly project_id?: number;
+      /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+      expected_project_id?: number;
+      /**
+         * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      marketing_frequency_cap_max_messages?: number | null;
+      /**
+         * The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      marketing_frequency_cap_window_days?: number | null;
+      /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
+       *
+       * * `off` - Off
+       * * `opt_out` - Opt Out
+       * * `opt_in` - Opt In */
+      email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
+      capture_workflows_engagement_events?: boolean;
+    }
+
     export interface PathCleaningPreviewExample {
       /** A real sampled path before the suggested rules are applied. */
       before: string;
@@ -97822,6 +97851,7 @@ export namespace Schemas {
 
     /**
      * * `get_it_merged` - Get it merged
+     * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
@@ -97829,6 +97859,7 @@ export namespace Schemas {
 
     export const ReportTaskActionKindEnum = {
       GetItMerged: 'get_it_merged',
+      MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
     } as const;
 
@@ -103791,9 +103822,10 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
+       * * `make_it_green` - Make it green
        * * `suggested_prompt` - Suggested prompt */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
@@ -103832,6 +103864,7 @@ export namespace Schemas {
       /** The action to run. Use a value from the actions list.
        *
        * * `get_it_merged` - Get it merged
+       * * `make_it_green` - Make it green
        * * `suggested_prompt` - Suggested prompt */
       action: ReportTaskActionKindEnum;
       /**
@@ -117244,6 +117277,35 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowSendingRules {
+      /** The project these sending rules belong to. */
+      readonly project_id: number;
+      /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+      expected_project_id?: number;
+      /**
+         * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      marketing_frequency_cap_max_messages?: number | null;
+      /**
+         * The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      marketing_frequency_cap_window_days?: number | null;
+      /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
+       *
+       * * `off` - Off
+       * * `opt_out` - Opt Out
+       * * `opt_in` - Opt In */
+      email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
+      capture_workflows_engagement_events?: boolean;
     }
 
     export interface WorkflowSetupStep {
