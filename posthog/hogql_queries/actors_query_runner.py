@@ -49,7 +49,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         if self.query.source:
             self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, user=self.user
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
             )
             self.modifiers = self.source_query_runner.modifiers
         else:
@@ -66,7 +66,15 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         self.strategy = self.determine_strategy()
         self.calculating = False
-        self.user = None
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        if self.query.source is not None:
+            self.source_query_runner = get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
+            )
+            self.modifiers = self.source_query_runner.modifiers
+        self.strategy = self.determine_strategy()
 
     def run(
         self,

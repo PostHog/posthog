@@ -25,7 +25,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner, query_node_modifiers
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
@@ -63,9 +63,12 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             modifiers=modifiers,
             limit_context=limit_context,
             query_id=query_id,
-            extract_modifiers=lambda query: query_node_modifiers(query.source),
             user=user,
         )
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self.__dict__.pop("source_runner", None)
 
     @cached_property
     def source_runner(self) -> QueryRunner:

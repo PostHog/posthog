@@ -64,6 +64,7 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
+    query_node_modifiers,
 )
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
@@ -681,9 +682,13 @@ def process_query_model(
 
     # This query doesn't run via query runner
     if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        source = query.source
+        if getattr(query, "modifiers", None) is not None:
+            # The wrapper's own modifiers take precedence over its source's, as they do for a wrapper with a runner.
+            source = source.model_copy(update={"modifiers": query_node_modifiers(query)})
         return process_query_model(
             team,
-            query.source,
+            source,
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,

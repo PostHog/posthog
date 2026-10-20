@@ -124,13 +124,20 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         if self.actors_query.funnelStep is None:
             self.actors_query.funnelStep = 1
 
+        self._build_funnel_context()
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self._build_funnel_context()
+
+    def _build_funnel_context(self) -> None:
         self.context = FunnelQueryContext(
             query=self.funnels_query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
             # i.e. successful
