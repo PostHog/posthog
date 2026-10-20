@@ -1185,6 +1185,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
+            (
+                "persons_properties_timeline",
+                "persons/00000000-0000-0000-0000-000000000000/properties_timeline/",
+                {},
+            ),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
