@@ -248,7 +248,9 @@ async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only
 
     row_group = pq.ParquetFile(io.BytesIO(data)).metadata.row_group(0)
     columns = [row_group.column(index) for index in range(row_group.num_columns)]
-    assert {column.path_in_schema: column.is_stats_set and column.statistics.has_min_max for column in columns} == {
+    assert {
+        column.path_in_schema: column.statistics is not None and column.statistics.has_min_max for column in columns
+    } == {
         "uuid": True,
         "tags.list.element": True,
         "person.name": True,
