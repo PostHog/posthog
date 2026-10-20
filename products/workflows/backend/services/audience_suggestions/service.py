@@ -148,7 +148,7 @@ def get_audience_suggestion(*, team: Team, suggestion_id: str) -> AudienceSugges
 
 
 def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSuggestionsResult:
-    counts = {**weekly_counts(team), **activity_counts(team, user)}
+    counts = {**weekly_counts(team), **_activity_counts_or_empty(team, user)}
     events = prompt_events(counts)
     if not events:
         return AudienceSuggestionsResult(status="ready", suggestions=())
@@ -172,6 +172,15 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSugges
     if failed and not sized:
         return _UNAVAILABLE
     return AudienceSuggestionsResult(status="ready", suggestions=_pick(sized))
+
+
+def _activity_counts_or_empty(team: Team, user: User) -> dict[str, int]:
+    # A busy project's pageviews can exceed the scan limits, and its own events still make good audiences.
+    try:
+        return activity_counts(team, user)
+    except _COUNT_ERRORS:
+        logger.warning("workflows.audience_suggestions.activity_count_failed", team_id=team.id, exc_info=True)
+        return {}
 
 
 def prompt_events(counts: dict[str, int]) -> tuple[tuple[str, int], ...]:

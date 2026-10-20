@@ -161,6 +161,22 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert body["status"] == "ready"
         assert [(s["kind"], s["reachable_count"]) for s in body["suggestions"]] == [("not_yet", 13)]
 
+    @patch(f"{SERVICE}.activity_counts", side_effect=ClickHouseQueryTimeOut())
+    @patch(f"{SERVICE}.suggest_audiences")
+    def test_a_failed_activity_count_still_suggests_audiences_from_project_events(
+        self, suggest: MagicMock, _activity: MagicMock
+    ) -> None:
+        suggest.return_value = [
+            _idea("lapsed", "$pageview", window_days=30),
+            _idea("not_yet", "signed_up", "project_created"),
+        ]
+
+        body = self._list()
+
+        assert body["status"] == "ready"
+        assert [(s["kind"], s["event"]) for s in body["suggestions"]] == [("not_yet", "signed_up")]
+        assert "$pageview" not in dict(suggest.call_args.kwargs["events"])
+
     @parameterized.expand(
         [
             ("ai_not_approved", False, True, False, 200, "ai_not_approved"),

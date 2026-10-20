@@ -21,6 +21,23 @@ jest.mock('products/cohorts/frontend/generated/api', () => ({
     cohortsList: jest.fn(),
 }))
 
+const conditions = [
+    {
+        key: 'signed_up',
+        type: 'behavioral',
+        value: 'performed_event_multiple',
+        event_type: 'events',
+        operator: 'gte',
+        operator_value: 1,
+        time_value: 14,
+        time_interval: 'day',
+    },
+    { key: 'email', type: 'person', operator: 'icontains', value: '@' },
+]
+const filtersWith = (values: Record<string, any>[]): Record<string, any> => ({
+    properties: { type: 'AND', values: [{ type: 'AND', values }] },
+})
+
 const suggestion: AudienceSuggestionApi = {
     id: 'suggestion-1',
     name: 'Signed up, no project yet',
@@ -32,8 +49,12 @@ const suggestion: AudienceSuggestionApi = {
     window_days: 14,
     min_count: null,
     reachable_count: 34,
-    cohort_filters: { properties: { type: 'AND', values: [] } },
+    cohort_filters: filtersWith(conditions),
 }
+// What the cohort API stores for the same conditions: defaults filled in and bytecode compiled.
+const savedFilters = filtersWith(
+    conditions.map((condition) => ({ ...condition, negation: false, bytecode: ['_H', 1], conditionHash: 'abc123' }))
+)
 
 describe('broadcastAudienceSuggestionsLogic', () => {
     beforeEach(() => {
@@ -62,6 +83,7 @@ describe('broadcastAudienceSuggestionsLogic', () => {
     it.each([
         ['creates a cohort for a new idea', [], 41, 1],
         ["reuses the user's own fresh snapshot of the idea", [snapshot()], 7, 0],
+        ['reuses a snapshot whose filters the server filled in', [snapshot({ filters: savedFilters })], 7, 0],
         ['ignores a deleted cohort with the same name', [snapshot({ deleted: true })], 41, 1],
         ['ignores a snapshot whose filters were edited', [snapshot({ filters: { properties: {} } })], 41, 1],
         ['ignores a snapshot over an hour old', [snapshot({ created_at: minutesAgo(61) })], 41, 1],
