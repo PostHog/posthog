@@ -185,24 +185,35 @@ def plan_insight_batch(
     return tuple(admitted)
 
 
-def readmit_retried_check(team_id: int, configuration_id: str, *, previous_query_id: str, held_until: float) -> bool:
-    """Prepares a retried check. Returns False when the pool has no room for it.
+def attempt_slot_token(held_until: float, attempt: int) -> float:
+    """The expiry an attempt holds its slot under. Each attempt gets its own, so a timed-out attempt
+    whose thread finishes late cannot release the slot its retry holds. The offset is negligible
+    against the expiry itself."""
+    return held_until + (attempt - 1) / 1000
+
+
+def readmit_retried_check(
+    team_id: int, configuration_id: str, *, previous_query_id: str, held_until: float, attempt: int
+) -> float | None:
+    """Prepares a retried check, and returns the slot token it holds, or None when the pool is full.
 
     A timed-out attempt's thread can still run its query, so the query is killed first, or the retry
-    would run beside it. The attempt that failed may also have released the check's slot, so the
-    retry takes it back rather than running past the pool's limit.
+    would run beside it. The retry then moves the slot to its own token, so the pool never counts
+    the two attempts as one check that either can release.
     """
     try:
         cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
     except Exception:
         logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
+    release_evaluation_slot(configuration_id, held_until=attempt_slot_token(held_until, attempt - 1), key=INFLIGHT_KEY)
+    token = attempt_slot_token(held_until, attempt)
     admitted = admit_evaluation_slots(
         [configuration_id],
         limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
-        expires_at=held_until,
+        expires_at=token,
         key=INFLIGHT_KEY,
     )
-    return bool(admitted)
+    return token if admitted else None
 
 
 def legacy_alerts_of(
