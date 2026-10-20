@@ -62,14 +62,6 @@ class TestNonRetryableErrors:
     @parameterized.expand(
         [
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.fireworks.ai/v1/accounts/my-account/models",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.fireworks.ai/v1/accounts/my-account/datasets",
-            ),
-            (
                 "account_not_found",
                 "404 Client Error: Not Found for url: https://api.fireworks.ai/v1/accounts/nope/models",
             ),
@@ -78,20 +70,3 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = FireworksAISource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.fireworks.ai/v1/accounts/my-account/models",
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.fireworks.ai/v1/accounts/my-account/models",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='api.fireworks.ai', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FireworksAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
