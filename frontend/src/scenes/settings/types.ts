@@ -288,7 +288,6 @@ export type SettingId =
     | 'saml-configuration'
     | 'oidc-configuration'
     | 'scim-configuration'
-    | 'session-join-mode'
     | 'session-table-version'
     | 'snippet'
     | 'snippet-v2'

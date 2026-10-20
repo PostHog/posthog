@@ -71,7 +71,7 @@ class GcoreSource(ResumableSource[GcoreSourceConfig, GcoreCheckpoint]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Gcore",
             iconPath="/static/services/gcore.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API token in the Gcore Customer Portal under API tokens. "
             "Give the token permission to read CDN data. "
             "Statistics contain hourly values for completed hours, with up to 365 days of history.",

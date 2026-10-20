@@ -264,7 +264,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
             docsUrl="https://posthog.com/docs/cdp/sources/youtube-analytics",
             iconPath="/static/services/youtube_analytics.png",
             featureFlag="dwh_youtube_analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["youtube", "yt"],
             fields=cast(
                 list[FieldType],

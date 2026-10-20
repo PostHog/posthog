@@ -12,8 +12,8 @@ use personhog_coordination::protocol::{
     drain_satisfied, freeze_quorum_met, missing_freeze_ackers, past_phase_deadline, warm_satisfied,
 };
 use personhog_coordination::types::{
-    HandoffPhase, HandoffState, LeaderInfo, PartitionAssignment, PodDrainedAck, PodStatus,
-    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    ChangelogConfig, HandoffPhase, HandoffState, LeaderInfo, PartitionAssignment, PodDrainedAck,
+    PodStatus, PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 use serde::Serialize;
 
@@ -64,6 +64,7 @@ pub struct RawSnapshot {
     pub warmed_acks: Vec<PodWarmedAck>,
     pub leader: Option<(LeaderInfo, i64)>,
     pub total_partitions: Option<u32>,
+    pub changelog: Option<ChangelogConfig>,
     pub parse_errors: Vec<String>,
     pub unknown_keys: Vec<String>,
     pub revision: i64,
@@ -134,6 +135,10 @@ pub fn parse_snapshot(kvs: &[RawKv], prefix: &str, revision: i64) -> RawSnapshot
             {
                 Some(count) => snapshot.total_partitions = Some(count),
                 None => errors.push(format!("invalid total_partitions at {}", kv.key)),
+            }
+        } else if suffix == "config/changelog" {
+            if let Some(changelog) = parse::<ChangelogConfig>(kv, errors) {
+                snapshot.changelog = Some(changelog);
             }
         } else {
             snapshot.unknown_keys.push(kv.key.clone());
@@ -215,6 +220,7 @@ pub struct TopologyView {
     pub revision: i64,
     pub prefix: String,
     pub total_partitions: Option<u32>,
+    pub changelog: Option<ChangelogConfig>,
     pub leader: Option<LeaderView>,
     pub pods: Vec<PodView>,
     pub routers: Vec<RouterView>,
@@ -536,6 +542,7 @@ pub fn derive_view(
         revision: raw.revision,
         prefix: prefix.to_string(),
         total_partitions: raw.total_partitions,
+        changelog: raw.changelog.clone(),
         leader: raw.leader.as_ref().map(|(leader, _)| LeaderView {
             holder: leader.holder.clone(),
             lease_id: leader.lease_id,

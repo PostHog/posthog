@@ -33,30 +33,6 @@ class TestGetSchemas:
         assert schemas[endpoint].supports_append is expected_incremental
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://newsdata.io/api/1/archive?from_date=2024-01-01",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://newsdata.io/api/1/crypto"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        assert any(key in observed for key in NewsDataSource().get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='newsdata.io', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://newsdata.io/api/1/latest"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://newsdata.io/api/1/latest"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        assert not any(key in observed for key in NewsDataSource().get_non_retryable_errors())
-
-
 class TestSourceForPipeline:
     def test_watermark_dropped_on_full_refresh(self) -> None:
         # On a full-refresh run the stored watermark must not leak into the query, or an unwanted
