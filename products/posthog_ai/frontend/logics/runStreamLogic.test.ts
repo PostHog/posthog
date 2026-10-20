@@ -2762,6 +2762,28 @@ describe('runStreamLogic', () => {
             )
         })
 
+        it('times a retried history load from the retry, not the failed attempt', async () => {
+            jest.useFakeTimers()
+            try {
+                const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed', state: {} } as any)
+                const logs = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 503 })
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await jest.advanceTimersByTimeAsync(30_000)
+                expect(logic.values.bootstrapError?.retryable).toBe(true)
+                await jest.advanceTimersByTimeAsync(60_000)
+                logs.mockResolvedValue([])
+                logic.actions.retryConnection()
+                await jest.advanceTimersByTimeAsync(1_000)
+
+                const loaded = captureSpy.mock.calls.filter(([event]) => event === 'sandbox_run_history_loaded')
+                expect(loaded.map(([, properties]) => properties?.duration_ms < 5_000)).toEqual([true])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
             jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'failed', state: {} } as any)
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])

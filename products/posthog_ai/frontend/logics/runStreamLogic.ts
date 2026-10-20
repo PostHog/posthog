@@ -3821,6 +3821,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (!session.owns() || session.paused) {
                 return
             }
+            cache.bootstrapStartedAt = undefined
             const envelope =
                 isRecord(error) && typeof error.errorTitle === 'string'
                     ? (error as unknown as StreamErrorEnvelope)
@@ -4066,6 +4067,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 cache.retainedMessage = retainedMessage
                 cache.isBootstrapping = true
+                cache.bootstrapStartedAt = justCreatedRun ? undefined : performance.now()
                 actions.setHistoryComplete(false)
                 try {
                     if (hasEnded(session)) {
@@ -4080,7 +4082,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.openSseForRun({ taskId, runId, startLatest: false })
                         return
                     }
-                    cache.bootstrapStartedAt = performance.now()
                     const run = await readWithRetry(session, () => readRun(session))
                     applyRun(session, run)
                     if (isTerminalRunStatus(run.status) || props.replayOnly) {
