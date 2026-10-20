@@ -1,33 +1,15 @@
+import {POLICY_PATH} from './shared-image-releases'
+import {Bootstrap, publishChannels, PublisherBudgets} from './shared-image-publisher'
 import * as core from '@actions/core'
 import {readFileSync} from 'fs'
 import * as path from 'path'
-import {approvedImages, ApprovedImages, bindChannels, loadPolicy, POLICY_PATH} from './shared-image'
-import {Bootstrap, publishChannels, PublisherBudgets} from './shared-image-publisher'
+import {loadPolicy} from '../../paths-filter/src/shared-image-policy'
+import {bindChannels} from './shared-image-releases'
 
 interface Configuration {
   cwd: string
   policyPath: string
-  approved: ApprovedImages
-}
-
-function configuration(): Configuration {
-  return {
-    cwd: path.resolve(core.getInput('working-directory') || process.cwd()),
-    policyPath: core.getInput('shared-image-policy') || POLICY_PATH,
-    approved: approvedImages(
-      core.getInput('shared-image-repository', {required: true}),
-      core.getInput('shared-image-registry', {required: true}),
-      core.getInput('shared-image-destination-registry', {required: true}),
-      core.getInput('shared-image-destinations')
-    )
-  }
-}
-
-function inspect(config: Configuration): void {
-  const policy = loadPolicy(readFileSync(path.resolve(config.cwd, config.policyPath), 'utf8'))
-  const bindings = bindChannels(policy, config.approved)
-  core.setOutput('channels', Object.values(bindings).some(channels => Object.keys(channels).length > 0) ? 'true' : 'false')
-  core.setOutput('bindings', JSON.stringify(bindings))
+  repository: string
 }
 
 async function publish(config: Configuration): Promise<void> {
@@ -40,7 +22,7 @@ async function publish(config: Configuration): Promise<void> {
     throw new Error('Force and bootstrap require an authorized manual default-branch invocation')
   }
   const results = await publishChannels({
-    ...config, revision: process.env.GITHUB_SHA || '', digest: core.getInput('shared-image-digest'),
+    ...config, registry: core.getInput('shared-image-registry', {required: true}), revision: process.env.GITHUB_SHA || '', digest: core.getInput('shared-image-digest'),
     alias: core.getInput('shared-image-alias'), force, bootstrap,
     budgets: JSON.parse(core.getInput('shared-image-budgets')) as PublisherBudgets,
     regctl: core.getInput('shared-image-regctl'), helper: path.resolve(config.cwd, '.github/scripts/ordered-image-release.sh'),
@@ -51,11 +33,19 @@ async function publish(config: Configuration): Promise<void> {
 
 export async function run(): Promise<void> {
   try {
+    const repository = core.getInput('shared-image-repository', {required: true})
     const operation = core.getInput('shared-image-operation') || 'inspect'
     if (operation !== 'inspect' && operation !== 'publish') throw new Error(`Unknown shared-image operation: ${operation}`)
-    const config = configuration()
-    if (operation === 'inspect') inspect(config)
-    else await publish(config)
+    const cwd = core.getInput('working-directory') || process.cwd()
+    const policyPath = core.getInput('shared-image-policy') || POLICY_PATH
+    if (operation === 'publish') {
+      await publish({cwd, policyPath, repository})
+      return
+    }
+    const policy = loadPolicy(readFileSync(path.resolve(cwd, policyPath), 'utf8'))
+    const bindings = bindChannels(policy, repository)
+    core.setOutput('channels', Object.values(bindings).some(channels => Object.keys(channels).length > 0) ? 'true' : 'false')
+    core.setOutput('bindings', JSON.stringify(bindings))
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error))
   }

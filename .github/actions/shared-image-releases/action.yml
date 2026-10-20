@@ -1,30 +1,9 @@
 name: Shared image releases
-description: Inspect approved bindings and selectively publish shared-image releases
+description: Inspect source policy and shared-image publication repositories
 inputs:
-    working-directory:
-        description: Relative path to the executing repository checkout
-        required: false
-    shared-image-operation:
-        description: Shared-image operation to execute
-        required: false
-        default: inspect
-    shared-image-policy:
-        description: Path to the canonical shared-image manifest in the executing checkout
-        required: false
-        default: .github/shared-image-releases.yaml
-    shared-image-repository:
-        description: Common build repository from workflow configuration
-        required: true
     shared-image-registry:
-        description: Approved common image registry from workflow configuration
-        required: true
-    shared-image-destination-registry:
-        description: Approved destination registry from workflow configuration
-        required: true
-    shared-image-destinations:
-        description: Infrastructure-approved JSON array of owner, repository, registry and replicas
+        description: Authenticated ECR registry from the publish login step
         required: false
-        default: '[]'
     shared-image-force:
         description: JSON array of explicit configured image/channel keys for an authorized manual release
         required: false
@@ -44,6 +23,20 @@ inputs:
     shared-image-regctl:
         description: Absolute path to the checksum-verified regctl executable
         required: false
+    working-directory:
+        description: Relative path to the executing repository checkout
+        required: false
+    shared-image-operation:
+        description: Shared-image operation to execute
+        required: false
+        default: inspect
+    shared-image-policy:
+        description: Path to the canonical shared-image manifest in the executing checkout
+        required: false
+        default: .github/shared-image-releases.yaml
+    shared-image-repository:
+        description: Common build repository from workflow configuration
+        required: true
 outputs:
     channels:
         description: Whether the policy has configured publication channels

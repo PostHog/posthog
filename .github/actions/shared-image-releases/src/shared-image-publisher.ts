@@ -3,7 +3,7 @@ import * as path from 'path'
 import {SourceHistory, HistoryBudgets} from './shared-image-history'
 import {ReleaseRegistry, RegistryBudgets, Outcome, Publication} from './shared-image-registry'
 import {
-  ApprovedImages, bindChannels, CANONICAL_SOURCE_REPOSITORY, Channel, DestinationBinding,
+  bindChannels, CANONICAL_SOURCE_REPOSITORY, Channel,
   Filter, ImageBinding, Policy, policyDigest, ORDERED_ALIAS, DIGEST, REVISION
 } from './shared-image'
 
@@ -23,7 +23,8 @@ export interface PublisherOptions {
   revision: string
   digest: string
   alias: string
-  approved: ApprovedImages
+  repository: string
+  registry: string
   force: string[]
   bootstrap?: Bootstrap
   budgets: PublisherBudgets
@@ -88,7 +89,7 @@ interface ResolvedChannel {
   name: string
   key: string
   channel: Channel
-  destination: DestinationBinding
+  destination: ImageBinding
   source: ImageBinding
 }
 
@@ -154,6 +155,7 @@ async function advanceChannel(selected: ResolvedChannel, force: string[], contex
 }
 
 export async function publishChannels(options: PublisherOptions): Promise<ChannelResult[]> {
+  if (!/^[0-9]{12}\.dkr\.ecr\.[a-z]{2}(?:-[a-z]+)+-[0-9]+\.amazonaws\.com$/.test(options.registry)) throw new Error('Invalid authenticated ECR registry hostname')
   const {budgets} = options
   for (const name of ['fetchMs', 'comparisonMs', 'maxBuffer', 'registryMs', 'copySeconds', 'readbackSeconds', 'maxChannels', 'concurrency', 'totalMs', 'channelMs'] as const) {
     const value = budgets[name]
@@ -166,9 +168,9 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
   if (!DIGEST.test(options.digest)) throw new Error('Expected successful build digest')
   const policy = await history.current(options.revision)
   const requests = validateRequests(policy, options.force, options.bootstrap)
-  const bindings = bindChannels(policy, options.approved)
+  const bindings = bindChannels(policy, options.repository)
   const channels = Object.entries(policy.images).flatMap(([image, definition]) =>
-    Object.entries(definition.channels).map(([name, channel]) => ({image, name, channel, key: `${image}/${name}`, destination: bindings[image][name], source: options.approved[image]}))
+    Object.entries(definition.channels).map(([name, channel]) => ({image, name, channel, key: `${image}/${name}`, destination: {...bindings[image][name], registry: options.registry}, source: {repository: options.repository, registry: options.registry}}))
   )
   if (channels.length > budgets.maxChannels) throw new Error(`Channel fan-out ${channels.length} exceeds budget ${budgets.maxChannels}`)
   const selected = requests.bootstrap ? channels.filter(channel => channel.key === requests.bootstrap?.channel) : channels
@@ -185,7 +187,7 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
           ? await bootstrapChannel(channel, requests.bootstrap, context, registry)
           : await advanceChannel(channel, requests.force, context, registry)
       } catch (error) {
-        result = {channel: channel.key, decision: 'blocked', reason: String(error)}
+        result = {channel: channel.key, decision: 'blocked', reason: `${channel.key}: ${String(error)}`}
       }
       results.push(result)
       process.stdout.write(JSON.stringify(result) + '\n')

@@ -3,7 +3,7 @@ import {existsSync, mkdtempSync, readFileSync, rmSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {command, CommandOptions, configureCopyClient} from './shared-image-command'
-import {DIGEST, REVISION, CANONICAL_SOURCE_REPOSITORY, DestinationBinding, ImageBinding} from './shared-image-releases'
+import {DIGEST, REVISION, CANONICAL_SOURCE_REPOSITORY, ImageBinding} from './shared-image-releases'
 
 export type Outcome = 'present-at-expected-digest' | 'absent' | 'integrity-mismatch' | 'unknown'
 export interface Publication {
@@ -41,12 +41,23 @@ export class ReleaseRegistry {
     return {cwd: this.cwd, maxBuffer: this.budgets.maxBuffer, timeoutMs: Math.min(timeoutMs, this.deadline - Date.now())}
   }
 
-  private aws(destination: DestinationBinding, args: string[]): Promise<string> {
+  private aws(destination: ImageBinding, args: string[]): Promise<string> {
     return command('aws', ['ecr', ...args, '--registry-id', destination.registry.split('.')[0],
       '--repository-name', destination.repository], this.options())
   }
 
-  async list(destination: DestinationBinding): Promise<Inventory> {
+  async list(destination: ImageBinding): Promise<Inventory> {
+    try {
+      return await this.inventory(destination)
+    } catch (error) {
+      const reason = String(error)
+      const failure = reason.includes('RepositoryNotFoundException') ? 'missing'
+        : /\bAccessDenied(?:Exception)?\b/.test(reason) ? 'denied' : 'unknown'
+      throw new Error(`${destination.repository}: ${failure} frontier lookup: ${reason}`)
+    }
+  }
+
+  private async inventory(destination: ImageBinding): Promise<Inventory> {
     const tags = new Set<string>()
     const tokens = new Set<string>()
     let token: string | undefined
@@ -71,7 +82,7 @@ export class ReleaseRegistry {
     return {tags, nonempty}
   }
 
-  read(destination: DestinationBinding, tag: string, expected: string): Promise<Readback> {
+  read(destination: ImageBinding, tag: string, expected: string): Promise<Readback> {
     return this.runHelper('read', {
       ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository, ORDERED_ALIAS: tag,
       EXPECTED_DIGEST: expected, READBACK_TIMEOUT_SECONDS: String(this.budgets.readbackSeconds)
@@ -93,7 +104,7 @@ export class ReleaseRegistry {
     return {revision, digest}
   }
 
-  publish(source: ImageBinding, destination: DestinationBinding, digest: string, tag: string): Promise<Publication> {
+  publish(source: ImageBinding, destination: ImageBinding, digest: string, tag: string): Promise<Publication> {
     return this.runHelper('publish', {
       SOURCE_REGISTRY: source.registry, SOURCE_REPO: source.repository,
       ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository,

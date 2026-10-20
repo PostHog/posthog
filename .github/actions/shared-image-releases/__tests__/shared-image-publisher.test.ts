@@ -8,7 +8,7 @@ import {command, CommandOptions} from '../src/shared-image-command'
 import {ReleaseRegistry} from '../src/shared-image-registry'
 import {SourceHistory} from '../src/shared-image-history'
 import {publishChannels, PublisherOptions, validateRequests} from '../src/shared-image-publisher'
-import {approvedImages, CANONICAL_SOURCE_REPOSITORY, loadPolicy, POLICY_PATH, policyDigest} from '../src/shared-image'
+import {CANONICAL_SOURCE_REPOSITORY, loadPolicy, POLICY_PATH, policyDigest} from '../src/shared-image'
 
 jest.mock('../src/shared-image-command')
 const external = command as jest.MockedFunction<typeof command>
@@ -89,10 +89,7 @@ beforeEach(() => {
   manifests = new Map()
   options = {
     cwd: repo, revision: '', digest: '', alias: '', force: [],
-    approved: approvedImages('posthog-cloud', 'registry.example.com', 'registry.example.com', JSON.stringify([
-      {owner: 'worker', repository: 'workers/worker', registry: 'registry.example.com', replicas: ['replica.example.com']},
-      {owner: 'other', repository: 'workers/other', registry: 'registry.example.com', replicas: ['replica.example.com']}
-    ])),
+    repository: 'posthog-cloud', registry: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
     budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, registryMs: 30000, copySeconds: 1,
       readbackSeconds: 1, maxChannels: 4, concurrency: 2, channelMs: 60000, totalMs: 120000},
     regctl: 'regctl', helper: 'helper', evidence: path.join(repo, 'evidence')
@@ -127,8 +124,6 @@ describe('shared-image publication', () => {
 
   test.each(['reverted policy', 'merged policy', 'destination rebind'])('%s affects only the selected channel', async mode => {
     if (mode === 'destination rebind') {
-      const source = options.approved['posthog-cloud']
-      source.destinations = [...source.destinations, {...source.destinations[0], repository: 'workers/rebound'}]
       tags.set('workers/rebound', new Map([[alias(base), image(base)]]))
       const changed = loadPolicy(policy())
       changed.images['posthog-cloud'].channels.worker.repository = 'workers/rebound'
@@ -240,6 +235,31 @@ describe('shared-image publication', () => {
     expect([...tags.get('workers/worker')!.keys()].filter(tag => /^r\d{12}-[a-f0-9]{6}$/.test(tag)).sort().pop()).toBe(saved)
   })
 
+  test.each([
+    ['RepositoryNotFoundException', 'missing'],
+    ['AccessDeniedException', 'denied'],
+    ['AccessDenied', 'denied'],
+    ['ServiceUnavailableException', 'unknown']
+  ])('frontier access failure %s blocks only its channel as %s', async (failure, classification) => {
+    put('worker/run.py', 'relevant'); put('other/file.py', 'relevant'); commit(); build()
+    external.mockImplementation(async (exe, args, config) => {
+      if (exe === 'aws' && args[1] === 'list-images' && args[args.indexOf('--repository-name') + 1] === 'workers/worker') {
+        throw new Error(failure)
+      }
+      return invoke(exe, args, config)
+    })
+    const results = await publishChannels(options)
+    expect(results).toContainEqual({channel: 'posthog-cloud/worker', decision: 'blocked', reason: expect.stringContaining(`posthog-cloud/worker: Error: workers/worker: ${classification} frontier lookup: Error: ${failure}`)})
+    expect(results).toContainEqual(expect.objectContaining({channel: 'posthog-cloud/other', decision: 'published', digest: options.digest}))
+    expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
+  })
+
+  test.each(['', 'registry.example.com', '123.dkr.ecr.us-east-1.amazonaws.com', 'https://123456789012.dkr.ecr.us-east-1.amazonaws.com', '123456789012.dkr.ecr.us-east-1.amazonaws.com/path'])('rejects registry hostname %s before commands', async registry => {
+    build(); options.registry = registry
+    await expect(publishChannels(options)).rejects.toThrow('Invalid authenticated ECR registry hostname')
+    expect(external).not.toHaveBeenCalled()
+  })
+
   test('one channel failure preserves other eligible attempts and emits no success receipt', async () => {
     put('worker/run.py', 'relevant'); put('other/file.py', 'relevant'); commit(); build()
     external.mockImplementation(async (exe, args, config) => {
@@ -319,8 +339,8 @@ describe('shared-image publication', () => {
     }
     if (mode === 'seed') expect(tags.get('workers/other')!.size).toBe(0)
     if (succeeds) expect(JSON.parse(readFileSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'), 'utf8'))).toEqual({
-      version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: 'registry.example.com/posthog-cloud',
-      destination: options.approved['posthog-cloud'].destinations[0], policyRevision: options.revision,
+      version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: `${options.registry}/${options.repository}`,
+      destination: {registry: options.registry, repository: 'workers/worker'}, policyRevision: options.revision,
       policyDigest: policyDigest(['worker/**']), seedRevision: base, ordinal: Number(alias(base).slice(1, 13)),
       tag: alias(base), digest: image(base), outcome: 'present-at-expected-digest'
     })
@@ -405,8 +425,8 @@ describe('shared-image publication', () => {
 
   test('helper publication logs are forwarded while readback digests remain protocol data', async () => {
     const registry = new ReleaseRegistry(repo, options.regctl, options.helper, options.budgets, Infinity)
-    const source = options.approved['posthog-cloud']
-    const destination = source.destinations[0]
+    const source = {repository: options.repository, registry: options.registry}
+    const destination = {registry: options.registry, repository: 'workers/worker'}
     const output = jest.spyOn(process.stdout, 'write').mockImplementation(() => true)
     try {
       expect(await registry.read(destination, alias(base), image(base))).toEqual({outcome: 'present-at-expected-digest', digest: image(base)})
@@ -438,11 +458,11 @@ describe('shared-image publication', () => {
 
   test.each(['destination', 'fan-out', 'alias', 'digest'])('%s errors fail before any channel copy', async mode => {
     put('unrelated.txt', mode); commit(); build()
-    if (mode === 'destination') options.approved['posthog-cloud'].destinations = []
+    if (mode === 'destination') { put(POLICY_PATH, policy(['worker/**'], {repository: 'posthog-cloud'})); commit(); build() }
     if (mode === 'fan-out') options.budgets.maxChannels = 1
     if (mode === 'alias') options.alias = `r000000000999-${options.revision.slice(0, 6)}`
     if (mode === 'digest') options.digest = 'invalid'
-    await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*approved destination/ : mode === 'fan-out' ? /fan-out/ : mode === 'alias' ? /Built ordered alias differs/ : /successful build digest/)
+    await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*destination conflicts with source/ : mode === 'fan-out' ? /fan-out/ : mode === 'alias' ? /Built ordered alias differs/ : /successful build digest/)
     if (mode === 'alias' || mode === 'digest') expect(external.mock.calls.every(([executable]) => executable === 'git')).toBe(true)
     expect([...tags.values()].every(entries => !entries.has(options.alias))).toBe(true)
   })

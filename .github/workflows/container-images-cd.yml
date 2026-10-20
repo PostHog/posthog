@@ -1682,9 +1682,6 @@ jobs:
               with:
                   shared-image-operation: inspect
                   shared-image-repository: ${{ env.ECR_REPOSITORY }}
-                  shared-image-registry: ${{ vars.SHARED_IMAGE_REGISTRY }}
-                  shared-image-destination-registry: ${{ vars.SHARED_IMAGE_DESTINATION_REGISTRY }}
-                  shared-image-destinations: ${{ vars.SHARED_IMAGE_DESTINATIONS || '[]' }}
 
             - name: Compute shared-image ordered tag
               id: ordered-release
@@ -1727,9 +1724,7 @@ jobs:
                   shared-image-digest: ${{ needs.posthog_build.outputs.image-digest }}
                   shared-image-alias: ${{ steps.ordered-release.outputs.tag }}
                   shared-image-repository: ${{ env.ECR_REPOSITORY }}
-                  shared-image-registry: ${{ vars.SHARED_IMAGE_REGISTRY }}
-                  shared-image-destination-registry: ${{ steps.shared-image-ecr-login.outputs.registry }}
-                  shared-image-destinations: ${{ vars.SHARED_IMAGE_DESTINATIONS || '[]' }}
+                  shared-image-registry: ${{ steps.shared-image-ecr-login.outputs.registry }}
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}
                   shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
                   shared-image-regctl: ${{ runner.temp }}/regctl

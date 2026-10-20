@@ -3,7 +3,7 @@ import {chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {publishChannels, PublisherOptions} from '../src/shared-image-publisher'
-import {approvedImages, CANONICAL_SOURCE_REPOSITORY, Filter, POLICY_PATH, policyDigest} from '../src/shared-image'
+import {Filter, POLICY_PATH, policyDigest} from '../src/shared-image'
 import {ReleaseRegistry} from '../src/shared-image-registry'
 import * as commands from '../src/shared-image-command'
 import {SourceHistory} from '../src/shared-image-history'
@@ -67,7 +67,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     }
     const regctl = path.join(scratch, 'regctl')
     writeFileSync(regctl, '#!/bin/sh\nexit 1\n'); chmodSync(regctl, 0o755)
-    const destination = {owner: 'worker', repository: 'workers/worker', registry: 'registry.example.com', replicas: []}
+    const destination = {repository: 'workers/worker', registry: '123456789012.dkr.ecr.us-east-1.amazonaws.com'}
     const published = new Set<string>()
     jest.spyOn(ReleaseRegistry.prototype, 'list').mockResolvedValue({tags: new Set([alias(base)]), nonempty: true})
     jest.spyOn(ReleaseRegistry.prototype, 'read').mockResolvedValue({digest: 'sha256:' + 'a'.repeat(64), outcome: 'integrity-mismatch'})
@@ -79,7 +79,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     })
     const options: PublisherOptions = {
       cwd, revision, digest: 'sha256:' + 'b'.repeat(64), alias: alias(revision),
-      approved: approvedImages('posthog-cloud', destination.registry, destination.registry, JSON.stringify([destination])),
+      repository: 'posthog-cloud', registry: destination.registry,
       force: [], regctl, helper: path.join(cwd, 'helper'), evidence: path.join(scratch, 'evidence'),
       budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, registryMs: 30000, copySeconds: 1,
         readbackSeconds: 1, maxChannels: 1, concurrency: 1, channelMs: 120000, totalMs: 120000}
@@ -101,7 +101,6 @@ describe('publisher bounded tree fetching with the real command runner', () => {
         if (executable === 'git' && args[0] === 'fetch') fetched = true
       }
     })
-    expect(options.approved['posthog-cloud'].sourceRepository).toBe(CANONICAL_SOURCE_REPOSITORY)
     const [result] = await publishChannels(options)
     if (mode === 'available' || mode === 'missing subtrees') {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
