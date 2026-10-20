@@ -250,19 +250,28 @@ function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | nul
     if (!flag?.active || !isV1FeatureFlagConfig(flag.filters) || flag.filters.multivariate) {
         return false
     }
+    // The matcher checks enrollment before release conditions, so a person who opted out never reaches them.
+    if (flag.filters.feature_enrollment || flag.filters.super_groups?.length) {
+        return false
+    }
+    const flagAggregation = flag.filters.aggregation_group_type_index ?? null
+    // A set that aggregates by group matches only requests that carry that group, so it can't cover everyone.
+    const reachesEveryPerson = (group: FeatureFlagGroupType): boolean =>
+        !group.properties?.length &&
+        (group.aggregation_group_type_index === undefined ? flagAggregation : group.aggregation_group_type_index) ===
+            null
     const groups = flag.filters.groups ?? []
     if (!flag.filters.early_exit) {
-        return groups.some((group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100)
+        return groups.some((group) => reachesEveryPerson(group) && (group.rollout_percentage ?? 100) === 100)
     }
     // With early exit, a person who matches a set's properties but falls outside its rollout stops there
     // with no match, so a partial set ahead of the untargeted one leaves some people without the flag.
     for (const group of groups) {
-        const fullRollout = (group.rollout_percentage ?? 100) === 100
-        if (!group.properties?.length) {
-            return fullRollout
-        }
-        if (!fullRollout) {
+        if ((group.rollout_percentage ?? 100) !== 100) {
             return false
+        }
+        if (reachesEveryPerson(group)) {
+            return true
         }
     }
     return false
@@ -270,17 +279,19 @@ function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | nul
 
 /** True when this save is the one that turned the flag on for everyone, so the launch is worth announcing. */
 export function flagWentLive(
-    before: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined,
+    before: Pick<FeatureFlagType, 'id' | 'active' | 'filters'> | null | undefined,
     after: Pick<FeatureFlagType, 'deleted' | 'archived' | 'active' | 'filters'>
 ): boolean {
-    return isOnForEveryone(after) && !broadcastNoOneReason(after) && !isOnForEveryone(before)
+    // A never-saved baseline holds the form's starting config, which no one has received yet.
+    const savedBefore = before?.id != null ? before : null
+    return isOnForEveryone(after) && !broadcastNoOneReason(after) && !isOnForEveryone(savedBefore)
 }
 
-function liveFlagBroadcastButton(
+function liveFlagToastOptions(
     before: FeatureFlagType | null,
     after: FeatureFlagType,
     cohortCreationEnabled: boolean
-): ToastButton | undefined {
+): { button: ToastButton; toastId: string } | undefined {
     const flagId = after.id
     if (
         flagId === null ||
@@ -290,7 +301,7 @@ function liveFlagBroadcastButton(
     ) {
         return undefined
     }
-    return {
+    const button: ToastButton = {
         label: "Tell people it's live",
         dataAttr: 'feature-flag-live-broadcast',
         action: () => {
@@ -298,9 +309,17 @@ function liveFlagBroadcastButton(
             // and leaving the page unmounts the logic. Bind to the saved ID and hold it mounted for the whole search.
             const logic = featureFlagLogic({ id: flagId })
             const unmount = logic.mount()
+            // A search started from the flag's menu is still running. A second one could pass the same reuse
+            // check and fill a second cohort.
+            if (logic.values.broadcastCohortLoading) {
+                unmount()
+                return
+            }
             void logic.asyncActions.findOrCreateBroadcastCohort(FLAG_LIVE_BROADCAST_SOURCE).finally(unmount)
         },
     }
+    // Toasts with the same message share an id and a visible one swallows the next, which would drop this button.
+    return { button, toastId: `feature-flag-live-${flagId}` }
 }
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
@@ -4422,13 +4441,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
-            lemonToast.success('Feature flag saved', {
-                button: liveFlagBroadcastButton(
+            lemonToast.success(
+                'Feature flag saved',
+                liveFlagToastOptions(
                     values.originalFeatureFlag,
                     featureFlag,
                     !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
-                ),
-            })
+                )
+            )
             dismissAgentNotices(props.id, cache)
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
@@ -4568,13 +4588,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
-                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`, {
-                    button: liveFlagBroadcastButton(
+                lemonToast.success(
+                    `Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`,
+                    liveFlagToastOptions(
                         values.originalFeatureFlag,
                         featureFlagActiveUpdate,
                         !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
-                    ),
-                })
+                    )
+                )
                 // Only active/version were persisted, so fold just those onto the working copy and
                 // the baseline. Taking the whole server flag would drop any in-progress edit and
                 // re-baseline over it, leaving the guard clean.

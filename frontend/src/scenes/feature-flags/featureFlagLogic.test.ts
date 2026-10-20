@@ -1273,9 +1273,11 @@ describe('featureFlagLogic', () => {
         const FAILED = { ...COHORT, is_calculating: false, errors_calculating: 1 }
 
         const everyone = (rollout: number | null, active = true): any => ({
+            id: 1,
             active,
             filters: { groups: [{ properties: [], rollout_percentage: rollout }] },
         })
+        const groupSet = { properties: [], rollout_percentage: 100, aggregation_group_type_index: 0 }
 
         it.each([
             { scenario: 'a raise to 100%', before: everyone(50), after: everyone(100), live: true },
@@ -1292,6 +1294,36 @@ describe('featureFlagLogic', () => {
                 live: true,
             },
             { scenario: 'a second save at 100%', before: everyone(100), after: everyone(100), live: false },
+            {
+                scenario: 'the first save of a new flag at 100%',
+                before: { ...everyone(100), id: null },
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a flag gated by early access enrollment',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, feature_enrollment: true } },
+                live: false,
+            },
+            {
+                scenario: 'a 100% set that aggregates by group in a person flag',
+                before: everyone(0),
+                after: { ...everyone(0), filters: { groups: [groupSet] } },
+                live: false,
+            },
+            {
+                scenario: 'a raise to 100% from a 100% set that aggregates by group',
+                before: { ...everyone(0), filters: { groups: [groupSet] } },
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a 100% set that aggregates by group and stops evaluation early',
+                before: everyone(0),
+                after: { ...everyone(0), filters: { early_exit: true, groups: [groupSet] } },
+                live: false,
+            },
             { scenario: 'a partial rollout', before: everyone(0), after: everyone(99), live: false },
             {
                 scenario: '100% of a targeted group only',
