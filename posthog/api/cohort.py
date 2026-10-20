@@ -823,6 +823,13 @@ class ParsedCsvIds:
     email_property_key: str | None
 
 
+@frozen
+class _CsvIdColumn:
+    index: int
+    id_type: CsvIdType
+    header: str
+
+
 @extend_schema_field(CohortFilters)  # type: ignore[arg-type]
 class CohortFiltersField(serializers.JSONField):
     """Custom JSONField that exposes proper OpenAPI schema for cohort filters."""
@@ -1276,7 +1283,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         """Check if header indicates email column"""
         return CSVConfig.normalize_header(header) in CSVConfig.EMAIL_HEADERS
 
-    def _find_id_column(self, headers: list[str]) -> tuple[int, CsvIdType, str] | None:
+    def _find_id_column(self, headers: list[str]) -> _CsvIdColumn | None:
         """Find the index, type, and actual column name of the ID column in headers, with preference order: person_id > distinct_id > email"""
         normalized_headers = [h.strip() for h in headers]
         header_keys = [CSVConfig.normalize_header(h) for h in headers]
@@ -1284,17 +1291,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # First, look for person_id columns (preferred)
         for i, key in enumerate(header_keys):
             if key in CSVConfig.PERSON_ID_HEADERS:
-                return i, "person_id", normalized_headers[i]
+                return _CsvIdColumn(index=i, id_type="person_id", header=normalized_headers[i])
 
         # Then, look for distinct_id columns
         for i, key in enumerate(header_keys):
             if key in CSVConfig.DISTINCT_ID_HEADERS:
-                return i, "distinct_id", normalized_headers[i]
+                return _CsvIdColumn(index=i, id_type="distinct_id", header=normalized_headers[i])
 
         # Finally, look for email columns
         for i, key in enumerate(header_keys):
             if key in CSVConfig.EMAIL_HEADERS:
-                return i, "email", normalized_headers[i]
+                return _CsvIdColumn(index=i, id_type="email", header=normalized_headers[i])
 
         return None
 
@@ -1382,10 +1389,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         }
                     )
 
-                id_col, id_type, actual_column_name = result
-                ids = self._extract_ids_multi_column(reader, id_col)
+                ids = self._extract_ids_multi_column(reader, result.index)
+                id_type = result.id_type
                 if id_type == "email":
-                    email_property_key = actual_column_name
+                    email_property_key = result.header
         except ValidationError:
             raise
         except UnicodeDecodeError as e:
