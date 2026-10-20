@@ -346,7 +346,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                     _ago(10),
                     merged_at=_ago(2),
                     head_sha="sha84",
-                    title="revert(ci): drop the gate",
+                    title="revert(ci)!: drop the gate",
                 ),
                 # mentions a revert without being one: an unanchored match would count it
                 _pr_row(
@@ -431,10 +431,16 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         ]
         assert observed_pass_rates == [pytest.approx(4 / 7)]
         # Oldest first: the bot's merge day (0 of 1), then the day 80 and the reverts landed (2 of 4).
-        observed_revert_shares = [
-            bucket.revert_share for bucket in with_series.revert_share_series if bucket.merged_pr_count > 0
+        observed_revert_buckets = [
+            (bucket.merged_pr_count, bucket.reverting_pr_count, bucket.revert_share)
+            for bucket in with_series.revert_share_series
+            if bucket.merged_pr_count > 0
         ]
-        assert observed_revert_shares == [pytest.approx(0.0), pytest.approx(0.5)]
+        assert observed_revert_buckets == [(1, 0, 0.0), (4, 2, 0.5)]
+        # A day with no merges is a gap, never a false 0% share.
+        assert all(
+            bucket.revert_share is None for bucket in with_series.revert_share_series if bucket.merged_pr_count == 0
+        )
 
     def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
         # A per-run median would read this fixture as ~5 min. The round definition asks a different
