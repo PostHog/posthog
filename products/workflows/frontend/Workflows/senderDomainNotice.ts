@@ -1,24 +1,17 @@
 import type { EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { urls } from 'scenes/urls'
 
-import type { HogFlow, HogFlowAction } from './hogflows/types'
+import { isEmailAction } from './hogflows/steps/types'
+import type { HogFlow } from './hogflows/types'
 import { unverifiedSenderDomains } from './unverifiedSenderDomains'
 
 export type SenderDomainNotice =
     | { stage: 'no_domain'; url: string }
     | { stage: 'unverified' | 'waiting'; domains: string[]; url: string }
 
-function emailSender(action: HogFlowAction): EmailTemplateFrom | undefined {
-    return (action.config as { inputs?: { email?: { value?: { from?: EmailTemplateFrom } } } }).inputs?.email?.value
-        ?.from
-}
-
 function hasEmailStepWithoutSender(workflow: HogFlow): boolean {
-    return workflow.actions.some((action) => {
-        if (action.type !== 'function_email') {
-            return false
-        }
-        const sender = emailSender(action)
+    return workflow.actions.filter(isEmailAction).some((action) => {
+        const sender: EmailTemplateFrom | undefined = action.config.inputs.email?.value?.from
         return !sender?.integrationId && !sender?.integrationIds?.length
     })
 }
