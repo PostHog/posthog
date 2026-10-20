@@ -199,6 +199,24 @@ describe('preserveGroupTargetingFilters', () => {
         ],
     }
 
+    const existingGroupAndPersonPlanSetsFlag = {
+        groups: [
+            {
+                properties: [
+                    { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                ],
+                rollout_percentage: 100,
+            },
+            {
+                properties: [
+                    { key: 'plan', type: 'person', operator: 'exact', value: 'free' },
+                    { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                ],
+                rollout_percentage: 100,
+            },
+        ],
+    }
+
     it('preserves aggregation_group_type_index when omitted on update', () => {
         const incoming = {
             groups: [
@@ -770,6 +788,12 @@ describe('preserveGroupTargetingFilters', () => {
 
     it.each([
         { name: 'the sets trade places', values: ['pro', 'enterprise'], restored: [{}, {}] },
+        {
+            name: 'the sets trade places and the agent omits the operator',
+            values: ['pro', 'enterprise'],
+            typed: [{ operator: undefined }, { operator: undefined }],
+            restored: [{ operator: undefined }, { operator: undefined }],
+        },
         { name: 'a set changes to a new value', values: ['business', 'pro'], restored: [onGroupType0, onGroupType1] },
         { name: 'a set copies the value of the other set', values: ['pro', 'pro'], restored: [{}, onGroupType1] },
         {
@@ -887,6 +911,16 @@ describe('preserveGroupTargetingFilters', () => {
             typed: [{}, onGroupType0],
             restored: [{}, onGroupType0],
         },
+        {
+            name: 'two sets that differ only in property type trade places and the agent types only the person one',
+            stored: [
+                { ...onGroupType1, value: 'pro' },
+                { type: 'person', value: 'pro' },
+            ],
+            values: ['pro', 'pro'],
+            typed: [{ type: 'person' }, {}],
+            restored: [{ type: 'person' }, {}],
+        },
     ])(
         'merges a group property that two person-aggregated sets hold when $name',
         ({
@@ -985,25 +1019,35 @@ describe('preserveGroupTargetingFilters', () => {
     )
 
     it.each([
-        { name: 'a null rollout', echoed: { rollout_percentage: null } },
-        { name: 'a full rollout', echoed: { rollout_percentage: 100 } },
-        { name: 'a null variant', echoed: { variant: null } },
-    ])('keeps two same-filter person sets on their group types when the agent echoes $name', ({ echoed }) => {
-        const existing = {
-            groups: [onGroupType0, onGroupType1].map((typing) => ({
-                properties: [{ key: 'plan', operator: 'exact', value: 'business', ...typing }],
-            })),
+        { name: 'a null rollout', echoed: { rollout_percentage: null }, restored: [0, 1] },
+        { name: 'a full rollout', echoed: { rollout_percentage: 100 }, restored: [0, 1] },
+        { name: 'a null variant', echoed: { variant: null }, restored: [0, 1] },
+        {
+            name: 'no rollout for sets stored at rollout 50',
+            stored: { rollout_percentage: 50 },
+            echoed: {},
+            restored: [undefined, undefined],
+        },
+    ])(
+        'types two same-filter person sets by the condition the agent echoes when it sends $name',
+        ({ stored = {}, echoed, restored }) => {
+            const existing = {
+                groups: [onGroupType0, onGroupType1].map((typing) => ({
+                    properties: [{ key: 'plan', operator: 'exact', value: 'business', ...typing }],
+                    ...stored,
+                })),
+            }
+
+            const merged = preserveGroupTargetingFilters(existing, {
+                groups: existing.groups.map(() => ({
+                    properties: [{ key: 'plan', operator: 'exact', value: 'business' }],
+                    ...echoed,
+                })),
+            })
+
+            expect(merged?.groups?.map((group) => group.properties?.[0]?.group_type_index)).toEqual(restored)
         }
-
-        const merged = preserveGroupTargetingFilters(existing, {
-            groups: existing.groups.map(() => ({
-                properties: [{ key: 'plan', operator: 'exact', value: 'business' }],
-                ...echoed,
-            })),
-        })
-
-        expect(merged?.groups?.map((group) => group.properties?.[0]?.group_type_index)).toEqual([0, 1])
-    })
+    )
 
     it('restores no group type from a deleted set when the set that moved also drops a key', () => {
         const existing = {
@@ -1551,6 +1595,76 @@ describe('preserveGroupTargetingFilters', () => {
             ],
         },
         {
+            name: 'a person set is deleted and the set left holds its key as a group property',
+            existing: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'plan', type: 'person', operator: 'exact', value: 'pro' },
+                            { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [{ properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 }],
+            },
+            expected: [[undefined, undefined, undefined]],
+        },
+        {
+            name: 'two person sets with different keys trade places and one holds the key as a group property',
+            existing: existingGroupAndPersonPlanSetsFlag,
+            incoming: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'plan', operator: 'exact', value: 'free' },
+                            { key: 'country', operator: 'exact', value: 'US' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [
+                [undefined, 'person', undefined],
+                [undefined, undefined, undefined],
+            ],
+        },
+        {
+            name: 'a person set that holds its key as a group property moves and changes its value',
+            existing: existingGroupAndPersonPlanSetsFlag,
+            incoming: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'plan', operator: 'exact', value: 'free' },
+                            { key: 'country', operator: 'exact', value: 'US' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [{ key: 'plan', operator: 'exact', value: 'business' }],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [
+                [undefined, 'person', undefined],
+                [undefined, undefined, undefined],
+            ],
+        },
+        {
             name: 'a person set moves its group property to another group type',
             existing: {
                 groups: [
@@ -1646,6 +1760,38 @@ describe('preserveGroupTargetingFilters', () => {
                 groups: [{ properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 }],
             },
             expected: [[undefined, undefined, undefined]],
+        },
+        {
+            name: 'a person set changes its rollout next to a group set with the same filters',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 1,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 50 },
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                ],
+            },
+            expected: [
+                [undefined, 'group', 0],
+                [1, 'group', 1],
+            ],
         },
     ])('keeps each condition set on its own aggregation when $name', ({ existing, incoming, expected }) => {
         const merged = preserveGroupTargetingFilters(existing, incoming)
