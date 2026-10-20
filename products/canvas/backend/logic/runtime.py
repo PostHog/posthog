@@ -96,7 +96,13 @@ def prepare_agent_request(team_id: int, canvas_id: UUID, viewer_prompt: str) -> 
 
 def list_actions() -> list[dict[str, Any]]:
     return [
-        {"verb": entry.verb, "summary": entry.summary, "destructive": entry.destructive, "usage": entry.usage}
+        {
+            "verb": entry.verb,
+            "summary": entry.summary,
+            "destructive": entry.destructive,
+            "starts_cloud_run": entry.starts_cloud_run,
+            "usage": entry.usage,
+        }
         for entry in sorted(CANVAS_ACTIONS.values(), key=lambda entry: entry.verb)
     ]
 

@@ -51,11 +51,49 @@ describe('CanvasDataBridge query routing', () => {
 })
 
 describe('CanvasDataBridge action confirmation', () => {
+    test('invokes a plain write without asking the viewer', async () => {
+        const action = {
+            verb: 'annotations.create',
+            summary: 'Create an annotation.',
+            destructive: false,
+            starts_cloud_run: false,
+            usage: '',
+        }
+        const payload = { content: 'Deployed' }
+        jest.mocked(canvasesActionsRetrieve).mockResolvedValue({ actions: [action] })
+        jest.mocked(canvasesActionsInvoke)
+            .mockReset()
+            .mockResolvedValue({ verb: action.verb, result: { annotation_id: 1 } })
+        const confirmAction = jest.fn(async () => false)
+        const bridge = new CanvasDataBridge(
+            () => ({
+                projectId: '1',
+                canvasId: 'canvas-1',
+                sourceVersionId: 'v1',
+                captureToken: null,
+                distinctId: null,
+            }),
+            {
+                confirmAction,
+                confirmAgentRequest: jest.fn(),
+                requestConnectorPermission: jest.fn(),
+                hasUserActivation: () => true,
+            }
+        )
+
+        await expect(bridge.handle('actionInvoke', { verb: action.verb, payload })).resolves.toEqual({
+            verb: action.verb,
+            result: { annotation_id: 1 },
+        })
+        expect(confirmAction).not.toHaveBeenCalled()
+    })
+
     test.each([false, true])('only starts a paid task after approval: %s', async (allowed) => {
         const action = {
             verb: 'tasks.create_and_run',
             summary: 'Start a cloud task.',
             destructive: false,
+            starts_cloud_run: true,
             usage: '',
         }
         const payload = {
