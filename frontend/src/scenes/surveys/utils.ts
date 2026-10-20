@@ -1050,6 +1050,21 @@ export function buildSurveyResponsesQuery(
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`
 }
 
+/** The people behind the responses the current filters show, leaving out anyone who only dismissed the survey. */
+export function buildSurveyRespondentsQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    select: 'count' | 'people'
+): string {
+    const merged = buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey), {
+        includeRespondentMetadata: select === 'count',
+    })
+    const responded = `outcome != 'dismissed'`
+    return select === 'count'
+        ? `SELECT uniqExact(person_id), uniqExactIf(person_id, notEmpty(coalesce(JSONExtractString(person_properties, 'email'), ''))) FROM (${merged}) WHERE ${responded}`
+        : `SELECT DISTINCT person_id FROM (${merged}) WHERE ${responded}`
+}
+
 export function buildSurveyResponsesExportQuery(
     survey: Survey,
     filters: SurveyQueryFilters,

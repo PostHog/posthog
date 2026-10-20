@@ -34,7 +34,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -118,6 +118,7 @@ import { activityLogList } from 'products/platform_features/frontend/generated/a
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
+    messageAudienceAccessDisabledReason,
     messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
@@ -175,6 +176,8 @@ const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
 const FLAG_COHORT_MAX_FILL_MS = 4 * 60 * 60 * 1000
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
 const FLAG_BROADCAST_SOURCE = 'feature_flag'
+// pinned: the toast offered when a save turns a flag on for everyone
+const FLAG_LIVE_BROADCAST_SOURCE = 'feature_flag_live'
 export const FINDING_FLAG_PEOPLE_MESSAGE = 'Finding the people who have this flag…'
 
 function flagCohortNamePrefix(flagKey: string): string {
@@ -236,6 +239,39 @@ export function broadcastNoOneReason(
         return 'This flag targets groups, not people, so there is no one to email.'
     }
     return undefined
+}
+
+function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined): boolean {
+    if (!flag?.active || !isV1FeatureFlagConfig(flag.filters) || flag.filters.multivariate) {
+        return false
+    }
+    return (flag.filters.groups ?? []).some(
+        (group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100
+    )
+}
+
+/** True when this save is the one that turned the flag on for everyone, so the launch is worth announcing. */
+export function flagWentLive(
+    before: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined,
+    after: Pick<FeatureFlagType, 'deleted' | 'archived' | 'active' | 'filters'>
+): boolean {
+    return isOnForEveryone(after) && !broadcastNoOneReason(after) && !isOnForEveryone(before)
+}
+
+function liveFlagBroadcastButton(
+    before: FeatureFlagType | null,
+    after: FeatureFlagType,
+    cohortCreationEnabled: boolean,
+    openBroadcast: (source: string) => void
+): ToastButton | undefined {
+    if (!cohortCreationEnabled || messageAudienceAccessDisabledReason() || !flagWentLive(before, after)) {
+        return undefined
+    }
+    return {
+        label: "Tell people it's live",
+        dataAttr: 'feature-flag-live-broadcast',
+        action: () => openBroadcast(FLAG_LIVE_BROADCAST_SOURCE),
+    }
 }
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
@@ -711,7 +747,12 @@ async function waitForFlagCohort(projectId: string, cohortId: number): Promise<C
     return status
 }
 
-function showFlagCohortOutcome(cohort: CohortApi, flagId: FeatureFlagLogicProps['id'], flagKey: string): void {
+function showFlagCohortOutcome(
+    cohort: CohortApi,
+    flagId: FeatureFlagLogicProps['id'],
+    flagKey: string,
+    source: string
+): void {
     if (cohort.errors_calculating > 0) {
         lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
         return
@@ -730,7 +771,7 @@ function showFlagCohortOutcome(cohort: CohortApi, flagId: FeatureFlagLogicProps[
     }
     const broadcastUrl = messageAudienceUrl(
         {
-            source: FLAG_BROADCAST_SOURCE,
+            source,
             properties: cohortAudienceProperties(cohort),
             broadcastName: `${flagKey} announcement`,
         },
@@ -1508,7 +1549,7 @@ export interface featureFlagLogicActions {
         editing: boolean
         expandAdvanced: boolean
     }
-    findOrCreateBroadcastCohort: (_: void) => void
+    findOrCreateBroadcastCohort: (source?: string) => string
     findOrCreateBroadcastCohortFailure: (
         error: string,
         errorObject?: any
@@ -1518,10 +1559,10 @@ export interface featureFlagLogicActions {
     }
     findOrCreateBroadcastCohortSuccess: (
         broadcastCohort: CohortApi | null,
-        payload?: void
+        payload?: string
     ) => {
         broadcastCohort: CohortApi | null
-        payload?: void
+        payload?: string
     }
     loadCopyDependencyRequirements: () => {
         value: true
@@ -3821,7 +3862,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         broadcastCohort: [
             null as CohortApi | null,
             {
-                findOrCreateBroadcastCohort: async (_: void, breakpoint) => {
+                findOrCreateBroadcastCohort: async (source: string = FLAG_BROADCAST_SOURCE, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
                         return null
                     }
@@ -3869,7 +3910,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const status = await waitForFlagCohort(projectId, cohortId)
                     dismissBroadcastProgress(cache)
-                    showFlagCohortOutcome(status, props.id, flag.key)
+                    showFlagCohortOutcome(status, props.id, flag.key, source)
                     return status
                 },
             },
@@ -4352,7 +4393,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
-            lemonToast.success('Feature flag saved')
+            lemonToast.success('Feature flag saved', {
+                button: liveFlagBroadcastButton(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION],
+                    actions.findOrCreateBroadcastCohort
+                ),
+            })
             dismissAgentNotices(props.id, cache)
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
@@ -4492,7 +4540,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
-                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`, {
+                    button: liveFlagBroadcastButton(
+                        values.originalFeatureFlag,
+                        featureFlagActiveUpdate,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION],
+                        actions.findOrCreateBroadcastCohort
+                    ),
+                })
                 // Only active/version were persisted, so fold just those onto the working copy and
                 // the baseline. Taking the whole server flag would drop any in-progress edit and
                 // re-baseline over it, leaving the guard clean.
@@ -4884,8 +4939,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        findOrCreateBroadcastCohort: () => {
-            captureMessageAudienceClicked(FLAG_BROADCAST_SOURCE, 'broadcast')
+        findOrCreateBroadcastCohort: (source = FLAG_BROADCAST_SOURCE) => {
+            captureMessageAudienceClicked(source, 'broadcast')
             dismissBroadcastProgress(cache)
             cache.broadcastToastId = lemonToast.loading(FINDING_FLAG_PEOPLE_MESSAGE, {
                 // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.

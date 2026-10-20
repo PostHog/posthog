@@ -35,11 +35,21 @@ import {
     Region,
 } from '~/types'
 
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
+
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+import { enrolledPeopleAudience } from './enrolledPeopleAudience'
 import { GAPromotionDialogContent } from './GAPromotionDialogContent'
 
 /** PostHog's own dogfooding project on US cloud — mirrors POSTHOG_TEAM_ID in the backend. */
 export const POSTHOG_TEAM_ID = 2
+
+// pinned: the toast offered when a feature reaches general availability
+const EARLY_ACCESS_GA_SOURCE = 'early_access_ga'
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -505,7 +515,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, selectors }) => ({
         saveEarlyAccessFeatureFailure: ({ errorObject }) => {
             // kea-loaders calls the failure action with (error.message, error), so:
             //   `error` = the message string
@@ -526,8 +536,28 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
             lemonToast.error('Could not save early access feature.')
         },
-        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
-            lemonToast.success('Early access feature saved')
+        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }, _, __, previousState) => {
+            const previousStage = selectors.originalEarlyAccessFeatureStage(previousState)
+            const reachedGeneralAvailability =
+                !!previousStage &&
+                previousStage !== EarlyAccessFeatureStage.GeneralAvailability &&
+                _earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
+            lemonToast.success('Early access feature saved', {
+                button:
+                    reachedGeneralAvailability && !messageAudienceAccessDisabledReason()
+                        ? {
+                              label: 'Email opted-in users',
+                              dataAttr: 'early-access-ga-broadcast',
+                              action: () => {
+                                  captureMessageAudienceClicked(EARLY_ACCESS_GA_SOURCE, 'broadcast')
+                                  void openMessageAudience(
+                                      enrolledPeopleAudience(_earlyAccessFeature, EARLY_ACCESS_GA_SOURCE),
+                                      'broadcast'
+                                  )
+                              },
+                          }
+                        : undefined,
+            })
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
             if (_earlyAccessFeature.id) {
                 refreshTreeItem('early_access_feature', _earlyAccessFeature.id)

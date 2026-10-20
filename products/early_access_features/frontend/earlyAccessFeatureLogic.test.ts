@@ -4,12 +4,16 @@ import { router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, FeatureFlagBasicType, Region } from '~/types'
+
+import * as messageAudience from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { POSTHOG_TEAM_ID, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
@@ -112,6 +116,32 @@ describe('earlyAccessFeatureLogic', () => {
         // A successful save drops the scene back out of edit mode.
         expect(logic.values.isEditingFeature).toBe(false)
     })
+
+    it.each([
+        { from: EarlyAccessFeatureStage.Beta, to: EarlyAccessFeatureStage.GeneralAvailability, offered: true },
+        { from: EarlyAccessFeatureStage.Beta, to: EarlyAccessFeatureStage.Alpha, offered: false },
+    ])(
+        'offers to email opted-in users only on reaching general availability: $from to $to',
+        async ({ from, to, offered }) => {
+            const success = jest.spyOn(lemonToast, 'success')
+            jest.spyOn(messageAudience, 'messageAudienceAccessDisabledReason').mockReturnValue(null)
+            useMocks({
+                get: { '/api/projects/:team_id/early_access_feature/:id': mockFeature({ stage: from }) },
+                patch: { '/api/projects/:team_id/early_access_feature/:id': () => [200, mockFeature({ stage: to })] },
+            })
+            logic = earlyAccessFeatureLogic({ id: 'abc-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEarlyAccessFeatureSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEarlyAccessFeature({ ...logic.values.earlyAccessFeature, stage: to })
+            }).toDispatchActions(['saveEarlyAccessFeatureSuccess'])
+
+            const button = success.mock.calls.find(([message]) => message === 'Early access feature saved')?.[1]?.button
+            expect(button?.label).toBe(offered ? 'Email opted-in users' : undefined)
+            jest.restoreAllMocks()
+        }
+    )
 
     it('deletes a feature, removes it from the list, and returns to the list page', async () => {
         let deleted = false
