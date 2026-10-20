@@ -1978,9 +1978,10 @@ class TestSharedInsightsExecutionMode(BaseTest):
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
             direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             direct.query = direct.query.model_copy(update={"connectionId": "direct"})
-            with mock.patch.object(HogQLQueryRunner, "query_status_labels", return_value=None):
+            with mock.patch.object(HogQLQueryRunner, "_validate_direct_connection"):
                 direct.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
-            assert mock_enqueue.call_args.kwargs["query_json"] == direct.query.model_dump()
+                assert mock_enqueue.call_args.kwargs["query_json"] == direct.query.model_dump()
+                assert "useNewEventsSchema" not in direct.get_cache_payload()["hogql_modifiers"]
             runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False):

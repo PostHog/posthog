@@ -3201,9 +3201,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             modifier_source = modifier_source.get("source")
 
         cache_modifiers = to_dict(self.modifiers)
-        # A legacy-table query omits these default values, so its cache key does not depend on them.
-        if cache_modifiers.get("useNewEventsSchema") is False:
-            cache_modifiers.pop("useNewEventsSchema")
+        # A legacy-table query omits these default values, so its cache key does not depend on them. A
+        # direct-connection query reads no events table, so the events table never keys it.
+        if cache_modifiers.get("useNewEventsSchema") is False or getattr(self.query, "connectionId", None):
+            cache_modifiers.pop("useNewEventsSchema", None)
         if not cache_modifiers.get("useNewEventsCluster"):
             cache_modifiers.pop("useNewEventsCluster", None)
         payload = {
