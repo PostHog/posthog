@@ -534,7 +534,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200
-        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY), (Product.ERROR_TRACKING, Feature.QUERY)]
+        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)] * 3
 
     def test_issue_detail_does_not_expand_fingerprints(self) -> None:
         self.create_issue()
@@ -616,23 +616,38 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_impact_top_frame_and_releases(self) -> None:
         first_seen = datetime(2026, 4, 10, 12, tzinfo=UTC)
-        issue = self.create_issue()
-        # The model sets first_seen on create, so overwrite it the way cymbal writes it: the first event's timestamp.
-        ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue).update(first_seen=first_seen)
+        merged_first_seen = datetime(2026, 4, 1, 8, tzinfo=UTC)
+        issue = ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
+        for fingerprint, fingerprint_first_seen in [
+            (self.fingerprint, first_seen),
+            ("merged-fingerprint", merged_first_seen),
+        ]:
+            created = ErrorTrackingIssueFingerprintV2.objects.create(
+                team=self.team, issue=issue, fingerprint=fingerprint
+            )
+            # The model sets first_seen on create, so overwrite it the way cymbal writes it: the first event's timestamp.
+            ErrorTrackingIssueFingerprintV2.objects.filter(id=created.id).update(first_seen=fingerprint_first_seen)
+        # Sync once: under the frozen clock a second sync gets the same ReplacingMergeTree version.
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
+        # A fingerprint merged in from an older issue, with no events in the date range.
+        source_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
         self.create_exception_event(
-            timestamp=first_seen,
-            properties={"$exception_releases": {"release-id-1": {"version": "2026.04.10"}}},
+            issue_id=source_issue_id,
+            fingerprint="merged-fingerprint",
+            timestamp=merged_first_seen,
+            properties={"$exception_releases": {"release-id-1": {"version": "2026.04.01"}}},
         )
         # Arrived after the fingerprint was created, but happened first.
         self.create_exception_event(
-            timestamp=first_seen - timedelta(hours=2),
+            issue_id=source_issue_id,
+            fingerprint="merged-fingerprint",
+            timestamp=merged_first_seen - timedelta(hours=2),
             properties={
                 "$exception_releases": {
                     "release-id-0": {
-                        "version": "2026.04.09",
+                        "version": "2026.03.31",
                         "project": "posthog-js",
-                        "timestamp": "2026-04-09T09:00:00Z",
+                        "timestamp": "2026-03-31T09:00:00Z",
                     }
                 }
             },
@@ -704,9 +719,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             "current_from": "2026-04-24T00:00:00+00:00",
         }
         assert data["first_release"] == {
-            "version": "2026.04.09",
+            "version": "2026.03.31",
             "project": "posthog-js",
-            "timestamp": "2026-04-09T09:00:00Z",
+            "timestamp": "2026-03-31T09:00:00Z",
         }
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)

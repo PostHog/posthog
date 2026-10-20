@@ -536,6 +536,8 @@ FIRST_EVENT_LOOKAHEAD = timedelta(seconds=1)
 
 
 def parse_timestamp(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
     if not isinstance(value, str):
         return None
     try:

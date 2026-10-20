@@ -217,7 +217,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             select=CONTEXT_EVENT_SELECTS,
         )
         first_event_properties: dict[str, object] = {}
-        if (window := first_event_window(issue.get("first_seen"))) is not None:
+        if (window := first_event_window(issue_basics.first_seen)) is not None:
             # Test accounts stay in, because first_seen counts their events too.
             first_event_properties = self._issue_event_properties(
                 request,
