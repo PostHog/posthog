@@ -81,8 +81,9 @@ function CanvasAppWidgetTileStory({
     )
 }
 
+// Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof CanvasAppWidgetTileStory> = {
-    title: 'Scenes-App/Dashboards/Widgets/CanvasApp',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Canvas/Canvas app',
     component: CanvasAppWidgetTileStory,
     decorators: [...widgetTileFrameDecorator, canvasApiDecorator],
     parameters: widgetStorybookParameters,
@@ -90,7 +91,7 @@ const meta: Meta<typeof CanvasAppWidgetTileStory> = {
         tileId: 1,
         config: CANVAS_APP_CATALOG.defaultConfig,
         loading: false,
-        result: { canvas: null, needsConfiguration: true },
+        result: { canvas: null, needsConfiguration: true, hasCanvases: true },
     },
 }
 export default meta
@@ -104,6 +105,13 @@ export const NoCanvasSelected: Story = {
 }
 
 export const NoCanvasSelectedReadOnly: Story = {}
+
+export const NoCanvasesYet: Story = {
+    args: {
+        onUpdateConfig: async () => {},
+        result: { canvas: null, needsConfiguration: true, hasCanvases: false },
+    },
+}
 
 export const CanvasNotAvailable: Story = {
     args: {
