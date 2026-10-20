@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from unittest.mock import patch
@@ -152,13 +153,13 @@ class TestDeletePersonsAsync(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("crash_on_an_earlier_attempt", 2, "crash", None),
-            ("crash_on_the_last_attempt", 3, "crash", ["a", "b"]),
-            ("failures_on_the_last_attempt", 3, "failures", ["00000000-0000-0000-0000-000000000001"]),
+            ("crash_on_an_earlier_attempt", 2, "crash", None, None),
+            ("crash_on_the_last_attempt", 3, "crash", ["a", "b"], ["ghost"]),
+            ("failures_on_the_last_attempt", 3, "failures", ["00000000-0000-0000-0000-000000000001"], []),
         ]
     )
     def test_the_last_attempt_logs_every_person_it_leaves_undeleted(
-        self, _name: str, retries: int, how: str, expected: list[str] | None
+        self, _name: str, retries: int, how: str, expected: list[str] | None, unmatched: list[str] | None
     ) -> None:
         failed = PersonProfileDeletionResult(
             deleted_count=1,
@@ -186,6 +187,8 @@ class TestDeletePersonsAsync(SimpleTestCase):
             assert len(gave_up) == 1
             assert gave_up[0].kwargs["person_uuids"] == expected
             assert (gave_up[0].kwargs["team_id"], gave_up[0].kwargs["delete_recordings"]) == (1, True)
+            assert datetime.fromisoformat(gave_up[0].kwargs["gave_up_at"]).tzinfo is not None
+            assert gave_up[0].kwargs["unmatched_distinct_ids"] == unmatched
 
     @parameterized.expand(
         [

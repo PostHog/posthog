@@ -1,6 +1,7 @@
 import uuid as uuid_lib
 from collections import Counter
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 from django.http import HttpRequest
 
@@ -33,6 +34,7 @@ class PersonDeletionIncomplete(Exception):
 # still resolves on a retry, so a chunk-wide re-run would start new recording workflows and
 # training deletion for persons that already succeeded.
 MAX_DELETION_RETRIES = 3
+GAVE_UP_LOGGED_DISTINCT_IDS = 1000
 RETRY_BACKOFF_SECONDS = 60
 RETRY_BACKOFF_MAX_SECONDS = 600
 
@@ -50,7 +52,8 @@ def _log_if_giving_up(
     unmatched_distinct_ids: list[str],
 ) -> None:
     # The last attempt names every person it leaves undeleted, in the fields `person_deletion requeue` reads,
-    # because nothing else records which persons a given-up deletion left behind.
+    # because nothing else records which persons a given-up deletion left behind. Unmatched distinct ids only
+    # feed the AI training deletion, so they are logged for its owners and requeue does not read them.
     if retries < MAX_DELETION_RETRIES:
         return
     logger.error(
@@ -59,6 +62,8 @@ def _log_if_giving_up(
         person_uuids=person_uuids,
         delete_profile=delete_profile,
         delete_recordings=delete_recordings,
+        gave_up_at=datetime.now(UTC).isoformat(),
+        unmatched_distinct_ids=unmatched_distinct_ids[:GAVE_UP_LOGGED_DISTINCT_IDS],
         unmatched_distinct_id_count=len(unmatched_distinct_ids),
         retries=retries,
     )

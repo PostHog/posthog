@@ -1,71 +1,28 @@
-import json
-import base64
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
-import fakeredis
 from parameterized import parameterized
 
-from posthog.models.person import deletion_requeue
-from posthog.models.person.deletion_requeue import (
-    UNACKED_HASH,
-    UNACKED_INDEX,
-    PendingDeletion,
-    find_stuck_deletions,
-    requeue_deletions,
-)
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.person.deletion_requeue import PendingDeletion, requeue_deletions
 from posthog.test.persons import create_person
 
-_NOW = 1_800_000_000.0
 _DELAY = "posthog.tasks.delete_persons.delete_persons_async.delay"
-
-
-def _message(task: str, **kwargs) -> bytes:
-    body = base64.b64encode(json.dumps([[], kwargs, {}]).encode()).decode()
-    return json.dumps([{"body": body, "headers": {"task": task, "retries": 2}}, "", "celery"]).encode()
-
-
-class TestFindStuckDeletions(SimpleTestCase):
-    def test_lists_only_delete_tasks_in_the_age_window_across_pages_of_tied_scores(self):
-        redis = fakeredis.FakeRedis()
-        deletes: dict[str | bytes, float] = {f"tag-{i}": _NOW - 7200 for i in range(5)}
-        for tag in deletes:
-            redis.hset(
-                UNACKED_HASH,
-                tag,
-                _message(
-                    "posthog.tasks.delete_persons.delete_persons_async",
-                    team_id=7,
-                    person_uuids=[tag],
-                    delete_profile=True,
-                    delete_recordings=False,
-                ),
-            )
-        redis.hset(
-            UNACKED_HASH,
-            "too-new",
-            _message("posthog.tasks.delete_persons.delete_persons_async", team_id=7, person_uuids=["too-new"]),
-        )
-        redis.hset(UNACKED_HASH, "other-task", _message("posthog.tasks.other_task", team_id=7, person_uuids=["x"]))
-        redis.zadd(UNACKED_INDEX, {**deletes, "too-new": _NOW - 60, "other-task": _NOW - 7200})
-
-        with patch.object(deletion_requeue, "_HGET_BATCH", 2):
-            found = list(
-                find_stuck_deletions(redis, min_age_seconds=3600, max_age_seconds=86400, pause_seconds=0, now=_NOW)
-            )
-
-        assert sorted(d.person_uuids[0] for d in found) == sorted(str(tag) for tag in deletes)
-        assert {(d.team_id, d.delete_profile, d.delete_recordings, d.retries) for d in found} == {(7, True, False, 2)}
+_GAVE_UP_AT = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 
 
 class TestRequeueDeletions(BaseTest):
-    def _deletion(self, team_id: int, uuids: list[str]) -> PendingDeletion:
+    def _deletion(self, team_id: int, uuids: list[str], gave_up_at: datetime | None = None) -> PendingDeletion:
         return PendingDeletion(
-            team_id=team_id, person_uuids=uuids, delete_profile=True, delete_recordings=False, source="test"
+            team_id=team_id,
+            person_uuids=uuids,
+            delete_profile=True,
+            delete_recordings=False,
+            source="test",
+            gave_up_at=gave_up_at,
         )
 
     @parameterized.expand(
@@ -91,6 +48,35 @@ class TestRequeueDeletions(BaseTest):
             kwargs = delay.call_args.kwargs
             assert kwargs["person_uuids"] == [str(live.uuid)]
             assert (kwargs["delete_profile"], kwargs["delete_recordings"]) == flags
+
+    @parameterized.expand(
+        [
+            ("deleted_after_the_give_up", timedelta(hours=1), True, "skipped_revived"),
+            ("deleted_before_the_give_up", timedelta(hours=-1), True, "queued"),
+            ("no_give_up_time", timedelta(hours=1), False, "queued"),
+        ]
+    )
+    def test_leaves_alone_a_person_that_new_events_revived_after_the_give_up(
+        self, _name: str, deleted_offset: timedelta, with_gave_up_at: bool, outcome: str
+    ):
+        person = create_person(team=self.team, distinct_ids=["returning"])
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            scope="Person",
+            activity="deleted",
+            item_id=str(person.pk),
+            created_at=_GAVE_UP_AT + deleted_offset,
+        )
+
+        with patch(_DELAY) as delay:
+            results = requeue_deletions(
+                [self._deletion(self.team.pk, [str(person.uuid)], _GAVE_UP_AT if with_gave_up_at else None)],
+                apply=True,
+            )
+
+        assert [r.outcome for r in results] == [outcome]
+        assert delay.called is (outcome == "queued")
 
     def test_skips_deletions_with_nothing_left_to_queue(self):
         with patch(_DELAY) as delay:

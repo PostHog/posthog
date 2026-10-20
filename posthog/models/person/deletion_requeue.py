@@ -1,27 +1,19 @@
-"""Find person deletions that never finished, and queue them again through the path the API uses."""
+"""Queue person deletions that gave up again, through the path the API uses."""
 
 from __future__ import annotations
 
-import json
-import time
-import base64
-from collections.abc import Callable, Iterator, Sequence
-from datetime import UTC, datetime
-from typing import Any, Literal
+from collections.abc import Callable, Sequence
+from datetime import datetime
+from typing import Literal
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.person import Person
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
 from posthog.tasks.delete_persons import queue_person_deletion
 
-# Keys of kombu's Redis transport: the unacked hash holds each delivered message by delivery tag, and the
-# sorted set scores each tag by its delivery time.
-UNACKED_HASH = "unacked"
-UNACKED_INDEX = "unacked_index"
-_TASK_NAME = "delete_persons_async"
-_HGET_BATCH = 500
-
-RequeueOutcome = Literal["would_queue", "queued", "skipped_team_gone", "skipped_not_live"]
+RequeueOutcome = Literal["would_queue", "queued", "skipped_team_gone", "skipped_not_live", "skipped_revived"]
 
 
 @frozen
@@ -30,10 +22,9 @@ class PendingDeletion:
     person_uuids: list[str]
     delete_profile: bool
     delete_recordings: bool
-    # Where the deletion was found; for a stuck broker message, when it was delivered and how often retried.
     source: str
-    delivered_at: str | None = None
-    retries: int | None = None
+    # When the deletion gave up. A person deleted after it and live again was revived by new events.
+    gave_up_at: datetime | None = None
 
 
 @frozen
@@ -41,66 +32,10 @@ class RequeueResult:
     team_id: int
     requested: int
     live: int
+    revived: int
     outcome: RequeueOutcome
     delete_profile: bool
     delete_recordings: bool
-
-
-def find_stuck_deletions(
-    redis: Any,
-    *,
-    min_age_seconds: float,
-    max_age_seconds: float,
-    pause_seconds: float = 0.05,
-    now: float | None = None,
-) -> Iterator[PendingDeletion]:
-    """Person deletion messages a worker took from the broker and never acknowledged, delivered between
-    `max_age_seconds` and `min_age_seconds` ago. Reads only: it never changes the broker's keys."""
-    now = time.time() if now is None else now
-    for batch in _unacked_tags(redis, now - max_age_seconds, now - min_age_seconds):
-        pipeline = redis.pipeline(transaction=False)
-        for tag, _ in batch:
-            pipeline.hget(UNACKED_HASH, tag)
-        for (_, score), raw in zip(batch, pipeline.execute()):
-            deletion = _parse_message(raw, score)
-            if deletion is not None:
-                yield deletion
-        if pause_seconds:
-            time.sleep(pause_seconds)
-
-
-def _unacked_tags(redis: Any, low: float, high: float) -> Iterator[list[tuple[bytes, float]]]:
-    """Pages of (tag, delivery time) in delivery order. Each page resumes at the last page's score and skips
-    the tags it already returned at that score, so no single call reads the whole index."""
-    score, seen_at_score = low, 0
-    while True:
-        page = redis.zrangebyscore(UNACKED_INDEX, score, high, start=seen_at_score, num=_HGET_BATCH, withscores=True)
-        if not page:
-            return
-        yield page
-        last = page[-1][1]
-        at_last = sum(1 for _, s in page if s == last)
-        seen_at_score = seen_at_score + at_last if last == score else at_last
-        score = last
-
-
-def _parse_message(raw: bytes | None, delivered_at: float) -> PendingDeletion | None:
-    # Cheap filter first: the unacked hash holds every task type.
-    if not raw or _TASK_NAME.encode() not in raw:
-        return None
-    message = json.loads(raw)[0]
-    if not str(message.get("headers", {}).get("task", "")).endswith(_TASK_NAME):
-        return None
-    _, kwargs, _ = json.loads(base64.b64decode(message["body"]))
-    return PendingDeletion(
-        team_id=int(kwargs["team_id"]),
-        person_uuids=list(kwargs.get("person_uuids") or []),
-        delete_profile=bool(kwargs.get("delete_profile")),
-        delete_recordings=bool(kwargs.get("delete_recordings")),
-        source="broker_unacked",
-        delivered_at=datetime.fromtimestamp(delivered_at, tz=UTC).isoformat(),
-        retries=message["headers"].get("retries"),
-    )
 
 
 def requeue_deletions(
@@ -112,8 +47,9 @@ def requeue_deletions(
 ) -> list[RequeueResult]:
     """Queue each deletion's still-live persons again, with the same flags unless `recordings_only` is set.
 
-    Only live persons are queued: a person whose profile is already deleted no longer resolves, so neither
-    its profile nor its recordings can be found again.
+    Only live persons are queued: a person whose profile is already deleted no longer resolves. A live person
+    that was deleted after `gave_up_at` came back through new events, so it is left alone rather than
+    deleted along with the data recorded since.
     """
     results: list[RequeueResult] = []
     organizations = dict(
@@ -128,16 +64,20 @@ def requeue_deletions(
             if organization_id
             else []
         )
+        revived = _deleted_since(deletion.team_id, live, deletion.gave_up_at)
+        pending = [p for p in live if str(p.pk) not in revived]
         if organization_id is None:
             outcome: RequeueOutcome = "skipped_team_gone"
         elif not live:
             outcome = "skipped_not_live"
+        elif not pending:
+            outcome = "skipped_revived"
         elif not apply:
             outcome = "would_queue"
         else:
             queue_person_deletion(
                 deletion.team_id,
-                live,
+                pending,
                 delete_profile=delete_profile,
                 delete_recordings=delete_recordings,
                 actor=None,
@@ -148,7 +88,8 @@ def requeue_deletions(
         result = RequeueResult(
             team_id=deletion.team_id,
             requested=len(deletion.person_uuids),
-            live=len(live),
+            live=len(pending),
+            revived=len(live) - len(pending),
             outcome=outcome,
             delete_profile=delete_profile,
             delete_recordings=delete_recordings,
@@ -156,3 +97,18 @@ def requeue_deletions(
         on_result(result)
         results.append(result)
     return results
+
+
+def _deleted_since(team_id: int, persons: list[Person], since: datetime | None) -> set[str]:
+    """Primary keys of the persons with a deletion logged after `since`. The deletion path writes that entry
+    only once a tombstone landed, and revival reuses the person's row, so the entry marks a revived person."""
+    if since is None or not persons:
+        return set()
+    item_ids = ActivityLog.objects.filter(
+        team_id=team_id,
+        scope="Person",
+        activity="deleted",
+        item_id__in=[str(p.pk) for p in persons],
+        created_at__gt=since,
+    ).values_list("item_id", flat=True)
+    return {item_id for item_id in item_ids if item_id is not None}
