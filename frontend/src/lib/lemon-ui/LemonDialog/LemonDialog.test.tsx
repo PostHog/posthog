@@ -10,7 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { initKeaTests } from '~/test/init'
 
-import { LemonFormDialog } from './LemonDialog'
+import { LemonDialog, LemonFormDialog } from './LemonDialog'
 
 describe('LemonFormDialog', () => {
     let captureException: jest.SpyInstance
@@ -94,5 +94,21 @@ describe('LemonFormDialog', () => {
         await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['open', (onAfterClose: () => void): void => LemonDialog.open({ title: 'Dialog', onAfterClose })],
+        [
+            'openForm',
+            (onAfterClose: () => void): void =>
+                LemonDialog.openForm({ title: 'Dialog', initialValues: {}, onSubmit: () => {}, onAfterClose }),
+        ],
+    ])("LemonDialog.%s runs the caller's onAfterClose when the dialog closes", async (_method, openDialog) => {
+        const onAfterClose = jest.fn()
+
+        openDialog(onAfterClose)
+        await userEvent.click(await screen.findByLabelText('close'))
+
+        await waitFor(() => expect(onAfterClose).toHaveBeenCalledTimes(1))
     })
 })
