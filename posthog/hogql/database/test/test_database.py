@@ -47,6 +47,7 @@ from posthog.hogql.database.database import (
     _preload_active_external_data_schemas,
     build_database_root_node,
     get_data_warehouse_table_name,
+    system_table_denials,
 )
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
@@ -4575,6 +4576,46 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "data_modeling_endpoints" not in denied
         assert "data_modeling_endpoint_versions" not in denied
         assert "feature_flags" in denied
+
+    @parameterized.expand(
+        [
+            ("inbox_read", ["inbox:read"], True),
+            ("legacy_task_read", ["task:read"], True),
+            ("unrelated", ["insight:read"], False),
+        ]
+    )
+    def test_project_secret_api_key_inbox_system_table_visibility(
+        self, _name: str, scopes: list[str], expected_visible: bool
+    ) -> None:
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="inbox-tables", secure_value="sha256$" + "e" * 64, scopes=scopes
+        )
+
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+
+        assert ("inbox_reports" not in denied) is expected_visible
+        assert ("tasks" not in denied) is (scopes == ["task:read"])
+
+    @parameterized.expand([("default_access", None, False), ("task_access_none", "none", True)])
+    def test_member_reads_inbox_system_tables_like_task_tables(
+        self, _name: str, task_access_level: str | None, expected_denied: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        if task_access_level is not None:
+            AccessControl.objects.create(team=self.team, resource="task", access_level=task_access_level)
+
+        denied = system_table_denials(self.team, self.user)
+
+        assert ("tasks" in denied) is expected_denied
+        assert ("inbox_reports" in denied) is expected_denied
 
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}

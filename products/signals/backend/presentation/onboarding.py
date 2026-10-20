@@ -128,13 +128,13 @@ class InboxOnboardingPermission(BasePermission):
 class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, InboxOnboardingPermission]
-    scope_object = "task"
+    scope_object = "inbox"
     requires_resource_level_access = True
     serializer_class = InboxOnboardingStateSerializer
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str]:
-        return ["task:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["task:write"]
+        return ["inbox:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["inbox:write"]
 
     def _check_scout_access(self, request: Request) -> None:
         permission = ScoutCanonicalTeamAccessPermission()

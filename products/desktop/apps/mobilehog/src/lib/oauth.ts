@@ -23,6 +23,7 @@ const SCOPES = [
   "organization:read",
   "organization:write",
   "task:write",
+  "inbox:write",
   "integration:read",
   "conversation:write",
   "insight:read",

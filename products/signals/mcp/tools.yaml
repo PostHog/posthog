@@ -11,7 +11,7 @@ tools:
         operation: signals_reports_actions_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -35,7 +35,7 @@ tools:
         operation: signals_reports_actions_run_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -70,7 +70,7 @@ tools:
         operation: signals_report_artefacts_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -99,7 +99,7 @@ tools:
         operation: signals_report_artefacts_destroy
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -116,7 +116,7 @@ tools:
         operation: signals_report_artefacts_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -139,7 +139,7 @@ tools:
         operation: signals_report_artefacts_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -154,7 +154,7 @@ tools:
         operation: signals_report_artefacts_partial_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -182,7 +182,7 @@ tools:
         operation: signals_report_checks_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -201,7 +201,7 @@ tools:
         operation: signals_report_checks_replace_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
             - query:read
         annotations:
             readOnly: false
@@ -222,7 +222,7 @@ tools:
         operation: signals_report_checks_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -236,7 +236,7 @@ tools:
         operation: signals_reports_bulk_state_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -257,7 +257,7 @@ tools:
         operation: signals_reports_claim
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -282,7 +282,7 @@ tools:
         operation: signals_reports_feedback_create
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
             - signal_scout:write
             - llm_skill:write
         annotations:
@@ -311,7 +311,7 @@ tools:
         operation: signals_reports_reviewers_me_destroy
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -331,7 +331,7 @@ tools:
         operation: signals_reports_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -419,7 +419,7 @@ tools:
         operation: signals_reports_merge_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -448,7 +448,7 @@ tools:
         operation: signals_reports_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -488,7 +488,7 @@ tools:
         operation: signals_reports_state_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -520,7 +520,7 @@ tools:
         operation: signals_reports_partial_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -538,7 +538,7 @@ tools:
         operation: signals_source_configs_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -562,7 +562,7 @@ tools:
         operation: signals_source_configs_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -587,7 +587,7 @@ tools:
         operation: signals_source_configs_partial_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -603,7 +603,7 @@ tools:
         operation: signals_source_configs_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -616,7 +616,7 @@ tools:
         operation: signals_source_configs_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -630,7 +630,7 @@ tools:
         operation: signals_config_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         title: Get Self-driving steering instructions
         description: >
             Read the current project's research, implementation, and scout instructions. Returns only the three
@@ -646,7 +646,7 @@ tools:
         operation: signals_config_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -1283,7 +1283,7 @@ tools:
         enabled: true
         scopes:
             - signal_scout:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -1296,7 +1296,7 @@ tools:
             with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked
             `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
-            surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it
+            surfaced (`scout-runs-emissions-list`). Requires `inbox:read` on top of `signal_scout:read` because it
             exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
     scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
@@ -1741,7 +1741,7 @@ tools:
         enabled: true
         scopes:
             - signal_scout:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false

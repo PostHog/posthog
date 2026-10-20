@@ -65,6 +65,7 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.scopes import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
@@ -367,11 +368,11 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
 
     Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
-    reports API gates on the `task` scope object. The notes surface rides `signal_scout` instead,
+    reports API gates on the `inbox` scope object. The notes surface rides `signal_scout` instead,
     so both of that API's legs are re-checked here or a caller reads report content it cannot
-    reach canonically. Mirrors the `signal_scout:read` + `task:read` pair on `emission_reports`.
+    reach canonically. Mirrors the `signal_scout:read` + `inbox:read` pair on `emission_reports`.
 
-    Both legs matter independently. A token carries API scopes, and one without task read is
+    Both legs matter independently. A token carries API scopes, and one without inbox read is
     refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
     team, because an admin can grant a member scout access while withholding task access, and a
     session caller carries no scopes for the first leg to inspect.
@@ -381,8 +382,10 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     scopes, which reads as "session caller" and skips the first leg entirely.
     """
     scopes = get_authenticator_scopes(request.successful_authenticator)
-    if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
-        return False
+    if scopes is not None and "*" not in scopes:
+        missing = scopes_not_covered(scopes, ["inbox:read"])
+        if missing and not scopes_covered_by_legacy_fallback(scopes, missing):
+            return False
 
     user = request.user
     if not isinstance(user, User):
@@ -974,10 +977,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["get"],
         url_path="emissions/reports",
-        # This action returns report titles, so it requires `task:read` (the scope
+        # This action returns report titles, so it requires `inbox:read` (the scope
         # `SignalReportViewSet` gates report reads on) on top of `signal_scout:read` —
         # otherwise a scout-only token could read titles it can't reach canonically.
-        required_scopes=["signal_scout:read", "task:read"],
+        required_scopes=["signal_scout:read", "inbox:read"],
         pagination_class=None,
     )
     def emission_reports(self, request: Request, **kwargs) -> Response:
@@ -1055,9 +1058,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         methods=["post"],
         url_path="emissions/reports/batch",
-        # Returns report titles, so it requires `task:read` on top of `signal_scout:read` — same as the
+        # Returns report titles, so it requires `inbox:read` on top of `signal_scout:read` — same as the
         # per-run `emission_reports` action; a scout-only token must not read titles it can't reach.
-        required_scopes=["signal_scout:read", "task:read"],
+        required_scopes=["signal_scout:read", "inbox:read"],
         pagination_class=None,
     )
     def emission_reports_batch(self, request: Request, **kwargs) -> Response:

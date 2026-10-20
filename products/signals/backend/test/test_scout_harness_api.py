@@ -2863,11 +2863,16 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
     @parameterized.expand(
         [
             # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
-            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # which the report API gates on `inbox:read`. A scout-only token must not read around that,
             # so all derived origins are withheld together — a new one must not reopen the gap.
             ("without_report_read", ["signal_scout:read"], {"steering"}),
             (
                 "with_report_read",
+                ["signal_scout:read", "inbox:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+            ),
+            (
+                "with_legacy_task_read",
                 ["signal_scout:read", "task:read"],
                 {"steering", "derived from a dismissal", "derived from feedback"},
             ),
@@ -3959,20 +3964,26 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         [
             ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, "integration:read"),
             (
-                "missing_task_scope",
+                "missing_inbox_scope",
                 ["signal_scout:write", "integration:read"],
                 status.HTTP_403_FORBIDDEN,
-                "task:read",
+                "inbox:read",
             ),
             (
-                "integration_and_task_scopes",
+                "integration_and_inbox_scopes",
+                ["signal_scout:write", "integration:read", "inbox:read"],
+                status.HTTP_200_OK,
+                None,
+            ),
+            (
+                "integration_and_legacy_task_scopes",
                 ["signal_scout:write", "integration:read", "task:read"],
                 status.HTTP_200_OK,
                 None,
             ),
         ]
     )
-    def test_partial_update_slack_destination_requires_integration_and_task_scopes(
+    def test_partial_update_slack_destination_requires_integration_and_inbox_scopes(
         self, _name: str, scopes: list[str], expected_status: int, expected_missing_scope: str | None
     ) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

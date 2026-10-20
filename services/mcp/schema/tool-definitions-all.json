@@ -7163,7 +7163,7 @@
         "feature": "signals",
         "summary": "List a report's agent run actions",
         "title": "List a report's agent run actions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7179,7 +7179,7 @@
         "feature": "signals",
         "summary": "Run a report action as an agent task",
         "title": "Run a report action as an agent task",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -7195,7 +7195,7 @@
         "feature": "signals",
         "summary": "Append an artefact to a report",
         "title": "Append an artefact to a report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -7209,7 +7209,7 @@
         "feature": "signals",
         "summary": "Delete an artefact",
         "title": "Delete an artefact",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -7223,7 +7223,7 @@
         "feature": "signals",
         "summary": "List a report's artefacts",
         "title": "List a report's artefacts",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7237,7 +7237,7 @@
         "feature": "signals",
         "summary": "Get a single artefact",
         "title": "Get a single artefact",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7251,7 +7251,7 @@
         "feature": "signals",
         "summary": "Replace an artefact's content",
         "title": "Replace an artefact's content",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7279,7 +7279,7 @@
         "feature": "signals",
         "summary": "List a report's checks",
         "title": "List a report's checks",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7293,7 +7293,7 @@
         "feature": "signals",
         "summary": "Replace a metric follow-up check",
         "title": "Replace a metric follow-up check",
-        "required_scopes": ["task:write", "query:read"],
+        "required_scopes": ["inbox:write", "query:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -7309,7 +7309,7 @@
         "feature": "signals",
         "summary": "Get a single check",
         "title": "Get a single check",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7323,7 +7323,7 @@
         "feature": "signals",
         "summary": "Dismiss or snooze signal reports in bulk",
         "title": "Dismiss or snooze signal reports in bulk",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -7337,7 +7337,7 @@
         "feature": "signals",
         "summary": "Update work on a signal report",
         "title": "Update work on a signal report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -7351,7 +7351,7 @@
         "feature": "signals",
         "summary": "Rate a signal report",
         "title": "Rate a signal report",
-        "required_scopes": ["task:read", "signal_scout:write", "llm_skill:write"],
+        "required_scopes": ["inbox:read", "signal_scout:write", "llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -7365,7 +7365,7 @@
         "feature": "signals",
         "summary": "Step off a report's suggested reviewers",
         "title": "Step off a report's suggested reviewers",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7379,7 +7379,7 @@
         "feature": "signals",
         "summary": "List signal reports",
         "title": "List signal reports",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7393,7 +7393,7 @@
         "feature": "signals",
         "summary": "Merge duplicate reports into one",
         "title": "Merge duplicate reports into one",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -7407,7 +7407,7 @@
         "feature": "signals",
         "summary": "Get signal report",
         "title": "Get signal report",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7421,7 +7421,7 @@
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
         "title": "Dismiss or snooze a signal report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -7435,7 +7435,7 @@
         "feature": "signals",
         "summary": "Edit a signal report's title or summary",
         "title": "Edit a signal report's title or summary",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7449,7 +7449,7 @@
         "feature": "signals",
         "summary": "Create signal source config",
         "title": "Create signal source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -7463,7 +7463,7 @@
         "feature": "signals",
         "summary": "List signal source configs",
         "title": "List signal source configs",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7477,7 +7477,7 @@
         "feature": "signals",
         "summary": "Update signal source config",
         "title": "Update signal source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7491,7 +7491,7 @@
         "feature": "signals",
         "summary": "Get signal source config",
         "title": "Get signal source config",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7505,7 +7505,7 @@
         "feature": "signals",
         "summary": "Replace signal source config",
         "title": "Replace signal source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7519,7 +7519,7 @@
         "feature": "signals",
         "summary": "Get Self-driving steering instructions",
         "title": "Get Self-driving steering instructions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7533,7 +7533,7 @@
         "feature": "signals",
         "summary": "Update Self-driving steering instructions",
         "title": "Update Self-driving steering instructions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -12214,12 +12214,12 @@
         }
     },
     "scout-runs-emission-reports": {
-        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `inbox:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List the inbox reports a scout run's findings linked to",
         "title": "List the inbox reports a scout run's findings linked to",
-        "required_scopes": ["signal_scout:read", "task:read"],
+        "required_scopes": ["signal_scout:read", "inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -12703,7 +12703,7 @@
         "feature": "signals",
         "summary": "List the inbox reports a scout run's findings linked to (deprecated)",
         "title": "List the inbox reports a scout run's findings linked to (deprecated)",
-        "required_scopes": ["signal_scout:read", "task:read"],
+        "required_scopes": ["signal_scout:read", "inbox:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
