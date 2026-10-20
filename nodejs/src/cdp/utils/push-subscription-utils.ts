@@ -16,10 +16,7 @@ export interface DeviceSubscription {
     token: string
 }
 
-/**
- * The distinct id a push step's Distinct ID input names, or null when it names the run's own person.
- * The opt-out check, the frequency cap and delivery all use this, so they act on the same person.
- */
+// Shared by delivery, the opt-out check and the frequency cap, so all three act on the same person.
 export function pushRecipientOtherThanRunPerson(
     distinctIdInput: unknown,
     globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>

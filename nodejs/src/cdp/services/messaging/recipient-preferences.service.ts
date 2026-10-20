@@ -102,7 +102,6 @@ export class RecipientPreferencesService {
         }
     }
 
-    // A push step can name someone other than the run's person, and the cap belongs to whoever receives the push.
     private async cappedPersonId(
         invocation: CyclotronJobInvocationHogFunction,
         action: MessageAction,

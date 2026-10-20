@@ -762,7 +762,6 @@ describe('RecipientPreferencesService', () => {
             expect(await sendAt(pushToNamed, 1_800_000_000_000)).toBe(false)
             expect(await sendAt(pushToNamed, 1_800_000_000_001)).toBe(true)
             expect(persons.getCyclotronPerson).toHaveBeenCalledWith(team.id, 'named-user', 'distinct_id')
-            // The run person's own allowance is untouched.
             expect(await sendAt(emailAction(), 1_800_000_000_002)).toBe(false)
         })
 
