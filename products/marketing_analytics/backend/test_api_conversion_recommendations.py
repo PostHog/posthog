@@ -52,6 +52,12 @@ class TestConversionRecommendations(APIBaseTest):
         )
         self.worker_flags.start()
         self.addCleanup(self.worker_flags.stop)
+        privacy_mode = patch(
+            "products.marketing_analytics.backend.services.conversion_recommendations.is_privacy_mode_enabled",
+            return_value=False,
+        )
+        privacy_mode.start()
+        self.addCleanup(privacy_mode.stop)
 
     @parameterized.expand([("consent",), ("flag",)])
     def test_generation_rechecks_consent_and_flag_before_worker_data_access(self, denied: str) -> None:

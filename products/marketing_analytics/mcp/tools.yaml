@@ -163,6 +163,7 @@ tools:
             Start the first 30-day analysis once with refresh=false. Only use refresh=true after the user explicitly
             requests an update; later runs analyze 14 days. Active runs are reused. This creates proposals, never goals.
             Read marketing-analytics-conversion-recommendations for results. Requires project admin access.
+        requires_ai_consent: true
         feature_flag: marketing-analytics-conversion-setup-ai
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve

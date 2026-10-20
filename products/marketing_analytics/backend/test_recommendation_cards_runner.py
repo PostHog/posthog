@@ -70,6 +70,7 @@ class TestRecommendationCardsRunner(SimpleTestCase):
         request = requests[0]
         assert request.url.host == "synthetic-gateway.example.com"
         assert request.url.path == "/v1/messages"
+        assert request.headers["x-posthog-privacy-mode"] == "true"
         body = json.loads(request.content)
         assert body["system"] == RECOMMENDATION_PROMPT
         assert body["tool_choice"] == {"type": "tool", "name": "recommendations"}

@@ -28,6 +28,8 @@ from products.event_definitions.backend.models.property_definition import Proper
 from products.marketing_analytics.backend.models.conversion_setup import ConversionRecommendationRun
 from products.marketing_analytics.backend.services.event_suggestions import DEFAULT_EXCLUDED_EVENTS
 
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+
 logger = structlog.get_logger(__name__)
 
 RUN_DEADLINE = timedelta(minutes=5)
@@ -359,6 +361,7 @@ class ConversionRecommendationService:
                 model="claude-sonnet-4-6",
                 max_tokens=2500,
                 system=RECOMMENDATION_PROMPT,
+                extra_headers={"X-PostHog-Privacy-Mode": "true"} if is_privacy_mode_enabled(self.team) else {},
                 messages=[
                     {
                         "role": "user",

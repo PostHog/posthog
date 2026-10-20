@@ -277,6 +277,7 @@ def run_card_evaluation(
             user = User(id=-1, distinct_id="synthetic-recommendation-card-eval", email="card-eval@example.com")
             service = production.ConversionRecommendationService(team, user)
             stack.enter_context(patch.object(service, "require_generation_access", return_value=None))
+            stack.enter_context(patch.object(production, "is_privacy_mode_enabled", return_value=True))
             for case, candidates in prepared:
                 for trial in range(trials):
                     trial_id = uuid5(run_id, f"{case.name}/{trial}")

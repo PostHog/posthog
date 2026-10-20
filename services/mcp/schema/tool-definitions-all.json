@@ -9873,6 +9873,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
+        "requires_ai_consent": true,
         "feature_flag": "marketing-analytics-conversion-setup-ai"
     },
     "marketing-analytics-suggest-conversion-goals": {

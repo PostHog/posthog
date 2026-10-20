@@ -41,13 +41,16 @@ Configured action summaries respect action access controls.
 Selection prioritizes distinct business outcomes not already measured, and can return no suggestions when only weaker steps from an already measured journey remain.
 The backend also drops suggestions for sources marked as already configured.
 Generation uses the Go AI gateway and the production prompt and tool schema.
+When the organization enables AI privacy mode, the request includes the gateway privacy header so prompts and responses are not recorded in AI telemetry.
+The synthetic evaluation runner always requests that privacy mode.
 
 ## API and MCP
 
 - `GET /api/projects/:project_id/marketing_analytics/conversion_recommendations/` reads saved results and current run state.
 - `POST /api/projects/:project_id/marketing_analytics/conversion_recommendations/start/` starts analysis with `{ "refresh": false }` for the first run or `{ "refresh": true }` for an explicit update.
 - `marketing-analytics-conversion-recommendations` exposes the read operation in MCP.
-- `marketing-analytics-start-conversion-recommendations` exposes the start operation in MCP.
+- `marketing-analytics-start-conversion-recommendations` exposes the start operation in MCP only after the organization approves AI data processing.
+  Reading saved recommendations does not require new AI processing consent; the backend still enforces access and the feature flag.
 
 Starting a run persists an analysis record and enqueues a task after the transaction commits.
 Concurrent starts reuse an active run, and repeated initial requests reuse the existing run.

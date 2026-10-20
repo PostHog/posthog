@@ -742,6 +742,18 @@ describe('Tool Filtering - excludeTools', () => {
 })
 
 describe('Tool Filtering - AI Consent', () => {
+    it.each([true, false, undefined])(
+        'requires consent to start conversion recommendations but keeps saved results readable (%s)',
+        (aiConsentGiven) => {
+            const tools = getToolsForFeatures({
+                aiConsentGiven,
+                featureFlags: { 'marketing-analytics-conversion-setup-ai': true },
+            })
+            expect(tools).toContain('marketing-analytics-conversion-recommendations')
+            expect(tools.includes('marketing-analytics-start-conversion-recommendations')).toBe(aiConsentGiven === true)
+        }
+    )
+
     it('should exclude tools requiring AI consent when aiConsentGiven is false', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: false })
         expect(tools).not.toContain('llma-summarization-create')
