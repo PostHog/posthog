@@ -5,6 +5,7 @@ import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
@@ -16,6 +17,7 @@ import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVe
 
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic, extractBreakdownPropertyNames } from './endpointSceneLogic'
+import { QuillEndpointHeaderActions } from './QuillEndpointHeaderActions'
 
 export const EndpointSceneHeader = (): JSX.Element => {
     const {
@@ -40,6 +42,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
         setDebugInfoExpanded,
     } = useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
     // wrap it with AccessControlAction — use the same helper AccessControlAction relies on internally.
@@ -138,54 +141,69 @@ export const EndpointSceneHeader = (): JSX.Element => {
                 isLoading={endpointLoading && !endpoint}
                 renameDebounceMs={200}
                 actions={
-                    <>
-                        {superpowersEnabled && endpoint && (
-                            <LemonSwitch
-                                bordered
-                                checked={debugInfoExpanded}
-                                onChange={setDebugInfoExpanded}
-                                label={
-                                    <span className="inline-flex items-center gap-1">
-                                        <IconBug />
-                                        Debug info
-                                    </span>
-                                }
-                                tooltip="Visible to staff (and during impersonation) only"
-                            />
-                        )}
-                        {endpoint && (
-                            <LemonButton
-                                type="secondary"
-                                onClick={handleDiscardChanges}
-                                disabledReason={!hasChanges && 'No changes to discard'}
+                    todayRailNav ? (
+                        <QuillEndpointHeaderActions
+                            showDebugToggle={!!(superpowersEnabled && endpoint)}
+                            debugInfoExpanded={debugInfoExpanded}
+                            setDebugInfoExpanded={setDebugInfoExpanded}
+                            endpointLoaded={!!endpoint}
+                            updatingEndpoint={updatingEndpoint}
+                            hasChanges={!!hasChanges}
+                            hasQueryChange={hasQueryChange}
+                            targetVersion={targetVersion}
+                            onDiscardChanges={handleDiscardChanges}
+                            onSave={handleSave}
+                        />
+                    ) : (
+                        <>
+                            {superpowersEnabled && endpoint && (
+                                <LemonSwitch
+                                    bordered
+                                    checked={debugInfoExpanded}
+                                    onChange={setDebugInfoExpanded}
+                                    label={
+                                        <span className="inline-flex items-center gap-1">
+                                            <IconBug />
+                                            Debug info
+                                        </span>
+                                    }
+                                    tooltip="Visible to staff (and during impersonation) only"
+                                />
+                            )}
+                            {endpoint && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={handleDiscardChanges}
+                                    disabledReason={!hasChanges && 'No changes to discard'}
+                                >
+                                    Discard changes
+                                </LemonButton>
+                            )}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Discard changes
-                            </LemonButton>
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Endpoint}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                loading={updatingEndpoint}
-                                disabledReason={
-                                    !endpoint
-                                        ? 'Endpoint not loaded'
-                                        : updatingEndpoint
-                                          ? 'Update in progress'
-                                          : !hasChanges
-                                            ? 'No changes to save'
-                                            : hasQueryChange && targetVersion
-                                              ? 'Query can only be changed when on the latest version'
-                                              : undefined
-                                }
-                            >
-                                Save changes
-                            </LemonButton>
-                        </AccessControlAction>
-                    </>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={handleSave}
+                                    loading={updatingEndpoint}
+                                    disabledReason={
+                                        !endpoint
+                                            ? 'Endpoint not loaded'
+                                            : updatingEndpoint
+                                              ? 'Update in progress'
+                                              : !hasChanges
+                                                ? 'No changes to save'
+                                                : hasQueryChange && targetVersion
+                                                  ? 'Query can only be changed when on the latest version'
+                                                  : undefined
+                                    }
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </AccessControlAction>
+                        </>
+                    )
                 }
             />
             {superpowersEnabled && endpoint && debugInfoExpanded && (

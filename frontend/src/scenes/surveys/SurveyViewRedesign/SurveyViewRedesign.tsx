@@ -3,7 +3,8 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArchive, IconCode, IconCopy, IconDownload, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -16,6 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -34,6 +36,7 @@ import {
     openArchiveSurveyDialog,
     openDeleteSurveyDialog,
     openResumeSurveyDialog,
+    openStopSurveyDialog,
 } from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
 import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -78,6 +81,7 @@ import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/
 
 import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from '../constants'
+import { QuillSurveyStatusAction } from './QuillSurveyStatusAction'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyResponseExpandedRow } from './SurveyResponseExpandedRow'
@@ -109,6 +113,7 @@ export function SurveyViewRedesign(): JSX.Element {
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
     const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const panelTabSearchParam = 'survey_panel_tab'
 
     const panelTabs = useMemo(
@@ -438,23 +443,38 @@ export function SurveyViewRedesign(): JSX.Element {
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={survey.user_access_level}
                         >
-                            <LemonButton
-                                data-attr="edit-survey"
-                                onClick={
-                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
-                                        ? undefined
-                                        : () => editingSurvey(true)
-                                }
-                                to={
-                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
-                                        ? urls.surveyWizard(survey.id)
-                                        : undefined
-                                }
-                                type="secondary"
-                                size="small"
-                            >
-                                Edit
-                            </LemonButton>
+                            {todayRailNav ? (
+                                <Button
+                                    data-attr="edit-survey"
+                                    variant="outline"
+                                    {...(canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                        ? {
+                                              nativeButton: false,
+                                              render: <LinkPrimitive to={urls.surveyWizard(survey.id)} />,
+                                          }
+                                        : { onClick: () => editingSurvey(true) })}
+                                >
+                                    Edit
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    data-attr="edit-survey"
+                                    onClick={
+                                        canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                            ? undefined
+                                            : () => editingSurvey(true)
+                                    }
+                                    to={
+                                        canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                            ? urls.surveyWizard(survey.id)
+                                            : undefined
+                                    }
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    Edit
+                                </LemonButton>
+                            )}
                         </AccessControlAction>
                         <SurveyStatusAction />
                     </>
@@ -537,6 +557,10 @@ function SurveyNotificationsContent(): JSX.Element {
 function SurveyStatusAction(): JSX.Element | null {
     const { survey } = useValues(surveyLogic)
     const { stopSurvey, resumeSurvey } = useActions(surveyLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillSurveyStatusAction />
+    }
     const status = getSurveyStatus(survey)
 
     if (status === ProgressStatus.Draft) {
@@ -576,27 +600,7 @@ function SurveyStatusAction(): JSX.Element | null {
                 type="secondary"
                 status="danger"
                 size="small"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Stop this survey?',
-                        content: (
-                            <div className="text-sm text-secondary">
-                                The survey will no longer be displayed to users.
-                            </div>
-                        ),
-                        primaryButton: {
-                            children: 'Stop',
-                            type: 'primary',
-                            onClick: () => stopSurvey(),
-                            size: 'small',
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                            type: 'tertiary',
-                            size: 'small',
-                        },
-                    })
-                }}
+                onClick={() => openStopSurveyDialog(() => stopSurvey())}
             >
                 Stop
             </LemonButton>
