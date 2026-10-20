@@ -1,33 +1,47 @@
 import { existsSync, readFileSync } from "node:fs";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import {
   parseSessionEntries,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { getRemotePiConversation } from "@posthog/agent/pi/remote-rpc-client";
 import type { AgentRuntime, StoredLogEntry } from "@posthog/shared";
+import type { StartPick } from "./chats";
 import { sessionModel } from "./claudeLocal";
 import { asEntry, type LocalAgent } from "./local";
 import type { LocalChats } from "./localChats";
 import { type PiControl, shortModelName } from "./models";
+import type { AgentPrompt, PromptReply } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
 import { modesOf } from "./transcript";
 
 const notStarted = (): Promise<never> =>
   Promise.reject(new Error("Send a message to start the agent first"));
 
-// What a pane shows of a local chat before its agent runs: the saved conversation from its files on disk, and the
-// model and plan it was on. The first message starts the real agent, which takes the pane over.
-class ColdLocalAgent implements LocalAgent {
-  readonly control: PiControl;
+// What a pane holds for a local chat for as long as it shows it: the saved conversation from disk until the first
+// message starts the real agent, then that agent, through the same subscriptions, so the pane never starts over.
+export class LocalChatHandle implements LocalAgent {
+  private readonly cold: PiControl;
+  private live: LocalAgent | null = null;
+  private readonly viewers = new Map<(view: RunView) => void, () => void>();
+  private readonly prompters = new Map<
+    (prompts: AgentPrompt[]) => void,
+    () => void
+  >();
 
   constructor(
-    readonly runtime: AgentRuntime,
-    readonly plan: boolean,
-    readonly model: string | undefined,
-    private readonly view: RunView,
+    private readonly saved: {
+      runtime: AgentRuntime;
+      plan: boolean;
+      model: string | undefined;
+      view: RunView;
+    },
+    // Starts the chat's agent, or returns the one already running.
+    private readonly spawn: (pick?: StartPick) => Promise<LocalAgent>,
   ) {
-    const modes = modesOf(view.entries);
-    this.control = {
+    const { plan, model } = saved;
+    const modes = modesOf(saved.view.entries);
+    this.cold = {
       models: async () => ({
         available: [],
         current: model
@@ -50,20 +64,67 @@ class ColdLocalAgent implements LocalAgent {
     };
   }
 
+  // What the files said the chat was on, until its agent says.
+  get runtime(): AgentRuntime {
+    return this.live?.runtime ?? this.saved.runtime;
+  }
+  get plan(): boolean {
+    return this.live?.plan ?? this.saved.plan;
+  }
+  get model(): string | undefined {
+    return this.live?.model ?? this.saved.model;
+  }
+  get control(): PiControl {
+    return this.live?.control ?? this.cold;
+  }
+
+  // Hands the handle its running agent: every watcher moves over to it and keeps receiving.
+  attach(agent: LocalAgent): void {
+    if (this.live === agent) return;
+    for (const stop of this.viewers.values()) stop();
+    for (const stop of this.prompters.values()) stop();
+    this.live = agent;
+    for (const onView of this.viewers.keys())
+      this.viewers.set(onView, agent.watch(onView));
+    for (const onPrompts of this.prompters.keys())
+      this.prompters.set(onPrompts, agent.watchPrompts(onPrompts));
+  }
+
   async start(): Promise<void> {}
+
   watch(onView: (view: RunView) => void): () => void {
-    onView(this.view);
-    return () => {};
+    this.viewers.set(
+      onView,
+      this.live ? this.live.watch(onView) : (onView(this.saved.view), () => {}),
+    );
+    return () => {
+      this.viewers.get(onView)?.();
+      this.viewers.delete(onView);
+    };
   }
-  prompt(): Promise<void> {
-    return notStarted();
+
+  async prompt(message: string, images?: ImageContent[]): Promise<void> {
+    const agent = this.live ?? (await this.spawn());
+    this.attach(agent);
+    await agent.prompt(message, images);
   }
-  watchPrompts(): () => void {
-    return () => {};
+
+  watchPrompts(onPrompts: (prompts: AgentPrompt[]) => void): () => void {
+    this.prompters.set(
+      onPrompts,
+      this.live ? this.live.watchPrompts(onPrompts) : () => {},
+    );
+    return () => {
+      this.prompters.get(onPrompts)?.();
+      this.prompters.delete(onPrompts);
+    };
   }
-  answer(): Promise<void> {
-    return notStarted();
+
+  answer(prompt: AgentPrompt, reply: PromptReply): Promise<void> {
+    return this.live ? this.live.answer(prompt, reply) : notStarted();
   }
+
+  // The handle only shows the chat; stopping the agent is the hook's job.
   async stop(): Promise<void> {}
 }
 
@@ -78,7 +139,8 @@ const coldView = (entries: StoredLogEntry[]): RunView => ({
 export async function localHistory(
   chats: LocalChats,
   id: string,
-): Promise<LocalAgent | null> {
+  start: (pick?: StartPick) => Promise<LocalAgent>,
+): Promise<LocalChatHandle | null> {
   const harness = chats.harnessOf(id);
   if (harness === "claude") {
     const entries = chats.acpLog(id).load().entries;
@@ -86,7 +148,10 @@ export async function localHistory(
       (found, entry) => sessionModel(entry) ?? found,
       undefined,
     );
-    return new ColdLocalAgent("acp", true, model, coldView(entries));
+    return new LocalChatHandle(
+      { runtime: "acp", plan: true, model, view: coldView(entries) },
+      start,
+    );
   }
   const file = chats.sessionFile(id);
   if (harness === null || !existsSync(file)) return null;
@@ -108,10 +173,13 @@ export async function localHistory(
         : found,
     null,
   );
-  return new ColdLocalAgent(
-    "pi",
-    lastModel !== null && lastModel.provider !== "posthog",
-    lastModel?.modelId,
-    coldView(history.map(asEntry)),
+  return new LocalChatHandle(
+    {
+      runtime: "pi",
+      plan: lastModel !== null && lastModel.provider !== "posthog",
+      model: lastModel?.modelId,
+      view: coldView(history.map(asEntry)),
+    },
+    start,
   );
 }

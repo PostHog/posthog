@@ -159,7 +159,7 @@ export function App({
     localSessions,
     clear: clearLocal,
     localActive,
-    coldSessions,
+    handles,
     markActive,
     refreshActive: refreshLocalActive,
     prompts,
@@ -173,16 +173,20 @@ export function App({
     setFresh,
     flashNotice,
   });
-  // What each pane and the model picker see of a local chat: its running agent, or its saved conversation.
+  // What each pane and the model picker see of a local chat: its handle while it is on screen, else its agent.
   const shownSessions = useMemo(
-    () => new Map([...coldSessions, ...localSessions]),
-    [coldSessions, localSessions],
+    () =>
+      new Map<string, LocalAgent>([
+        ...localSessions.entries(),
+        ...handles.entries(),
+      ]),
+    [localSessions, handles],
   );
   // Cloud runs go through the engine; local chats through their own agent process.
   const control = cloudControl
     ? (taskId: string, runId: string): PiControl =>
         isLocal(taskId)
-          ? (localSessions.get(taskId)?.control ?? cloudControl(taskId, runId))
+          ? (shownSessions.get(taskId)?.control ?? cloudControl(taskId, runId))
           : cloudControl(taskId, runId)
     : undefined;
   const { placeFor, setPlace } = useChatPlace();
