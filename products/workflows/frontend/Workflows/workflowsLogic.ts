@@ -5,13 +5,14 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse, HogFlowListType } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse, HogFlowListType } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 
+import { hogFlowsPartialUpdate } from '../generated/api'
 import type { HogFlow } from './hogflows/types'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 
@@ -519,7 +520,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         updateWorkflowTags: async ({ workflow, tags }) => {
             try {
                 // Only the tags go over the wire, so a row edit never touches the workflow's content.
-                await api.hogFlows.updateHogFlow(workflow.id, { tags })
+                await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, { tags })
                 posthog.capture('workflow tags updated', { source: 'workflows_list', tags_count: tags.length })
                 actions.loadTags()
             } catch (error: any) {

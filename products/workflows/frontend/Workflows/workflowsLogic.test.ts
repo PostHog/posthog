@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -44,12 +42,20 @@ describe('workflowsLogic', () => {
 
     it('saves a row tag edit with only the tags, so it never overwrites the workflow content', async () => {
         const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
-        const update = jest.spyOn(api.hogFlows, 'updateHogFlow').mockResolvedValue(workflow)
+        const bodies: unknown[] = []
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    bodies.push(await request.json())
+                    return [200, { ...workflow, tags: ['growth'] }]
+                },
+            },
+        })
 
         await expectLogic(logic, () => logic.actions.updateWorkflowTags(workflow, ['growth']))
             .toFinishAllListeners()
             .toMatchValues({ localWorkflowTags: { 'flow-1': ['growth'] } })
 
-        expect(update).toHaveBeenCalledWith('flow-1', { tags: ['growth'] })
+        expect(bodies).toEqual([{ tags: ['growth'] }])
     })
 })

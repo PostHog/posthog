@@ -120,6 +120,7 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     return list(HogFlow.OriginProduct.choices)
 
 
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
 class HogFlow(Taggable, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
