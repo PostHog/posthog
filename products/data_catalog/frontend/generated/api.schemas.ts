@@ -167,7 +167,7 @@ export interface DataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
      * @maxLength 300
      */
     description: string
@@ -229,7 +229,7 @@ export interface DataCatalogMetricApi {
      * @nullable
      */
     confidence?: number | null
-    /** AI author's reasoning, surfaced as review context. */
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
     readonly created_by: UserBasicApi
@@ -267,7 +267,7 @@ export interface PatchedDataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
      * @maxLength 300
      */
     description?: string
@@ -329,7 +329,7 @@ export interface PatchedDataCatalogMetricApi {
      * @nullable
      */
     confidence?: number | null
-    /** AI author's reasoning, surfaced as review context. */
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
     readonly created_by?: UserBasicApi

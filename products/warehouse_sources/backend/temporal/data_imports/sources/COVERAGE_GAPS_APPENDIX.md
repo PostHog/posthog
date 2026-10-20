@@ -5524,10 +5524,10 @@ Diffed against: <https://raw.githubusercontent.com/grafana/grafana/main/public/o
 - [x] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high) — already synced as `users` (`/api/org/users`); `orgs/{org_id}/users` only repeats it per org for server admins
 - [x] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
 - [x] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
-- [ ] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
+- [x] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
 - [ ] `query-history` — records of explored queries, the usage-analytics table for Explore adoption (medium)
-- [ ] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium)
-- [ ] `folders/{folder_uid}/permissions and dashboards/uid/{uid}/permissions` — per-object permission grants for access auditing (low)
+- [x] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium) — synced as `roles`, plus `dashboard_permissions` and `folder_permissions` for the dashboards and folders resources
+- [x] `folders/{folder_uid}/permissions and dashboards/uid/{uid}/permissions` — per-object permission grants for access auditing (low) — both are deprecated; synced as `dashboard_permissions` and `folder_permissions` from their `access-control/{resource}/{resourceID}` replacement
 - [ ] `annotations/tags` — lookup of annotation tags for grouping the annotations we already sync (low)
 - [ ] `playlists and playlists/{uid}/items` — playlist definitions and the dashboards inside them (low)
 - [ ] `datasources/correlations` — correlation definitions linking datasources, useful for lineage (low)
@@ -8721,8 +8721,8 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 
 - [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
 - [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
-- [ ] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
-- [ ] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
+- [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
+- [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
 - [ ] `/batches` — batch job records with request counts and completion status (medium)
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
