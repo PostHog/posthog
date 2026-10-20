@@ -21,6 +21,7 @@ Automox fail:stall-budget
 Aviator fail:stall-budget
 Awin fail:stall-budget
 AwsCostExplorer fail:safe-point
+AwsDocumentDB not-checkable:driver:pymongo
 AwsOrganizations fail:stall-budget
 AwsWaf fail:stall-budget
 AzureCostManagement not-checkable:no-request
