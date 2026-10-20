@@ -113,7 +113,8 @@ class MetricAttributeKeysQueryRunner:
                     SELECT if(has_dotted_service_name, 'service.name', 'service_name') AS attribute_key,
                         uniq(service) AS value_count
                     FROM (
-                        SELECT service_name AS service, max(attribute_key = 'service.name') AS has_dotted_service_name
+                        SELECT service_name AS service,
+                            max(attribute_type = 'resource' AND attribute_key = 'service.name') AS has_dotted_service_name
                         FROM posthog.metric_attributes
                         WHERE time_bucket >= {date_from}
                         GROUP BY metric_name, service_name

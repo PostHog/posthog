@@ -204,8 +204,16 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [r["name"] for r in response.json()["results"]] == expected
 
-    @parameterized.expand([("one_metric", "job.duration"), ("project_wide", "")])
-    def test_services_without_dotted_resource_attribute_keep_one_synthetic_key(self, _name: str, metric_name: str):
+    @parameterized.expand(
+        [
+            ("one_metric", "job.duration", "service_name"),
+            ("project_wide", "", "service_name"),
+            ("project_wide_dotted_datapoint_label", "", "service.name"),
+        ]
+    )
+    def test_services_without_dotted_resource_attribute_keep_one_synthetic_key(
+        self, _name: str, metric_name: str, datapoint_service_key: str
+    ) -> None:
         truncate_metrics_tables()
         now = timezone.now().replace(second=0, microsecond=0)
         seed_metric(
@@ -221,7 +229,7 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
             metric_name="job.duration",
             service_name="billing",
             points=[(now - dt.timedelta(minutes=2), 1.0)],
-            labels={"env": "prod", "service_name": "billing"},
+            labels={"env": "prod", datapoint_service_key: "billing"},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/attributes/", {"metricName": metric_name})
