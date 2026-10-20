@@ -10889,6 +10889,7 @@ export namespace Schemas {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -12291,6 +12292,7 @@ export namespace Schemas {
         | "Square"
         | "Zoom"
         | "Trello"
+        | "TrafficStars"
         | "Monday"
         | "ClickUp"
         | "Confluence"
@@ -13701,6 +13703,7 @@ export namespace Schemas {
          * * `Square` - Square
          * * `Zoom` - Zoom
          * * `Trello` - Trello
+         * * `TrafficStars` - TrafficStars
          * * `Monday` - Monday
          * * `ClickUp` - ClickUp
          * * `Confluence` - Confluence
