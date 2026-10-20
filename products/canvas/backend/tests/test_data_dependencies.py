@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -104,6 +105,7 @@ class TestCanvasDataCheck(CanvasDataDependenciesBaseTest):
         assert check.status == CanvasDataCheck.STATUS_OK
         assert check.missing == {"events": [], "properties": [], "tables": []}
 
+    @time_machine.travel("2026-10-05T03:00:00Z", tick=False)
     @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
     def test_nightly_run_checks_only_canvases_that_declare_data_and_updates_in_place(self, _tables) -> None:
         declaring = self._canvas_with_data()
