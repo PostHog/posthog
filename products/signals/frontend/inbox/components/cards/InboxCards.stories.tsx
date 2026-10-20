@@ -247,7 +247,7 @@ const impactReports: SignalReport[] = [
 ]
 
 export const ReportCardWithImpact: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
+    parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
     render: () => (
         <CardList>
             {impactReports.map((report) => (
@@ -294,7 +294,6 @@ const rankedReports: SignalReport[] = [
 ]
 
 export const ReportCardRankingTags: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     render: () => (
         <CardList>
             {rankedReports.map((report) => (
