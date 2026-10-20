@@ -13,13 +13,13 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
-import { template as nativePushTemplate } from '../../templates/_destinations/push/push.template'
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import {
     DeviceSubscription,
+    NATIVE_PUSH_TEMPLATE_ID,
     getDevicePushSubscriptions,
     pushRecipientOtherThanRunPerson,
     runDistinctIdMatching,
@@ -52,8 +52,6 @@ const pushNotificationFailedCounter = new Counter({
     help: 'Push notifications that failed to send, by platform and normalized failure reason.',
     labelNames: ['platform', 'reason'],
 })
-
-const NATIVE_PUSH_TEMPLATE_ID = nativePushTemplate.id
 
 const pushNotificationSkippedCounter = new Counter({
     name: 'push_notification_skipped_total',

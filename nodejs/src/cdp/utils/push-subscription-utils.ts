@@ -1,7 +1,10 @@
 import { createHash } from 'crypto'
 
+import { template as nativePushTemplate } from '../templates/_destinations/push/push.template'
 import type { HogFunctionInvocationGlobals } from '../types'
 import { EncryptedFields } from './encryption-utils'
+
+export const NATIVE_PUSH_TEMPLATE_ID = nativePushTemplate.id
 
 export const DEVICE_SUBSCRIPTION_PREFIX = '$device_push_subscription_'
 

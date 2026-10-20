@@ -611,13 +611,20 @@ describe('RecipientPreferencesService', () => {
             })
 
             it.each([
-                ['no Distinct ID input', undefined, 'delivered-person'],
-                ['the run event distinct_id', 'trigger-person', 'delivered-person'],
-                ['another person', ' named-user ', 'named-user'],
-            ])(
+                ['no Distinct ID input', undefined, 'delivered-person', 'function_push'],
+                ['the run event distinct_id', 'trigger-person', 'delivered-person', 'function_push'],
+                ['another person', ' named-user ', 'named-user', 'function_push'],
+                [
+                    'another person, from a generic function step on the push template',
+                    'named-user',
+                    'named-user',
+                    'function',
+                ],
+            ] as const)(
                 'keys the opt-out on the person the push is delivered to, for %s',
-                async (_, distinctIdInput, expected) => {
-                    const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                async (_, distinctIdInput, expected, stepType) => {
+                    const pushAction = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                    const action = (stepType === 'function' ? { ...pushAction, type: 'function' } : pushAction) as any
                     const invocation = createFunctionStepInvocation(action)
                     invocation.state.globals.person!.distinct_id = 'delivered-person'
                     invocation.state.globals.event!.distinct_id = 'trigger-person'

@@ -3,7 +3,7 @@ import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
-import { pushRecipientOtherThanRunPerson } from '../../utils/push-subscription-utils'
+import { NATIVE_PUSH_TEMPLATE_ID, pushRecipientOtherThanRunPerson } from '../../utils/push-subscription-utils'
 import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step-dispatch-key'
 import { PersonsManagerService } from '../managers/persons-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
@@ -62,11 +62,8 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
     ): Promise<boolean> {
-        if (
-            !this.frequencyCap ||
-            !this.isSubjectToRecipientPreferences(action) ||
-            action.config.message_category_type === 'transactional'
-        ) {
+        const messageAction = this.asMessageAction(action)
+        if (!this.frequencyCap || !messageAction || messageAction.config.message_category_type === 'transactional') {
             return false
         }
         try {
@@ -76,7 +73,7 @@ export class RecipientPreferencesService {
             if (!max_messages || !window_days) {
                 return false
             }
-            const personId = await this.cappedPersonId(invocation, action, this.frequencyCap.persons)
+            const personId = await this.cappedPersonId(invocation, messageAction, this.frequencyCap.persons)
             if (!personId) {
                 return false
             }
@@ -120,9 +117,10 @@ export class RecipientPreferencesService {
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
-        action: HogFlowAction
+        hogFlowAction: HogFlowAction
     ): Promise<RecipientSkipReason | null> {
-        if (!this.isSubjectToRecipientPreferences(action)) {
+        const action = this.asMessageAction(hogFlowAction)
+        if (!action) {
             return null
         }
 
@@ -177,8 +175,15 @@ export class RecipientPreferencesService {
         }
     }
 
-    private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
-        return ['function_email', 'function_sms', 'function_push'].includes(action.type)
+    // A generic function step saved through the API can run the push template, and it then sends like a push step.
+    private asMessageAction(action: HogFlowAction): MessageAction | null {
+        if (['function_email', 'function_sms', 'function_push'].includes(action.type)) {
+            return action as MessageAction
+        }
+        if (action.type === 'function' && action.config.template_id === NATIVE_PUSH_TEMPLATE_ID) {
+            return { ...action, type: 'function_push' } as unknown as MessageAction
+        }
+        return null
     }
 
     private async isRecipientOptedOutOfAction(
