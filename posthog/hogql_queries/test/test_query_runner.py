@@ -1973,6 +1973,20 @@ class TestSharedInsightsExecutionMode(BaseTest):
         expected = sharing_configuration.pk if is_shared_viewer else None
         assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
+    @parameterized.expand([(False,), (True,)])
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_payload_pins_the_resolved_events_table(
+        self, events_json: bool, mock_enqueue: mock.MagicMock
+    ) -> None:
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=events_json):
+            runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=not events_json):
+            worker = HogQLQueryRunner(query=mock_enqueue.call_args.kwargs["query_json"], team=self.team)
+
+        assert worker.modifiers.useNewEventsSchema is events_json
+        assert worker.get_cache_key() == runner.get_cache_key()
+
 
 @pytest.mark.ee
 class TestQueryRunnerAccessControlFingerprint(BaseTest):
