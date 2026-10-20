@@ -85,7 +85,7 @@ globs = ["../**"]
 mark-changed = []
 
 # An unmatched workspace-root file marks every crate, and the default rules
-# exempt only README and LICENSE.
+# do not match AGENTS.md.
 [[path-rule]]
 globs = ["AGENTS.md"]
 mark-changed = []
