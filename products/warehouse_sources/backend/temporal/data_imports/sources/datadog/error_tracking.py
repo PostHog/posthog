@@ -24,7 +24,10 @@ class DatadogIssueSearchConfig:
     query: str = "*"
     # ``ALL`` covers APM traces, logs and RUM in one call, so one request grades every source of errors.
     persona: str = "ALL"
-    order_by: str = "TOTAL_COUNT"
+    # A capped response keeps only the first results. The signals emitter reads only newly seen issues,
+    # so those must be kept. With TOTAL_COUNT, long-running noisy issues fill the response and new
+    # low-count issues never reach the table.
+    order_by: str = "FIRST_SEEN"
     # Resolved, ignored and excluded issues never become signals, so Datadog filters them out. They
     # would otherwise fill the capped result list and force needless window splits.
     states: tuple[str, ...] = ("OPEN", "ACKNOWLEDGED")
