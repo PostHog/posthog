@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isAnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { fileSystemTypes, getTreeItemsNew } from '~/products'
@@ -220,7 +221,7 @@ export const libraryLogic = kea<libraryLogicType>([
                 return byType
             },
         ],
-        // "All objects" asks for every type, so drop the ones that live in Tools and Views.
+        // "All objects" asks for every type, so drop the ones that live in Tools and Analytics.
         visibleObjects: [
             (s) => [s.objects],
             (objects: LibraryObjects): FileSystemEntry[] => objects.results.filter(isLibraryEntry),
@@ -238,7 +239,9 @@ export const libraryLogic = kea<libraryLogicType>([
                 return
             }
             if (objectType && !isLibraryType(objectType)) {
-                router.actions.replace(urls.views())
+                router.actions.replace(
+                    isAnalyticsType(objectType) ? urls.analyticsList({ type: objectType }) : urls.analyticsList()
+                )
                 return
             }
             const listHref = objectType ? libraryListHref(objectType) : null

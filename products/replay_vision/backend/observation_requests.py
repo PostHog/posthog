@@ -12,12 +12,13 @@ from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.core.cache import cache
-from django.db import IntegrityError, connection, models, transaction
+from django.db import IntegrityError, OperationalError, connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
 
+from posthog.api.statement_timeout import is_query_canceled
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.organization import OrganizationMembership
@@ -61,8 +62,8 @@ MAX_STARTS_PER_TICK = 50
 # How many waiting requests one tick checks for ended sessions.
 MAX_CHECKS_PER_TICK = 200
 
-# Each sweep gets its own budget, and together they leave headroom inside the reconciler activity's 45-second
-# start-to-close timeout, so a slow start sweep can't starve the completion sweep or the reverse.
+# Each sweep gets its own budget, and together they leave headroom inside the completion activity's query
+# budget (75% of its timeout), so a slow start sweep can't starve the completion sweep or the reverse.
 START_SWEEP_BUDGET_SECONDS = 15
 COMPLETION_SWEEP_BUDGET_SECONDS = 20
 
@@ -71,6 +72,8 @@ COMPLETION_SWEEP_BUDGET_SECONDS = 20
 WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
+# The completion sweep stops this long before the query budget ends, so its last page can flush and stamp.
+_STAMP_HEADROOM_SECONDS = _DELIVERY_TIMEOUT_SECONDS + 5
 _SWEEP_CURSOR_KEY = "replay_vision:completion_sweep_cursor"
 _WRITER = "default"
 _SWEEP_CURSOR_TTL_SECONDS = 60 * 60
@@ -317,6 +320,8 @@ def start_waiting_requests(*, now: datetime | None = None, budget_seconds: float
                 logger.exception("replay_vision.observation_request.deferred_start_failed", request_id=str(request.id))
                 continue
             started += 1
+    if (overrun := time.monotonic() - deadline) > 0:
+        logger.warning("replay_vision.observation_request.start_sweep_overran", overrun_seconds=round(overrun, 1))
     return started
 
 
@@ -461,7 +466,10 @@ def _session(outcome: dict[str, str], observation: ReplayObservation | None, exp
 
 
 def complete_settled_requests(
-    *, now: datetime | None = None, budget_seconds: float = COMPLETION_SWEEP_BUDGET_SECONDS
+    *,
+    now: datetime | None = None,
+    budget_seconds: float = COMPLETION_SWEEP_BUDGET_SECONDS,
+    query_deadline: float | None = None,
 ) -> int:
     """Mark every open request whose sessions have all settled as completed, announcing each one first.
 
@@ -469,8 +477,13 @@ def complete_settled_requests(
     tick rather than never; a destination can therefore see a request complete twice. Open requests are
     walked oldest first in pages. A tick that runs out of time leaves a cursor, and the next tick starts
     there and wraps around, so requests whose wakes keep failing never hold back the ones behind them.
+
+    `query_deadline` is the wall-clock time at which Postgres starts to cancel statements. The sweep stops early
+    enough before it that a canceled stamp can't re-announce a page whose events already went out.
     """
     now = now or timezone.now()
+    if query_deadline is not None:
+        budget_seconds = min(budget_seconds, query_deadline - time.time() - _STAMP_HEADROOM_SECONDS)
     deadline = time.monotonic() + budget_seconds
     open_requests = (
         ReplayObservationRequest.objects.unscoped()
@@ -482,26 +495,33 @@ def complete_settled_requests(
     cursor = start
     wrapped = start is None
     completed = 0
-    while time.monotonic() < deadline:
-        page_qs = open_requests
-        if cursor is not None:
-            page_qs = page_qs.filter(_after(cursor))
-        if wrapped and start is not None:
-            page_qs = page_qs.exclude(_after(start))
-        page = list(page_qs[:_SWEEP_PAGE_SIZE])
-        if not page:
-            if wrapped:
-                _store_sweep_cursor(None)
-                return completed
-            wrapped, cursor = True, None
-            continue
-        page_completed, stopped_at = _complete_page(page, now, deadline)
-        completed += page_completed
-        if stopped_at is not None:
-            if stopped_at:
-                cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
-            break
-        cursor = (page[-1].created_at, page[-1].id)
+    try:
+        while time.monotonic() < deadline:
+            page_qs = open_requests
+            if cursor is not None:
+                page_qs = page_qs.filter(_after(cursor))
+            if wrapped and start is not None:
+                page_qs = page_qs.exclude(_after(start))
+            page = list(page_qs[:_SWEEP_PAGE_SIZE])
+            if not page:
+                if wrapped:
+                    _store_sweep_cursor(None)
+                    return completed
+                wrapped, cursor = True, None
+                continue
+            page_completed, stopped_at = _complete_page(page, now, deadline)
+            completed += page_completed
+            if stopped_at is not None:
+                if stopped_at:
+                    cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
+                break
+            cursor = (page[-1].created_at, page[-1].id)
+    except OperationalError as err:
+        # The activity's query budget can run out before this sweep's own budget does. The page it cancels
+        # starts the next tick, so stop here instead of failing the activity.
+        if not is_query_canceled(err):
+            raise
+        logger.warning("replay_vision.observation_request.completion_sweep_canceled", completed=completed)
     _store_sweep_cursor(cursor)
     return completed
 

@@ -351,6 +351,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             "account_inactive": "Your Slack account is inactive. Please reconnect the source.",
             "token_revoked": "Your Slack token has been revoked. Please reconnect the source.",
             "missing_scope": "Your Slack app is missing scopes PostHog needs. Add the bot scopes from the setup manifest, reinstall the app to your workspace, then try again.",
+            "not_allowed_token_type": "This Slack token type isn't supported. Please paste the Bot User OAuth Token (starts with xoxb-) from your Slack app's Install App page.",
             "not_in_channel": "The Slack bot is not a member of this channel. Please invite the bot to the channel and try again.",
             "channel_not_found": "This Slack channel was not found. It may have been deleted or the bot lacks permission to access it.",
             "Integration not found": "Your Slack integration was not found. Please reconnect the source.",

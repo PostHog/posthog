@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -13,26 +12,21 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import {
-    isActorsQuery,
-    isBIVisualizationNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isGroupsQuery,
-    isInsightQueryNode,
-} from '~/queries/utils'
+import { isActorsQuery, isBIVisualizationNode, isEventsQuery, isGroupsQuery, isInsightQueryNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
 import { InsightSaveButton } from 'products/product_analytics/frontend/insights/insightScene/InsightSaveButton'
+import { InsightShareMenu } from 'products/product_analytics/frontend/insights/insightScene/InsightShareMenu'
 
+import { openInsightEditor } from './openInsightEditor'
+import { QuillInsightPageHeaderActions } from './QuillInsightPageHeaderActions'
 import { InsightSceneMenuBar } from './sidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './sidePanel/InsightSidePanelContent'
 
@@ -75,7 +69,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightDataLogic(insightProps)
     )
     const { cancelChanges, generateInsightMetadata } = useActions(insightDataLogic(insightProps))
-    const { push } = useActions(router)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
@@ -83,7 +76,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
+    const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
@@ -154,105 +149,113 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 descriptionMaxLength={400}
                 maxToolProps={readDataMaxToolProps}
                 actions={
-                    <>
-                        {insightMode === ItemMode.Edit && isSavedInsight && (
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    cancelChanges()
-                                    setInsightMode(ItemMode.View, null)
-                                }}
-                                data-attr="insight-cancel-edit-button"
-                                size="small"
-                            >
-                                Cancel
-                            </LemonButton>
-                        )}
-
-                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPlusSmall />}
-                                data-attr="insight-add-to-dashboard-prominent-button"
-                                onClick={() => openAddToDashboardModal()}
-                            >
-                                Add to dashboard
-                            </LemonButton>
-                        )}
-
-                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                            <InsightSubscribeProminentButton
-                                insightShortId={insight.short_id!}
-                                canCreateAlert={canCreateAlertForInsight}
+                    todayRailNav ? (
+                        <>
+                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                                <InsightShareMenu insight={insight} />
+                            )}
+                            <QuillInsightPageHeaderActions
+                                insightLogicProps={insightLogicProps}
+                                isPersistedInsight={isPersistedInsight}
+                                canCreateAlertForInsight={canCreateAlertForInsight}
+                                saveInsightToFolder={saveInsightToFolder}
                             />
-                        )}
-
-                        {insightMode !== ItemMode.Edit ? (
-                            canEditInsight && (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.Insight}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={insight.user_access_level}
+                        </>
+                    ) : (
+                        <>
+                            {insightMode === ItemMode.Edit && isSavedInsight && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        cancelChanges()
+                                        setInsightMode(ItemMode.View, null)
+                                    }}
+                                    data-attr="insight-cancel-edit-button"
+                                    size="small"
                                 >
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        tooltipPlacement="bottom"
-                                        onClick={() => {
-                                            if (isDataVisualizationNode(query) && insight.short_id) {
-                                                const editorUrl = isBIVisualizationNode(query)
-                                                    ? urls.businessIntelligence
-                                                    : urls.sqlEditor
-                                                router.actions.push(
-                                                    editorUrl({
-                                                        insightShortId: insight.short_id,
-                                                        dashboard: dashboardId ?? undefined,
-                                                        // Carry unsaved view-mode filter edits into the editor so they can be saved
-                                                        filters: queryChanged ? query.source.filters : undefined,
-                                                    })
-                                                )
-                                            } else if (insight.short_id) {
-                                                const editUrl = combineUrl(
-                                                    urls.insightEdit(insight.short_id),
-                                                    dashboardId ? { dashboard: dashboardId } : {},
-                                                    // Carry unsaved view-mode filter edits into the editor so they can be saved
-                                                    queryChanged ? { q: JSON.stringify(query) } : {}
-                                                ).url
-                                                push(editUrl)
-                                            } else {
-                                                setInsightMode(ItemMode.Edit, null)
-                                            }
-                                        }}
-                                        {...getOverrideWarningPropsForButton(query, filtersOverride, variablesOverride)}
-                                        {...(isBIVisualizationNode(query) && !biEnabled
-                                            ? {
-                                                  disabledReason:
-                                                      'Business intelligence is not enabled for this project',
-                                              }
-                                            : {})}
-                                        data-attr="insight-edit-button"
+                                    Cancel
+                                </LemonButton>
+                            )}
+
+                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    data-attr="insight-add-to-dashboard-prominent-button"
+                                    onClick={() => openAddToDashboardModal()}
+                                >
+                                    Add to dashboard
+                                </LemonButton>
+                            )}
+
+                            {insightMode !== ItemMode.Edit && isPersistedInsight && spacesEnabled && (
+                                <InsightShareMenu insight={insight} />
+                            )}
+
+                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                                <InsightSubscribeProminentButton
+                                    insightShortId={insight.short_id!}
+                                    canCreateAlert={canCreateAlertForInsight}
+                                />
+                            )}
+
+                            {insightMode !== ItemMode.Edit ? (
+                                canEditInsight && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Insight}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={insight.user_access_level}
                                     >
-                                        Edit
-                                    </LemonButton>
-                                </AccessControlAction>
-                            )
-                        ) : (
-                            <InsightSaveButton
-                                saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
-                                saveInsight={saveInsightToFolder}
-                                isSaved={isSavedInsight}
-                                addingToDashboard={!insight.id && !!insight.dashboards?.length}
-                                insightSaving={insightSaving}
-                                insightChanged={insightChanged || queryChanged}
-                                // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the
-                                // insight id, so saving a brand-new insight navigates to its real id and re-keys the
-                                // modal logic, dropping the open state. New insights use the view-mode button instead.
-                                // `saveAndAddToDashboard` owns the save-then-open ordering (see insightModalsLogic).
-                                onSaveAndAddToDashboard={isPersistedInsight ? () => saveAndAddToDashboard() : undefined}
-                            />
-                        )}
-                    </>
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            tooltipPlacement="bottom"
+                                            onClick={() =>
+                                                openInsightEditor({
+                                                    query,
+                                                    insightShortId: insight.short_id,
+                                                    dashboardId,
+                                                    queryChanged,
+                                                    enterEditMode: () => setInsightMode(ItemMode.Edit, null),
+                                                })
+                                            }
+                                            {...getOverrideWarningPropsForButton(
+                                                query,
+                                                filtersOverride,
+                                                variablesOverride
+                                            )}
+                                            {...(isBIVisualizationNode(query) && !biEnabled
+                                                ? {
+                                                      disabledReason:
+                                                          'Business intelligence is not enabled for this project',
+                                                  }
+                                                : {})}
+                                            data-attr="insight-edit-button"
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )
+                            ) : (
+                                <InsightSaveButton
+                                    saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
+                                    saveInsight={saveInsightToFolder}
+                                    isSaved={isSavedInsight}
+                                    addingToDashboard={!insight.id && !!insight.dashboards?.length}
+                                    insightSaving={insightSaving}
+                                    insightChanged={insightChanged || queryChanged}
+                                    // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the
+                                    // insight id, so saving a brand-new insight navigates to its real id and re-keys the
+                                    // modal logic, dropping the open state. New insights use the view-mode button instead.
+                                    // `saveAndAddToDashboard` owns the save-then-open ordering (see insightModalsLogic).
+                                    onSaveAndAddToDashboard={
+                                        isPersistedInsight ? () => saveAndAddToDashboard() : undefined
+                                    }
+                                />
+                            )}
+                        </>
+                    )
                 }
             />
         </>

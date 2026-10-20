@@ -16,8 +16,6 @@ from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
@@ -33,6 +31,8 @@ from products.subscriptions.backend.logic.failure_notifications import (
 from products.subscriptions.backend.logic.slack_subscriptions import send_slack_message_with_integration_async
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
 from products.subscriptions.backend.logic.teams_subscriptions import build_teams_subscription_card
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.subscriptions.backend.models.subscription_context import SubscriptionContext
 from products.subscriptions.backend.temporal.ai_subscription.activities import _deliver_ai_subscription
 from products.subscriptions.backend.temporal.delivery_common import (
     auto_disable_and_return,

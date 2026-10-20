@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import TrendsQueryResponse
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
 
@@ -103,7 +104,11 @@ class TestRunCachedTrendsQuery(BaseTest):
             )
 
             result = run_cached_trends_query(
-                query=query, team=self.team, max_execution_time_seconds=20, cache_age_seconds=900
+                query=query,
+                team=self.team,
+                max_execution_time_seconds=20,
+                cache_age_seconds=900,
+                ch_user=ClickHouseUser.SIGNALS,
             )
 
         assert result.results == [{"aggregated_value": 12}]
@@ -111,6 +116,7 @@ class TestRunCachedTrendsQuery(BaseTest):
         assert runner_type.call_args.kwargs["query"] == query
         assert runner_type.call_args.kwargs["team"] == self.team
         assert runner_type.call_args.kwargs["hogql_settings"].max_execution_time == 20
+        assert runner_type.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
         assert runner_type.return_value.is_query_service is True
         assert runner_type.return_value.run.call_args.kwargs["cache_age_seconds"] == 900
         assert (
