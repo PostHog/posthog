@@ -11,6 +11,7 @@ import { GENERATED_TOOLS as batch_exports } from './batch_exports'
 import { GENERATED_TOOLS as billing } from './billing'
 import { GENERATED_TOOLS as business_knowledge } from './business_knowledge'
 import { GENERATED_TOOLS as canvas } from './canvas'
+import { GENERATED_TOOLS as cdp } from './cdp'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
@@ -79,6 +80,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...billing,
     ...business_knowledge,
     ...canvas,
+    ...cdp,
     ...cdp_function_templates,
     ...cdp_functions,
     ...cohorts,
