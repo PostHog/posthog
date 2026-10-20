@@ -296,3 +296,8 @@ The panel includes the source validation details shown by the status banner.
 When the panel displays a connection, its duplicate status banner entry is hidden.
 Configuration validation failures and issues for sources outside the panel remain in the banner.
 With source onboarding disabled, the existing banner remains available.
+
+## Ad performance metric cards
+
+The Ad performance summary uses the same metric cards as Web analytics.
+Cards preserve period comparisons, currency formatting, and missing-value labels, and wrap to the available scene width.
