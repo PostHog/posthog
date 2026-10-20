@@ -8,7 +8,8 @@ Each user has its own concurrency quota, so read shares per user.
 
 ## 1. Find the window
 
-Compare the bad day with the days before, by UTC hour. In US, look back 2 to 3 days, not 7.
+Compare the bad day with the days before, by UTC hour.
+Set `<baseline_from>` up to 7 days before `<from>` in EU, and 2 to 3 days in US, or the query hits the read limit.
 
 ```sql
 SELECT event_date AS day, toHour(event_time) AS hour_utc, user,
@@ -17,7 +18,7 @@ FROM (
   SELECT event_date, event_time, user,
          JSONExtractString(log_comment, 'temporal', 'workflow_type') = 'experiment-metrics-recalculation-workflow' AS recalc
   FROM clusterAllReplicas(posthog, system, query_log)
-  WHERE event_date BETWEEN toDate('<from>') - 7 AND toDate('<to>')
+  WHERE event_date BETWEEN toDate('<baseline_from>') AND toDate('<to>')
     AND is_initial_query AND exception_code = 202
     AND user IN ('default', 'experiments') AND hostName() LIKE '%offline%'
 )
@@ -57,6 +58,7 @@ Classify `temporal:experiment-metrics-recalculation-workflow` on the saturated u
 | 25% to 50%                    | contributor | Record it. No lever; point to durable fixes.    |
 | 50% or more                   | cause       | Pick the scope (step 3).                        |
 
+Add `temporal:experiment-scheduled-recalculation-workflow` (the scheduled exposure checks) to the recalc share.
 Report `experiment-saved-metrics-workflow` and `experiment-regular-metrics-workflow` separately: the recalculation levers do not touch them.
 
 ## 3. Scope
@@ -89,7 +91,9 @@ GROUP BY team_id ORDER BY query_s DESC
 LIMIT 10
 ```
 
-Then pick one scope:
+Then pick one scope.
+When the top team's load is `scheduled` runs (read runs by hour with its team filter), use scope B.
+The organic-or-runaway check reads client runs only: scheduled runs have no creator.
 
 - **A, one team** holds more than half of recalc query-seconds.
   Before any team lever, decide organic or runaway with the runs below, the gaps between runs and the UI-or-API match ([queries.md](queries.md)):
@@ -118,7 +122,19 @@ LIMIT 300
 ### Busy schedule hours
 
 Burst hours come from each team's `experiment_recalculation_times`; find them, do not assume them.
-Null means the default hour in `TeamExperimentsConfig`. The team flag is not visible here.
+The team flag gates most teams, so a large `default` row does not mean a burst at the default hour.
+Read the real scheduled runs per hour first:
+
+```sql
+SELECT extract(hour FROM created_at) AS hour_utc, count(*) AS runs, count(DISTINCT team_id) AS teams,
+       count(*) FILTER (WHERE status = 'failed') AS failed
+FROM posthog_experimentmetricsrecalculation
+WHERE trigger = 'scheduled' AND created_at >= now() - interval '7 days'
+GROUP BY 1 ORDER BY runs DESC
+LIMIT 24
+```
+
+Then use the configuration to see which teams make a burst. Null means the default hour in `TeamExperimentsConfig`.
 
 ```sql
 SELECT coalesce(t.hhmm, 'default') AS hour_utc, count(DISTINCT e.team_id) AS teams, count(*) AS experiments
@@ -152,18 +168,19 @@ LIMIT 300
 
 ## 5. Worker metrics (Grafana)
 
+Use the VictoriaMetrics datasource in both regions.
 Both queues report the same metrics with a `task_queue` label:
 `experiments-recalculation-task-queue` and `experiments-recalculation-activity-task-queue`.
 
-| Question                                                    | PromQL                                                                                                                                                |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Recalc queries in flight (one calc activity runs one query) | `sum by (task_queue) (temporal_worker_task_slots_used{task_queue=~"experiments-recalculation(-activity)?-task-queue", worker_type="ActivityWorker"})` |
-| Queue wait, p95                                             | `histogram_quantile(0.95, sum by (le, task_queue) (rate(experiment_metrics_recalculation_activity_schedule_to_start_latency_bucket[5m])))`            |
-| Failures by class                                           | `sum by (error_type) (increase(experiment_metrics_recalculation_activity_failures[1h]))`                                                              |
-| Run outcomes                                                | `sum by (status) (increase(experiment_metrics_recalculation_workflow_finished[1h]))`                                                                  |
-| Pods                                                        | `kube_deployment_status_replicas{deployment=~"temporal-worker-experiments-recalculation.*"}`                                                          |
-| Pollers                                                     | `sum by (task_queue) (temporal_num_pollers{task_queue=~"experiments-recalculation(-activity)?-task-queue"})`                                          |
-| API side                                                    | `experiment_metrics_recalculation_rate_limited_total`, `_existing_run_reused_total`, `_stale_rows_cleaned_total`                                      |
+| Question                                                    | PromQL                                                                                                                                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Recalc queries in flight (one calc activity runs one query) | `sum by (task_queue) (max_over_time(temporal_worker_task_slots_used{task_queue=~"experiments-recalculation(-activity)?-task-queue", worker_type="ActivityWorker"}[5m]))` |
+| Queue wait, p95 (ms)                                        | `histogram_quantile(0.95, sum by (le, task_queue) (rate(experiment_metrics_recalculation_activity_schedule_to_start_latency_bucket[5m])))`                               |
+| Failures by class                                           | `sum by (error_type) (increase(experiment_metrics_recalculation_activity_failures[1h]))`                                                                                 |
+| Run outcomes                                                | `sum by (status) (increase(experiment_metrics_recalculation_workflow_finished[1h]))`                                                                                     |
+| Pods                                                        | `kube_deployment_status_replicas{deployment=~"temporal-worker-experiments-recalculation.*"}`                                                                             |
+| Pollers                                                     | `sum by (task_queue) (temporal_num_pollers{task_queue=~"experiments-recalculation(-activity)?-task-queue"})`                                                             |
+| API side                                                    | `experiment_metrics_recalculation_rate_limited_total`, `_existing_run_reused_total`, `_stale_rows_cleaned_total`                                                         |
 
 On `temporal_*` metrics, `namespace` is the Temporal namespace, not a Kubernetes one.
 Convert epoch times to UTC with a script, not by hand.
@@ -197,7 +214,8 @@ LIMIT 20
 -- HogQL, internal project: scheduled skip reasons.
 SELECT properties.reason AS reason, count() AS n
 FROM events
-WHERE event = 'experiment scheduled recalculation skipped' AND timestamp >= now() - INTERVAL 2 DAY
+WHERE event = 'experiment scheduled recalculation skipped' AND properties.region = '<region>'
+  AND timestamp >= now() - INTERVAL 2 DAY
 GROUP BY reason ORDER BY n DESC
 LIMIT 20
 ```

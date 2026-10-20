@@ -3,6 +3,7 @@
 Every template is read-only and has a `LIMIT`.
 Fill placeholders with `sed` from a hidden scratchpad file, or by hand, before you run the query.
 `hogli metabase:query` does not fill `{name:Type}` parameters.
+Use `--format json` with `hogli metabase:query` when a column holds free text.
 
 | Placeholder                    | Value                                                |
 | ------------------------------ | ---------------------------------------------------- |
@@ -11,6 +12,7 @@ Fill placeholders with `sed` from a hidden scratchpad file, or by hand, before y
 | `<run_id_list>`                | quoted, comma-separated run ids                      |
 | `<from>`, `<to>`               | UTC, `YYYY-MM-DD HH:MM:SS`                           |
 | `<region>`                     | `US` or `EU`                                         |
+| `<baseline_from>`              | UTC date where a comparison window starts            |
 
 ## ClickHouse sources
 
@@ -49,7 +51,7 @@ Sorted by metric, so a repeat shows as consecutive rows with the same `error_typ
 ```sql
 SELECT e.key AS metric_uuid, r.created_at, r.trigger, r.status,
        e.value ->> 'error_type' AS error_type, e.value ->> 'step' AS step,
-       e.value ->> 'retriable' AS retriable, left(e.value ->> 'message', 120) AS message
+       e.value ->> 'retriable' AS retriable, regexp_replace(left(e.value ->> 'message', 120), '\s+', ' ', 'g') AS message
 FROM posthog_experimentmetricsrecalculation r,
      jsonb_each(CASE WHEN jsonb_typeof(r.metric_errors) = 'object' THEN r.metric_errors ELSE '{}'::jsonb END) e
 WHERE r.team_id = <team_id> AND r.experiment_id = <experiment_id>
@@ -88,7 +90,9 @@ Per team, for the "why direct_scan" branch. The error text is shortened to its s
 SELECT created_at::date AS day, status,
        CASE WHEN time_range_end - time_range_start <= interval '1 day' THEN '<=1d'
             WHEN time_range_end - time_range_start <= interval '7 days' THEN '2-7d' ELSE '>7d' END AS width,
-       left(regexp_replace(coalesce(error, ''), '[0-9a-f-]{20,}|[0-9]+', '#', 'g'), 60) AS error_shape,
+       left(regexp_replace(regexp_replace(regexp_replace(coalesce(error, ''),
+            'Received from \S+', 'Received from <host>', 'g'), '\s+', ' ', 'g'),
+            '[0-9a-f-]{20,}|[0-9]+', '#', 'g'), 60) AS error_shape,
        count(*) AS jobs
 FROM analytics_platform_preaggregationjob
 WHERE team_id = <team_id> AND created_at >= '<from>'
@@ -117,9 +121,12 @@ FROM clusterAllReplicas(posthog, system, query_log)
 WHERE event_date BETWEEN toDate('<from>') AND toDate('<to>')
   AND is_initial_query AND type != 'QueryStart'
   AND JSONExtractString(log_comment, 'temporal', 'workflow_id') = 'experiment-metrics-recalculation-<run_id>'
+  AND JSONExtractString(log_comment, 'experiment_query_surface') != ''
 ORDER BY event_time
 LIMIT 200
 ```
+
+The calc activity also runs untagged queries (the cancel drain). The filter leaves them out; the kills template shows kills.
 
 Codes 43, 386 and 754 are deterministic: every attempt fails the same way.
 A 394 with a matching kill below is our own attempt timeout or a cancel.
@@ -130,7 +137,8 @@ A 394 with a matching kill below is our own attempt timeout or a cancel.
 SELECT event_time, type, user
 FROM clusterAllReplicas(posthog, system, query_log)
 WHERE event_date BETWEEN toDate('<from>') AND toDate('<to>')
-  AND query_kind = 'KillQuery' AND query LIKE '%experiment_metric_recalc_<run_id>%'
+  AND query_kind = 'KillQuery' AND type != 'QueryStart'
+  AND query LIKE '%experiment_metric_recalc_<run_id>%'
 ORDER BY event_time
 LIMIT 50
 ```
@@ -161,9 +169,11 @@ LIMIT 100
 ```sql
 SELECT toTimeZone(timestamp, 'UTC') AS ts_utc, event, properties.status AS status,
        properties.trigger AS trigger, properties.reason AS reason, properties.is_existing AS is_existing,
-       properties.queue_duration_ms AS queue_ms, properties.total_duration_ms AS total_ms
+       properties.queue_duration_ms AS queue_ms, properties.total_duration_ms AS total_ms,
+       properties.recalculation_id AS run_id
 FROM events
-WHERE event IN ('experiment results refresh completed', 'experiment metric recalculation')
+WHERE ((event = 'experiment results refresh completed' AND properties.region = '<region>')
+       OR event = 'experiment metric recalculation')
   AND toInt(properties.experiment_id) = <experiment_id>
   AND timestamp >= toDateTime('<from>', 'UTC') AND timestamp < toDateTime('<to>', 'UTC')
 ORDER BY timestamp DESC
@@ -171,19 +181,22 @@ LIMIT 100
 ```
 
 `experiment metric recalculation` comes from the frontend: `triggered`, `completed`, `failed`, or `abandoned` with a `reason` (`poll_timeout` and others).
-The same `experiment_id` can exist in US and EU. Match on the run id when you have it.
+The frontend event has no `region`, and the same `experiment_id` can exist in US and EU.
+Keep only its rows whose `run_id` is in the run history.
 
 ### UI or API
 
 A click in the UI sends `experiment metric recalculation` with `status = 'triggered'` and the run id.
-Count the matches for the runs in question, and the fleet baseline without the id filter.
+Automatic cold runs and heals send it too, and so does a click that reuses an active run (`is_existing`).
+Count only `manual` runs that the click created, and the fleet baseline without the id filter.
 Zero matches with a normal baseline means the runs did not come from the button.
 
 ```sql
-SELECT countIf(properties.recalculation_id IN (<run_id_list>)) AS matched,
+SELECT countIf(properties.recalculation_id IN (<run_id_list>)) AS created_by_click,
        count() AS fleet_baseline
 FROM events
 WHERE event = 'experiment metric recalculation' AND properties.status = 'triggered'
+  AND properties.trigger = 'manual' AND properties.is_existing != true
   AND timestamp >= toDateTime('<from>', 'UTC') AND timestamp < toDateTime('<to>', 'UTC')
 LIMIT 1
 ```
