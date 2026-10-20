@@ -36,12 +36,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
-class TestBloggerSchemas:
-    def test_get_schemas_names_filter(self) -> None:
-        schemas = BloggerSource().get_schemas(MagicMock(), team_id=1, names=["posts"])
-        assert [s.name for s in schemas] == ["posts"]
-
-
 class TestBloggerCredentials:
     @parameterized.expand(
         [

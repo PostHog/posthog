@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     check_resolved_addresses,
     host_lookup_is_skipped,
+    note_oob_domain,
     open_ssh_tunnel,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -692,6 +693,8 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     or a resolver "try again" answer raises the error pymysql raises for its own failed lookup,
     so the transient-connect retry runs a fresh lookup on the next attempt.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return ()
 

@@ -60,9 +60,5 @@ class TestNewRelicSource:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
         assert schema.should_sync_default is False
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["entities"])
-        assert [schema.name for schema in schemas] == ["entities"]
-
     def test_connection_host_fields_require_secret_reentry_on_retarget(self):
         assert self.source.connection_host_fields == ["account_id", "region"]

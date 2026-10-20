@@ -39,6 +39,19 @@ GEOIP_KEY_MAPPING = {"city": "city_name"}
 GEOIP_LOCATION_CACHE_SIZE = 4096
 
 
+def _is_non_public_ip(ip_address: str) -> bool:
+    """True for addresses geoip can't usefully locate — private/reserved ranges (incl. IPv6) and
+    malformed input. Without this, RFC1918 (10/8, 172.16/12), loopback (::1), link-local, etc. would
+    fall through to geoip.city() and raise "not in the database" on every such request."""
+    try:
+        parsed = ipaddress.ip_address(ip_address)
+    except ValueError:
+        return True
+    return (
+        parsed.is_private or parsed.is_loopback or parsed.is_link_local or parsed.is_reserved or parsed.is_unspecified
+    )
+
+
 def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
     """
     Returns a dictionary of geoip properties for the given ip address.
@@ -52,8 +65,7 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
         $geoip_postal_code
         $geoip_time_zone
     """
-    if not ip_address or not geoip or ip_address == "127.0.0.1" or ip_address.startswith("192.168."):
-        # Local addresses would otherwise throw "The address 127.0.0.1 is not in the database." below
+    if not ip_address or not geoip or _is_non_public_ip(ip_address):
         return {}
 
     try:
@@ -75,19 +87,6 @@ class GeoLocation(TypedDict, total=False):
     latitude: float
     longitude: float
     country_code: str
-
-
-def _is_non_public_ip(ip_address: str) -> bool:
-    """True for addresses geoip can't usefully locate — private/reserved ranges (incl. IPv6) and
-    malformed input. Without this, RFC1918 (10/8, 172.16/12), loopback (::1), link-local, etc. would
-    fall through to geoip.city() and raise "not in the database" on every such request."""
-    try:
-        parsed = ipaddress.ip_address(ip_address)
-    except ValueError:
-        return True
-    return (
-        parsed.is_private or parsed.is_loopback or parsed.is_link_local or parsed.is_reserved or parsed.is_unspecified
-    )
 
 
 @dataclass(frozen=True, kw_only=True)

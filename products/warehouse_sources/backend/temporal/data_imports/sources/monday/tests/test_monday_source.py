@@ -45,11 +45,6 @@ class TestMondaySource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert error_message_matches(observed_error, non_retryable_errors)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["items"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "items"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message, api_version, expected_api_version",
         [

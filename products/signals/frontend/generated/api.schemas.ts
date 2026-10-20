@@ -141,6 +141,432 @@ export interface InboxSummaryApi {
     people: InboxSummaryPersonApi[] | null
 }
 
+/**
+ * * `pending` - Pending
+ * * `started` - Started
+ * * `skipped` - Unavailable
+ * * `failed` - Failed
+ */
+export type InboxOnboardingJobStatusEnumApi =
+    (typeof InboxOnboardingJobStatusEnumApi)[keyof typeof InboxOnboardingJobStatusEnumApi]
+
+export const InboxOnboardingJobStatusEnumApi = {
+    Pending: 'pending',
+    Started: 'started',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+export interface InboxOnboardingJobsApi {
+    /** Dispatch status of the first general scout run.
+     *
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed */
+    scout: InboxOnboardingJobStatusEnumApi
+    /** Dispatch status of personalized scout recommendations.
+     *
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed */
+    recommendations: InboxOnboardingJobStatusEnumApi
+}
+
+/**
+ * * `signals` - Signals
+ * * `scouts` - Scouts
+ * * `github` - GitHub
+ */
+export type InboxOnboardingStepEnumApi = (typeof InboxOnboardingStepEnumApi)[keyof typeof InboxOnboardingStepEnumApi]
+
+export const InboxOnboardingStepEnumApi = {
+    Signals: 'signals',
+    Scouts: 'scouts',
+    Github: 'github',
+} as const
+
+/**
+ * * `session_replay` - Session replay
+ * * `llm_analytics` - LLM analytics
+ * * `github` - GitHub
+ * * `linear` - Linear
+ * * `jira` - Jira
+ * * `zendesk` - Zendesk
+ * * `conversations` - Conversations
+ * * `error_tracking` - Error tracking
+ * * `pganalyze` - pganalyze
+ * * `signals_scout` - Signals scout
+ * * `signals_check` - Report check
+ * * `logs` - Logs
+ * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
+ * * `analytics` - Product analytics
+ * * `freshdesk` - Freshdesk
+ * * `freshservice` - Freshservice
+ * * `front` - Front
+ * * `gorgias` - Gorgias
+ * * `kustomer` - Kustomer
+ * * `dixa` - Dixa
+ * * `plain` - Plain
+ * * `gitlab` - GitLab
+ * * `gitea` - Gitea
+ * * `shortcut` - Shortcut
+ * * `sentry` - Sentry
+ * * `rollbar` - Rollbar
+ * * `bugsnag` - Bugsnag
+ * * `honeybadger` - Honeybadger
+ * * `raygun` - Raygun
+ * * `snyk` - Snyk
+ * * `sonarqube` - SonarQube
+ * * `semgrep` - Semgrep
+ * * `rapid7_insightvm` - Rapid7 InsightVM
+ * * `featurebase` - Featurebase
+ * * `frill` - Frill
+ * * `aha` - Aha
+ * * `uservoice` - UserVoice
+ * * `productboard` - Productboard
+ * * `canny` - Canny
+ * * `asknicely` - AskNicely
+ * * `retently` - Retently
+ * * `appfigures` - Appfigures
+ * * `appfollow` - AppFollow
+ * * `judgeme_reviews` - Judge.me
+ * * `intercom` - Intercom
+ * * `hubspot` - HubSpot
+ * * `engineering_analytics` - Engineering analytics
+ * * `google_search_console` - Google Search Console
+ */
+export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
+
+export const SignalSourceProductEnumApi = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Jira: 'jira',
+    Zendesk: 'zendesk',
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    Pganalyze: 'pganalyze',
+    SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
+    Logs: 'logs',
+    HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
+} as const
+
+/**
+ * * `session_analysis_cluster` - Session analysis cluster
+ * * `evaluation_report` - Evaluation report
+ * * `issue` - Issue
+ * * `ticket` - Ticket
+ * * `issue_created` - Issue created
+ * * `issue_reopened` - Issue reopened
+ * * `issue_spiking` - Issue spiking
+ * * `cross_source_issue` - Cross source issue
+ * * `alert_state_change` - Alert state change
+ * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
+ * * `anomaly_investigation` - Anomaly investigation
+ * * `feedback` - Feedback
+ * * `review` - Review
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_default_branch` - CI broken default branch
+ * * `ci_duration_regression` - CI duration regression
+ * * `search_opportunity` - Search opportunity
+ */
+export type SignalSourceConfigSourceTypeEnumApi =
+    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
+
+export const SignalSourceConfigSourceTypeEnumApi = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    EvaluationReport: 'evaluation_report',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+    CrossSourceIssue: 'cross_source_issue',
+    AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
+    Feedback: 'feedback',
+    Review: 'review',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
+} as const
+
+export interface InboxOnboardingSourceApi {
+    /** Source product selected during setup.
+     *
+     * * `session_replay` - Session replay
+     * * `llm_analytics` - LLM analytics
+     * * `github` - GitHub
+     * * `linear` - Linear
+     * * `jira` - Jira
+     * * `zendesk` - Zendesk
+     * * `conversations` - Conversations
+     * * `error_tracking` - Error tracking
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - Signals scout
+     * * `signals_check` - Report check
+     * * `logs` - Logs
+     * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
+     * * `analytics` - Product analytics
+     * * `freshdesk` - Freshdesk
+     * * `freshservice` - Freshservice
+     * * `front` - Front
+     * * `gorgias` - Gorgias
+     * * `kustomer` - Kustomer
+     * * `dixa` - Dixa
+     * * `plain` - Plain
+     * * `gitlab` - GitLab
+     * * `gitea` - Gitea
+     * * `shortcut` - Shortcut
+     * * `sentry` - Sentry
+     * * `rollbar` - Rollbar
+     * * `bugsnag` - Bugsnag
+     * * `honeybadger` - Honeybadger
+     * * `raygun` - Raygun
+     * * `snyk` - Snyk
+     * * `sonarqube` - SonarQube
+     * * `semgrep` - Semgrep
+     * * `rapid7_insightvm` - Rapid7 InsightVM
+     * * `featurebase` - Featurebase
+     * * `frill` - Frill
+     * * `aha` - Aha
+     * * `uservoice` - UserVoice
+     * * `productboard` - Productboard
+     * * `canny` - Canny
+     * * `asknicely` - AskNicely
+     * * `retently` - Retently
+     * * `appfigures` - Appfigures
+     * * `appfollow` - AppFollow
+     * * `judgeme_reviews` - Judge.me
+     * * `intercom` - Intercom
+     * * `hubspot` - HubSpot
+     * * `engineering_analytics` - Engineering analytics
+     * * `google_search_console` - Google Search Console */
+    source_product: SignalSourceProductEnumApi
+    /** Signal type selected during setup.
+     *
+     * * `session_analysis_cluster` - Session analysis cluster
+     * * `evaluation_report` - Evaluation report
+     * * `issue` - Issue
+     * * `ticket` - Ticket
+     * * `issue_created` - Issue created
+     * * `issue_reopened` - Issue reopened
+     * * `issue_spiking` - Issue spiking
+     * * `cross_source_issue` - Cross source issue
+     * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
+     * * `anomaly_investigation` - Anomaly investigation
+     * * `feedback` - Feedback
+     * * `review` - Review
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
+     * * `search_opportunity` - Search opportunity */
+    source_type: SignalSourceConfigSourceTypeEnumApi
+    /** Whether this source should be enabled at activation. */
+    enabled: boolean
+}
+
+/**
+ * * `canonical` - canonical
+ * * `custom` - custom
+ */
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
+
+export interface ScoutSuggestionProposedConfigApi {
+    /**
+     * Suggested five-field cron schedule in the project timezone, or null for an interval.
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /**
+     * Suggested minutes between runs when no cron is given; null means the daily default.
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /** Whether the suggested scout should write to the inbox (false = dry run). */
+    emit: boolean
+}
+
+/**
+ * * `high` - high
+ * * `medium` - medium
+ * * `low` - low
+ */
+export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
+
+export const ConfidenceTierEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+export interface ScoutSuggestionItemApi {
+    /** Stable id of this suggestion within the batch; use it to dismiss. */
+    id: string
+    /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
+     *
+     * * `canonical` - canonical
+     * * `custom` - custom */
+    kind: ScoutOriginEnumApi
+    /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
+    skill_name: string
+    /** Short sentence-case title: what the scout watches. */
+    title: string
+    /** Project-specific evidence for this suggestion, in prose. */
+    why_here: string
+    /** Custom only: the one-line description the scout would be created with. */
+    description: string
+    /** Custom only: the complete skill body the scout would be created with. */
+    draft_body: string
+    /** Suggested schedule and emit posture. */
+    proposed_config: ScoutSuggestionProposedConfigApi
+    /** True when nothing in the current fleet covers this. */
+    gap: boolean
+    /** The producer's confidence.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high */
+    confidence: ConfidenceTierEnumApi
+}
+
+export interface InboxOnboardingDraftApi {
+    /** Step to resume after returning.
+     *
+     * * `signals` - Signals
+     * * `scouts` - Scouts
+     * * `github` - GitHub */
+    step: InboxOnboardingStepEnumApi
+    /** Staged signal source choices. */
+    sources: InboxOnboardingSourceApi[]
+    /**
+     * Existing enabled scanners selected to emit signals.
+     * @maxItems 100
+     */
+    scanner_ids: string[]
+    /** Selected scout suggestion drafts. */
+    suggestions: ScoutSuggestionItemApi[]
+    /**
+     * Scouts enabled by an unfinished activation, retained to undo later deselections.
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+    activation_scouts?: string[]
+    /** Opt in to automatically creating pull requests. */
+    automatic_implementation: boolean
+    /** Lowest priority to implement automatically; P1 includes P0 and P1.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    implementation_priority: AutonomyPriorityEnumApi
+}
+
+/**
+ * * `control` - Control
+ * * `test-ui` - Focused steps
+ * * `test-github` - Activate and explore
+ */
+export type InboxOnboardingVariantEnumApi =
+    (typeof InboxOnboardingVariantEnumApi)[keyof typeof InboxOnboardingVariantEnumApi]
+
+export const InboxOnboardingVariantEnumApi = {
+    Control: 'control',
+    TestUi: 'test-ui',
+    TestGithub: 'test-github',
+} as const
+
+export interface InboxOnboardingStateApi {
+    /** Background work started by quick activation. */
+    jobs?: InboxOnboardingJobsApi
+    /** Saved setup choices, without activating them. */
+    draft: InboxOnboardingDraftApi | null
+    /**
+     * When verified setup completed.
+     * @nullable
+     */
+    completed_at: string | null
+    /** Variant recorded at the first eligible impression.
+     *
+     * * `control` - Control
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore */
+    variant: InboxOnboardingVariantEnumApi | null
+}
+
+export interface InboxOnboardingExposureApi {
+    /** Assigned experiment variant at the eligible Inbox impression.
+     *
+     * * `control` - Control
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore */
+    variant: InboxOnboardingVariantEnumApi
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -3707,17 +4133,6 @@ export interface SignalScoutSkillSummaryApi {
     readonly allowed_tools: readonly string[]
 }
 
-/**
- * * `canonical` - canonical
- * * `custom` - custom
- */
-export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
-
-export const ScoutOriginEnumApi = {
-    Canonical: 'canonical',
-    Custom: 'custom',
-} as const
-
 export type ScoutRoleEnumApi = (typeof ScoutRoleEnumApi)[keyof typeof ScoutRoleEnumApi]
 
 export const ScoutRoleEnumApi = {
@@ -4711,19 +5126,6 @@ export const TrialCriterionVerdictVerdictEnumApi = {
     Fail: 'fail',
     Unknown: 'unknown',
     NotApplicable: 'not_applicable',
-} as const
-
-/**
- * * `high` - high
- * * `medium` - medium
- * * `low` - low
- */
-export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
-
-export const ConfidenceTierEnumApi = {
-    High: 'high',
-    Medium: 'medium',
-    Low: 'low',
 } as const
 
 export interface TrialCriterionEvidenceApi {
@@ -7572,51 +7974,6 @@ export const SignalScoutSuggestionSetStatusEnumApi = {
     LowActivity: 'low_activity',
 } as const
 
-export interface ScoutSuggestionProposedConfigApi {
-    /**
-     * Suggested five-field cron schedule in the project timezone, or null for an interval.
-     * @nullable
-     */
-    run_cron_schedule?: string | null
-    /**
-     * Suggested minutes between runs when no cron is given; null means the daily default.
-     * @nullable
-     */
-    run_interval_minutes?: number | null
-    /** Whether the suggested scout should write to the inbox (false = dry run). */
-    emit: boolean
-}
-
-export interface ScoutSuggestionItemApi {
-    /** Stable id of this suggestion within the batch; use it to dismiss. */
-    id: string
-    /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
-     *
-     * * `canonical` - canonical
-     * * `custom` - custom */
-    kind: ScoutOriginEnumApi
-    /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
-    skill_name: string
-    /** Short sentence-case title: what the scout watches. */
-    title: string
-    /** Project-specific evidence for this suggestion, in prose. */
-    why_here: string
-    /** Custom only: the one-line description the scout would be created with. */
-    description: string
-    /** Custom only: the complete skill body the scout would be created with. */
-    draft_body: string
-    /** Suggested schedule and emit posture. */
-    proposed_config: ScoutSuggestionProposedConfigApi
-    /** True when nothing in the current fleet covers this. */
-    gap: boolean
-    /** The producer's confidence.
-     *
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high */
-    confidence: ConfidenceTierEnumApi
-}
-
 export interface ScoutSuggestionSetApi {
     /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing was generated.
      *
@@ -7643,161 +8000,6 @@ export interface ScoutSuggestionRefreshApi {
     /** The dispatched refresh workflow id. */
     workflow_id: string
 }
-
-/**
- * * `session_replay` - Session replay
- * * `llm_analytics` - LLM analytics
- * * `github` - GitHub
- * * `linear` - Linear
- * * `jira` - Jira
- * * `zendesk` - Zendesk
- * * `conversations` - Conversations
- * * `error_tracking` - Error tracking
- * * `pganalyze` - pganalyze
- * * `signals_scout` - Signals scout
- * * `signals_check` - Report check
- * * `logs` - Logs
- * * `health_checks` - Health checks
- * * `endpoints` - Endpoints
- * * `replay_vision` - Replay Vision
- * * `analytics` - Product analytics
- * * `freshdesk` - Freshdesk
- * * `freshservice` - Freshservice
- * * `front` - Front
- * * `gorgias` - Gorgias
- * * `kustomer` - Kustomer
- * * `dixa` - Dixa
- * * `plain` - Plain
- * * `gitlab` - GitLab
- * * `gitea` - Gitea
- * * `shortcut` - Shortcut
- * * `sentry` - Sentry
- * * `rollbar` - Rollbar
- * * `bugsnag` - Bugsnag
- * * `honeybadger` - Honeybadger
- * * `raygun` - Raygun
- * * `snyk` - Snyk
- * * `sonarqube` - SonarQube
- * * `semgrep` - Semgrep
- * * `rapid7_insightvm` - Rapid7 InsightVM
- * * `featurebase` - Featurebase
- * * `frill` - Frill
- * * `aha` - Aha
- * * `uservoice` - UserVoice
- * * `productboard` - Productboard
- * * `canny` - Canny
- * * `asknicely` - AskNicely
- * * `retently` - Retently
- * * `appfigures` - Appfigures
- * * `appfollow` - AppFollow
- * * `judgeme_reviews` - Judge.me
- * * `intercom` - Intercom
- * * `hubspot` - HubSpot
- * * `engineering_analytics` - Engineering analytics
- * * `google_search_console` - Google Search Console
- */
-export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
-
-export const SignalSourceProductEnumApi = {
-    SessionReplay: 'session_replay',
-    LlmAnalytics: 'llm_analytics',
-    Github: 'github',
-    Linear: 'linear',
-    Jira: 'jira',
-    Zendesk: 'zendesk',
-    Conversations: 'conversations',
-    ErrorTracking: 'error_tracking',
-    Pganalyze: 'pganalyze',
-    SignalsScout: 'signals_scout',
-    SignalsCheck: 'signals_check',
-    Logs: 'logs',
-    HealthChecks: 'health_checks',
-    Endpoints: 'endpoints',
-    ReplayVision: 'replay_vision',
-    Analytics: 'analytics',
-    Freshdesk: 'freshdesk',
-    Freshservice: 'freshservice',
-    Front: 'front',
-    Gorgias: 'gorgias',
-    Kustomer: 'kustomer',
-    Dixa: 'dixa',
-    Plain: 'plain',
-    Gitlab: 'gitlab',
-    Gitea: 'gitea',
-    Shortcut: 'shortcut',
-    Sentry: 'sentry',
-    Rollbar: 'rollbar',
-    Bugsnag: 'bugsnag',
-    Honeybadger: 'honeybadger',
-    Raygun: 'raygun',
-    Snyk: 'snyk',
-    Sonarqube: 'sonarqube',
-    Semgrep: 'semgrep',
-    Rapid7Insightvm: 'rapid7_insightvm',
-    Featurebase: 'featurebase',
-    Frill: 'frill',
-    Aha: 'aha',
-    Uservoice: 'uservoice',
-    Productboard: 'productboard',
-    Canny: 'canny',
-    Asknicely: 'asknicely',
-    Retently: 'retently',
-    Appfigures: 'appfigures',
-    Appfollow: 'appfollow',
-    JudgemeReviews: 'judgeme_reviews',
-    Intercom: 'intercom',
-    Hubspot: 'hubspot',
-    EngineeringAnalytics: 'engineering_analytics',
-    GoogleSearchConsole: 'google_search_console',
-} as const
-
-/**
- * * `session_analysis_cluster` - Session analysis cluster
- * * `evaluation_report` - Evaluation report
- * * `issue` - Issue
- * * `ticket` - Ticket
- * * `issue_created` - Issue created
- * * `issue_reopened` - Issue reopened
- * * `issue_spiking` - Issue spiking
- * * `cross_source_issue` - Cross source issue
- * * `alert_state_change` - Alert state change
- * * `health_issue` - Health issue
- * * `endpoint_execution_failed` - Endpoint execution failed
- * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
- * * `scanner_finding` - Scanner finding
- * * `anomaly_investigation` - Anomaly investigation
- * * `feedback` - Feedback
- * * `review` - Review
- * * `ci_flaky_check` - CI flaky check
- * * `ci_broken_default_branch` - CI broken default branch
- * * `ci_duration_regression` - CI duration regression
- * * `search_opportunity` - Search opportunity
- */
-export type SignalSourceConfigSourceTypeEnumApi =
-    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
-
-export const SignalSourceConfigSourceTypeEnumApi = {
-    SessionAnalysisCluster: 'session_analysis_cluster',
-    EvaluationReport: 'evaluation_report',
-    Issue: 'issue',
-    Ticket: 'ticket',
-    IssueCreated: 'issue_created',
-    IssueReopened: 'issue_reopened',
-    IssueSpiking: 'issue_spiking',
-    CrossSourceIssue: 'cross_source_issue',
-    AlertStateChange: 'alert_state_change',
-    HealthIssue: 'health_issue',
-    EndpointExecutionFailed: 'endpoint_execution_failed',
-    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
-    ScannerFinding: 'scanner_finding',
-    AnomalyInvestigation: 'anomaly_investigation',
-    Feedback: 'feedback',
-    Review: 'review',
-    CiFlakyCheck: 'ci_flaky_check',
-    CiBrokenDefaultBranch: 'ci_broken_default_branch',
-    CiDurationRegression: 'ci_duration_regression',
-    SearchOpportunity: 'search_opportunity',
-} as const
 
 export type SignalSourceSyncStatusEnumApi =
     (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
@@ -8239,11 +8441,12 @@ export type SignalsScoutConfigTrialSetupParams = {
 
 export type SignalsScoutConfigSyncParams = {
     /**
-     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.
+     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. The onboarding surface creates new configs disabled until the user activates them. Omitted means unknown.
      *
      * * `roster` - roster
      * * `desktop` - desktop
      * * `wizard` - wizard
+     * * `onboarding` - onboarding
      * @minLength 1
      */
     surface?: SignalsScoutConfigSyncSurface
@@ -8256,6 +8459,7 @@ export const SignalsScoutConfigSyncSurface = {
     Roster: 'roster',
     Desktop: 'desktop',
     Wizard: 'wizard',
+    Onboarding: 'onboarding',
 } as const
 
 export type SignalsScoutMembersListParams = {
@@ -8473,6 +8677,10 @@ export type SignalsScoutScratchpadSearchParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:*` identity). Omit to return entries from every writer.
+     */
+    skill_name?: string
     /**
      * ILIKE substring match against `content`. Omit to return the most recent entries.
      */

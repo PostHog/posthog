@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery==3.40.1",
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
-    "google-genai==1.46.0",
+    "google-genai==1.75.0",
     # 2.8+ gives each worker its own SO_REUSEPORT socket on Linux. The query pool runs
     # bin/granian_shared_socket.py to keep one shared socket; its test must pass on any bump.
     "granian[uvloop,reload,pname]==2.8.3",

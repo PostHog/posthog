@@ -3,16 +3,17 @@ import json
 import time
 import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.settings import (
     AUTH0_ENDPOINTS,
+    CHECKPOINT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     SEARCH_RESULT_CAP,
     Auth0EndpointConfig,
@@ -81,6 +82,21 @@ class Auth0ResumeConfig:
     # Lower bound of the Lucene date window currently being paged, or None while the run is
     # still inside the first (unfiltered) window.
     window_start: Optional[str] = None
+    # Fan-out children only: the last parent on this page whose children were all handed to the
+    # pipeline. A resumed run skips the parents up to and including it.
+    last_parent_id: Optional[str] = None
+    # Fan-out children only: the `from` token of the next unread page of the parent after
+    # `last_parent_id`, and of the next parent page when the parent is checkpoint-paged.
+    child_checkpoint: Optional[str] = None
+    parent_checkpoint: Optional[str] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class _Page:
+    rows: list[dict[str, Any]]
+    # Where to resume to re-read this page, and to read past it (None after the last page).
+    position: Auth0ResumeConfig
+    next_position: Optional[Auth0ResumeConfig]
 
 
 def normalize_domain(domain: str) -> str:
@@ -280,6 +296,7 @@ def _build_params(
     page: int,
     window_field: Optional[str],
     window_start: Optional[str],
+    fields: Optional[str] = None,
 ) -> dict[str, Any]:
     if not config.paginated:
         return {}
@@ -289,6 +306,9 @@ def _build_params(
         params["include_totals"] = "true"
     if config.search_engine:
         params["search_engine"] = config.search_engine
+    if fields:
+        params["fields"] = fields
+        params["include_fields"] = "true"
     if window_field:
         # `:1` is Auth0's ascending sort order. Rows must arrive oldest-first for the pipeline's
         # watermark to checkpoint per batch and for the window to slide forward.
@@ -300,8 +320,16 @@ def _build_params(
     return params
 
 
-def _build_url(domain: str, config: Auth0EndpointConfig, api_version: str, params: dict[str, Any]) -> str:
-    url = f"{_base_url(domain)}{config.path_template.format(version=api_version)}"
+def _build_url(
+    domain: str,
+    config: Auth0EndpointConfig,
+    api_version: str,
+    params: dict[str, Any],
+    parent_id: Optional[str] = None,
+) -> str:
+    # User ids carry the connection strategy (`auth0|123`), so the id is escaped as one segment.
+    path = config.path_template.format(version=api_version, parent_id=quote(parent_id or "", safe=""))
+    url = f"{_base_url(domain)}{path}"
     if not params:
         return url
     return f"{url}?{urlencode(params, doseq=True)}"
@@ -344,9 +372,11 @@ CREDENTIAL_FIELDS_BY_ENDPOINT: dict[str, tuple[str, ...]] = {
 # Credential fields nested inside each item of an array field, keyed by endpoint then array
 # field name. `read:user_idp_tokens` returns the linked identity provider's own access and
 # refresh tokens inside every `users` row's `identities` entries, letting a reader of the synced
-# table call those providers' APIs as the user without the source's own credentials.
+# table call those providers' APIs as the user without the source's own credentials. Role members
+# are user rows too, so they get the same treatment.
 NESTED_CREDENTIAL_FIELDS_BY_ENDPOINT: dict[str, dict[str, tuple[str, ...]]] = {
     "users": {"identities": ("access_token", "access_token_secret", "refresh_token")},
+    "user_roles": {"identities": ("access_token", "access_token_secret", "refresh_token")},
 }
 
 
@@ -374,6 +404,19 @@ def _strip_credential_fields(rows: list[dict[str, Any]], endpoint: str) -> list[
     return rows
 
 
+def _shape_child_rows(rows: list[dict[str, Any]], config: Auth0EndpointConfig, parent_id: str) -> list[dict[str, Any]]:
+    if config.explode_field:
+        explode_field = config.explode_field
+        rows = [
+            {**{key: value for key, value in row.items() if key != explode_field}, **item}
+            for row in rows
+            for item in (row.get(explode_field) or [])
+            if isinstance(item, dict)
+        ]
+    assert config.parent_id_column is not None
+    return [{**row, config.parent_id_column: parent_id} for row in rows]
+
+
 def _max_window_value(rows: list[dict[str, Any]], window_field: str) -> Optional[str]:
     """Newest window-field value on a page.
 
@@ -383,6 +426,37 @@ def _max_window_value(rows: list[dict[str, Any]], window_field: str) -> Optional
     """
     values = [str(row[window_field]) for row in rows if isinstance(row, dict) and row.get(window_field)]
     return max(values) if values else None
+
+
+def _probe(session: requests.Session, token: str, url: str, read_body: bool) -> tuple[int, Any]:
+    """Request one probe URL and return its status, plus the parsed body when asked for it.
+
+    Without ``read_body`` the response is streamed and closed untouched: a customer-controlled
+    server must not get to buffer an unbounded body at source-create.
+    """
+    response = session.get(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        timeout=10,
+        allow_redirects=False,
+        stream=True,
+        hooks={"response": _reject_redirect_response},
+    )
+    try:
+        if response.is_redirect or response.is_permanent_redirect:
+            raise Auth0HostNotAllowedError(
+                f"Auth0 returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+            )
+        body = _read_capped_json(response) if read_body and response.status_code == 200 else None
+        return response.status_code, body
+    finally:
+        response.close()
+
+
+def _probe_failure(status_code: int, config: Auth0EndpointConfig, schema_name: str) -> tuple[bool, str | None]:
+    if status_code in (401, 403):
+        return False, f"Your Auth0 application is missing the `{config.required_scope}` scope for {schema_name}"
+    return False, f"Auth0 returned status {status_code} for {schema_name}"
 
 
 def validate_credentials(
@@ -430,38 +504,239 @@ def validate_credentials(
         return True, None
 
     config = AUTH0_ENDPOINTS[schema_name]
-    probe_params = {"page": 0, "per_page": 1} if config.paginated else {}
     try:
-        # Stream and close without touching the body — the probe only needs the status, and a
-        # customer-controlled server must not get to buffer an unbounded body at source-create.
-        response = session.get(
-            _build_url(normalized, config, api_version, probe_params),
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-            timeout=10,
-            allow_redirects=False,
-            stream=True,
-            hooks={"response": _reject_redirect_response},
-        )
-        try:
-            is_redirect = response.is_redirect or response.is_permanent_redirect
-            status_code = response.status_code
-        finally:
-            response.close()
+        if config.parent is None:
+            probe_params = {"page": 0, "per_page": 1} if config.paginated else {}
+            status_code, _ = _probe(
+                session, token, _build_url(normalized, config, api_version, probe_params), read_body=False
+            )
+            return (True, None) if status_code == 200 else _probe_failure(status_code, config, schema_name)
+
+        # A child collection is only reachable through a real parent id, so take one from the
+        # parent collection, which the child sync needs access to as well.
+        parent_config = AUTH0_ENDPOINTS[config.parent]
+        parent_url = _build_url(normalized, parent_config, api_version, {"page": 0, "per_page": 1})
+        status_code, body = _probe(session, token, parent_url, read_body=True)
+        if status_code != 200:
+            return _probe_failure(status_code, parent_config, schema_name)
+        parents = _extract_rows(body, parent_config)
+        parent_id = parents[0].get(config.parent_id_field) if parents and isinstance(parents[0], dict) else None
+        if not parent_id:
+            return True, None
+
+        child_params = {"take": 1, **config.extra_params}
+        child_url = _build_url(normalized, config, api_version, child_params, parent_id=str(parent_id))
+        status_code, _ = _probe(session, token, child_url, read_body=False)
     except Auth0HostNotAllowedError:
         return False, HOST_NOT_ALLOWED_ERROR
-    except requests.exceptions.RequestException as e:
+    except (
+        Auth0ResponseTooLargeError,
+        Auth0ResponseTooSlowError,
+        ValueError,
+        requests.exceptions.RequestException,
+    ) as e:
         return False, str(e)
 
-    if is_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
+    return (True, None) if status_code == 200 else _probe_failure(status_code, config, schema_name)
 
-    if status_code == 200:
-        return True, None
 
-    if status_code in (401, 403):
-        return False, f"Your Auth0 application is missing the `{config.required_scope}` scope for {schema_name}"
+def _iter_pages(
+    fetch: Callable[..., Any],
+    domain: str,
+    config: Auth0EndpointConfig,
+    api_version: str,
+    window_field: Optional[str],
+    position: Auth0ResumeConfig,
+    fields: Optional[str] = None,
+) -> Iterator[_Page]:
+    """Walk an offset-paged collection from ``position``, sliding the window past the result cap."""
+    page = position.page
+    window_start = position.window_start
+    pages_fetched = 0
+    while True:
+        if pages_fetched >= MAX_PAGES:
+            raise Auth0PaginationLimitError(
+                f"Auth0 pagination for {config.name} exceeded {MAX_PAGES} pages without terminating"
+            )
 
-    return False, f"Auth0 returned status {status_code} for {schema_name}"
+        params = _build_params(config, page, window_field, window_start, fields)
+        data = fetch(_build_url(domain, config, api_version, params))
+        pages_fetched += 1
+
+        rows = _extract_rows(data, config)
+        if not rows:
+            return
+
+        next_page = page + 1
+        total = data.get("total") if isinstance(data, dict) else None
+        is_last_page = (isinstance(total, int) and next_page * config.page_size >= total) or (
+            len(rows) < config.page_size
+        )
+
+        next_window_start = window_start
+        if not is_last_page and window_field and next_page * config.page_size >= SEARCH_RESULT_CAP:
+            # Auth0 refuses to page past the first 1000 matches, so restart at page 0 with the
+            # window's lower bound moved up to the newest row seen.
+            newest = _max_window_value(rows, window_field)
+            if newest is None:
+                raise Auth0PaginationStalledError(
+                    f"{PAGINATION_STALLED_ERROR}: {config.name} rows carry no `{window_field}` value to slide on"
+                )
+            if newest == window_start:
+                raise Auth0PaginationStalledError(
+                    f"{PAGINATION_STALLED_ERROR}: more than {SEARCH_RESULT_CAP} {config.name} rows share "
+                    f"`{window_field}` = {newest}"
+                )
+            next_window_start = newest
+            next_page = 0
+
+        yield _Page(
+            rows=rows,
+            position=Auth0ResumeConfig(page=page, window_start=window_start),
+            next_position=None if is_last_page else Auth0ResumeConfig(page=next_page, window_start=next_window_start),
+        )
+
+        if is_last_page:
+            return
+
+        page = next_page
+        window_start = next_window_start
+
+
+def _iter_checkpoint_pages(
+    fetch: Callable[..., Any],
+    domain: str,
+    config: Auth0EndpointConfig,
+    api_version: str,
+    start: Optional[str],
+    parent_id: Optional[str] = None,
+) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
+    """Each page of a `from`/`take` collection, with the checkpoint after it (None after the last).
+
+    A collection without rows still yields one empty last page, so the caller stages a position
+    for every parent.
+    """
+    checkpoint = start
+    for _ in range(MAX_PAGES):
+        # Without `include_totals` Auth0 answers with a bare array that carries no `next` token.
+        params: dict[str, Any] = {"take": CHECKPOINT_PAGE_SIZE, "include_totals": "true", **config.extra_params}
+        if checkpoint:
+            params["from"] = checkpoint
+        # A parent deleted after the parent page was read returns 404; it has no children left.
+        data = fetch(
+            _build_url(domain, config, api_version, params, parent_id=parent_id), not_found_ok=parent_id is not None
+        )
+        rows = _extract_rows(data, config)
+        next_checkpoint = data.get("next") if isinstance(data, dict) else None
+        if not rows or not isinstance(next_checkpoint, str) or not next_checkpoint:
+            yield rows, None
+            return
+        yield rows, next_checkpoint
+        checkpoint = next_checkpoint
+    raise Auth0PaginationLimitError(
+        f"Auth0 pagination for {config.name} exceeded {MAX_PAGES} pages without terminating"
+    )
+
+
+def _iter_parent_pages(
+    fetch: Callable[..., Any],
+    domain: str,
+    parent_config: Auth0EndpointConfig,
+    api_version: str,
+    position: Auth0ResumeConfig,
+    fields: Optional[str],
+) -> Iterator[_Page]:
+    if not parent_config.checkpoint_parent:
+        yield from _iter_pages(
+            fetch, domain, parent_config, api_version, parent_config.full_refresh_window_field, position, fields
+        )
+        return
+
+    checkpoint = position.parent_checkpoint
+    for rows, next_checkpoint in _iter_checkpoint_pages(fetch, domain, parent_config, api_version, checkpoint):
+        if not rows:
+            return
+        yield _Page(
+            rows=rows,
+            position=Auth0ResumeConfig(page=0, parent_checkpoint=checkpoint),
+            next_position=None
+            if next_checkpoint is None
+            else Auth0ResumeConfig(page=0, parent_checkpoint=next_checkpoint),
+        )
+        checkpoint = next_checkpoint
+
+
+def _iter_fan_out_rows(
+    fetch: Callable[..., Any],
+    domain: str,
+    config: Auth0EndpointConfig,
+    api_version: str,
+    resumable_source_manager: ResumableSourceManager[Auth0ResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None
+    parent_config = AUTH0_ENDPOINTS[config.parent]
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    position = resume_config or Auth0ResumeConfig(page=0)
+    resume_after = position.last_parent_id
+    # Applies only to the first parent the resumed run reads.
+    child_start = position.child_checkpoint
+    if resume_config is not None:
+        logger.debug(f"Auth0: resuming {config.name} from {config.parent} page {position.page} after {resume_after}")
+
+    for parent_page in _iter_parent_pages(
+        fetch,
+        domain,
+        parent_config,
+        api_version,
+        dataclasses.replace(position, last_parent_id=None, child_checkpoint=None),
+        config.parent_fields,
+    ):
+        parent_ids = [
+            str(row[config.parent_id_field])
+            for row in parent_page.rows
+            if isinstance(row, dict) and row.get(config.parent_id_field)
+        ]
+        last_done: Optional[str] = None
+        if resume_after is not None:
+            # If the resume parent left the page, re-read the whole page: duplicates merge away,
+            # a skipped parent would not.
+            if resume_after in parent_ids:
+                parent_ids = parent_ids[parent_ids.index(resume_after) + 1 :]
+                last_done = resume_after
+            else:
+                child_start = None
+            resume_after = None
+
+        for index, parent_id in enumerate(parent_ids):
+            # Staged before each yield: a page that ends this parent moves the cursor past it, any
+            # earlier page moves the cursor to this parent's next child page.
+            done = (
+                parent_page.next_position
+                if index == len(parent_ids) - 1
+                else dataclasses.replace(parent_page.position, last_parent_id=parent_id)
+            )
+            for rows, next_checkpoint in _iter_checkpoint_pages(
+                fetch, domain, config, api_version, child_start, parent_id=parent_id
+            ):
+                state = (
+                    done
+                    if next_checkpoint is None
+                    else dataclasses.replace(
+                        parent_page.position, last_parent_id=last_done, child_checkpoint=next_checkpoint
+                    )
+                )
+                if state is not None:
+                    resumable_source_manager.save_state(state)
+                shaped = _strip_credential_fields(_shape_child_rows(rows, config, parent_id), config.name)
+                if shaped:
+                    yield shaped
+                else:
+                    resumable_source_manager.safe_point()
+            child_start = None
+            last_done = parent_id
+        child_start = None
 
 
 def get_rows(
@@ -497,7 +772,7 @@ def get_rows(
     )
     session = make_tracked_session(capture=config.capture_samples, redact_values=(client_secret,))
 
-    def fetch(url: str) -> Any:
+    def fetch(url: str, not_found_ok: bool = False) -> Any:
         # The tracked session already retries 429 and transient 5xx honoring Retry-After, which
         # is what Auth0's rate limiter returns — no second retry layer here.
         headers = {"Authorization": f"Bearer {token_manager.get_token()}", "Accept": "application/json"}
@@ -514,6 +789,8 @@ def get_rows(
                 raise Auth0HostNotAllowedError(
                     f"Auth0 returned an unexpected redirect (status={response.status_code}); refusing to follow it"
                 )
+            if not_found_ok and response.status_code == 404:
+                return None
             if not response.ok:
                 logger.error(
                     f"Auth0 API error: status={response.status_code}, body={_read_body_preview(response)}, url={url}"
@@ -523,6 +800,10 @@ def get_rows(
         finally:
             response.close()
 
+    if config.parent is not None:
+        yield from _iter_fan_out_rows(fetch, domain, config, api_version, resumable_source_manager, logger)
+        return
+
     if not config.paginated:
         data = fetch(_build_url(domain, config, api_version, {}))
         rows = _strip_credential_fields(_extract_rows(data, config), endpoint)
@@ -531,67 +812,23 @@ def get_rows(
         return
 
     window_field = resolve_window_field(config, should_use_incremental_field, incremental_field)
-    window_start: Optional[str] = None
+    position = Auth0ResumeConfig(page=0)
     if window_field and should_use_incremental_field and db_incremental_field_last_value:
-        window_start = _format_window_value(db_incremental_field_last_value)
+        position = Auth0ResumeConfig(page=0, window_start=_format_window_value(db_incremental_field_last_value))
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = 0
     if resume_config is not None:
-        page = resume_config.page
-        window_start = resume_config.window_start
-        logger.debug(f"Auth0: resuming {endpoint} from page {page} of window {window_start}")
+        position = resume_config
+        logger.debug(f"Auth0: resuming {endpoint} from page {position.page} of window {position.window_start}")
 
-    pages_fetched = 0
-    while True:
-        if pages_fetched >= MAX_PAGES:
-            raise Auth0PaginationLimitError(
-                f"Auth0 pagination for {endpoint} exceeded {MAX_PAGES} pages without terminating"
-            )
-
-        data = fetch(_build_url(domain, config, api_version, _build_params(config, page, window_field, window_start)))
-        pages_fetched += 1
-
-        rows = _strip_credential_fields(_extract_rows(data, config), endpoint)
-        if not rows:
-            break
-
-        next_page = page + 1
-        total = data.get("total") if isinstance(data, dict) else None
-        is_last_page = (isinstance(total, int) and next_page * config.page_size >= total) or (
-            len(rows) < config.page_size
-        )
-
-        next_window_start = window_start
-        if not is_last_page and window_field and next_page * config.page_size >= SEARCH_RESULT_CAP:
-            # Auth0 refuses to page past the first 1000 matches, so restart at page 0 with the
-            # window's lower bound moved up to the newest row seen.
-            newest = _max_window_value(rows, window_field)
-            if newest is None:
-                raise Auth0PaginationStalledError(
-                    f"{PAGINATION_STALLED_ERROR}: {endpoint} rows carry no `{window_field}` value to slide on"
-                )
-            if newest == window_start:
-                raise Auth0PaginationStalledError(
-                    f"{PAGINATION_STALLED_ERROR}: more than {SEARCH_RESULT_CAP} {endpoint} rows share "
-                    f"`{window_field}` = {newest}"
-                )
-            next_window_start = newest
-            next_page = 0
-
-        if not is_last_page:
+    for page in _iter_pages(fetch, domain, config, api_version, window_field, position):
+        if page.next_position is not None:
             # Save BEFORE yielding so the state already covers this page once the pipeline commits
             # it; a worker shutdown right after the yield then resumes from the next page instead
             # of silently re-reading (and, for a full refresh, duplicating) this one.
-            resumable_source_manager.save_state(Auth0ResumeConfig(page=next_page, window_start=next_window_start))
+            resumable_source_manager.save_state(page.next_position)
 
-        yield rows
-
-        if is_last_page:
-            break
-
-        page = next_page
-        window_start = next_window_start
+        yield _strip_credential_fields(page.rows, endpoint)
 
 
 def auth0_source(
@@ -624,7 +861,7 @@ def auth0_source(
             incremental_field=incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[config.primary_key],
+        primary_keys=list(config.primary_keys),
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
         # Every windowed collection is requested with `sort=<field>:1`, so rows arrive oldest

@@ -502,7 +502,7 @@ async def setup_row_tracking_with_billing_check(
     await increment_rows(team_id, schema.id, resource.rows_to_sync)
     if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
         raise BillingLimitsWillBeReachedException(
-            f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
+            f"Your account will hit your Sources billing limits syncing {resource.name} "
             f"with {resource.rows_to_sync} rows"
         )
 

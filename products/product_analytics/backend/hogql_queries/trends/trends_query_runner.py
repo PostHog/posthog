@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
-from functools import partial
+from functools import cached_property, partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -77,7 +77,6 @@ from posthog.hogql_queries.validation.rules import (
 )
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
