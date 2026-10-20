@@ -172,13 +172,9 @@ def match_email_accounts(team_id: int, emails: list[str]) -> list[contracts.Emai
     return _match_email_accounts(team, emails)
 
 
-def _replace_thread_links(
-    team_id: int,
-    thread: EmailThreadForAccountMatching,
-    matches_by_email: dict[str, MatchedAccount],
-    *,
-    match_sources: list[str] | None = None,
-) -> None:
+def _create_link_inputs(
+    thread: EmailThreadForAccountMatching, matches_by_email: dict[str, MatchedAccount]
+) -> list[EmailThreadAccountLinkInput]:
     matches = _dedupe_account_matches(
         {
             email: matches_by_email[email]
@@ -186,19 +182,32 @@ def _replace_thread_links(
             if email in matches_by_email
         }
     )
+    return [
+        EmailThreadAccountLinkInput(
+            account_id=match.account_id,
+            account_external_id=match.account_external_id,
+            match_source=match.match_source,
+        )
+        for match in matches
+    ]
+
+
+def _replace_thread_links(
+    team_id: int,
+    thread: EmailThreadForAccountMatching,
+    matches_by_email: dict[str, MatchedAccount],
+    *,
+    match_sources: list[str] | None = None,
+) -> None:
     conversations.replace_email_thread_account_links(
-        team_id,
-        thread.id,
-        [
-            EmailThreadAccountLinkInput(
-                account_id=match.account_id,
-                account_external_id=match.account_external_id,
-                match_source=match.match_source,
-            )
-            for match in matches
-        ],
-        match_sources=match_sources,
+        team_id, thread.id, _create_link_inputs(thread, matches_by_email), match_sources=match_sources
     )
+
+
+def _create_thread_links(
+    team_id: int, thread: EmailThreadForAccountMatching, matches_by_email: dict[str, MatchedAccount]
+) -> None:
+    conversations.create_email_thread_account_links(team_id, thread.id, _create_link_inputs(thread, matches_by_email))
 
 
 def recalculate_email_thread_links_for_account_properties(
@@ -256,8 +265,10 @@ def recalculate_email_thread_links(
     team_id: int,
     *,
     thread_ids: list[str] | None = None,
+    append_only: bool = False,
     batch_size: int = 100,
 ) -> int:
+    write_thread_links = _create_thread_links if append_only else _replace_thread_links
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
@@ -304,7 +315,7 @@ def recalculate_email_thread_links(
                 }
             for thread in threads:
                 group_matches = matches_by_member_search[thread.gmail_owner_id in enabled_owner_ids]
-                _replace_thread_links(team_id, thread, group_matches)
+                write_thread_links(team_id, thread, group_matches)
                 processed += 1
 
         if len(threads) < batch_size:

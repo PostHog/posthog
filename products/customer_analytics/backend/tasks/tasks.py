@@ -198,7 +198,7 @@ def recalculate_email_thread_account_links_for_account_properties(
 )
 @with_team_scope()
 def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids: list[str]) -> None:
-    recalculate_email_thread_links(team_id, thread_ids=thread_ids)
+    recalculate_email_thread_links(team_id, thread_ids=thread_ids, append_only=True)
 
 
 # autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.
