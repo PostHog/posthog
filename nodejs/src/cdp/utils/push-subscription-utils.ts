@@ -32,7 +32,6 @@ export function pushRecipientOtherThanRunPerson(
     return distinctId || null
 }
 
-/** The run's own distinct id the input names, exactly or with stray whitespace around a typed id. */
 export function runDistinctIdMatching(
     input: string,
     globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>
