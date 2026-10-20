@@ -36,7 +36,6 @@ export const FilterGroup = ({
     renderControls?: (controls: { filterPicker: ReactNode; activeFilters: ReactNode }) => ReactNode
     // Extra rows for the filter button's menu. With them, the button opens that menu, not the search.
     menuItems?: ReactNode
-    // Pills for filters that live outside the property filter group, shown before its pills.
     leadingFilters?: ReactNode
 } = {}): JSX.Element => {
     const { filterAddedFromPreview, filterGroup } = useValues(issueFiltersLogic)
