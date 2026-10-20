@@ -2,11 +2,11 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import cache, cached_property
+from functools import cache, cached_property, wraps
 from time import perf_counter
 from types import UnionType
 from typing import (
@@ -196,6 +196,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    events_route_scope,
     get_new_events_cluster_host,
     new_events_cluster_host_scope,
     use_new_events_schema,
@@ -1909,6 +1910,18 @@ NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
 )
 
 
+_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
+
+
+def _pin_events_route(run: _RunMethod) -> _RunMethod:
+    @wraps(run)
+    def pinned(self: "QueryRunner", *args: Any, **kwargs: Any) -> Any:
+        with events_route_scope(self.modifiers):
+            return run(self, *args, **kwargs)
+
+    return cast(_RunMethod, pinned)
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -2461,6 +2474,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return query_result, query_duration_ms
 
     @new_events_cluster_host_scope()
+    @_pin_events_route
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,

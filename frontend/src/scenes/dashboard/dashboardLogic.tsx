@@ -328,6 +328,7 @@ export interface dashboardLogicValues {
     variables: Variable[] // variableDataLogic
     accessDeniedToDashboard: boolean
     addWidgetCollapsedGroups: string[]
+    addWidgetFilteredGroups: string[]
     addWidgetModalOpen: boolean
     addWidgetSelectedTypes: string[]
     addWidgetTileLoading: boolean
@@ -1089,6 +1090,9 @@ export interface dashboardLogicActions {
     toggleAddWidgetCollapsedGroup: (groupId: string) => {
         groupId: string
     }
+    toggleAddWidgetFilteredGroup: (groupId: string) => {
+        groupId: string
+    }
     toggleAddWidgetSelectedType: (widgetType: string) => {
         widgetType: string
     }
@@ -1540,6 +1544,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
+        toggleAddWidgetFilteredGroup: (groupId: string) => ({ groupId }),
         addWidgetTileFinished: true,
         /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
         requestScrollToBottom: true,
@@ -2874,6 +2879,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         collapsed.add(groupId)
                     }
                     return Array.from(collapsed)
+                },
+            },
+        ],
+        addWidgetFilteredGroups: [
+            [] as string[],
+            {
+                setAddWidgetModalOpen: (state, { open }) => (open ? [] : state),
+                toggleAddWidgetFilteredGroup: (state, { groupId }) => {
+                    const filtered = new Set(state)
+                    if (filtered.has(groupId)) {
+                        filtered.delete(groupId)
+                    } else {
+                        filtered.add(groupId)
+                    }
+                    return Array.from(filtered)
                 },
             },
         ],

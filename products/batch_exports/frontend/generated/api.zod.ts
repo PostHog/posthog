@@ -669,6 +669,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1649,6 +1655,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2388,6 +2400,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3112,6 +3130,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3855,6 +3879,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4315,6 +4345,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4579,6 +4615,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                useNewEventsCluster: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it.'
+                    ),
                 useNewEventsSchema: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
