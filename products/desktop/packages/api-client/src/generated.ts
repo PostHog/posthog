@@ -1836,6 +1836,101 @@ export namespace Schemas {
         | "month"
         | "quarter"
         | "year";
+    export type DataWarehouseNode = {
+        custom_name?: (string | null) | undefined;
+        distinct_id_field: string;
+        dw_source_type?: (string | null) | undefined;
+        fixedProperties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        id: string;
+        id_field: string;
+        kind?: string | undefined;
+        math?:
+            | (
+                  | BaseMathType
+                  | FunnelMathType
+                  | PropertyMathType
+                  | CountPerActorMathType
+                  | GroupMathType
+                  | ExperimentMetricMathType
+                  | CalendarHeatmapMathType
+                  | string
+                  | null
+              )
+            | undefined;
+        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
+        math_hogql?: (string | null) | undefined;
+        math_multiplier?: (number | null) | undefined;
+        math_property?: (string | null) | undefined;
+        math_property_revenue_currency?:
+            | (RevenueCurrencyPropertyConfig | null)
+            | undefined;
+        math_property_type?: (string | null) | undefined;
+        name?: (string | null) | undefined;
+        optionalInFunnel?: (boolean | null) | undefined;
+        properties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        response?: (Record<string, unknown> | null) | undefined;
+        table_name: string;
+        timestamp_field: string;
+        version?: (number | null) | undefined;
+    };
+    export type MarketingAnalyticsCostFallback = {
+        series: Array<DataWarehouseNode>;
+        sourceIds: Array<string>;
+    };
     export type PropertyGroupFilter = {
         type: FilterLogicalOperator;
         values: Array<PropertyGroupFilterValue>;
@@ -1953,97 +2048,6 @@ export namespace Schemas {
         response: Record<string, unknown> | null;
         version: number | null;
     }>;
-    export type DataWarehouseNode = {
-        custom_name?: (string | null) | undefined;
-        distinct_id_field: string;
-        dw_source_type?: (string | null) | undefined;
-        fixedProperties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        id: string;
-        id_field: string;
-        kind?: string | undefined;
-        math?:
-            | (
-                  | BaseMathType
-                  | FunnelMathType
-                  | PropertyMathType
-                  | CountPerActorMathType
-                  | GroupMathType
-                  | ExperimentMetricMathType
-                  | CalendarHeatmapMathType
-                  | string
-                  | null
-              )
-            | undefined;
-        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
-        math_hogql?: (string | null) | undefined;
-        math_multiplier?: (number | null) | undefined;
-        math_property?: (string | null) | undefined;
-        math_property_revenue_currency?:
-            | (RevenueCurrencyPropertyConfig | null)
-            | undefined;
-        math_property_type?: (string | null) | undefined;
-        name?: (string | null) | undefined;
-        optionalInFunnel?: (boolean | null) | undefined;
-        properties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        response?: (Record<string, unknown> | null) | undefined;
-        table_name: string;
-        timestamp_field: string;
-        version?: (number | null) | undefined;
-    };
     export type GroupNode = {
         custom_name?: (string | null) | undefined;
         fixedProperties?:
@@ -2294,6 +2298,9 @@ export namespace Schemas {
         filterTestAccounts?: (boolean | null) | undefined;
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
+        marketingAnalyticsCostFallback?:
+            | (MarketingAnalyticsCostFallback | null)
+            | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         properties?:
             | (

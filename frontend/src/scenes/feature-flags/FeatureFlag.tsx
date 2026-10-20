@@ -39,6 +39,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
@@ -321,7 +322,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         }
         return (
             <ChunkLoadErrorBoundary>
-                <Suspense fallback={<FeatureFlagFormSkeleton />}>
+                <Suspense
+                    fallback={
+                        <SceneContentFallback>
+                            <FeatureFlagFormSkeleton />
+                        </SceneContentFallback>
+                    }
+                >
                     <FeatureFlagForm id={id} />
                 </Suspense>
             </ChunkLoadErrorBoundary>

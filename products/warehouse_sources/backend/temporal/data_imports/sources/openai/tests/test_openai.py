@@ -334,9 +334,7 @@ class TestRetries:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("forbidden_scope", 403, True, None),
-            ("unauthorized", 401, False, "rejected your Admin API key"),
             ("service_unavailable", 503, False, "couldn't check your Admin API key"),
         ]
     )

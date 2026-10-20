@@ -107,7 +107,7 @@ Pick the data center your SurveySparrow account is hosted in — tokens are only
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

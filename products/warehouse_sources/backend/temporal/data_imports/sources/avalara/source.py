@@ -80,7 +80,7 @@ class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
 Use your AvaTax account ID and a license key (found under Settings > License and API Keys). Generating a new license key immediately revokes the previous one. Sandbox and production credentials only work against their matching environment, so pick the one your account was created in.""",
             docsUrl="https://posthog.com/docs/cdp/sources/avalara",
             iconPath="/static/services/avalara.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["avatax", "tax", "sales tax", "sales-tax"],
             fields=cast(
                 list[FieldType],
