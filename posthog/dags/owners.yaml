@@ -12,6 +12,4 @@ rules:
     - match:
           - '/flag_evaluations_backfill.py'
           - '/tests/test_flag_evaluations_backfill.py'
-          - '/flag_evaluations_person_id_repair.py'
-          - '/tests/test_flag_evaluations_person_id_repair.py'
       owners: team-feature-flags

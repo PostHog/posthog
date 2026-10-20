@@ -15,15 +15,7 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags, Feature, tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common import (
-    EXECUTING_RUN_STATUSES,
-    BlockingRunCheck,
-    JobOwners,
-    blocking_runs_started_since,
-    dagster_tags,
-    describe_runs,
-    wait_for_blocking_runs,
-)
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, dagster_tags, describe_runs
 from posthog.dags.data_deletion_requests import DELETION_JOB_NAMES
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import squash_person_overrides
@@ -49,6 +41,12 @@ TIB = 1024 * GIB
 # it and insert it after the job swept sharded_flag_evaluations, so the copy keeps what the job
 # removed: a stale person_id after a squash, or a row or property that a deletion erased.
 BLOCKING_JOB_NAMES = (squash_person_overrides.name, deletes_job.name, *DELETION_JOB_NAMES)
+
+_FINISHED_RUN_STATUSES = (
+    dagster.DagsterRunStatus.SUCCESS,
+    dagster.DagsterRunStatus.FAILURE,
+    dagster.DagsterRunStatus.CANCELED,
+)
 
 # The nine columns whose DEFAULT reads properties are left out so the shard computes them the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
@@ -205,6 +203,12 @@ class BackfillPlan:
     # Newest first, so a run that stops partway leaves contiguous recent history.
     days: tuple[date, ...]
     config: FlagEvaluationsBackfillConfig
+
+
+@frozen
+class BlockingRunCheck:
+    since: datetime
+    finished_runs: frozenset[str]
 
 
 @frozen
@@ -432,16 +436,10 @@ class ShardBackfill:
             )
 
     def wait_for_blocking_runs(self) -> BlockingRunCheck:
-        return wait_for_blocking_runs(
-            self.instance,
-            BLOCKING_JOB_NAMES,
-            run_id=self.run_id,
-            log=self.log,
-            poll_seconds=self.config.blocking_run_poll_seconds,
-        )
+        return wait_for_blocking_runs(self.instance, self.run_id, self.log, self.config.blocking_run_poll_seconds)
 
     def check_no_blocking_run_started(self, check: BlockingRunCheck, *, day: date) -> None:
-        started = blocking_runs_started_since(self.instance, BLOCKING_JOB_NAMES, check, run_id=self.run_id)
+        started = blocking_runs_started_since(self.instance, check, self.run_id)
         if started:
             # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
             team_filter = (
@@ -551,14 +549,35 @@ class ShardBackfill:
         return sync_execute(query, workload=self.workload, sync_client=client)[0]
 
     def _on_copy_host(self, fn: Callable[[Client], T]) -> T:
-        return on_shard_host(
-            self.cluster,
-            self.shard_num,
-            fn,
-            query_tags=self.query_tags,
-            workload=self.workload,
-            node_role=self.node_role,
-        )
+        return on_shard_host(self.cluster, self.shard_num, fn, self.query_tags, self.workload, self.node_role)
+
+
+def wait_for_blocking_runs(
+    instance: dagster.DagsterInstance, run_id: str, log: dagster.DagsterLogManager, poll_seconds: int
+) -> BlockingRunCheck:
+    """Wait until no blocking run is active, then return the watermark for blocking_runs_started_since."""
+    while True:
+        # The watermark comes before the scan. A run created during the scan then counts as created
+        # after it. Run storage can record a creation time to the whole second. The watermark
+        # therefore reaches one second back, and blocking_runs_started_since ignores runs that finished then.
+        since = datetime.now(UTC) - timedelta(seconds=1)
+        blockers = describe_runs(instance, BLOCKING_JOB_NAMES, exclude_run_id=run_id)
+        if not blockers:
+            break
+        log.info(f"Waiting {poll_seconds}s for these runs to finish: {'; '.join(blockers)}")
+        time.sleep(poll_seconds)
+    finished = describe_runs(
+        instance, BLOCKING_JOB_NAMES, statuses=_FINISHED_RUN_STATUSES, created_after=since, exclude_run_id=run_id
+    )
+    return BlockingRunCheck(since=since, finished_runs=frozenset(finished))
+
+
+def blocking_runs_started_since(instance: dagster.DagsterInstance, check: BlockingRunCheck, run_id: str) -> list[str]:
+    statuses = (*EXECUTING_RUN_STATUSES, *_FINISHED_RUN_STATUSES)
+    runs = describe_runs(
+        instance, BLOCKING_JOB_NAMES, statuses=statuses, created_after=check.since, exclude_run_id=run_id
+    )
+    return [run for run in runs if run not in check.finished_runs]
 
 
 def shard_workload() -> tuple[Workload, NodeRole]:
@@ -580,7 +599,6 @@ def on_shard_host(
     cluster: ClickhouseCluster,
     shard_num: int,
     fn: Callable[[Client], T],
-    *,
     query_tags: DagsterTags,
     workload: Workload,
     node_role: NodeRole,

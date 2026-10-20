@@ -20,7 +20,7 @@ from clickhouse_driver import Client
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
-from posthog.dags.common import BlockingRunCheck, blocking_runs_started_since, dagster_tags, wait_for_blocking_runs
+from posthog.dags.common import dagster_tags
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -28,14 +28,16 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dags.flag_evaluations_backfill import (
-    BLOCKING_JOB_NAMES,
     COPIED_ROW_FILTER,
     GIB,
     OWNER_TAG,
+    BlockingRunCheck,
+    blocking_runs_started_since,
     inserted_rows,
     on_shard_host,
     resolve_backfill_days,
     shard_workload,
+    wait_for_blocking_runs,
 )
 from posthog.dataclasses import frozen
 from posthog.models.deletion_targets import FLAG_EVALUATIONS, dispatchable_here
@@ -259,13 +261,7 @@ def plan_person_id_repair(
     if not dispatchable_here(cluster, FLAG_EVALUATIONS):
         raise dagster.Failure(description=f"{FLAG_EVALUATIONS_DATA_TABLE} does not exist on this cluster.")
     days = resolve_backfill_days(start_date=config.start_date, end_date=config.end_date, today=datetime.now(UTC).date())
-    check = wait_for_blocking_runs(
-        context.instance,
-        BLOCKING_JOB_NAMES,
-        run_id=context.run_id,
-        log=context.log,
-        poll_seconds=config.blocking_run_poll_seconds,
-    )
+    check = wait_for_blocking_runs(context.instance, context.run_id, context.log, config.blocking_run_poll_seconds)
     context.log.info(f"Repairing {len(days)} day(s), newest first, from {days[0]} back to {days[-1]}")
     return RepairPlan(days=days, config=config, blocking_run_check=check)
 
@@ -331,9 +327,7 @@ def build_repair_shard(
         return sum(insert(agreeing_calls_query, day, client) for day in plan.days)
 
     def on_this_shard(fn: Callable[[Client], int]) -> int:
-        return on_shard_host(
-            cluster, shard_num, fn, query_tags=dagster_tags(context), workload=workload, node_role=node_role
-        )
+        return on_shard_host(cluster, shard_num, fn, dagster_tags(context), workload, node_role)
 
     stale_keys = 0
     for day in plan.days:
@@ -480,11 +474,7 @@ def run_repair_mutation(
         return dictionary
 
     def blocking_runs_started() -> str:
-        return "; ".join(
-            blocking_runs_started_since(
-                context.instance, BLOCKING_JOB_NAMES, plan.blocking_run_check, run_id=context.run_id
-            )
-        )
+        return "; ".join(blocking_runs_started_since(context.instance, plan.blocking_run_check, context.run_id))
 
     if started := blocking_runs_started():
         cluster.map_all_hosts(dictionary.drop).result()
