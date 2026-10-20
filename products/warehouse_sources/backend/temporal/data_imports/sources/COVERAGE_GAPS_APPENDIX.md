@@ -4876,10 +4876,10 @@ Today (7): `companies`, `groups`, `notes`, `people`, `reminders`, `tasks`, `user
 
 Diffed against: <https://developer.folk.app/schemas/2025-06-09.json>
 
-- [ ] `List deals and custom objects (GET /v1/groups/{groupId}/{objectType})` — resolve custom object IDs referenced by contacts and report sales pipeline records (high)
+- [x] `List deals and custom objects (GET /v1/groups/{groupId}/{objectType})` — resolve custom object IDs referenced by contacts and report sales pipeline records (high)
 - [ ] `List interactions (GET /v1/interactions)` — measure relationship engagement from email, meetings, calls, and logged contact activity (high)
-- [ ] `List group custom fields (GET /v1/groups/{groupId}/custom-fields/{entityType})` — interpret custom field values with field types and select-option definitions (medium)
-- [ ] `List group members (GET /v1/groups/{groupId}/members)` — join workspace users to their groups and membership roles (medium)
+- [x] `List group custom fields (GET /v1/groups/{groupId}/custom-fields/{entityType})` — interpret custom field values with field types and select-option definitions (medium)
+- [x] `List group members (GET /v1/groups/{groupId}/members)` — join workspace users to their groups and membership roles (medium)
 
 Note: Diffed collection GET operations in the official OpenAPI schema and checked the current custom-object documentation. Deals and other objects share one route and need group and object-type discovery. Interactions require entity fan-out and timeframe selection; this endpoint is in beta. Reminders are deprecated in favor of the synced tasks endpoint; writes and webhooks are excluded.
 
