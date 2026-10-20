@@ -1507,26 +1507,61 @@ Jane Smith,25
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "csv")
-        self.assertIn("larger than the", response.json()["detail"])
+        self.assertIn("larger than the limit of 4 bytes", response.json()["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
+    @parameterized.expand(
+        [
+            ("single_column_over_limit", b"user_1\nuser_2\nuser_3\n", 400),
+            ("multi_column_over_limit", b"name,distinct_id\na,user_1\nb,user_2\nc,user_3\n", 400),
+            ("single_column_at_limit", b"user_1\nuser_2\n", 201),
+            ("multi_column_at_limit", b"name,distinct_id\na,user_1\nb,user_2\n", 201),
+        ]
+    )
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-    def test_static_cohort_csv_upload_rejects_more_rows_than_limit(self, patch_calculate_cohort_from_list):
-        cohort = Cohort.objects.create(team=self.team, name="test_rows", is_static=True)
-        csv = SimpleUploadedFile("ids.csv", b"user_1\nuser_2\nuser_3\n", content_type="application/csv")
+    def test_static_cohort_csv_upload_row_limit(
+        self, _name, content, expected_status, patch_calculate_cohort_from_list
+    ):
+        csv = SimpleUploadedFile("ids.csv", content, content_type="application/csv")
 
         with override_settings(COHORT_CSV_UPLOAD_MAX_ROWS=2):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
-                {"name": "test_rows", "csv": csv},
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test_rows", "csv": csv, "is_static": True},
                 format="multipart",
             )
 
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 400:
+            self.assertEqual(response.json()["attr"], "csv")
+            self.assertIn("more than 2 rows", response.json()["detail"])
+            self.assertFalse(Cohort.objects.filter(team=self.team, name="test_rows").exists())
+            self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+        else:
+            patch_calculate_cohort_from_list.assert_called_once_with(
+                response.json()["id"],
+                ["user_1", "user_2"],
+                team_id=self.team.id,
+                id_type="distinct_id",
+                email_property_key=None,
+            )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_rejects_invalid_utf8_after_first_chunk(self, patch_calculate_cohort_from_list):
+        # The reader decodes in chunks of about 8 KB, so this byte fails inside the ID extraction loop.
+        content = b"".join(f"user_{i}\n".encode() for i in range(3000)) + b"caf\xe9\n"
+        csv = SimpleUploadedFile("ids.csv", content, content_type="application/csv")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_encoding", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "csv")
-        self.assertIn("more than 2 rows", response.json()["detail"])
-        cohort.refresh_from_db()
-        self.assertFalse(cohort.is_calculating)
+        self.assertIn("UTF-8", response.json()["detail"])
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="test_encoding").exists())
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
