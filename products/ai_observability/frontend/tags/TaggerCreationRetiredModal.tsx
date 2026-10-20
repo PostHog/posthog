@@ -11,33 +11,20 @@ export function TaggerCreationRetiredModal({ isOpen, onClose }: { isOpen: boolea
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            title="Tag generations with an evaluation"
-            width={480}
+            title="Taggers are deprecated in favor of evaluations"
+            width={520}
             data-attr="tagger-creation-retired-modal"
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={onClose}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        to={urls.aiObservabilityEvaluationTemplates()}
-                        data-attr="tagger-creation-retired-create-evaluation"
-                    >
-                        Create a categorical evaluation
-                    </LemonButton>
-                </>
-            }
         >
-            <div className="flex flex-col items-center gap-4 text-center">
-                <HedgehogTransformer className="w-32 h-32" />
-                <p>
-                    New taggers can't be created. Evaluations with a categorical output do the same job: each tag
-                    becomes a category, and the evaluation can pick more than one per generation.
-                </p>
-                <p className="text-secondary">
-                    Your existing taggers keep running for now, and we'll let you know before they stop.
-                </p>
+            <div className="flex flex-col items-center gap-4 text-center pb-2">
+                <HedgehogTransformer className="w-28 h-28" />
+                <p>New taggers can't be created. To tag generations, create an evaluation with a categorical output.</p>
+                <LemonButton
+                    type="primary"
+                    to={urls.aiObservabilityEvaluationTemplates()}
+                    data-attr="tagger-creation-retired-create-evaluation"
+                >
+                    Create categorical evaluation
+                </LemonButton>
             </div>
         </LemonModal>
     )

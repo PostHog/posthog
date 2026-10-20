@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { router } from 'kea-router'
 
 import { IconArrowLeft, IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -43,7 +44,7 @@ import {
 } from '../settings/providerKeyStateUtils'
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
-import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
+import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
 import { Tagger, TaggerConditionSet } from './types'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
@@ -738,7 +739,7 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
     if (isNew) {
         return (
             <SceneContent>
-                <TaggersDeprecationBanner />
+                <TaggerCreationRetiredModal isOpen onClose={() => router.actions.push(urls.aiObservabilityTags())} />
             </SceneContent>
         )
     }
@@ -753,7 +754,6 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
 
     return (
         <SceneContent>
-            <TaggersDeprecationBanner />
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-start pb-4 border-b">
