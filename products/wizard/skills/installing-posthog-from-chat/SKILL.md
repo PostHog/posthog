@@ -19,7 +19,7 @@ Work through the steps in order. Skip a step when its outcome is already known f
 The run uses the project's GitHub connection, so the project needs one.
 
 1. Call `integrations-list` and look for an integration with kind `github`.
-2. When there is none, call `integrations-github-connect-url` and give the user the link. They install the PostHog GitHub App and choose which repositories it can access. Wait until they say they are done, then call `integrations-list` again.
+2. When there is none, give the user this link, built from the base URL and project ID in your context: `<base URL>/integrations/connect/github/?project_id=<project id>&connect_from=mcp`. They install the PostHog GitHub App and choose which repositories it can access. Wait until they say they are done, then call `integrations-list` again.
 
 ## 2. Pick the repository
 
@@ -43,12 +43,12 @@ Call `wizard-install-start` with:
 
 Errors the user can act on:
 
-| Error code                  | What to do                                                                                                 |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `github_not_connected`      | Go back to step 1.                                                                                         |
-| `repository_not_accessible` | Ask the user to add the repository to the PostHog GitHub App, then retry with a new `idempotency_key`.     |
-| `run_already_active`        | Someone in the project already has a run in progress. Ask the user to wait for it, or check it in PostHog. |
-| HTTP 429                    | The user reached the hourly or daily limit for setup runs. Relay the message. Don't retry right away.      |
+| Error code                  | What to do                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `github_not_connected`      | Go back to step 1.                                                                                       |
+| `repository_not_accessible` | Ask the user to add the repository to the PostHog GitHub App, then retry with a new `idempotency_key`.   |
+| `run_already_active`        | The user already has a run in progress in this project. Ask them to wait for it, or check it in PostHog. |
+| HTTP 429                    | The user reached the hourly or daily limit for setup runs. Relay the message. Don't retry right away.    |
 
 Tell the user the run started and share the `url` from the response, where they can follow it in PostHog.
 
