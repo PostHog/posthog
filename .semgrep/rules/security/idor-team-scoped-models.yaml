@@ -142,6 +142,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |TodayHighlights
+                              |TodayPulsePins
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -614,6 +615,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |TodayHighlights
+                        |TodayPulsePins
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
