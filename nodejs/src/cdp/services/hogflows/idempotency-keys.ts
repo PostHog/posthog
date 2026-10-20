@@ -77,6 +77,20 @@ export function createIdempotencyValkeyPool(config: IdempotencyValkeyConfig): Re
     })
 }
 
+const sortKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+        return value.map(sortKeys)
+    }
+    if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.keys(value)
+                .sort()
+                .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])])
+        )
+    }
+    return value
+}
+
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
@@ -101,7 +115,10 @@ export class IdempotencyKeys {
     ) {}
 
     static fingerprint(request: unknown): string {
-        return createHash('sha256').update(JSON.stringify(request)).digest('hex')
+        // Callers may rebuild the same request with its object keys in another order on a retry.
+        return createHash('sha256')
+            .update(JSON.stringify(sortKeys(request)))
+            .digest('hex')
     }
 
     async reserve(
