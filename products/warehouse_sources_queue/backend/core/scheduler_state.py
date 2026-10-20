@@ -160,6 +160,17 @@ class SchedulerStateTable:
             return cur.rowcount
 
     @staticmethod
+    async def team_ids(conn: psycopg.AsyncConnection[Any], *, kind: str) -> list[int]:
+        """The teams that have at least one schedule of ``kind``."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT DISTINCT team_id FROM {SCHEDULER_STATE_TABLE} WHERE kind = %(kind)s",
+                {"kind": kind},
+            )
+            rows = await cur.fetchall()
+        return [int(row[0]) for row in rows]
+
+    @staticmethod
     async def claim_due(
         conn: psycopg.AsyncConnection[Any],
         *,

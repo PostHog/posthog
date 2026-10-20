@@ -173,8 +173,16 @@ class TestSchedulerState:
     async def test_state_operations_are_scoped_to_kind(self, conn):
         first = _state("shared", due_in_seconds=-60)
         second = _state("shared", kind="other.kind", due_in_seconds=-60)
-        await SchedulerStateTable.upsert_states(conn, [first, second])
+        same_team = _state("same-team", due_in_seconds=60)
+        other_team = dataclasses.replace(_state("other-team", due_in_seconds=60), team_id=2)
+        other_kind_team = dataclasses.replace(
+            _state("other-kind-team", kind="other.kind", due_in_seconds=60), team_id=3
+        )
+        await SchedulerStateTable.upsert_states(conn, [first, second, same_team, other_team, other_kind_team])
 
+        assert sorted(await SchedulerStateTable.team_ids(conn, kind=KIND)) == [1, 2]
+        await SchedulerStateTable.delete_states(conn, KIND, ["same-team", "other-team"])
+        await SchedulerStateTable.delete_states(conn, "other.kind", ["other-kind-team"])
         assert set(await _fetch_states(conn)) == {(KIND, "shared"), ("other.kind", "shared")}
         async with conn.transaction():
             assert await SchedulerStateTable.claim_due(conn, kind=KIND, limit=10) == [first]

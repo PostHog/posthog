@@ -681,7 +681,7 @@ class TestShadowSchedulerTick:
         scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url))
         with (
             override_settings(WAREHOUSE_QUEUE_SCHEDULER_FIRING_ENABLED=kill_switch),
-            patch("products.warehouse_sources.backend.scheduling.backend.posthoganalytics.feature_enabled", flag_mock),
+            patch("posthoganalytics.feature_enabled", flag_mock),
         ):
             async_to_sync(scheduler._tick)(lambda: None)
 
@@ -698,6 +698,45 @@ class TestShadowSchedulerTick:
         assert len(_extract_jobs(db_url)) == (len(schema_ids) if fired else 0)
         assert fired_total.inc.call_count == (len(schema_ids) if fired else 0)
         assert would_fire_total.inc.call_count == (0 if fired else len(schema_ids))
+        if flag_mock.called:
+            assert flag_mock.call_args.kwargs["only_evaluate_locally"] is True
+
+    @pytest.mark.parametrize(
+        "refresh_seconds,expected_flag_calls",
+        [
+            pytest.param(60.0, 1, id="kept_for_the_next_tick"),
+            pytest.param(0.0, 2, id="asked_again_once_expired"),
+        ],
+    )
+    def test_firing_teams_are_evaluated_outside_the_tick_transaction(
+        self, team, monkeypatch, refresh_seconds, expected_flag_calls
+    ):
+        schema_ids, db_url = self._setup_due_schemas(team, 2)
+        monkeypatch.setattr(
+            scheduler_runner.JobsTable, "try_acquire_sentinel_slot", AsyncMock(side_effect=[True, False, True, False])
+        )
+
+        def flag_without_claimed_rows(*args, **kwargs):
+            # The tick transaction locks the claimed state rows. NOWAIT raises when a row is locked.
+            with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+                conn.execute(f"SELECT 1 FROM {SCHEDULER_STATE_TABLE} FOR UPDATE NOWAIT").fetchall()
+            return True
+
+        flag_mock = MagicMock(side_effect=flag_without_claimed_rows)
+        scheduler = ShadowScheduler(
+            ShadowSchedulerConfig(database_url=db_url, firing_teams_refresh_seconds=refresh_seconds)
+        )
+        with (
+            override_settings(WAREHOUSE_QUEUE_SCHEDULER_FIRING_ENABLED=True),
+            patch("posthoganalytics.feature_enabled", flag_mock),
+        ):
+            async_to_sync(scheduler._tick)(lambda: None)
+            async_to_sync(scheduler._tick)(lambda: None)
+
+        with psycopg.Connection.connect(db_url) as conn:
+            decisions = dict(conn.execute(f"SELECT schedule_key, decision FROM {SCHEDULER_DECISION_TABLE}").fetchall())
+        assert decisions == dict.fromkeys(schema_ids, DECISION_FIRED)
+        assert flag_mock.call_count == expected_flag_calls
 
     def test_drain_budget_defers_remaining_backlog_to_next_tick(self, team, monkeypatch):
         schema_ids, db_url = self._setup_due_schemas(team, 3)
