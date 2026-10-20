@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,14 @@ FEATURE_FLAG = "dwh-object-storage-sources"
 
 @SourceRegistry.register
 class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-s3",),
+        pypi=("s3fs",),
+        cargo=("aws-sdk-s3",),
+        go=("github.com/aws/aws-sdk-go-v2/service/s3",),
+        maven=("software.amazon.awssdk:s3",),
+    )
+
     api_docs_url = "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
     requires_team_feature_flag = FEATURE_FLAG
 
