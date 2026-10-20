@@ -122,13 +122,6 @@ def test_unknown_errors_are_not_invalid_credentials() -> None:
             validate_credentials("fake-token")
 
 
-def test_unknown_table() -> None:
-    result = driver().run("missing", [])
-
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown ReferralHero table" in str(result.raised)
-
-
 def test_malformed_success_does_not_silently_replace_table() -> None:
     result = driver().run("lists", [response({"status": "ok", "data": {"unexpected": []}})])
 

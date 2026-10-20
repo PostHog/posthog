@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookDeletionResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import DEFAULT_BATCH_ROW_LIMIT
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
     log_fanout_parent_rows_consumed,
 )
@@ -91,8 +92,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     ClientFactory,
+    CreditNoteListWithAllLines,
     InvoiceListWithAllLines,
+    PacedClientFactory,
     RateLimitCallback,
+    WebhookObjectRefetcher,
+    WebhookRefetch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
@@ -261,9 +266,19 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
 
-    def __init__(self, *args: Any, on_rate_limited: Optional[RateLimitCallback] = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        on_rate_limited: Optional[RateLimitCallback] = None,
+        before_request: Optional[Callable[[], None]] = None,
+        expects_lists: bool = True,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._on_rate_limited = on_rate_limited
+        self._before_request = before_request
+        # A client that also retrieves single objects cannot treat a non-list GET body as corrupt.
+        self._expects_lists = expects_lists
 
     def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
         self,
@@ -273,6 +288,8 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         post_data: Any = None,
     ) -> tuple[bytes, int, Mapping[str, str]]:
         self._last_request_method = (method or "").lower()
+        if self._before_request is not None:
+            self._before_request()
         return super().request(method, url, headers, post_data)
 
     def _should_retry(
@@ -309,16 +326,25 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
             return True
         # A complete but non-list body identifies a corrupt list read only for a GET — a write
         # (webhook create/update/delete) legitimately returns a single object, so gate on method.
-        return self._last_request_method == "get" and _is_non_list_stripe_response(body)
+        return self._expects_lists and self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
-def _tracked_stripe_http_client(on_rate_limited: Optional[RateLimitCallback] = None) -> RequestsClient:
+def _tracked_stripe_http_client(
+    on_rate_limited: Optional[RateLimitCallback] = None,
+    before_request: Optional[Callable[[], None]] = None,
+    expects_lists: bool = True,
+) -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
 
     Uses a subclass that additionally retries 429 rate limits and truncated list responses via the
     SDK's built-in backoff, and reports each 429 to `on_rate_limited`."""
-    return _RateLimitRetryingRequestsClient(session=make_tracked_session(), on_rate_limited=on_rate_limited)
+    return _RateLimitRetryingRequestsClient(
+        session=make_tracked_session(),
+        on_rate_limited=on_rate_limited,
+        before_request=before_request,
+        expects_lists=expects_lists,
+    )
 
 
 def _clean_stripe_error_message(msg: str) -> str:
@@ -348,6 +374,27 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         e._message = cleaned
         e.args = (cleaned,)
         raise
+
+
+def _iter_cleaning_errors(objects: Iterable[Any]) -> Iterator[Any]:
+    """Iterate a Stripe listing and clean errors raised while it pages, as `_call_stripe` does.
+
+    A listing wrapper such as `InvoiceListWithAllLines` makes its first request only when it is
+    iterated, so `_call_stripe` around the method call never sees that request's error.
+    """
+    iterator = iter(objects)
+    try:
+        while True:
+            try:
+                obj = _call_stripe(next, iterator)
+            except StopIteration:
+                return
+            yield obj
+    finally:
+        # Close the inner generator now, so a listing wrapper shuts down its thread pool.
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
 
 
 def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
@@ -474,9 +521,9 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     (one call each, almost all empty) into a handful of calls.
 
     Tradeoff: a customer whose balance was credited and then fully consumed back to 0 has ledger
-    entries but a 0 balance, so we won't fetch their history. This is rare and an accepted cost of
-    avoiding the per-customer fan-out. A missing ``balance`` (unexpected payload shape) is treated as
-    "might have" so we never silently drop data."""
+    entries but a 0 balance, so we won't fetch their history. The `balance_history_all_customers`
+    source setting turns this skip off for accounts where that history matters. A missing ``balance``
+    (unexpected payload shape) is treated as "might have" so we never silently drop data."""
     balance = customer.get("balance")
     return balance is None or balance != 0
 
@@ -726,6 +773,7 @@ def _build_resources(
     client: StripeClient,
     logger: Optional[FilteringBoundLogger] = None,
     client_factory: Optional[ClientFactory] = None,
+    include_zero_balance_customers: bool = False,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -733,8 +781,8 @@ def _build_resources(
     checks). Nested resources carry their parent on `.parent`, so callers can derive the
     nested→parent linkage without restating it elsewhere.
 
-    `logger` and `client_factory` are only consumed by InvoiceListWithAllLines; pass None when the
-    caller doesn't need the wrapped invoice expansion (e.g. validation, which just probes the list
+    `logger` and `client_factory` are only consumed by the invoice and credit note line expansion;
+    pass None when the caller doesn't need it (e.g. validation, which just probes the list
     endpoint). The factory gives each of its worker threads a client of its own.
     """
     return {
@@ -770,7 +818,13 @@ def _build_resources(
                 "expand": ["data.discounts", "data.items.data.discounts"],
             },
         ),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(
+            method=(
+                (lambda params: CreditNoteListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+                if logger is not None and client_factory is not None
+                else client.credit_notes.list
+            )
+        ),
         COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         # The one nested resource that reads its parent from the warehouse. Its skip predicate
         # answers from the parent row itself, so a run is dominated by paging the customer
@@ -781,7 +835,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
-            parent_has_nested=_customer_might_have_balance_transactions,
+            parent_has_nested=None if include_zero_balance_customers else _customer_might_have_balance_transactions,
         ),
         # Stays on the parent API: one child call per customer with no skip signal, so the
         # listing is a small fraction of the run and reusing the parent table saves ~nothing.
@@ -883,6 +937,36 @@ def _build_resources(
     }
 
 
+def _client_factory(
+    api_key: str, account_id: Optional[str], api_version: str
+) -> Callable[[Optional[RateLimitCallback]], StripeClient]:
+    def new_client(on_rate_limited: Optional[RateLimitCallback]) -> StripeClient:
+        return _stripe_client(api_key, account_id, api_version, _tracked_stripe_http_client(on_rate_limited))
+
+    return new_client
+
+
+def _refetch_client_factory(api_key: str, account_id: Optional[str], api_version: str) -> PacedClientFactory:
+    def new_client(on_rate_limited: RateLimitCallback, before_request: Callable[[], None]) -> StripeClient:
+        http_client = _tracked_stripe_http_client(on_rate_limited, before_request=before_request, expects_lists=False)
+        return _stripe_client(api_key, account_id, api_version, http_client)
+
+    return new_client
+
+
+def _stripe_client(
+    api_key: str, account_id: Optional[str], api_version: str, http_client: RequestsClient
+) -> StripeClient:
+    return StripeClient(
+        api_key,
+        stripe_account=account_id,
+        stripe_version=api_version,
+        max_network_retries=2,
+        base_addresses=_stripe_base_addresses(),
+        http_client=http_client,
+    )
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -894,20 +978,17 @@ def get_rows(
     api_version: str,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
+    include_zero_balance_customers: bool = False,
 ):
-    def new_client(on_rate_limited: Optional[RateLimitCallback] = None) -> StripeClient:
-        return StripeClient(
-            api_key,
-            stripe_account=account_id,
-            stripe_version=api_version,
-            max_network_retries=2,
-            base_addresses=_stripe_base_addresses(),
-            http_client=_tracked_stripe_http_client(on_rate_limited=on_rate_limited),
-        )
-
-    client = new_client()
+    new_client = _client_factory(api_key, account_id, api_version)
+    client = new_client(None)
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(client, logger=logger, client_factory=new_client)
+    resources = _build_resources(
+        client,
+        logger=logger,
+        client_factory=new_client,
+        include_zero_balance_customers=include_zero_balance_customers,
+    )
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
@@ -1099,7 +1180,7 @@ def get_rows(
         else:
 
             def _list_resource(params: dict[str, Any]) -> Any:
-                return _call_stripe(resource.method, params=params).auto_paging_iter()
+                return _iter_cleaning_errors(_call_stripe(resource.method, params=params).auto_paging_iter())
 
             list_params = {**default_params, **resource.params, **resume_params}
             cursor_restarted = False
@@ -1155,7 +1236,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
+        yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -1170,7 +1251,7 @@ def get_rows(
             },
         )
         yield from _batch_and_yield(
-            stripe_objects.auto_paging_iter(),
+            _iter_cleaning_errors(stripe_objects.auto_paging_iter()),
             batcher,
             incremental_field_name=incremental_field_name,
             stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
@@ -1187,7 +1268,7 @@ def _webhook_tie_break(obj: dict) -> int:
     return _INVOICE_STATUS_STAGE.get(obj.get("status") or "", 0)
 
 
-def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+def _latest_webhook_objects(table: pa.Table) -> list[dict[str, Any]]:
     data_col = table.column("data").to_pylist()
     created_col = table.column("created").to_pylist()
 
@@ -1215,8 +1296,70 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or rank >= existing[0]:
             best_by_id[obj_id] = (rank, obj)
 
-    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
-    return table_from_py_list(rows)
+    return [obj for _, obj in best_by_id.values()]
+
+
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    return table_from_py_list([_scrub_client_secrets(obj) for obj in _latest_webhook_objects(table)])
+
+
+def _refetching_webhook_table_transformer(refetcher: WebhookObjectRefetcher) -> Callable[[pa.Table], pa.Table]:
+    def transform(table: pa.Table) -> pa.Table:
+        objects = refetcher.complete(_latest_webhook_objects(table))
+        return table_from_py_list([_scrub_client_secrets(obj) for obj in objects])
+
+    return transform
+
+
+def _lines_truncated(obj: dict[str, Any]) -> bool:
+    lines = obj.get("lines")
+    return isinstance(lines, Mapping) and bool(lines.get("has_more"))
+
+
+def _tiers_missing(obj: dict[str, Any]) -> bool:
+    return obj.get("billing_scheme") == "tiered" and not obj.get("tiers")
+
+
+def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+    items = (obj.get("items") or {}).get("data") or []
+    discounts = [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
+    return any(isinstance(discount, str) for discount in discounts)
+
+
+def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
+    return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
+
+
+# Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
+# fields and only fetch their lines, which is one request per object instead of two.
+WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
+    INVOICE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_lines_truncated,
+        complete=lambda client, invoice: _with_all_lines(
+            invoice, client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT})
+        ),
+    ),
+    CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_lines_truncated,
+        complete=lambda client, credit_note: _with_all_lines(
+            credit_note, client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT})
+        ),
+    ),
+    PRICE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_tiers_missing,
+        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+    ),
+    PLAN_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_tiers_missing,
+        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+    ),
+    SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_discounts_unexpanded,
+        complete=lambda client, subscription: client.subscriptions.retrieve(
+            subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
+        ),
+    ),
+}
 
 
 def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
@@ -1310,6 +1453,8 @@ def stripe_source(
     team_id: Optional[int] = None,
     source_id: Optional[str] = None,
     use_warehouse_parent: bool = False,
+    api_key_provider: Optional[Callable[[], str]] = None,
+    include_zero_balance_customers: bool = False,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1332,12 +1477,28 @@ def stripe_source(
         if webhook_enabled:
             # History tables keep every event as its own row; everything else collapses each
             # batch to the latest state per object id and upserts it.
-            table_transformer = (
-                _webhook_history_table_transformer
-                if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME
-                else _webhook_table_transformer
+            refetch = WEBHOOK_REFETCH.get(endpoint)
+            table_transformer: Callable[[pa.Table], pa.Table]
+            if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
+                table_transformer = _webhook_history_table_transformer
+            elif refetch is not None:
+                table_transformer = _refetching_webhook_table_transformer(
+                    WebhookObjectRefetcher(
+                        refetch,
+                        logger,
+                        client_factory_provider=lambda: _refetch_client_factory(
+                            api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
+                        ),
+                    )
+                )
+            else:
+                table_transformer = _webhook_table_transformer
+            # Objects grow once their lines or tiers are filled in, after the batch limits were
+            # checked, so a batch that completes objects holds no more rows than a list sync chunk.
+            batch_row_limit = STRIPE_CHUNK_SIZE if refetch is not None else DEFAULT_BATCH_ROW_LIMIT
+            return webhook_source_manager.get_items(
+                table_transformer=table_transformer, batch_row_limit=batch_row_limit
             )
-            return webhook_source_manager.get_items(table_transformer=table_transformer)
 
         return get_rows(
             api_key=api_key,
@@ -1350,6 +1511,7 @@ def stripe_source(
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
+            include_zero_balance_customers=include_zero_balance_customers,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the

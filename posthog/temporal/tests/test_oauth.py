@@ -18,6 +18,7 @@ from posthog.temporal.oauth import (
     CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
+    MCP_SCOPE_PRESETS,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
@@ -103,9 +104,16 @@ class TestResolveScopes(SimpleTestCase):
         assert set(result) == expected
         assert "signal_scratchpad_internal:write" in result
         assert "task:write" not in result
+        assert "inbox:write" not in result
+        assert "inbox:read" in result
         assert "action:write" not in result
 
         assert "signal_scout_internal:read" not in resolve_scopes("signals_research", include_internal_scopes=False)
+
+    @parameterized.expand([(preset, preset) for preset in MCP_SCOPE_PRESETS] + [("custom", ["feature_flag:read"])])
+    def test_inbox_write_travels_with_task_write(self, _name: str, scopes: PosthogMcpScopes) -> None:
+        result = resolve_scopes(scopes)
+        assert ("task:write" in result) == ("inbox:write" in result)
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")

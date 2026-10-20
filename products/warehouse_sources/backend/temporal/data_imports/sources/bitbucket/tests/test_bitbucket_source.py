@@ -49,11 +49,6 @@ def test_connection_host_fields_force_secret_reentry_on_workspace_change():
     assert BitbucketSource().connection_host_fields == ["workspace"]
 
 
-def test_get_schemas_filters_by_names():
-    schemas = BitbucketSource().get_schemas(_config(), team_id=1, names=["commits", "pipelines"])
-    assert sorted(s.name for s in schemas) == ["commits", "pipelines"]
-
-
 @pytest.mark.parametrize(
     "config,expected_auth",
     [

@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -42,6 +42,7 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
+import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -199,7 +200,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
     })
 
-    const { width, containerRef, mounted } = useContainerWidth()
+    const { width: gridWidth, containerRef } = useDashboardContainerWidth()
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
             layoutEditMode,
@@ -207,16 +208,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateLayouts,
         })
 
-    // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
-    // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
-    const [gridWidth, setGridWidth] = useState(width)
     useEffect(() => {
-        const timer = setTimeout(() => setGridWidth(width), 100)
-        return () => clearTimeout(timer)
-    }, [width])
-
-    useEffect(() => {
-        if (!mounted || !containerRef.current) {
+        if (!containerRef.current) {
             return
         }
 
@@ -241,8 +234,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         return () => {
             observer.disconnect()
         }
-    }, [mounted, containerRef])
-    const isMobileView = !!width && width <= BREAKPOINTS['sm']
+    }, [containerRef])
+    const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
@@ -488,7 +481,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     resize tiles.
                 </LemonBanner>
             )}
-            {mounted && (
+            {gridWidth > 0 && (
                 <div className={clsx('relative', showDecorationSpace && 'mt-10')}>
                     {layoutEditMode && !isMobileView && (
                         <GridBackground
@@ -505,6 +498,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                     <ReactGridLayout
                         width={gridWidth}
+                        style={{ width: gridWidth }}
                         className={className}
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
