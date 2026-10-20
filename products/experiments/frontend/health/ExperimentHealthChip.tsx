@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconStethoscope, IconWarning } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Spinner } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -64,7 +64,6 @@ export function ExperimentHealthChip(): JSX.Element | null {
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
-                        icon={<IconStethoscope className="text-secondary" />}
                         tooltip="Health checks"
                         data-attr="experiment-health-checks-button"
                     >
