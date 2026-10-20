@@ -2466,7 +2466,6 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3463,7 +3462,6 @@ export interface ProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4352,7 +4350,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable

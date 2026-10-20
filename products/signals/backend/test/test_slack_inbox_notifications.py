@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.conf import settings
 
 from rest_framework.exceptions import ValidationError
@@ -20,6 +21,8 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -395,6 +398,35 @@ def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         slack_cls.return_value.client = fake_client
         slack_cls.return_value.get_user_by_id.return_value = None
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_report_authored_by_scout_kept_out_of_inbox(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "digest-reviewer@example.com", "digest-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["digest-bot"])
+    config = SignalScoutConfig.objects.for_team(team.id).create(
+        team=team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+    )
+    task = apps.get_model("tasks", "Task").objects.create(team=team, title="scout", description="d")
+    SignalScoutRun.objects.for_team(team.id).create(
+        team=team,
+        task_run=apps.get_model("tasks", "TaskRun").objects.create(team=team, task=task),
+        scout_config=config,
+        skill_name=config.skill_name,
+        skill_version=1,
+        emitted_report_ids=[str(report.id)],
+    )
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 0
