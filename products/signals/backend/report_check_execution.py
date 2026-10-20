@@ -452,6 +452,28 @@ def _monitoring_metric_filter(disabled_organizations: frozenset[UUID], *, starte
     )
 
 
+def _completed_check_runs(check: SignalReportCheck, start: datetime) -> int:
+    completed = 0
+    results = (
+        SignalReportArtefact.objects.using("default")
+        .filter(
+            team_id=check.team_id,
+            report_id=check.report_id,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            created_at__gte=start,
+        )
+        .values_list("content", flat=True)
+    )
+    for content in results.iterator(chunk_size=100):
+        try:
+            result = CheckResult.model_validate_json(content)
+        except ValueError:
+            continue
+        if result.check_id == str(check.id) and result.outcome == "passed":
+            completed += 1
+    return completed
+
+
 def _resolved_monitoring_expiry(check: SignalReportCheck) -> datetime:
     start = check.report.monitoring_started_at
     if (
@@ -462,6 +484,8 @@ def _resolved_monitoring_expiry(check: SignalReportCheck) -> datetime:
         or check.expires_at != start + MAX_CHECK_HORIZON
     ):
         return check.expires_at
+    if check.monitoring_fallback_expires_at is not None:
+        return check.monitoring_fallback_expires_at
     ready_at = start + timedelta(minutes=check.soak_minutes or 0)
     try:
         config = cast(MetricThresholdConfig, parse_check_config(check.kind, check.config))
@@ -469,10 +493,13 @@ def _resolved_monitoring_expiry(check: SignalReportCheck) -> datetime:
         ready_at = max(ready_at, metric_check_ready_at(query, check.report.team, start))
     except (CheckConfigValidationError, ValueError):
         pass
+    runs = check.runs_remaining
+    if check.run_interval_minutes and check.last_outcome is not None:
+        runs += _completed_check_runs(check, start)
     return check_schedule_expires_at(
         next_run_at=ready_at,
         run_interval_minutes=check.run_interval_minutes,
-        runs_remaining=check.runs_remaining,
+        runs_remaining=runs,
         start_at=start,
     )
 
@@ -490,13 +517,12 @@ def _restore_resolved_monitoring_expiries(now: datetime, disabled_organizations:
                 F("report__monitoring_started_at") + Value(MAX_CHECK_HORIZON), output_field=DateTimeField()
             ),
         )
+        .filter(Q(monitoring_fallback_expires_at__isnull=True) | ~Q(monitoring_fallback_expires_at=F("expires_at")))
         .select_related("report__team")
         .order_by("expires_at", "id")[:MAX_CHECK_PARKS_PER_TICK]
     )
     for check in candidates:
         expires_at = _resolved_monitoring_expiry(check)
-        if expires_at == check.expires_at:
-            continue
         period = SignalReport.objects.filter(
             id=OuterRef("report_id"),
             team_id=OuterRef("team_id"),
@@ -509,7 +535,7 @@ def _restore_resolved_monitoring_expiries(now: datetime, disabled_organizations:
             status=SignalReportCheck.Status.ACTIVE,
             updated_at=check.updated_at,
             expires_at=check.expires_at,
-        ).update(expires_at=expires_at, updated_at=now)
+        ).update(expires_at=expires_at, monitoring_fallback_expires_at=expires_at, updated_at=now)
 
 
 def expire_overdue_checks(now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID] | None = None) -> int:
@@ -639,6 +665,9 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
                 measurement_start_at=None,
                 next_run_at=now + timedelta(minutes=soak_minutes),
                 expires_at=now + MAX_CHECK_HORIZON,
+                monitoring_fallback_expires_at=F("monitoring_fallback_expires_at")
+                if check.report.monitoring_started_at is not None
+                else None,
                 consecutive_errors=F("consecutive_errors") if preserve_monitoring_errors else 0,
                 consecutive_inconclusive=0,
                 dispatched_at=None,
@@ -649,6 +678,13 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
 
 
 def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime) -> int:
+    new_period = SignalReport.objects.filter(id=report_id, team_id=team_id, monitoring_started_at__isnull=True)
+    SignalReportCheck.objects.for_team(team_id).filter(
+        Exists(new_period),
+        report_id=report_id,
+        status=SignalReportCheck.Status.PENDING,
+        monitoring_fallback_expires_at__isnull=False,
+    ).update(monitoring_fallback_expires_at=None, updated_at=now)
     return _park_checks(
         SignalReportCheck.objects.for_team(team_id)
         .filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE)
@@ -774,6 +810,13 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
             next_run_at=check._monitoring_next_run_at,
             measurement_start_at=start,
             expires_at=check._monitoring_expires_at,
+            monitoring_fallback_expires_at=check.expires_at
+            if (
+                check.monitoring_fallback_expires_at is None
+                and check.measurement_start_at == start
+                and check.expires_at < start + MAX_CHECK_HORIZON
+            )
+            else check.monitoring_fallback_expires_at,
             updated_at=now,
         )
 
