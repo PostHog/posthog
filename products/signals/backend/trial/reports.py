@@ -125,7 +125,8 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str, paid_
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
     policy = TrialPolicy(team)
-    if policy.active_grant() is None:
+    # A new pass must replace historical trial funding even when the rollout is off.
+    if policy.grant() is None:
         return
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)

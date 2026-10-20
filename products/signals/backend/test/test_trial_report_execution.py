@@ -109,7 +109,8 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert grant.incomplete_sources == 0
         assert grant.settled_microusd == 123
 
-    def test_report_pass_funding_survives_retry_exhaustion_and_paid_handoff(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_report_pass_funding_survives_retry_exhaustion_and_paid_handoff(self, enabled: bool) -> None:
         grant = self.claim()
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="first-pass")
@@ -144,10 +145,11 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         report.status = SignalReport.Status.READY
         report.save(update_fields=["status"])
         assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report.id).status == "consumed"
+        self.flag_mock.return_value = enabled
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="second-pass", paid_authorized=True)
         SignalReport.objects.filter(id=report.id, team_id=self.team.id).update(status=SignalReport.Status.IN_PROGRESS)
         paid_run = task.create_run(extra_state={"ai_stage": "research"})
-        assert paid_run.state["self_driving_funding"]["funding"] == "paid"
+        assert paid_run.state["self_driving_funding"]["funding"] == ("paid" if enabled else "existing")
         assert run.state["self_driving_funding"]["funding"] == "trial"
 
     def test_paid_direct_retry_does_not_consume_released_trial_slot(self) -> None:
