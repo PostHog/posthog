@@ -1,10 +1,10 @@
 import json
 import math
 from enum import StrEnum
+from functools import cached_property
 from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 
 # Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them
@@ -155,6 +155,10 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
         {"time_value", "time_interval"},
         {"explicit_datetime"},
     ],
+    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
 }
 
 # Mirrored in frontend/src/models/cohortsModel.ts (BEHAVIORAL_VALUE_ALIASES) so the cohort
@@ -192,8 +196,6 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
         "seq_event_type",
         "seq_event",
         "seq_time_value",

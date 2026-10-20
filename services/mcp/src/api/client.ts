@@ -342,6 +342,14 @@ export class ApiClient {
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
+        const pathname = opts.path.split(/[?#]/, 1)[0]!
+        if (
+            !pathname.startsWith('/') ||
+            pathname.includes('//') ||
+            new URL(pathname, this.baseUrl).pathname !== pathname
+        ) {
+            throw new Error('Invalid API path')
+        }
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {

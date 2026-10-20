@@ -19,6 +19,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
@@ -1170,13 +1171,16 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
                 user_id=input.requested_user_id,
                 task_id=input.requested_task_id,
                 after_run_count=input.requested_after_run_count,
-            )
+            ),
+            ch_user=ClickHouseUser.SIGNALS,
         )
     else:
-        await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
+        await maybe_autostart_from_report_artefacts(
+            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+        )
         # A plan never starts its own run, so its first layers start here, at the same settle point.
         await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
-            team_id=input.team_id, parent_report_id=input.report_id
+            team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
 
 

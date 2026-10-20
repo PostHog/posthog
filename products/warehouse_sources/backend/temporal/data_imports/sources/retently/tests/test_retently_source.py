@@ -84,8 +84,3 @@ class TestResumablePlumbing:
         )
 
         assert "startDate" not in result.requests[0].query
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = self.driver.run("not_a_real_table", [])
-
-        assert isinstance(result.raised, ValueError)

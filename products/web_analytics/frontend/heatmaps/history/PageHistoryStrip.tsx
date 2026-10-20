@@ -1,20 +1,26 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
-import useResizeObserver from 'use-resize-observer'
+import { useCallback, useRef } from 'react'
 
-import { IconCamera, IconChevronLeft, IconChevronRight, IconEllipsis, IconRefresh } from '@posthog/icons'
+import {
+    IconCamera,
+    IconChevronLeft,
+    IconChevronRight,
+    IconClock,
+    IconEllipsis,
+    IconInfo,
+    IconRefresh,
+    IconX,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonMenu, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { dateFilterToText } from 'lib/utils/dateFilters'
 
 import { pageHistoryCaptureLogic } from './pageHistoryCaptureLogic'
 import { pageHistoryLogic } from './pageHistoryLogic'
 import { PageHistoryRangeEditor } from './PageHistoryRangeEditor'
 import { PageHistoryTile } from './PageHistoryTile'
-import { formatCaptureDay, formatCaptureTimestamp, formatHistoryDateRange } from './pageHistoryUtils'
+import { formatCaptureDay, formatCaptureTimestamp } from './pageHistoryUtils'
 
 export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
     const logic = pageHistoryLogic({ id })
@@ -49,31 +55,6 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
     const { capturing, captureError, captureStatusUnknown, completedCapture, captureNowDisabledReason, todaysCapture } =
         useValues(captureLogic)
     const { requestCapture, setCompletedRequestId } = useActions(captureLogic)
-    const { effectiveCommonFilters } = useValues(heatmapDataLogic({ context: 'in-app' }))
-    const contextRef = useRef<HTMLElement | null>(null)
-    const [browserMaxHeight, setBrowserMaxHeight] = useState(640)
-    const measureBrowserSpace = useCallback((): void => {
-        const top = contextRef.current?.getBoundingClientRect().top
-        if (top !== undefined) {
-            setBrowserMaxHeight(Math.max(280, window.innerHeight - Math.max(0, top) - 16))
-        }
-    }, [])
-    const { ref: observeContext } = useResizeObserver<HTMLElement>({ onResize: measureBrowserSpace })
-    const setContextRef = useCallback(
-        (node: HTMLElement | null): void => {
-            contextRef.current = node
-            observeContext(node)
-        },
-        [observeContext]
-    )
-    useLayoutEffect(() => {
-        if (!historyExpanded) {
-            return
-        }
-        measureBrowserSpace()
-        window.addEventListener('resize', measureBrowserSpace)
-        return () => window.removeEventListener('resize', measureBrowserSpace)
-    }, [measureBrowserSpace, historyExpanded])
     const browseRef = useRef<HTMLButtonElement | null>(null)
     const focusCloseButton = useCallback((node: HTMLButtonElement | null): void => {
         node?.focus({ preventScroll: true })
@@ -86,7 +67,6 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
 
     return (
         <section
-            ref={setContextRef}
             className="@container/history p-3 border-b"
             aria-label="Page history"
             data-attr="heatmap-page-history"
@@ -97,43 +77,45 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                 }
             }}
         >
-            <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                    <div
-                        className="text-sm font-semibold"
-                        aria-live="polite"
-                        data-attr="heatmap-page-history-selection"
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                    <IconCamera className="text-muted shrink-0" />
+                    <span className="text-sm font-medium" aria-live="polite" data-attr="heatmap-page-history-selection">
+                        {selectedBackground
+                            ? `Screenshot · ${formatCaptureDay(selectedBackground.captured_on)}`
+                            : 'Current screenshot'}
+                    </span>
+                    <Tooltip
+                        title={
+                            <div className="max-w-xs">
+                                <p>
+                                    {selectedBackground
+                                        ? `Captured ${formatCaptureTimestamp(selectedBackground)} at ${selectedBackground.width}px.`
+                                        : 'Showing the current saved screenshot.'}
+                                </p>
+                                <p>
+                                    Daily screenshots may differ from later changes or personalized pages. Some days may
+                                    be missing.
+                                </p>
+                                <p className="mb-0">{`Screenshots are kept for ${history?.retention_days ?? 90} days. Historical views aren't saved in shared links and can't be exported.`}</p>
+                            </div>
+                        }
                     >
-                        <span>
-                            {selectedDateRange
-                                ? `Interactions: ${formatHistoryDateRange(selectedDateRange)}`
-                                : `Interactions: ${dateFilterToText(effectiveCommonFilters?.date_from, effectiveCommonFilters?.date_to, 'Current date filters')}`}
-                        </span>
-                        {selectedBackground ? (
-                            <span className="sr-only">{`. Screenshot captured ${formatCaptureTimestamp(selectedBackground)}.`}</span>
-                        ) : null}
-                    </div>
-                    <div className="text-xs text-muted mt-1">
-                        <Tooltip
-                            title={
-                                selectedBackground
-                                    ? 'Daily screenshots show the page at capture time. They may not reflect later changes or personalized versions.'
-                                    : 'This saved screenshot may differ from the pages seen during your interaction dates. Browse screenshots to inspect a past day.'
-                            }
-                        >
-                            <span className="cursor-help border-b border-dashed">
-                                {selectedBackground
-                                    ? `Screenshot captured ${formatCaptureTimestamp(selectedBackground)} · ${selectedBackground.width}px`
-                                    : 'Current saved screenshot'}
-                            </span>
-                        </Tooltip>
-                    </div>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconInfo />}
+                            aria-label="About page history"
+                            data-attr="heatmap-page-history-info"
+                        />
+                    </Tooltip>
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
                     <LemonButton
                         ref={browseRef}
                         size="small"
                         type="secondary"
+                        icon={<IconClock />}
+                        active={historyExpanded}
                         onClick={() => {
                             if (historyExpanded) {
                                 closeBrowser()
@@ -146,7 +128,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                         disabledReason={historyBrowseDisabledReason}
                         data-attr="heatmap-page-history-toggle"
                     >
-                        Browse screenshots
+                        Page history
                     </LemonButton>
                     {selectedDateRange ? (
                         <LemonButton
@@ -195,7 +177,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                     type="warning"
                     className="mt-2"
                     action={{
-                        children: 'Review days individually',
+                        children: 'View one day',
                         onClick: () => {
                             if (selectedBackground) {
                                 selectCapture(selectedBackground.id)
@@ -203,8 +185,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                         },
                     }}
                 >
-                    All interactions are positioned on this screenshot. Page changes during this period can move clicks
-                    onto different elements.
+                    Page changes across these days may misalign clicks on this screenshot.
                 </LemonBanner>
             ) : null}
             {historyLoadFailed ? (
@@ -230,8 +211,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                         className="mt-2"
                         action={{ children: 'Check capture', onClick: () => loadHistory(), loading: historyLoading }}
                     >
-                        Couldn't check the capture's status. It may still be running. Check again before starting
-                        another.
+                        Couldn't check this capture. Check its status before starting another.
                     </LemonBanner>
                 ) : captureError ? (
                     <LemonBanner
@@ -248,7 +228,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                 ) : capturing ? (
                     <div className="flex items-center gap-2 text-sm mt-2">
                         <Spinner className="shrink-0" />
-                        <span>Capturing today's page. You can keep exploring history.</span>
+                        <span>Capturing today's screenshot…</span>
                     </div>
                 ) : completedCapture ? (
                     <LemonBanner
@@ -270,10 +250,9 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
             </div>
             {missingCaptureDate ? (
                 <LemonBanner type="info" className="mt-2" onClose={() => setMissingCaptureDate(null)}>
-                    <p className="mb-1">
-                        <span>{`No screenshot was saved for ${formatCaptureDay(missingCaptureDate)}. ${selectedBackground ? `Still viewing the ${dayjs(selectedBackground.captured_on).format('MMM D')} screenshot${isCombinedRange ? ' with your combined interaction dates' : ' and its interaction day'}.` : 'Your current view is unchanged.'}`}</span>
+                    <p className="mb-2">
+                        <span>{`No screenshot for ${formatCaptureDay(missingCaptureDate)}. Your current view is unchanged. Interaction data may still be available.`}</span>
                     </p>
-                    <p className="text-xs mb-2">A missing screenshot does not indicate whether interactions exist.</p>
                     <div className="flex flex-wrap gap-2">
                         {missingDateAlternatives.map((capture) => (
                             <LemonButton
@@ -299,7 +278,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                 <div className="mt-3" data-attr="heatmap-page-history-empty">
                     <p className="text-sm mb-2">
                         {history.storage_available
-                            ? "Automatic captures build history for recently viewed pages. Earlier page designs can't be recovered."
+                            ? 'No page history yet. Capture this page to start saving daily screenshots.'
                             : 'Screenshot storage is unavailable on this installation. Ask your administrator to configure it.'}
                     </p>
                     <LemonButton
@@ -313,104 +292,80 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                     >
                         Capture today's screenshot
                     </LemonButton>
-                    <p className="text-xs text-muted mb-0 mt-2">
-                        <span>{`Saved screenshots are kept for ${history.retention_days} days. Some days may be missing.`}</span>
-                    </p>
                 </div>
-            ) : null}
-            {selectedDateRange ? (
-                <p className="text-xs text-muted mt-2 mb-0">
-                    This history view is temporary. The heatmap link opens the current view; historical export is
-                    unavailable.
-                </p>
             ) : null}
             {historyExpanded ? (
-                <div
-                    className="absolute top-0 inset-x-3 h-full pointer-events-none z-20"
-                    style={{ maxHeight: browserMaxHeight }}
-                >
-                    <div
-                        className="absolute bottom-3 inset-x-0 max-w-lg ml-auto pointer-events-auto"
-                        id="heatmap-history-browser"
-                        role="dialog"
-                        aria-labelledby="heatmap-history-browser-title"
-                    >
-                        <LemonCard hoverEffect={false} className="p-3 shadow-lg">
-                            <div className="flex justify-between items-center gap-2">
+                <LemonCard hoverEffect={false} className="mt-3 p-3 bg-surface-secondary">
+                    <div id="heatmap-history-browser" role="region" aria-labelledby="heatmap-history-browser-title">
+                        <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                                 <h3 id="heatmap-history-browser-title" className="text-sm mb-0">
-                                    Browse screenshots
+                                    Page history
                                 </h3>
+                                <span className="text-xs text-muted">
+                                    {history ? `${usableCaptures.length} screenshots` : 'Loading screenshots…'}
+                                </span>
+                            </div>
+                            <LemonButton
+                                ref={focusCloseButton}
+                                size="small"
+                                icon={<IconX />}
+                                onClick={closeBrowser}
+                                aria-label="Close screenshot browser"
+                            />
+                        </div>
+                        {visibleCaptures.length > 0 ? (
+                            <div
+                                className="grid grid-cols-2 @min-[32rem]/history:grid-cols-4 gap-2 max-h-64 overflow-y-auto p-1"
+                                aria-label="Available screenshot dates"
+                            >
+                                {visibleCaptures.map((capture) => (
+                                    <PageHistoryTile
+                                        key={capture.id}
+                                        capture={capture}
+                                        selected={selectedBackground?.id === capture.id}
+                                        disabledReason={historyBrowseDisabledReason}
+                                        onSelect={() => browseCapture(capture.id)}
+                                    />
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm">
+                                {historyLoadFailed
+                                    ? "Couldn't load screenshots. Use Try again above."
+                                    : historyLoading
+                                      ? 'Loading screenshots…'
+                                      : 'No screenshots are available yet.'}
+                            </p>
+                        )}
+                        {historyPageCount > 1 ? (
+                            <div className="flex justify-between gap-2 mt-2">
                                 <LemonButton
-                                    ref={focusCloseButton}
                                     size="small"
-                                    onClick={closeBrowser}
-                                    aria-label="Close screenshot browser"
+                                    icon={<IconChevronLeft />}
+                                    onClick={() => setHistoryPage(historyPage + 1)}
+                                    disabledReason={
+                                        historyPage >= historyPageCount - 1
+                                            ? 'These are the oldest captures.'
+                                            : undefined
+                                    }
+                                    data-attr="heatmap-page-history-older"
                                 >
-                                    Close
+                                    Older
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    sideIcon={<IconChevronRight />}
+                                    onClick={() => setHistoryPage(historyPage - 1)}
+                                    disabledReason={historyPage === 0 ? 'These are the newest captures.' : undefined}
+                                    data-attr="heatmap-page-history-newer"
+                                >
+                                    Newer
                                 </LemonButton>
                             </div>
-                            <p className="text-xs text-muted mt-2 mb-2">
-                                Choose a day to inspect its interactions and captured screenshot.
-                            </p>
-                            {visibleCaptures.length > 0 ? (
-                                <div className="grid grid-cols-4 gap-2" aria-label="Available screenshot dates">
-                                    {visibleCaptures.map((capture) => (
-                                        <PageHistoryTile
-                                            key={capture.id}
-                                            capture={capture}
-                                            selected={selectedBackground?.id === capture.id}
-                                            disabledReason={historyBrowseDisabledReason}
-                                            onSelect={() => browseCapture(capture.id)}
-                                        />
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-sm">
-                                    {historyLoadFailed
-                                        ? "Couldn't load screenshots. Use Try again above."
-                                        : historyLoading
-                                          ? 'Loading screenshots…'
-                                          : 'No screenshots are available yet.'}
-                                </p>
-                            )}
-                            {historyPageCount > 1 ? (
-                                <div className="flex justify-between gap-2 mt-2">
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconChevronLeft />}
-                                        onClick={() => setHistoryPage(historyPage + 1)}
-                                        disabledReason={
-                                            historyPage >= historyPageCount - 1
-                                                ? 'These are the oldest captures.'
-                                                : undefined
-                                        }
-                                        data-attr="heatmap-page-history-older"
-                                    >
-                                        Older
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="small"
-                                        sideIcon={<IconChevronRight />}
-                                        onClick={() => setHistoryPage(historyPage - 1)}
-                                        disabledReason={
-                                            historyPage === 0 ? 'These are the newest captures.' : undefined
-                                        }
-                                        data-attr="heatmap-page-history-newer"
-                                    >
-                                        Newer
-                                    </LemonButton>
-                                </div>
-                            ) : null}
-                            <p className="text-xs text-muted mb-0 mt-2">
-                                <span>
-                                    {usableCaptures.length
-                                        ? `${usableCaptures.length} captured ${usableCaptures.length === 1 ? 'day' : 'days'} between ${dayjs(usableCaptures[0].captured_on).format('MMM D')} and ${formatCaptureDay(usableCaptures.at(-1)!.captured_on)}. Kept for ${history?.retention_days} days; some days may be missing.`
-                                        : 'Earlier page designs cannot be recovered.'}
-                                </span>
-                            </p>
-                        </LemonCard>
+                        ) : null}
                     </div>
-                </div>
+                </LemonCard>
             ) : null}
             <PageHistoryRangeEditor id={id} />
         </section>

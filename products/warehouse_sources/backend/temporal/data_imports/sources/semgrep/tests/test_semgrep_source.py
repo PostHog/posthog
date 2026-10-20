@@ -17,12 +17,6 @@ def _config(api_token: str = "token") -> Any:
     return config
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = SemgrepSource().get_schemas(_config(), team_id=1, names=["deployments", "secrets"])
-        assert {s.name for s in schemas} == {"deployments", "secrets"}
-
-
 class TestValidateCredentials:
     def test_success(self) -> None:
         with patch(

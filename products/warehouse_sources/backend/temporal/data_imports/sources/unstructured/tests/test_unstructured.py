@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from typing import Any
+
 from unittest.mock import patch
 
 import requests
@@ -7,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unstructured import (
@@ -15,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source import UnstructuredSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.unstructured import (
     DEFAULT_BASE_URL,
+    FAILED_FILES_PAGE_SIZE,
+    NOTIFICATIONS_PAGE_SIZE,
     WORKFLOWS_PAGE_SIZE,
     UnstructuredResumeConfig,
     UnstructuredRetryableError,
@@ -161,6 +167,183 @@ class TestGetRows:
         assert result.requests == []
 
 
+JOB_A = "11111111-1111-4111-8111-111111111111"
+JOB_B = "22222222-2222-4222-8222-222222222222"
+JOB_C = "33333333-3333-4333-8333-333333333333"
+
+
+def _job(job_id: str, failed_file_count: int | None = None) -> dict[str, Any]:
+    return {
+        "id": job_id,
+        "workflow_id": "wf-1",
+        "created_at": "2026-01-02T03:04:05Z",
+        "status": "COMPLETED",
+        "failed_file_count": failed_file_count,
+    }
+
+
+def _failed_file(document: str, node_id: str = "node-partition") -> dict[str, Any]:
+    return {"document": document, "error": "could not parse", "node": {"id": node_id, "type": "partition"}}
+
+
+class TestJobFanOut:
+    def test_failed_files_skips_clean_jobs_and_walks_offset_pages(self) -> None:
+        result = _driver().run(
+            "job_failed_files",
+            route(
+                {
+                    "/api/v1/jobs/": [ScriptedResponse(json=[_job(JOB_A, 0), _job(JOB_B, 3), _job(JOB_C)])],
+                    f"/api/v1/jobs/{JOB_B}/failed-files": [
+                        ScriptedResponse(
+                            json={"failed_files": [_failed_file("a.pdf"), _failed_file("b.pdf")], "next_offset": 2}
+                        ),
+                        ScriptedResponse(json={"failed_files": [_failed_file("c.pdf")], "next_offset": None}),
+                    ],
+                    f"/api/v1/jobs/{JOB_C}/failed-files": [ScriptedResponse(status=404, json={"detail": "gone"})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert f"/api/v1/jobs/{JOB_A}/failed-files" not in result.paths
+        assert result.params("offset") == [None, "0", "2", "0"]
+        assert result.params("limit")[1:] == [str(FAILED_FILES_PAGE_SIZE)] * 3
+        assert [row["document"] for row in result.rows] == ["a.pdf", "b.pdf", "c.pdf"]
+        assert result.rows[0] == {
+            **_failed_file("a.pdf"),
+            "job_id": JOB_B,
+            "workflow_id": "wf-1",
+            "job_created_at": "2026-01-02T03:04:05Z",
+            "node_id": "node-partition",
+        }
+
+    @parameterized.expand(
+        [
+            ("no_next_offset", {"failed_files": [{"document": "a.pdf", "error": "x", "node": {"id": "n"}}]}),
+            ("next_offset_not_ahead", {"failed_files": [], "next_offset": 0}),
+        ]
+    )
+    def test_failed_files_stops_without_a_forward_offset(self, _name: str, body: dict[str, Any]) -> None:
+        result = _driver().run(
+            "job_failed_files",
+            route(
+                {
+                    "/api/v1/jobs/": [ScriptedResponse(json=[_job(JOB_A, 1)])],
+                    f"/api/v1/jobs/{JOB_A}/failed-files": [ScriptedResponse(json=body)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+
+    def test_job_details_adds_job_fields_and_skips_deleted_jobs(self) -> None:
+        details = {"id": JOB_A, "processing_status": "SUCCESS", "node_stats": [{"node_id": "n", "success": 4}]}
+        result = _driver().run(
+            "job_details",
+            route(
+                {
+                    "/api/v1/jobs/": [ScriptedResponse(json=[_job(JOB_A), _job(JOB_B)])],
+                    f"/api/v1/jobs/{JOB_A}/details": [ScriptedResponse(json=details)],
+                    f"/api/v1/jobs/{JOB_B}/details": [ScriptedResponse(status=404, json={"detail": "gone"})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**details, "workflow_id": "wf-1", "job_created_at": "2026-01-02T03:04:05Z"}]
+
+    def test_per_job_server_error_still_fails_the_sync(self) -> None:
+        # Only a 404 means the job is gone; any other error must not silently drop the job's rows.
+        result = _driver().run(
+            "job_details",
+            route(
+                {
+                    "/api/v1/jobs/": [ScriptedResponse(json=[_job(JOB_A)])],
+                    f"/api/v1/jobs/{JOB_A}/details": [ScriptedResponse(status=403, json={"detail": "no"})],
+                }
+            ),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+
+def _event(event_id: str, created_at: str = "2026-03-01T00:00:00Z") -> dict[str, Any]:
+    return {"id": event_id, "event_type": "job.completed", "payload": {}, "created_at": created_at}
+
+
+class TestNotifications:
+    def test_walks_cursor_pages_and_stages_each_cursor_before_its_page(self) -> None:
+        result = _driver().run(
+            "notifications",
+            [
+                ScriptedResponse(json={"events": [_event("e1"), _event("e2")], "next_cursor": "c1"}),
+                ScriptedResponse(json={"events": [], "next_cursor": "c2"}),
+                ScriptedResponse(json={"events": [_event("e3")], "next_cursor": None}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e1", "e2", "e3"]
+        assert result.params("cursor") == [None, "c1", "c2"]
+        assert result.params("limit") == [str(NOTIFICATIONS_PAGE_SIZE)] * 3
+        assert result.saved_states == [
+            UnstructuredResumeConfig(next_cursor="c1"),
+            UnstructuredResumeConfig(next_cursor="c2"),
+        ]
+        assert result.committed_states == result.saved_states
+        assert result.response is not None and result.response.sort_mode == "desc"
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "notifications",
+            [ScriptedResponse(json={"events": [_event("e9")], "next_cursor": None})],
+            resume_state=UnstructuredResumeConfig(next_cursor="c7"),
+        )
+
+        assert result.params("cursor") == ["c7"]
+        assert [row["id"] for row in result.rows] == ["e9"]
+
+    def test_repeated_cursor_ends_the_walk(self) -> None:
+        result = _driver().run(
+            "notifications",
+            [
+                ScriptedResponse(json={"events": [_event("e1")], "next_cursor": "c1"}),
+                ScriptedResponse(json={"events": [_event("e1")], "next_cursor": "c1"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+
+    @parameterized.expand(
+        [
+            ("incremental_datetime", True, datetime(2026, 2, 1, 12, 0), "2026-02-01T12:00:00+00:00"),
+            ("incremental_string", True, "2026-02-01T12:00:00Z", "2026-02-01T12:00:00Z"),
+            ("incremental_first_sync", True, None, None),
+            ("full_refresh_ignores_watermark", False, datetime(2026, 2, 1, tzinfo=UTC), None),
+        ]
+    )
+    def test_since_follows_the_incremental_watermark(
+        self, _name: str, incremental: bool, last_value: Any, expected_since: str | None
+    ) -> None:
+        result = _driver().run(
+            "notifications",
+            [ScriptedResponse(json={"events": [], "next_cursor": None})],
+            incremental_field="created_at",
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.params("since") == [expected_since]
+
+    def test_non_object_body_returns_empty(self) -> None:
+        result = _driver().run("notifications", [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        assert result.rows == []
+
+
 class TestUnstructuredSource:
     @parameterized.expand(["workflows", "jobs", "sources", "destinations"])
     def test_source_response_contract(self, endpoint: str) -> None:
@@ -177,12 +360,6 @@ class TestUnstructuredSource:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status, json=[] if status == 200 else {"detail": "no"})]):
-            ok, _msg = validate_credentials(DEFAULT_BASE_URL, "key", team_id=1)
-        assert ok is expected
-
     def test_session_pins_redirects_off_and_redacts_key(self) -> None:
         # Validation carries the key to a user-configurable host; pin redirects off and redact the key.
         with scripted_network([ScriptedResponse(json=[])]) as network:
@@ -190,11 +367,6 @@ class TestValidateCredentials:
 
         assert network.session_options[0]["allow_redirects"] is False
         assert network.session_options[0]["redact_values"] == ("secret-key",)
-
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, _msg = validate_credentials(DEFAULT_BASE_URL, "key", team_id=1)
-        assert ok is False
 
     def test_unsafe_host_rejected_before_request(self) -> None:
         with patch(MIXINS_IS_CLOUD, return_value=True), scripted_network([]) as network:

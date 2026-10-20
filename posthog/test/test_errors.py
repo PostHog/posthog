@@ -66,6 +66,12 @@ class TestWrapClickhouseQueryError:
                 "Unsupported JOIN keys. Check the expressions and types used to join your tables.",
             ),
             (
+                124,
+                "INCORRECT_ELEMENT_OF_SET",
+                "An element of an IN set is invalid. Make sure each tuple in the IN list has the same number "
+                "of elements as the left side, and that each element is a constant.",
+            ),
+            (
                 125,
                 "INCORRECT_RESULT_OF_SCALAR_SUBQUERY",
                 "A scalar subquery returned more than one row, or an empty result that cannot be nullable. "

@@ -41,7 +41,3 @@ class TestNorthflankSource:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["services"])
-        assert [s.name for s in schemas] == ["services"]

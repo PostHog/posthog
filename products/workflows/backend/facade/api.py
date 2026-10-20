@@ -38,6 +38,7 @@ from products.workflows.backend.services.email_sending_controls import (
     unsuspend_email_sending,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -62,6 +63,7 @@ __all__ = [
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_hog_flows_referencing_template_input_keys",
+    "list_owned_workflow_health",
     "max_email_sending_tier",
     "set_default_email_sender_if_unset",
     "set_email_sending_tier",
@@ -251,6 +253,16 @@ def get_active_workflows_using_realtime_cohort(
         CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
+
+
+def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
+    """Cheap pre-check: False means no active workflow in the team can rely on any cohort."""
+    # Deferred for the same reason as get_active_workflows_using_realtime_cohort.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        team_has_active_hog_flows_mentioning_cohorts,
+    )
+
+    return team_has_active_hog_flows_mentioning_cohorts(team_id)
 
 
 def recompute_email_sending_tier(team_id: int) -> TierDecision | None:

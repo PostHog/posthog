@@ -2,6 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse, urlsplit
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -69,6 +70,9 @@ POLICY_REQUEST_SERIALIZER_CASES = [
         },
     ),
 ]
+
+
+pytestmark = pytest.mark.usefixtures("pin_oauth_urls")
 
 
 class TestIsValidPosthogCodeCallbackUrl(SimpleTestCase):
@@ -3158,7 +3162,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_dcr_path_used_when_pkce_verifier_present(self, mock_post, _allow):
         installation = self._create_installation()
 
@@ -3179,7 +3183,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert mock_post.call_args[1]["data"]["code_verifier"] == "test-pkce-verifier"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_oauth_redirect_uses_posthog_code_callback_url(self, mock_post, _allow):
         installation = self._create_installation()
 
@@ -3207,7 +3211,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "status=success" in location
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_oauth_redirect_posthog_code_error_includes_error_param(self, mock_post, _allow):
         installation = self._create_installation()
 
@@ -3253,7 +3257,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_rejects_anonymous_posthog_consumer_in_dev(self, mock_post, _allow, _is_dev):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -3277,7 +3281,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_accepts_anonymous_consumer_in_dev(self, mock_post, _allow, _is_dev):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -3359,7 +3363,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_happy_path_same_user(self, mock_post, _allow):
         """Positive control: callback authenticated as the same user -> success."""
         mock_post.return_value.status_code = 200
@@ -3378,7 +3382,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert installation.sensitive_configuration["access_token"] == "tok"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_happy_path_cross_client_same_user(self, mock_post, _allow):
         """posthog-code scenario: initiate and callback happen in different HTTP clients.
 
@@ -3405,7 +3409,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert installation.sensitive_configuration["access_token"] == "tok"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_consumed_state_rejects_replay(self, mock_post, _allow):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -3559,7 +3563,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_discovery_reports_the_failed_metadata_check(self, mock_get, _allow_oauth, _allow):
         metadata = {
             "issuer": "https://evil.com",
@@ -3590,7 +3594,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_google_install_gets_a_refresh_token_that_survives_the_refresh_threshold(
         self, mock_discover, mock_post, _allow_oauth, _allow
@@ -4729,7 +4733,7 @@ class TestInstallDispatchesToolSync(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
     @patch("products.mcp_store.backend.presentation.views.sync_installation_tools_task")
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_oauth_redirect_dispatches_background_sync(self, mock_post, _allow, mock_task):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
