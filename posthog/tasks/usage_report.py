@@ -2853,15 +2853,17 @@ def get_teams_with_metrics_series_in_period(
     Returns the number of distinct Metrics (OTel) series per team that received at least one
     point in the period, as `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
 
-    `metrics4_series` keeps one row per series and UTC hour on the Logs cluster, so this never
-    reads the sample arrays. `uniq` is approximate, which is acceptable for a report-only counter
-    and keeps memory bounded when one team has a cardinality explosion.
+    Reads `metrics4_samples` rather than `metrics4_series`: the capture label gate strips labels
+    from repeat points, and the series table only gets labelled rows, so a series whose labelled
+    point fell in the previous day would be missed. Only the key columns are read, never the point
+    arrays. `uniq` is approximate, which is acceptable for a report-only counter and keeps memory
+    bounded when one team has a cardinality explosion.
     """
     with tags_context(product=Product.METRICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
             SELECT team_id, uniq(series_fingerprint) AS series
-            FROM metrics4_series
+            FROM metrics4_samples
             WHERE time_bucket >= %(begin)s AND time_bucket < %(end)s
             GROUP BY team_id
             """,

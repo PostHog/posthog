@@ -47,13 +47,13 @@ from posthog.temporal.usage_report.types import (
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
+    METRICS_SERIES_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
     QUERY_CONCURRENCY,
     SANDBOX_COMPUTE_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
-    _queries_for_logs_distinct_patterns_patch,
-    _queries_for_sandbox_compute_patch,
+    _queries_for_patches,
     build_context,
 )
 from posthog.usage_counters import (
@@ -65,18 +65,34 @@ from posthog.usage_counters import (
 )
 
 
-def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
-    assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
-    assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
+_PATCHABLE_QUERY_NAMES = {SANDBOX_COMPUTE_QUERY_NAME, LOGS_DISTINCT_PATTERNS_QUERY_NAME, METRICS_SERIES_QUERY_NAME}
 
 
-def test_logs_distinct_patterns_query_is_versioned_for_existing_histories() -> None:
-    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME not in [
-        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, False)
+@parameterized.expand(
+    [
+        (False, False, False, set()),
+        (True, False, False, {SANDBOX_COMPUTE_QUERY_NAME}),
+        (True, True, False, {SANDBOX_COMPUTE_QUERY_NAME, LOGS_DISTINCT_PATTERNS_QUERY_NAME}),
+        (True, True, True, _PATCHABLE_QUERY_NAMES),
     ]
-    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME in [
-        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, True)
-    ]
+)
+def test_patched_queries_are_versioned_for_existing_histories(
+    sandbox_compute_patch: bool,
+    logs_distinct_patterns_patch: bool,
+    metrics_series_patch: bool,
+    expected_patched: set[str],
+) -> None:
+    names = {
+        spec.name
+        for spec in _queries_for_patches(
+            sandbox_compute_patch=sandbox_compute_patch,
+            logs_distinct_patterns_patch=logs_distinct_patterns_patch,
+            metrics_series_patch=metrics_series_patch,
+        )
+    }
+
+    assert names & _PATCHABLE_QUERY_NAMES == expected_patched
+    assert names | _PATCHABLE_QUERY_NAMES == {spec.name for spec in QUERIES}
 
 
 @parameterized.expand(

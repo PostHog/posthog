@@ -41,7 +41,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.logs.logs_pattern_buckets import TABLE_NAME as LOGS_PATTERN_BUCKETS_TABLE
-from posthog.clickhouse.metrics.metrics4 import METRICS4_SERIES_TABLE_NAME
+from posthog.clickhouse.metrics.metrics4 import METRICS4_SAMPLES_TABLE_NAME
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -3940,7 +3940,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         posthog_capture_mock: MagicMock,
     ) -> None:
         self._setup_teams()
-        sync_execute(f"TRUNCATE TABLE IF EXISTS {METRICS4_SERIES_TABLE_NAME}")
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {METRICS4_SAMPLES_TABLE_NAME}")
 
         for team in (self.org_1_team_1, self.org_1_team_2):
             create_app_metric2(team_id=team.id, app_source="metrics", metric_name="records_ingested", count=10)
@@ -3949,12 +3949,14 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         period_start = period.start
         series_hours = [
             # Team 3 sends two series; series 1 is seen in two hours and still counts once.
-            (self.org_1_team_1.id, "cpu", 1, period_start + relativedelta(hours=1)),
-            (self.org_1_team_1.id, "cpu", 1, period_start + relativedelta(hours=2)),
-            (self.org_1_team_1.id, "memory", 2, period_start + relativedelta(hours=1)),
+            (self.org_1_team_1.id, "cpu", 1, period_start + relativedelta(hours=1), 1),
+            (self.org_1_team_1.id, "cpu", 1, period_start + relativedelta(hours=2), 1),
+            # Series 2 was labelled the day before; the label gate strips its labels in the period.
+            (self.org_1_team_1.id, "memory", 2, period_start - relativedelta(hours=1), 1),
+            (self.org_1_team_1.id, "memory", 2, period_start, 0),
             # Team 4 has one series in the period and one only seen the hour before it starts.
-            (self.org_1_team_2.id, "cpu", 3, period_start + relativedelta(hours=3)),
-            (self.org_1_team_2.id, "cpu", 4, period_start - relativedelta(hours=1)),
+            (self.org_1_team_2.id, "cpu", 3, period_start + relativedelta(hours=3), 1),
+            (self.org_1_team_2.id, "cpu", 4, period_start - relativedelta(hours=1), 1),
         ]
         lines = "".join(
             json.dumps(
@@ -3962,15 +3964,16 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "team_id": team_id,
                     "metric_name": metric_name,
                     "series_fingerprint": fingerprint,
-                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "time_bucket": time_bucket.strftime("%Y-%m-%d %H:%M:%S"),
+                    "has_labels": has_labels,
                     # ClickHouse applies the TTL against its own clock, not the frozen test clock.
-                    "original_expiry_timestamp": "2100-01-01 00:00:00.000000",
+                    "original_expiry_date": "2100-01-01",
                 }
             )
             + "\n"
-            for team_id, metric_name, fingerprint, timestamp in series_hours
+            for team_id, metric_name, fingerprint, time_bucket, has_labels in series_hours
         )
-        sync_execute(f"INSERT INTO {METRICS4_SERIES_TABLE_NAME} FORMAT JSONEachRow\n{lines}")
+        sync_execute(f"INSERT INTO {METRICS4_SAMPLES_TABLE_NAME} FORMAT JSONEachRow\n{lines}")
 
         all_reports = _get_all_org_reports(period=period)
         org_1_report = _get_full_org_usage_report_as_dict(
