@@ -2,7 +2,9 @@ import {
   ArrowClockwise,
   CaretDown,
   Coins,
+  GameController,
   HourglassMedium,
+  ListChecks,
   RocketLaunch,
   SignOut,
   WarningCircle,
@@ -30,6 +32,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   FIELD_CONTENT_CLASS,
   FIELD_TRIGGER_CLASS,
@@ -67,8 +70,19 @@ const SIGNUPS_PAUSED_CONTENT = {
   icon: <HourglassMedium />,
   title: "Desktop sign-ups are paused",
   description:
-    "Sorry, we aren't accepting new sign-ups for PostHog Desktop right now. We'll contact you with next steps when we're ready.",
+    "We aren't letting new accounts into PostHog Desktop yet. Join the waitlist and we'll email you when you can get in.",
 };
+
+const ACCESS_SCREEN_LINKS = {
+  waitlist:
+    "https://us.posthog.com/external_surveys/01a15a76-48ce-0000-a2f8-e898869707a7",
+  games: "https://posthog.com/sparks-joy",
+} as const;
+
+function openAccessScreenLink(link: keyof typeof ACCESS_SCREEN_LINKS): void {
+  track(ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED, { link });
+  openExternalUrl(ACCESS_SCREEN_LINKS[link]);
+}
 
 interface DesktopAccessScreenProps {
   access: DesktopAccess;
@@ -186,6 +200,29 @@ export function DesktopAccessScreen({
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent className="w-full max-w-md gap-4">
+              {isSignupsPaused && (
+                <div className="flex w-full flex-col items-center gap-2">
+                  <Button
+                    variant="primary"
+                    className="w-full"
+                    onClick={() => openAccessScreenLink("waitlist")}
+                    data-attr="desktop-access-waitlist"
+                  >
+                    <ListChecks />
+                    Join the waitlist
+                  </Button>
+                  <Button
+                    variant="link-muted"
+                    size="sm"
+                    onClick={() => openAccessScreenLink("games")}
+                    data-attr="desktop-access-games"
+                  >
+                    <GameController />
+                    Play PostHog games while you wait
+                  </Button>
+                </div>
+              )}
+
               <div className="flex w-full flex-col gap-4">
                 <Field className="min-w-0">
                   <FieldLabel htmlFor="desktop-access-organization">
@@ -331,7 +368,7 @@ export function DesktopAccessScreen({
               )}
 
               <Button
-                variant="primary"
+                variant={isSignupsPaused ? "outline" : "primary"}
                 loading={isRetrying}
                 disabled={isRetrying || isSwitching}
                 onClick={onRetry}
