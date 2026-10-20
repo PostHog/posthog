@@ -422,6 +422,26 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
         assert (keys, rows) == (["api"], [("api",)])
 
+    @parameterized.expand([("stale", ("severity_text",), []), ("current", ("service_name",), ["api", "web"])])
+    def test_a_check_that_ran_under_another_grouping_records_no_groups(
+        self, _name: str, stored_keys: tuple[str, ...], expected_keys: list[str]
+    ) -> None:
+        checked_under = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=stored_keys).to_stored()
+            )
+
+        self._record(groups=(self._group("api", state="firing"), self._group("web")), grouping=checked_under)
+
+        with team_scope(self.team.id):
+            keys = sorted(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", flat=True)
+            )
+            due = PlatformAlertConfiguration.objects.get(id=self.configuration.id).next_check_at
+        assert keys == expected_keys
+        assert due is not None and due > self.cutoff
+
     @parameterized.expand(
         [
             ("idle_past_the_window", {}, False),
@@ -910,7 +930,9 @@ def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
         policy=LOGS_ALERT_POLICY,
         now=datetime(2026, 10, 15, tzinfo=UTC),
     )
-    outcome = decision.as_outcome(configuration_id=check.id, evaluation_key="window:x", query_duration_ms=1)
+    outcome = decision.as_outcome(
+        configuration_id=check.id, evaluation_key="window:x", grouping=check.grouping, query_duration_ms=1
+    )
 
     assert len(outcome.groups) == MAX_INSTANCES_CEILING
     assert payload_bytes(outcome) < MAX_BATCH_PAYLOAD_BYTES

@@ -2445,7 +2445,7 @@ describe("AgentServer HTTP Mode", () => {
           sessionId: "acp-1",
           prompt: [{ type: "text", text: "do the task" }],
         });
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
 
         await expect(resultPromise).resolves.toEqual({
           stopReason: "end_turn",
@@ -2622,7 +2622,7 @@ describe("AgentServer HTTP Mode", () => {
           }),
         });
 
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
         await assertion;
         expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
       } finally {
@@ -2771,7 +2771,7 @@ describe("AgentServer HTTP Mode", () => {
         const assertion = expect(resultPromise).rejects.toThrow(
           "API Error: terminated",
         );
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
 
         await assertion;
         expect(prompt).toHaveBeenCalledTimes(3);

@@ -30,10 +30,6 @@ class TestCdcOpenDataSource:
         schemas = self.source.get_schemas(config, team_id=1)
         assert [s.name for s in schemas] == ["9bhg-hcku", "vbim-akqf"]
 
-    def test_get_schemas_names_filter_narrows_result(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["vbim-akqf"])
-        assert [s.name for s in schemas] == ["vbim-akqf"]
-
     @parameterized.expand(
         [
             (

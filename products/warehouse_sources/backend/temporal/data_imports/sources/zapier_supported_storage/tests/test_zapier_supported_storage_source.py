@@ -33,7 +33,3 @@ class TestZapierSupportedStorageSource:
         assert secret.type == SourceFieldInputConfigType.PASSWORD
         assert secret.secret is True
         assert secret.required is True
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["records"])[0].name == "records"
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []

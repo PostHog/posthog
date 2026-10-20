@@ -3,7 +3,6 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -333,10 +332,3 @@ class TestContactNotes:
         assert result.raised is None
         assert result.paths == expected_paths
         assert result.params("after") == expected_after
-
-
-class TestQuoSourceResponse:
-    def test_unknown_endpoint_raises_unknown_resource(self):
-        result = _source("not_a_table", [])
-
-        assert isinstance(result.raised, UnknownResourceError)

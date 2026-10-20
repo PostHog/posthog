@@ -7,24 +7,26 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     HandbackRefusal,
     PlatformAlertCheckInput,
+    PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
     PlatformAlertUpsert,
+    PlatformCheckEventPage,
     PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads
+from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
 
 
 def due_checks(
@@ -130,3 +132,64 @@ def history_by_legacy_id(
     return platform_reads.history_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
     )
+
+
+def notable_checks_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, since: datetime, limit: int
+) -> PlatformCheckEventPage | None:
+    """The newest `limit` checks since `since` that moved a named alert's state or failed, with
+    their total, or None when the platform does not own the alert.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.notable_checks_by_legacy_id(
+        team_id=team_id, legacy_configuration_id=legacy_configuration_id, since=since, limit=limit
+    )
+
+
+def update_configuration(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+) -> PlatformAlertConfigurationView | None:
+    """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, and
+    `InvalidPlatformAlertEdit` for an edit its source kind rejects.
+    """
+    return platform_writes.update_configuration(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
+    )
+
+
+def update_owned_copy(
+    *,
+    team_id: int,
+    legacy_configuration_id: UUID,
+    change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
+) -> None:
+    """Applies an edit a source made to its own row onto the copy the platform owns.
+
+    Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
+    """
+    platform_writes.update_owned_copy(
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        change=change,
+        snooze_until=snooze_until,
+        snooze_changed=snooze_changed,
+    )
+
+
+def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
+    platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
+    """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
+    for a delete that is about to remove the destinations."""
+    platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)

@@ -1,5 +1,6 @@
 import dagster
 
+from products.signals.dags.inbox_ranking.activity_summary import dag as activity_summary
 from products.signals.dags.inbox_ranking.common import is_inbox_ranking_registered
 from products.signals.dags.inbox_ranking.dataset import dag as inbox_ranking_dataset
 from products.signals.dags.inbox_ranking.training import (
@@ -30,16 +31,20 @@ if is_inbox_ranking_registered():
             inbox_ranking_training.inbox_ranking_serving_manifest,
             inbox_ranking_served.inbox_ranking_served_scores,
             inbox_ranking_training.inbox_ranking_unseen_graded,
+            activity_summary.activity_summary_inputs,
+            activity_summary.activity_summary_cost_projection,
         ],
         jobs=[
             inbox_ranking_dataset.inbox_ranking_dataset_job,
             inbox_ranking_dataset.inbox_ranking_labels_refresh_job,
             inbox_ranking_training.inbox_ranking_training_job,
             inbox_ranking_promote.inbox_ranking_promote_job,
+            activity_summary.activity_summary_job,
         ],
         schedules=[
             inbox_ranking_dataset.inbox_ranking_dataset_schedule,
             inbox_ranking_training.inbox_ranking_training_schedule,
+            activity_summary.activity_summary_schedule,
         ],
         sensors=[inbox_ranking_dataset.inbox_ranking_labels_refresh_sensor],
         loggers=loggers,

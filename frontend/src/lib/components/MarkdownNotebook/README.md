@@ -81,7 +81,7 @@ The shell only handles keys that happened inside its own DOM. A block that rende
 
 ## Jupyter mode
 
-The `jupyterMode` prop lays the notebook out and drives it the way JupyterLab does. The notebooks scene passes it behind the `notebook-jupyter-mode` flag, and each user can turn it off from the notebook's View menu.
+The `jupyterMode` prop lays the notebook out and drives it the way JupyterLab does. The notebooks scene enables it when notebook kernels are available through `revamped-py-notebooks`, and each user can turn it off from the notebook's View menu.
 
 `Shift+Enter` inside markdown text inserts a line break within the text cell. `Escape` selects the markdown cell in command mode, where `Shift+Enter` advances to the next cell and inserts a code cell if there is none. Python and SQL editors keep `Shift+Enter` as run and advance.
 
