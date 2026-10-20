@@ -200,5 +200,5 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

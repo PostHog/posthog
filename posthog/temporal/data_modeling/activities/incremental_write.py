@@ -22,6 +22,8 @@ stays on delta-rs.
 
 from typing import Any, Optional
 
+from django.conf import settings
+
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -163,12 +165,14 @@ def upsert_batch(
     """
     import deltalite
 
+    max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
     lite = deltalite.DeltaLiteTable.open(table_uri, storage_options)
     return lite.upsert(
         pa.Table.from_batches([batch]),
         list(unique_key),
         None,
         commit_metadata=commit_metadata,
+        max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
     )
 
 

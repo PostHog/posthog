@@ -16,7 +16,7 @@ use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
 use deltalite_core::limits::ProcessLimits;
 use deltalite_core::schema::import_column;
-use deltalite_core::table::{open_table, MultipartConfig};
+use deltalite_core::table::{open_table, table_exists, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -266,6 +266,20 @@ impl DeltaLiteTable {
         Ok(py
             .detach(|| runtime().block_on(open_table(&uri, so)))
             .is_ok())
+    }
+
+    /// `deltalake.DeltaTable.is_deltatable`'s check. Unlike `is_deltatable`, storage errors
+    /// raise: a caller that reads "no table" can create a new table over an existing one.
+    #[staticmethod]
+    #[pyo3(signature = (uri, storage_options = None))]
+    fn table_exists(
+        py: Python<'_>,
+        uri: String,
+        storage_options: Option<HashMap<String, String>>,
+    ) -> PyResult<bool> {
+        let so = storage_options.unwrap_or_default();
+        py.detach(|| runtime().block_on(table_exists(&uri, so)))
+            .map_err(to_py_err)
     }
 
     /// The table version this handle currently observes (-1 before any load).
@@ -591,6 +605,30 @@ impl DeltaLiteTable {
         d.set_item("numBatches", s.batches_read)?;
         d.set_item("totalConsideredFiles", s.files_considered)?;
         d.set_item("totalFilesSkipped", s.files_skipped)?;
+        Ok(d.into_any().unbind())
+    }
+
+    /// Returns the keys delta-rs's `DeltaTable.restore` returns, plus the committed `version`.
+    #[pyo3(signature = (version, *, commit_metadata = None))]
+    fn restore(
+        &mut self,
+        py: Python<'_>,
+        version: u64,
+        commit_metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let metadata = commit_metadata.map(|m| {
+            m.into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect::<HashMap<String, Value>>()
+        });
+        let handle = &mut self.handle;
+        let metrics = py
+            .detach(|| runtime().block_on(handle.restore(version, metadata)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("numRemovedFile", metrics.num_removed_file)?;
+        d.set_item("numRestoredFile", metrics.num_restored_file)?;
+        d.set_item("version", self.handle.version())?;
         Ok(d.into_any().unbind())
     }
 

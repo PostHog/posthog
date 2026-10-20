@@ -48,7 +48,7 @@ class CloudflareEndpointConfig:
 
 # Most Cloudflare v4 REST lists are small configuration tables with no updated-since
 # filter, so they sync as full refreshes. `audit_logs` is the exception — it takes a
-# server-side `since` filter and can be sorted ascending, so it syncs incrementally.
+# server-side `since` filter, so it syncs incrementally.
 # The high-volume traffic datasets live in the separate GraphQL Analytics API, which
 # this REST source has no transport for.
 CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
@@ -235,8 +235,8 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         path="/accounts/{account_id}/audit_logs",
         parent=ACCOUNTS_PARENT,
         parent_key="_account_id",
-        # `since` filters server-side and `direction=asc` makes the response order
-        # match SourceResponse's ascending sort mode.
+        # `since` filters server-side. `direction=asc` orders the rows of one account only.
+        # The read has one request series per account, so the run has no single order.
         params={"direction": "asc"},
         incremental_param="since",
         # This list has no `result_info.total_pages`, so the paginator only learns it has
