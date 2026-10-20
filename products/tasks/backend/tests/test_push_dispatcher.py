@@ -1,10 +1,11 @@
+from contextlib import nullcontext
 from uuid import uuid4
 
 import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, OperationalError, transaction
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -119,6 +120,47 @@ class TestPushDispatcher(TestCase):
                 dispatch_awaiting_input(self.task_run, request_id="request-1")
                 dispatch_awaiting_input(self.task_run, request_id="request-3")
             self.assertEqual(mock_delay.call_count, 2)
+
+    @parameterized.expand(["prepare", "immediate", "deferred", "rollback"])
+    def test_awaiting_request_can_retry_after_failed_enqueue(self, failure: str) -> None:
+        self.task_run.state = {"mode": "interactive"}
+        with (
+            time_machine.travel("2026-10-20T12:00:00Z", tick=False) as clock,
+            patch("products.tasks.backend.push_dispatcher._project_awaiting_input_activity"),
+            patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
+        ):
+            send_push.side_effect = RuntimeError("broker unavailable")
+            with (
+                patch(
+                    "products.tasks.backend.push_dispatcher._suppressed_push_token_ids_for_task",
+                    side_effect=OperationalError("connection unavailable"),
+                )
+                if failure == "prepare"
+                else nullcontext(),
+                patch("products.tasks.backend.push_dispatcher.transaction.on_commit", side_effect=lambda fn: fn())
+                if failure == "immediate"
+                else nullcontext(),
+                self.captureOnCommitCallbacks(execute=True),
+                transaction.atomic(),
+            ):
+                scheduled = dispatch_awaiting_input(self.task_run, request_id="retry-request")
+                self.assertEqual(scheduled, failure in ("deferred", "rollback"))
+                if failure == "rollback":
+                    transaction.set_rollback(True)
+            self.assertEqual(send_push.call_count, int(failure in ("immediate", "deferred")))
+
+            clock.shift(31)
+            send_push.reset_mock()
+            send_push.side_effect = None
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertTrue(dispatch_awaiting_input(self.task_run, request_id="retry-request"))
+                send_push.assert_not_called()
+            send_push.assert_called_once()
+
+            clock.shift(31)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertFalse(dispatch_awaiting_input(self.task_run, request_id="retry-request"))
+            send_push.assert_called_once()
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_handoff_cooldown_distinguishes_announcements(self, mock_delay):

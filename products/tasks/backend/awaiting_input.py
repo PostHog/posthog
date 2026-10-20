@@ -30,11 +30,15 @@ def dispatch_awaiting_input(task_run: TaskRun, *, request_id: str) -> bool:
             timeout=push_dispatcher.AWAITING_INPUT_COOLDOWN_SECONDS,
         ):
             return False
-        claimed = cache.add(dedupe_key, True, timeout=AWAITING_INPUT_DEDUPE_SECONDS)
     except Exception:
         logger.warning("awaiting_input.dedupe_failed", run_id=str(task_run.id), exc_info=True)
         return False
-    if not claimed:
-        return False
-    push_dispatcher.notify_task_run_awaiting_input(task_run)
-    return True
+
+    def mark_enqueued() -> None:
+        try:
+            cache.set(dedupe_key, True, timeout=AWAITING_INPUT_DEDUPE_SECONDS)
+        except Exception:
+            logger.warning("awaiting_input.dedupe_failed", run_id=str(task_run.id), exc_info=True)
+
+    # A rollback or enqueue failure leaves only the short run cooldown, so a replay can retry.
+    return push_dispatcher.notify_task_run_awaiting_input(task_run, on_enqueued=mark_enqueued)

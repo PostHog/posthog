@@ -8,7 +8,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import ANY, AsyncMock, MagicMock, call
 
 from django.core.cache.backends.locmem import LocMemCache
 
@@ -1269,7 +1269,7 @@ class TestRelaySandboxEventsErrorHandling:
                 "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
             },
         )
-        notify.assert_called_once_with(task_run)
+        notify.assert_called_once_with(task_run, on_enqueued=ANY)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

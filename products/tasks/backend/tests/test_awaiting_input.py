@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from uuid import uuid4
 
 import time_machine
@@ -13,6 +14,11 @@ from products.tasks.backend.models import TaskRun
 
 
 class TestAwaitingInput(SimpleTestCase):
+    @staticmethod
+    def _enqueue_successfully(task_run: TaskRun, *, on_enqueued: Callable[[], None]) -> bool:
+        on_enqueued()
+        return True
+
     @parameterized.expand(
         [
             ("replayed_request", "request-1", False, 31, 1),
@@ -33,7 +39,10 @@ class TestAwaitingInput(SimpleTestCase):
 
         with (
             patch("products.tasks.backend.awaiting_input.get_tasks_cache", return_value=cache),
-            patch("products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input") as notify,
+            patch(
+                "products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input",
+                side_effect=self._enqueue_successfully,
+            ) as notify,
             time_machine.travel("2026-10-16T12:00:00Z", tick=False) as clock,
         ):
             self.assertTrue(dispatch_awaiting_input(task_run, request_id="request-1"))
@@ -54,7 +63,10 @@ class TestAwaitingInput(SimpleTestCase):
         cache = LocMemCache(str(uuid4()), {})
         with (
             patch("products.tasks.backend.awaiting_input.get_tasks_cache", return_value=cache),
-            patch("products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input") as notify,
+            patch(
+                "products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input",
+                side_effect=self._enqueue_successfully,
+            ) as notify,
             time_machine.travel("2026-10-20T12:00:00Z", tick=False),
         ):
             self.assertTrue(dispatch_awaiting_input(task_run, request_id="first"))
