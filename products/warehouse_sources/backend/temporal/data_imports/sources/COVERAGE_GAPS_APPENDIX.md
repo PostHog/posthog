@@ -12562,10 +12562,10 @@ Today (3): `business_unit`, `product_reviews`, `service_reviews`
 
 Diffed against: <https://developers.trustpilot.com/product-reviews-api/>
 
-- [ ] `Catalog products (GET /v1/private/business-units/{businessUnitId}/catalog/products)` — join review product IDs to complete catalog records, variants, prices, and products with no reviews (high)
-- [ ] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
-- [ ] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
-- [ ] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
+- [x] `Catalog products (GET /v1/private/business-units/{businessUnitId}/catalog/products)` — join review product IDs to complete catalog records, variants, prices, and products with no reviews (high)
+- [x] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
+- [x] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
+- [x] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
 - [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium)
 - [ ] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
 - [ ] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
