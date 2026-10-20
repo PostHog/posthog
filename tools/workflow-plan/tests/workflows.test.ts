@@ -744,7 +744,7 @@ describe('CI workflow run plans', () => {
         expect(evaluateCondition(wf.jobs.collect?.if, context, functions)).toBe(pushImages)
         for (const name of ['Container image digest', 'Upload digest']) {
             const step = wf.jobs.build?.steps?.find((step) => step.name === name)
-            expect(step).toBeDefined()
+            expect(step?.name).toBe(name)
             expect(evaluateCondition(step?.if, context, functions)).toBe(pushImages)
         }
     })
