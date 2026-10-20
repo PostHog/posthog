@@ -186,20 +186,13 @@ def _node_selection(node_id: str) -> ast.Expr:
     return ast.And(exprs=[_event_in(NODE_EVENT_NAMES), _equals("uuid", node_id)])
 
 
-def _root_selection() -> ast.Expr:
-    # Sorting in the outer query would read every row's heavy columns, so a subquery picks the one row first.
-    # GLOBAL, because ai_events shards by trace and day: per-shard subqueries would each pick their own first row.
-    first_row = ast.SelectQuery(
+def _trace_exists_query() -> ast.SelectQuery:
+    return ast.SelectQuery(
         select=[ast.Field(chain=["uuid"])],
         select_from=_ai_events(),
         where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), _filter_conditions()]),
-        order_by=[
-            ast.OrderExpr(expr=_equals("event", "$ai_trace"), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
-        ],
         limit=ast.Constant(value=1),
     )
-    return ast.CompareOperation(op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=["uuid"]), right=first_row)
 
 
 def _person_query(distinct_id: str) -> ast.SelectQuery:
@@ -417,16 +410,11 @@ def load_trace_node(
 
 
 def load_trace_root(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> TraceRootLookup:
-    results = _read_trace(
-        "ai_trace_root",
-        lambda: _node_query(_root_selection()),
-        team,
-        user,
-        trace_id,
-        timestamp_hint,
-        widen_unhinted=False,
-    )
-    if not results:
-        return TraceRootLookup(trace_event=None, trace_found=False)
-    row = _trace_node_row(results[0])
-    return TraceRootLookup(trace_event=row if row.event == "$ai_trace" else None, trace_found=True)
+    def read(name: str, build_query: Callable[[], ast.SelectQuery]) -> list[Sequence[Any]]:
+        return _read_trace(name, build_query, team, user, trace_id, timestamp_hint, widen_unhinted=False)
+
+    results = read("ai_trace_root", lambda: _node_query(_equals("event", "$ai_trace")))
+    if results:
+        return TraceRootLookup(trace_event=_trace_node_row(results[0]), trace_found=True)
+    # Most traces have no $ai_trace event, so the existence check reads light columns instead of a step's payload.
+    return TraceRootLookup(trace_event=None, trace_found=bool(read("ai_trace_exists", _trace_exists_query)))
