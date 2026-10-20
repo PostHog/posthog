@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
 import json
+import signal
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ from products.posthog_ai.eval_harness.harness.run_report import ExperimentReport
     [
         ("success", 0, 4),
         ("skipped", 1, 4),
+        ("filtered_out_experiment", 0, 4),
         ("launch_error", 1, 1),
         ("error", 1, 4),
         ("timeout", 1, 4),
@@ -121,6 +124,21 @@ def test_model_comparison_preserves_settings_and_partial_results(
                     },
                     log_dir=str(tmp_path),
                 ),
+                **(
+                    {
+                        "filtered_out": ExperimentReport(
+                            cases={},
+                            planned_trials=0,
+                            completed_trials=0,
+                            errors=0,
+                            timeouts=0,
+                            scores={},
+                            log_dir=str(tmp_path),
+                        )
+                    }
+                    if scenario == "filtered_out_experiment"
+                    else {}
+                ),
             },
         )
         child.results_file.write_text(report.model_dump_json())
@@ -154,9 +172,9 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert saved["runs"][1]["report"] is not None
 
 
-@pytest.mark.parametrize("interrupt", [False, True])
+@pytest.mark.parametrize("interrupt", [None, "keyboard", "sigterm"])
 def test_comparison_streams_child_output_and_waits_for_interrupt_cleanup(
-    interrupt: bool,
+    interrupt: str | None,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -175,8 +193,10 @@ def test_comparison_streams_child_output_and_waits_for_interrupt_cleanup(
 
     def output(text: str) -> None:
         write_console(text)
-        if interrupt and "Child ready" in text:
+        if interrupt == "keyboard" and "Child ready" in text:
             raise KeyboardInterrupt
+        if interrupt == "sigterm" and "Child ready" in text:
+            os.kill(os.getpid(), signal.SIGTERM)
 
     monkeypatch.setattr("products.posthog_ai.eval_harness.harness.comparison.write_console", output)
     if interrupt:
@@ -206,7 +226,6 @@ async def test_run_report_preserves_zero_skipped_scores_and_scorer_errors(
             experiment_name="example",
             scores={
                 "score": AggregateScore("score", 0),
-                "skipped": AggregateScore("skipped", None),
             },
         ),
         error_count=1,

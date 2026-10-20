@@ -7,6 +7,7 @@ import signal
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from types import FrameType
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -83,7 +84,21 @@ class ModelComparison:
         return command
 
     @staticmethod
+    def _interrupt_on_sigterm(_signum: int, _frame: FrameType | None) -> None:
+        raise KeyboardInterrupt
+
+    @staticmethod
     def _execute(command: list[str]) -> int:
+        # The child runs in its own session, so a SIGTERM sent to this process never reaches it.
+        # Treat SIGTERM like Ctrl-C so the child gets SIGINT and finishes its own cleanup.
+        previous_handler = signal.signal(signal.SIGTERM, ModelComparison._interrupt_on_sigterm)
+        try:
+            return ModelComparison._stream(command)
+        finally:
+            signal.signal(signal.SIGTERM, previous_handler)
+
+    @staticmethod
+    def _stream(command: list[str]) -> int:
         with subprocess.Popen(
             command,
             start_new_session=True,
@@ -127,6 +142,8 @@ class ModelComparison:
         ):
             return "No scored trials are available."
         for experiment in report.experiments.values():
+            if not experiment.cases and not experiment.planned_trials and not experiment.completed_trials:
+                continue
             if not experiment.cases or sum(experiment.cases.values()) * report.trials != experiment.planned_trials:
                 return "Missing or inconsistent case selection."
             if experiment.completed_trials != experiment.planned_trials or experiment.errors or experiment.timeouts:

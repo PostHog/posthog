@@ -97,6 +97,7 @@ class ProgressReporter:
         self._experiment_totals: dict[str, int] = {}
         self._case_selections: dict[str, dict[str, int]] = {}
         self._scored_trial_counts: dict[str, Counter[str]] = {}
+        self._scorer_names: dict[str, frozenset[str]] = {}
         self._posthog_urls: dict[str, str] = {}
         self._posthog_offline_statuses: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
@@ -352,6 +353,10 @@ class ProgressReporter:
             self._summaries[experiment_name] = summary
             self._trial_stats[experiment_name] = trial_stats
             self._summary_error_counts[experiment_name] = error_count
+            # The offline summary drops a scorer that skipped every trial, so keep the names the trials reported.
+            self._scorer_names[experiment_name] = frozenset(summary.scores).union(
+                *(result.scores for result in case_results)
+            )
             self._scored_trial_counts[experiment_name] = Counter(
                 name
                 for result in case_results
@@ -381,9 +386,10 @@ class ProgressReporter:
                 timeouts=self._case_statuses[name]["timeout"],
                 scores={
                     key: ScoreReport(
-                        mean=score.score, scored_trials=self._scored_trial_counts.get(name, Counter())[key]
+                        mean=summary.scores[key].score if key in summary.scores else None,
+                        scored_trials=self._scored_trial_counts[name][key],
                     )
-                    for key, score in summary.scores.items()
+                    for key in sorted(self._scorer_names[name])
                 }
                 if summary is not None
                 else {},
