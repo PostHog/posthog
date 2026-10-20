@@ -98,7 +98,7 @@ impl EtcdStore {
         Ok(Self { client, config })
     }
 
-    #[cfg(test)]
+    /// Shares an existing client's channel instead of opening another.
     pub fn from_client(client: Client, config: StoreConfig) -> Self {
         Self { client, config }
     }
