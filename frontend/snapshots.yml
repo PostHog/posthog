@@ -6406,6 +6406,10 @@ snapshots:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:
         hash: v1.k794b7964.05ea602d6d9345842a6335a7a5dfd2708b35e7e84582dedab2d4f75daab793c5.R8GtNbF9pB7JrXdEIBpk8XsgLhKJuKMA1UB9qr0Tzbs
+    mcp-apps-workflows--sending-rules-no-cap--light:
+        hash: v1.k794b7964.867f1b4e3d741066f04905b02b7fac75d46359ea5ad0edeaa90f9d628d9d77c3.PT8sl8on2CltpY-AcuDeqrMESYi9vEU9WtCxx0qb3sk
+    mcp-apps-workflows--sending-rules-with-cap--light:
+        hash: v1.k794b7964.1fdf067e0e75418820aadb9c30f5db135a6505da2a04ed16b79fcc8c1c8b42ab.mRdiS_UV-b32KVoSSAeIllMAJvEEbA1HGqeZQDvtoIU
     mcp-apps-workflows--setup-status-done--light:
         hash: v1.k794b7964.2ecc52194af0bc94be9841afc57128da763075064497948ecd81e2114695bc81.9CDthZ77iyEZATCkKdP_y8cU2nOu9KDWR_uKm-sBvBk
     mcp-apps-workflows--setup-status-in-progress--light:
