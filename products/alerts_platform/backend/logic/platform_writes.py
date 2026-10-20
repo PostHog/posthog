@@ -206,6 +206,31 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     control_plane.announce_now(pending)
 
 
+def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
+    """Deletes a configuration the platform owns through the hook its source registered. False when
+    the configuration does not exist or its kind is not among `source_kinds`.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API
+    cannot delete. Runs outside any transaction, because the source sends its resolves first.
+    """
+    found = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(id=configuration_id, source_kind__in=list(source_kinds))
+        .values_list("source_kind", "legacy_configuration_id", "owner")
+        .first()
+    )
+    if found is None:
+        return False
+    source_kind, legacy_configuration_id, owner = found
+    if owner != PlatformAlertOwner.PLATFORM:
+        raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
+    spec = source_configs.spec(SourceKind(source_kind))
+    if spec is None or spec.delete is None or legacy_configuration_id is None:
+        raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be deleted through this API.")
+    spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+    return True
+
+
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     """Deletes the copy of a source alert the platform owns, with its instances and threads."""
     copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
@@ -213,9 +238,10 @@ def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     )
     with transaction.atomic():
         # The configuration before its children, the order `record_outcomes` locks them in. The
-        # cascade deletes the children first, so without this the two can deadlock.
-        list(copies.select_for_update())
-        copies.delete()
+        # cascade deletes the children first, so without this the two can deadlock. Each row goes
+        # through the model's own delete, because a queryset delete skips the activity log.
+        for configuration in copies.select_for_update():
+            configuration.delete()
 
 
 def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformAlertConfiguration | None:

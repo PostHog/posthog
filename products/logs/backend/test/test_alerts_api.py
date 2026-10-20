@@ -2740,7 +2740,14 @@ class TestLogsAlertAPI(APIBaseTest):
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
 
-    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self) -> None:
+    def _delete_through(self, route: str, alert_id: str) -> Any:
+        if route == "logs":
+            return self.client.delete(f"{self.base_url}{alert_id}/")
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self._copy(alert_id).id}/")
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self, route: str) -> None:
         created, _copy = self._firing_on_the_platform_with_pagerduty()
         destinations_when_sent: list[int] = []
 
@@ -2748,19 +2755,25 @@ class TestLogsAlertAPI(APIBaseTest):
             destinations_when_sent.append(HogFunction.objects.filter(team=self.team, deleted=False).count())
 
         with patch(f"{_WEB_START}.deliver_evaluation", side_effect=deliver) as deliver_evaluation:
-            response = self.client.delete(f"{self.base_url}{created['id']}/")
+            response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
         assert destinations_when_sent[0] > 0
 
-    def test_deleting_an_alert_the_platform_owns_deletes_its_copy(self) -> None:
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
         created = self._owned_by_the_platform()
+        copy_id = self._copy(created["id"]).id
 
-        response = self.client.delete(f"{self.base_url}{created['id']}/")
+        response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
+        ).exists()
         with team_scope(self.team.id):
             assert (
                 list_configurations(

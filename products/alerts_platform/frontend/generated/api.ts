@@ -111,3 +111,14 @@ export const platformAlertsPartialUpdate = async (
         body: JSON.stringify(patchedPlatformAlertConfigurationEditApi),
     })
 }
+
+export const getPlatformAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/`
+}
+
+export const platformAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}

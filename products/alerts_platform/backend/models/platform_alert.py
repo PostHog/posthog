@@ -109,6 +109,8 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
 
+    activity_logging_on_delete = True
+
     def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
         # A copy its source owns is not logged, so its writes skip the read of the row before the update.
         # Backfills and source edits write those copies one row at a time.

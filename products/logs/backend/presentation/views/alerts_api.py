@@ -43,7 +43,6 @@ from products.alerts.backend.facade.destinations import (
     list_alert_destination_groups,
     redact_destination_data,
     soft_delete_alert_destinations,
-    soft_delete_all_alert_destinations,
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
@@ -99,7 +98,7 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
     platform_check_rows,
 )
-from products.logs.backend.facade.platform_ownership import before_delete, on_created, on_deleted, on_updated
+from products.logs.backend.facade.platform_ownership import delete_alert, on_created, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
@@ -1710,21 +1709,5 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        before_delete(team_id=instance.team_id, alert_id=instance.id)
-        with transaction.atomic():
-            locked_instance = (
-                LogsAlertConfiguration.objects.select_for_update()
-                .filter(team_id=instance.team_id, id=instance.id)
-                .first()
-            )
-            if locked_instance is None:
-                return
-            soft_delete_all_alert_destinations(
-                team_id=locked_instance.team_id,
-                alert_id=str(locked_instance.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
-            if locked_instance.platform_owned:
-                on_deleted(team_id=locked_instance.team_id, alert_id=locked_instance.id)
-            super().perform_destroy(locked_instance)
-            transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)
+        if delete_alert(team_id=instance.team_id, alert_id=instance.id):
+            self._track("deleted", instance)

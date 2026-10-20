@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
@@ -352,6 +353,13 @@ EDIT_RESPONSES = {
 }
 
 
+@frozen
+class _WriteTarget:
+    configuration: PlatformAlertConfigurationView
+    # The source kinds the caller may write, which bound the write's own read of the row.
+    writable_source_kinds: list[str]
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
     posthog_feature_flag = "platform-alerts"
@@ -409,21 +417,31 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")
 
-    def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
+    def _writable(self, pk: str, *, verb: Literal["edit", "delete"]) -> _WriteTarget:
+        """The configuration a write names, with the kinds the caller may write. Raises when the
+        caller cannot read it, cannot write its kind, or its source owns it."""
         configuration_id = serializers.UUIDField().run_validation(pk)
-        team_id = self._canonical_team_id()
         current = platform_api.get_configuration(
-            team_id=team_id, source_kinds=self._readable_source_kinds(), configuration_id=configuration_id
+            team_id=self._canonical_team_id(),
+            source_kinds=self._readable_source_kinds(),
+            configuration_id=configuration_id,
         )
         if current is None:
             raise NotFound()
         writable = self._source_kinds_with("editor", "write")
         if current.source_kind not in writable:
-            raise PermissionDenied(f"You cannot edit {current.source_kind} alerts.")
+            raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         # Checked again under the row lock. Here it answers before the body is validated, so a caller
         # never fixes a body for an alert it can never write.
         if current.owner != PlatformAlertOwner.PLATFORM:
-            raise Conflict(f"This alert is managed by the {current.source_kind} product. Edit it there.")
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. {verb.capitalize()} it there.")
+        return _WriteTarget(configuration=current, writable_source_kinds=writable)
+
+    def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
+        team_id = self._canonical_team_id()
+        target = self._writable(pk, verb="edit")
+        current, writable = target.configuration, target.writable_source_kinds
+        configuration_id = current.id
         edit_serializer = edit_serializers().get(current.source_kind)
         if edit_serializer is None:
             raise Conflict(f"{current.source_kind} alerts cannot be edited through this API.")
@@ -510,6 +528,29 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_EDIT, responses=EDIT_RESPONSES)
     def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
         return self._edit(request, pk, partial=True)
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="The alert, its source's own row and its destinations are deleted."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(description="The source product owns this alert, so only its own API deletes it."),
+        }
+    )
+    def destroy(self, request: Request, pk: str, **kwargs) -> Response:
+        target = self._writable(pk, verb="delete")
+        try:
+            deleted = platform_api.delete_configuration(
+                team_id=self._canonical_team_id(),
+                source_kinds=target.writable_source_kinds,
+                configuration_id=target.configuration.id,
+            )
+        except PlatformAlertNotEditable as error:
+            raise Conflict(str(error)) from error
+        if not deleted:
+            raise NotFound()
+        self._track("deleted", target.configuration)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def list(self, request: Request, **kwargs) -> Response:
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
