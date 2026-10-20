@@ -276,5 +276,26 @@ describe('dashboardTileSections', () => {
                 layout: byPosition(expected.layout),
             })
         })
+
+        it('resolves a free-placement overlap through the custom resolver, not moveElement default collision handling', () => {
+            const freePlacementCompactor = getDashboardGridCompactor(DashboardGridCompaction.Stable)
+
+            const moved = moveTileToSection({
+                sections,
+                sectionLayouts,
+                tileId: 2,
+                targetIndex: 1,
+                cell: { x: 3, y: 0 },
+                compactor: freePlacementCompactor,
+                cols: 12,
+            })
+
+            const byId = Object.fromEntries(moved.layout.map((item) => [item.i, item]))
+            // moveElement's own default collision handling (preventCollision unset) would instead push
+            // every overlapping tile's row down and keep the dragged tile at the raw drop cell (x: 3).
+            expect(byId['2']).toMatchObject({ x: 6, y: 2 })
+            expect(byId['3']).toMatchObject({ x: 0, y: 2 })
+            expect(byId['4']).toMatchObject({ x: 6, y: 4 })
+        })
     })
 })

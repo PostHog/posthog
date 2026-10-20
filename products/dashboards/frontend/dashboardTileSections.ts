@@ -218,7 +218,9 @@ export function moveTileToSection({
     // Enter at the bottom, then move to the drop cell the way a drag does, so the tile under the drop moves aside.
     const withTile = cloneLayout([...targetLayout, { ...item, y: bottom }])
     const entered = withTile[withTile.length - 1]
-    const moved = cell ? moveElement(withTile, entered, cell.x, cell.y, true, false, compactor.type, cols) : withTile
+    const moved = cell
+        ? moveElement(withTile, entered, cell.x, cell.y, true, false, compactor.type, cols, compactor.allowOverlap)
+        : withTile
     const layouts = [...sectionLayouts, ...(targetIndex >= sectionLayouts.length ? [[]] : [])].map((layout, index) => {
         if (index === sourceIndex) {
             return compactor.compact(
