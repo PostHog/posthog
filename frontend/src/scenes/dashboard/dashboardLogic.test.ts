@@ -331,6 +331,8 @@ describe('dashboardLogic', () => {
                 },
             },
         })
+        // Open and closed groups persist in local storage, which would carry one test's toggles into the next.
+        localStorage.clear()
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
@@ -3786,6 +3788,59 @@ describe('dashboardLogic', () => {
                 }
             })
 
+            it('keeps a closed group tile waiting when its preload fails, then loads it on the next preload', async () => {
+                featureFlagLogic.actions.setFeatureFlags(
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS, FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS],
+                    {
+                        [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                        [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+                    }
+                )
+                const dashboard = dashboards[5]
+                const groupedTile = dashboard.tiles[1]
+                groupedTile.group_key = 'plans'
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => [
+                            200,
+                            { ...dashboard, customization: { groups: { plans: { collapsed: true } } } },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                }).toFinishAllListeners()
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockRejectedValue(new Error('Queries are a little too busy right now.'))
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.preloadTileGroup('plans')
+                    }).toFinishAllListeners()
+                    await expectLogic(logic).toMatchValues({
+                        deferredTileRefresh: expect.objectContaining({ tileIds: [groupedTile.id] }),
+                        breakdownValuesIncomplete: true,
+                    })
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.preloadTileGroup('plans')
+                }).toFinishAllListeners()
+                await expectLogic(logic).toMatchValues({
+                    deferredTileRefresh: expect.objectContaining({ tileIds: [] }),
+                    refreshStatus: expect.objectContaining({
+                        [groupedTile.insight!.short_id]: expect.objectContaining({ refreshed: true }),
+                    }),
+                })
+            })
+
             it('previews new filters with every group closed, cancels the old group loads, then loads with the new filters', async () => {
                 featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
                     [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
@@ -4980,8 +5035,6 @@ describe('dashboardLogic', () => {
         }
 
         beforeEach(() => {
-            // Open and closed groups persist in local storage, which would carry one test's toggles into the next.
-            localStorage.clear()
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
                 [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,

@@ -5073,11 +5073,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 urlFilters,
                 variables: settings.variables,
             }
+            const failedTileIds: number[] = []
             await runWithSharedLimit(
                 cache,
                 'insight',
-                insightTiles.map((tile) => () => refreshInsightTile(tile, tileRefreshContext))
+                insightTiles.map((tile) => async () => {
+                    if ((await refreshInsightTile(tile, tileRefreshContext)) === 'errored') {
+                        failedTileIds.push(tile.id)
+                    }
+                })
             )
+            // A failed tile keeps the results of the old filters, so it waits again. An aborted preload does not:
+            // a cancel drops the work, and a new refresh decides again which tiles wait.
+            if (failedTileIds.length > 0 && !signal.aborted) {
+                actions.deferTileRefresh(failedTileIds, forceRefresh, settings)
+            }
         },
         refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
             if (
