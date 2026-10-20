@@ -139,6 +139,12 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
             }
             actions.loadBatchWorkflowJobs()
         },
+        [urls.workflow(props.id || 'new', 'overview')]: (_, __, ___, currentLocation, previousLocation) => {
+            if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
+                return
+            }
+            actions.loadBatchWorkflowJobs()
+        },
         [urls.workflow(props.id || 'new', 'metrics')]: (_, __, ___, currentLocation, previousLocation) => {
             if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
                 return

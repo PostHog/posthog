@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { dayjs } from 'lib/dayjs'
 import { percentage } from 'lib/utils/numbers'
 
+import type { HogFlowBatchJob } from '../hogflows/types'
 import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowMetricCard } from '../WorkflowMetricCard'
 import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
@@ -51,15 +54,45 @@ function shareOf(part: number, whole: number, noun: string): JSX.Element | null 
     return whole > 0 ? <span className="text-muted">{`${percentage(part / whole, 1)} of ${noun}`}</span> : null
 }
 
-export function WorkflowOverview({ id }: { id: string }): JSX.Element {
-    const logicKey = `hog-flow-overview-${id}`
+// A run keeps recording for as long as its people wait at delays, so the range stays open to now.
+function runParams(run: HogFlowBatchJob): { dateFrom: string; interval: 'hour' | 'day' } {
+    const start = dayjs(run.created_at)
+    return {
+        dateFrom: start.subtract(1, 'hour').toISOString(),
+        interval: dayjs().diff(start, 'day') < 3 ? 'hour' : 'day',
+    }
+}
+
+export interface WorkflowOverviewProps {
+    id: string
+    run?: HogFlowBatchJob
+    previousRun?: HogFlowBatchJob | null
+    controls?: ReactNode
+}
+
+export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOverviewProps): JSX.Element {
+    const logicKey = run ? `hog-flow-overview-${id}-run-${run.id}` : `hog-flow-overview-${id}`
+    const appSourceId = run?.id
+    const period = run ? 'in this run' : 'in this date range'
     const { getSingleTrendSeries: trendSeries, appMetricsTrendsLoading } = useValues(
         appMetricsLogic({
             logicKey,
             loadOnChanges: true,
             loadOnMount: true,
-            defaultParams: { dateFrom: '-30d', interval: 'day' },
-            forceParams: { appSource: 'hog_flow', appSourceId: id, breakdownBy: 'metric_name' },
+            // A date-shifted previous period holds no data for a run, so a run compares with the run before it.
+            loadPreviousPeriod: !run,
+            defaultParams: run ? runParams(run) : { dateFrom: '-30d', interval: 'day' },
+            forceParams: { appSource: 'hog_flow', appSourceId: appSourceId ?? id, breakdownBy: 'metric_name' },
+        })
+    )
+    const { getSingleTrendSeries: previousRunSeries } = useValues(
+        appMetricsLogic({
+            logicKey: `${logicKey}-previous-${previousRun?.id ?? 'none'}`,
+            loadOnChanges: !!previousRun,
+            loadOnMount: !!previousRun,
+            loadPreviousPeriod: false,
+            defaultParams: previousRun ? runParams(previousRun) : {},
+            forceParams: { appSource: 'hog_flow', appSourceId: previousRun?.id ?? id, breakdownBy: 'metric_name' },
         })
     )
     const {
@@ -71,14 +104,24 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
         conversionRate,
         conversionStatsLoading,
         conversionStatsFailed,
-    } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
-    const { loadConversionStats } = useActions(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
+    } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId }))
+    const { loadConversionStats } = useActions(
+        workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId })
+    )
     const { hasEmail, hasPush } = messagingChannels
     const overviewLogic = workflowOverviewLogic({ id, logicKey })
     const { trendsFailed, previousPeriodFailed, retrying } = useValues(overviewLogic)
     // A failed previous-period read leaves the old baseline in place, so the comparison is hidden instead.
     const getSingleTrendSeries = (name: string, previous?: boolean): AppMetricsTimeSeriesResponse | null =>
-        previous && previousPeriodFailed ? null : trendSeries(name, previous)
+        run
+            ? previous
+                ? previousRun
+                    ? previousRunSeries(name)
+                    : null
+                : trendSeries(name)
+            : previous && previousPeriodFailed
+              ? null
+              : trendSeries(name, previous)
     const { retry } = useActions(overviewLogic)
     const retryAll = (): void => {
         retry()
@@ -112,7 +155,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
         <div className="@container flex flex-col gap-4" data-attr="workflow-overview">
             <WorkflowOverviewFeedback />
             <div className="flex flex-wrap items-center justify-end gap-2">
-                <AppMetricsFilters logicKey={logicKey} />
+                {controls ?? <AppMetricsFilters logicKey={logicKey} />}
             </div>
             {trendsFailed || previousPeriodFailed ? (
                 <LemonBanner
@@ -131,7 +174,9 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
             <div className="flex flex-wrap gap-2" data-attr="workflow-overview-metric-cards">
                 <WorkflowMetricCard
                     name="Started"
-                    description="Workflow runs that started in this date range."
+                    description={
+                        run ? 'People this run started the workflow for.' : `Workflow runs that started ${period}.`
+                    }
                     loading={appMetricsTrendsLoading}
                     timeSeries={started}
                     previousPeriodTimeSeries={withDisplayName(
@@ -145,7 +190,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 {hasEmail || hasPush ? (
                     <WorkflowMetricCard
                         name="Sent"
-                        description={`${sentSummaryLabel} by this workflow in this date range.`}
+                        description={`${sentSummaryLabel} by this workflow ${period}.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={sent}
                         previousPeriodTimeSeries={sentFor(true)}
@@ -158,7 +203,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 {hasEmail || hasPush ? (
                     <WorkflowMetricCard
                         name="Opened"
-                        description="Opens recorded in this date range. Only tracked emails can record opens."
+                        description={`Opens recorded ${period}. Only tracked emails can record opens.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={opened}
                         previousPeriodTimeSeries={openedFor(true)}
@@ -172,7 +217,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 {hasEmail ? (
                     <WorkflowMetricCard
                         name="Clicked"
-                        description="Email link clicks recorded in this date range."
+                        description={`Email link clicks recorded ${period}.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={clicked}
                         previousPeriodTimeSeries={withDisplayName(
@@ -188,7 +233,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 {hasConversionGoal ? (
                     <WorkflowMetricCard
                         name="Converted"
-                        description="Conversions recorded in this date range against the workflow's goal."
+                        description={`Conversions recorded ${period} against the workflow's goal.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={converted}
                         previousPeriodTimeSeries={withDisplayName(
@@ -227,17 +272,17 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 ) : null}
             </div>
 
-            <WorkflowOverviewHealth id={id} logicKey={logicKey} />
+            <WorkflowOverviewHealth id={id} logicKey={logicKey} appSourceId={appSourceId} period={period} />
 
             <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-4">
-                    <WorkflowStepReach id={id} logicKey={logicKey} />
+                    <WorkflowStepReach id={id} logicKey={logicKey} period={period} />
                     <WorkflowOverviewDetails id={id} />
                 </div>
                 <div className="flex min-w-0 flex-col gap-4">
-                    <WorkflowOverviewInFlight id={id} logicKey={logicKey} />
+                    <WorkflowOverviewInFlight id={id} logicKey={logicKey} allRuns={!!run} />
                     {suggestionsAvailable ? <WorkflowOverviewSuggestions id={id} /> : null}
-                    <WorkflowMessageLeaderboard id={id} logicKey={logicKey} />
+                    <WorkflowMessageLeaderboard id={id} logicKey={logicKey} appSourceId={appSourceId} />
                 </div>
             </div>
         </div>

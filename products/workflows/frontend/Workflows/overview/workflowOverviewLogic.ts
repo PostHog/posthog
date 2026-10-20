@@ -241,7 +241,7 @@ export type workflowOverviewLogicType = MakeLogicType<
 export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'overview', 'workflowOverviewLogic']),
     props({} as WorkflowOverviewLogicProps),
-    key(({ id }: WorkflowOverviewLogicProps) => id),
+    key(({ logicKey }: WorkflowOverviewLogicProps) => logicKey),
     connect((props: WorkflowOverviewLogicProps) => ({
         values: [
             workflowLogic,
@@ -311,7 +311,8 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     const dateRange = values.getDateRangeAbsolute()
                     const request: AppMetricsTotalsRequest = {
                         appSource: 'hog_flow',
-                        appSourceId: props.id,
+                        // A batch run records its metrics under the run's id, which the overview passes in as appSourceId.
+                        appSourceId: values.params.appSourceId ?? props.id,
                         breakdownBy: ['instance_id', 'metric_name'],
                         metricName: [...STEP_METRICS],
                         limit: STEP_TOTALS_LIMIT,
@@ -343,7 +344,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     const dateRange = values.getDateRangeAbsolute()
                     const request: AppMetricsTotalsRequest = {
                         appSource: 'hog_flow',
-                        appSourceId: props.id,
+                        appSourceId: values.params.appSourceId ?? props.id,
                         breakdownBy: ['metric_name'],
                         metricName: [...HEALTH_METRICS],
                         dateFrom: dateRange.dateFrom.toISOString(),
