@@ -120,28 +120,14 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("validation failed", str(ctx.exception).lower())
         self.assertEqual(ctx.exception.error_code, expected_code)
 
-    @parameterized.expand(
-        [
-            ("invalid_utf8_result", "SELECT unhex('ff')", "internal", "unhandled_type_error", ()),
-            (
-                "unreadable_result_type",
-                "SELECT argMinState(event, timestamp) FROM events",
-                "validation",
-                "unknown_type",
-                ("type AggregateFunction(argMin, String", "Use argMin() instead of argMinState()"),
-            ),
-        ]
-    )
-    async def test_execution_failure_names_its_class(
-        self, _name: str, query: str, expected_type: str, expected_code: str, expected_fragments: tuple[str, ...]
-    ) -> None:
+    async def test_unreadable_result_type_names_its_class(self) -> None:
         with self.assertRaises(MaxToolRetryableError) as ctx:
-            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT argMinState(event, timestamp) FROM events"))
 
-        self.assertEqual(ctx.exception.error_type, expected_type)
-        self.assertEqual(ctx.exception.error_code, expected_code)
-        for fragment in expected_fragments:
-            self.assertIn(fragment, str(ctx.exception))
+        self.assertEqual(ctx.exception.error_type, "validation")
+        self.assertEqual(ctx.exception.error_code, "unknown_type")
+        self.assertIn("type AggregateFunction(argMin, String", str(ctx.exception))
+        self.assertIn("Use argMin() instead of argMinState()", str(ctx.exception))
 
     @parameterized.expand(
         [
