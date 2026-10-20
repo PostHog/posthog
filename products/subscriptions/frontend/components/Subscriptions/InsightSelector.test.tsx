@@ -127,16 +127,18 @@ describe('InsightSelector', () => {
         expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('removes only the unavailable insight the user chooses', async () => {
+    it.each([[[101, 998, 999]], [[101, 999]]])('removes all unavailable insights with one action: %j', async (ids) => {
         const onChange = jest.fn()
         renderInsightSelector({
             tiles: createMockTiles() as DashboardTile[],
-            selectedInsightIds: [101, 998, 999],
+            selectedInsightIds: ids,
             onChange,
         })
 
-        await userEvent.click(screen.getByLabelText('Remove insight 999 from subscription'))
-        expect(onChange).toHaveBeenLastCalledWith([101, 998])
+        expect(screen.getByLabelText('Unavailable insight (ID: 999)')).toBeDisabled()
+        expect(screen.queryByText('Remove from subscription')).not.toBeInTheDocument()
+        await userEvent.click(screen.getByText('Remove all unavailable'))
+        expect(onChange).toHaveBeenLastCalledWith([101])
     })
 
     it('keeps unavailable insights when selecting a replacement', async () => {
@@ -172,9 +174,7 @@ describe('InsightSelector', () => {
     it('shows unavailable selections even when the dashboard is empty', () => {
         renderInsightSelector({ tiles: [], selectedInsightIds: [999], onChange: jest.fn() })
         expect(screen.getByText('Unavailable insight (ID: 999)')).toBeInTheDocument()
-        expect(
-            screen.getByText('This subscription cannot send because none of its selected insights are available.')
-        ).toBeInTheDocument()
+        expect(screen.getByText('Unavailable insights cannot be sent. Remove them before saving.')).toBeInTheDocument()
     })
 
     it('shows max limit message when at capacity', () => {

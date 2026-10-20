@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -61,54 +60,6 @@ export function InsightSelector({
 
     return (
         <div className="border rounded p-2 space-y-2">
-            {unavailableSelectedIds.length > 0 && (
-                <LemonBanner type="warning">
-                    <div className="space-y-2">
-                        <strong>Selected insights are unavailable on this dashboard.</strong>
-                        <p>
-                            <span>Unavailable insights: </span>
-                            <span>{unavailableSelectedIds.length}</span>
-                        </p>
-                        {validSelectedIds.length === 0 && (
-                            <p>This subscription cannot send because none of its selected insights are available.</p>
-                        )}
-                        <p>
-                            Remove the unavailable insights and select replacements if needed. Save to apply your
-                            changes.
-                        </p>
-                        <ul className="space-y-1">
-                            {unavailableSelectedIds.map((id) => (
-                                <li key={id} className="flex flex-wrap items-center justify-between gap-2">
-                                    <span>Unavailable insight (ID: {id})</span>
-                                    <LemonButton
-                                        size="small"
-                                        data-attr="subscription-remove-unavailable-insight"
-                                        aria-label={`Remove insight ${id} from subscription`}
-                                        onClick={() => {
-                                            setUserHasInteracted()
-                                            onChange(selectedInsightIds.filter((selectedId) => selectedId !== id))
-                                        }}
-                                    >
-                                        Remove from subscription
-                                    </LemonButton>
-                                </li>
-                            ))}
-                        </ul>
-                        {unavailableSelectedIds.length > 1 && (
-                            <LemonButton
-                                size="small"
-                                data-attr="subscription-remove-all-unavailable-insights"
-                                onClick={() => {
-                                    setUserHasInteracted()
-                                    onChange(validSelectedIds)
-                                }}
-                            >
-                                Remove all unavailable
-                            </LemonButton>
-                        )}
-                    </div>
-                </LemonBanner>
-            )}
             {insightTiles.length === 0 && (
                 <p className="text-secondary text-sm">
                     No insights found in this dashboard. Add an insight before saving.
@@ -130,6 +81,14 @@ export function InsightSelector({
                 />
             )}
             <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
+                {unavailableSelectedIds.map((id) => (
+                    <LemonCheckbox
+                        key={`unavailable-${id}`}
+                        checked
+                        label={<span className="text-secondary line-through">Unavailable insight (ID: {id})</span>}
+                        disabledReason="Use Remove all unavailable to remove these insights from the subscription."
+                    />
+                ))}
                 {filteredTiles.length === 0 && insightTiles.length > 0 ? (
                     <div className="text-secondary text-sm py-2">No insights match your search.</div>
                 ) : (
@@ -151,6 +110,23 @@ export function InsightSelector({
                     })
                 )}
             </div>
+            {unavailableSelectedIds.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-secondary">
+                        Unavailable insights cannot be sent. Remove them before saving.
+                    </span>
+                    <LemonButton
+                        size="small"
+                        data-attr="subscription-remove-all-unavailable-insights"
+                        onClick={() => {
+                            setUserHasInteracted()
+                            onChange(validSelectedIds)
+                        }}
+                    >
+                        Remove all unavailable
+                    </LemonButton>
+                </div>
+            )}
             {atMaxLimit && (
                 <div className="text-xs text-secondary">
                     Maximum {MAX_INSIGHTS} insights. Deselect one to add another.

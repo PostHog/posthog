@@ -163,7 +163,7 @@ describe('EditSubscription unsaved changes', () => {
                 expect(patch).not.toHaveBeenCalled()
                 await userEvent.click(screen.getByText('Pageviews'))
             } else {
-                await userEvent.click(screen.getByLabelText('Remove insight 999 from subscription'))
+                await userEvent.click(screen.getByText('Remove all unavailable'))
             }
             await userEvent.click(saveButton())
             await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))
