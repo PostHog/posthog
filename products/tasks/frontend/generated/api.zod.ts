@@ -2070,9 +2070,10 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks the agent sends instead of the agent-proxy.
+ * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer, process kill or run event. Only the run's sandbox may call this. Except for run events, only for a run whose callbacks the agent sends instead of the agent-proxy.
  * @summary Send an agent callback
  */
+export const tasksRunsAgentCallbackCreateBodyAgentActiveDefault = false
 export const tasksRunsAgentCallbackCreateBodyActivityStartedDefault = false
 export const tasksRunsAgentCallbackCreateBodyTurnCompletedDefault = true
 export const tasksRunsAgentCallbackCreateBodyTurnSucceededDefault = false
@@ -2092,6 +2093,14 @@ export const tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryCurrentBytesM
 
 export const tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryLimitBytesMin = 0
 
+export const tasksRunsAgentCallbackCreateBodyEventOneAgentVersionMax = 255
+
+export const tasksRunsAgentCallbackCreateBodyEventOneBenjaminVersionMax = 255
+
+export const tasksRunsAgentCallbackCreateBodyEventOneBranchMax = 255
+
+export const tasksRunsAgentCallbackCreateBodyEventOnePrUrlMax = 2048
+
 export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
     kind: zod
         .enum([
@@ -2102,15 +2111,17 @@ export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
             'agent_activity',
             'budget_steer',
             'process_killed',
+            'run_event',
         ])
         .describe(
-            '\* `heartbeat` - heartbeat\n\* `awaiting_input` - awaiting_input\n\* `turn_failed` - turn_failed\n\* `command_dispatched` - command_dispatched\n\* `agent_activity` - agent_activity\n\* `budget_steer` - budget_steer\n\* `process_killed` - process_killed'
+            '\* `heartbeat` - heartbeat\n\* `awaiting_input` - awaiting_input\n\* `turn_failed` - turn_failed\n\* `command_dispatched` - command_dispatched\n\* `agent_activity` - agent_activity\n\* `budget_steer` - budget_steer\n\* `process_killed` - process_killed\n\* `run_event` - run_event'
         )
         .describe(
-            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.\n\n\* `heartbeat` - heartbeat\n\* `awaiting_input` - awaiting_input\n\* `turn_failed` - turn_failed\n\* `command_dispatched` - command_dispatched\n\* `agent_activity` - agent_activity\n\* `budget_steer` - budget_steer\n\* `process_killed` - process_killed"
+            "Side effect to dispatch. 'run_event' reports a change to the run itself, described by `event`. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.\n\n\* `heartbeat` - heartbeat\n\* `awaiting_input` - awaiting_input\n\* `turn_failed` - turn_failed\n\* `command_dispatched` - command_dispatched\n\* `agent_activity` - agent_activity\n\* `budget_steer` - budget_steer\n\* `process_killed` - process_killed\n\* `run_event` - run_event"
         ),
     agent_active: zod
         .boolean()
+        .default(tasksRunsAgentCallbackCreateBodyAgentActiveDefault)
         .describe(
             "Whether the agent is currently active (true) or idle (false). This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
@@ -2183,6 +2194,81 @@ export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe("The kill the sandbox memory watchdog reported. Required for 'process_killed'."),
+    event: zod
+        .object({
+            type: zod
+                .enum(['started', 'failed', 'branch_changed', 'pr_detected', 'structured_output', 'usage'])
+                .describe(
+                    '\* `started` - started\n\* `failed` - failed\n\* `branch_changed` - branch_changed\n\* `pr_detected` - pr_detected\n\* `structured_output` - structured_output\n\* `usage` - usage'
+                )
+                .describe(
+                    'What happened in the run. Decides which other fields are accepted.\n\n\* `started` - started\n\* `failed` - failed\n\* `branch_changed` - branch_changed\n\* `pr_detected` - pr_detected\n\* `structured_output` - structured_output\n\* `usage` - usage'
+                ),
+            agent_version: zod
+                .string()
+                .max(tasksRunsAgentCallbackCreateBodyEventOneAgentVersionMax)
+                .optional()
+                .describe('Version of the agent server that reported the event.'),
+            benjamin_version: zod
+                .string()
+                .max(tasksRunsAgentCallbackCreateBodyEventOneBenjaminVersionMax)
+                .optional()
+                .describe('Upstream Benjamin commit the agent server runs, when enabled.'),
+            error_type: zod
+                .enum([
+                    'agent_reported',
+                    'agent_server_crash',
+                    'agent_declined',
+                    'output_parse_failed',
+                    'poll_timeout',
+                    'pi_runtime_error',
+                    'upstream_stream_terminated',
+                    'upstream_connection_error',
+                    'upstream_timeout',
+                    'upstream_provider_failure',
+                    'upstream_request_rejected',
+                    'content_block_rejection',
+                    'turn_ended_without_response',
+                    'subscription_usage_limit',
+                    'task_spend_limit',
+                    'agent_error',
+                ])
+                .describe(
+                    '\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error'
+                )
+                .optional()
+                .describe(
+                    'Classified failure cause, for `failed` events. The server builds the error message from it.\n\n\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error'
+                ),
+            cause: zod
+                .string()
+                .optional()
+                .describe('What went wrong, for `failed` events. Secrets must already be redacted.'),
+            branch: zod
+                .string()
+                .max(tasksRunsAgentCallbackCreateBodyEventOneBranchMax)
+                .optional()
+                .describe('Git branch the run is working on.'),
+            pr_url: zod
+                .string()
+                .max(tasksRunsAgentCallbackCreateBodyEventOnePrUrlMax)
+                .optional()
+                .describe('GitHub pull request the run opened.'),
+            output: zod
+                .record(zod.string(), zod.unknown())
+                .optional()
+                .describe("Structured output, validated against the task's json_schema if one is set."),
+            token_usage: zod
+                .record(zod.string(), zod.unknown())
+                .optional()
+                .describe('Cumulative token usage for the run.'),
+            budget_guard: zod
+                .record(zod.string(), zod.unknown())
+                .optional()
+                .describe('Latest budget guard snapshot for the run.'),
+        })
+        .optional()
+        .describe("The run change. Required for 'run_event'."),
 })
 
 /**

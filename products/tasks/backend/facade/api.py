@@ -3474,6 +3474,70 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
         )
 
 
+TASK_RUN_EVENT_TYPES = ("started", "failed", "branch_changed", "pr_detected", "structured_output", "usage")
+
+TASK_RUN_EVENT_ERROR_TYPES = tuple(
+    error_type
+    for error_type in TASK_RUN_FAILURE_ERROR_TYPES
+    if error_type not in {"agent_declined", "output_parse_failed", "poll_timeout", "pi_runtime_error"}
+)
+
+
+def report_task_run_event(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, event: dict[str, Any]
+) -> Literal["applied", "not_found", "run_ended"]:
+    runtime = None
+    if event["type"] == "failed":
+        runtime = Task.objects.filter(id=task_id, team_id=team_id).values_list("runtime", flat=True).first()
+    update = task_run_event_update(event, runtime=runtime)
+    run = update_task_run(
+        run_id, task_id, team_id, validated_data=update, only_if_non_terminal=True, caller_is_agent=True
+    )
+    if run is None:
+        return "not_found"
+    if run.status in _TERMINAL_TASK_RUN_STATUSES and run.status != update.get("status"):
+        return "run_ended"
+    return "applied"
+
+
+def task_run_event_update(event: dict[str, Any], *, runtime: str | None) -> dict[str, Any]:
+    match event["type"]:
+        case "started":
+            return {
+                "status": TaskRun.Status.IN_PROGRESS,
+                "state": _event_fields(event, "agent_version", "benjamin_version"),
+            }
+        case "failed":
+            update: dict[str, Any] = {
+                "status": TaskRun.Status.FAILED,
+                "error_type": event["error_type"],
+                "error_message": _failure_message(event["error_type"], event["cause"], runtime),
+            }
+            if "agent_version" in event:
+                update["state"] = {"agent_version": event["agent_version"]}
+            return update
+        case "branch_changed":
+            return {"branch": event["branch"], "output": {"head_branch": event["branch"]}}
+        case "pr_detected":
+            return {"output": {"pr_urls": [event["pr_url"]]}, **_event_fields(event, "branch")}
+        case "usage":
+            return {"state": _event_fields(event, "token_usage", "budget_guard")}
+    raise ValueError(f"{event['type']} events have no run update.")
+
+
+def _failure_message(error_type: str, cause: str, runtime: str | None) -> str:
+    if error_type == "agent_server_crash":
+        server = "Pi agent server" if runtime == Task.Runtime.PI else "Agent server"
+        return f"{server} crashed: {cause}"
+    if error_type == "agent_reported":
+        return cause
+    return f"{error_type}: {cause}"
+
+
+def _event_fields(event: dict[str, Any], *fields: str) -> dict[str, Any]:
+    return {field: event[field] for field in fields if field in event}
+
+
 def update_task_run(
     run_id: str | UUID,
     task_id: str | UUID,

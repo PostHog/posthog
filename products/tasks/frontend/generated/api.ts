@@ -1625,7 +1625,7 @@ export const getTasksRunsAgentCallbackCreateUrl = (projectId: string, taskId: st
 }
 
 /**
- * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks the agent sends instead of the agent-proxy.
+ * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer, process kill or run event. Only the run's sandbox may call this. Except for run events, only for a run whose callbacks the agent sends instead of the agent-proxy.
  * @summary Send an agent callback
  */
 export const tasksRunsAgentCallbackCreate = async (

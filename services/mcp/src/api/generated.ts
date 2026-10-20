@@ -11711,6 +11711,7 @@ export namespace Schemas {
      * * `agent_activity` - agent_activity
      * * `budget_steer` - budget_steer
      * * `process_killed` - process_killed
+     * * `run_event` - run_event
      */
     export type AgentCallbackRequestKindEnum = typeof AgentCallbackRequestKindEnum[keyof typeof AgentCallbackRequestKindEnum];
 
@@ -11723,6 +11724,7 @@ export namespace Schemas {
       AgentActivity: 'agent_activity',
       BudgetSteer: 'budget_steer',
       ProcessKilled: 'process_killed',
+      RunEvent: 'run_event',
     } as const;
 
     export interface AgentProxyProcessKilled {
@@ -11753,8 +11755,142 @@ export namespace Schemas {
       memory_limit_bytes: number;
     }
 
+    /**
+     * * `started` - started
+     * * `failed` - failed
+     * * `branch_changed` - branch_changed
+     * * `pr_detected` - pr_detected
+     * * `structured_output` - structured_output
+     * * `usage` - usage
+     */
+    export type TaskRunEventTypeEnum = typeof TaskRunEventTypeEnum[keyof typeof TaskRunEventTypeEnum];
+
+
+    export const TaskRunEventTypeEnum = {
+      Started: 'started',
+      Failed: 'failed',
+      BranchChanged: 'branch_changed',
+      PrDetected: 'pr_detected',
+      StructuredOutput: 'structured_output',
+      Usage: 'usage',
+    } as const;
+
+    /**
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error
+     */
+    export type ErrorTypeEnum = typeof ErrorTypeEnum[keyof typeof ErrorTypeEnum];
+
+
+    export const ErrorTypeEnum = {
+      AgentReported: 'agent_reported',
+      AgentServerCrash: 'agent_server_crash',
+      AgentDeclined: 'agent_declined',
+      OutputParseFailed: 'output_parse_failed',
+      PollTimeout: 'poll_timeout',
+      PiRuntimeError: 'pi_runtime_error',
+      UpstreamStreamTerminated: 'upstream_stream_terminated',
+      UpstreamConnectionError: 'upstream_connection_error',
+      UpstreamTimeout: 'upstream_timeout',
+      UpstreamProviderFailure: 'upstream_provider_failure',
+      UpstreamRequestRejected: 'upstream_request_rejected',
+      ContentBlockRejection: 'content_block_rejection',
+      TurnEndedWithoutResponse: 'turn_ended_without_response',
+      SubscriptionUsageLimit: 'subscription_usage_limit',
+      TaskSpendLimit: 'task_spend_limit',
+      AgentError: 'agent_error',
+    } as const;
+
+    /**
+     * Structured output, validated against the task's json_schema if one is set.
+     */
+    export type TaskRunEventOutput = { [key: string]: unknown };
+
+    /**
+     * Cumulative token usage for the run.
+     */
+    export type TaskRunEventTokenUsage = { [key: string]: unknown };
+
+    /**
+     * Latest budget guard snapshot for the run.
+     */
+    export type TaskRunEventBudgetGuard = { [key: string]: unknown };
+
+    export interface TaskRunEvent {
+      /** What happened in the run. Decides which other fields are accepted.
+       *
+       * * `started` - started
+       * * `failed` - failed
+       * * `branch_changed` - branch_changed
+       * * `pr_detected` - pr_detected
+       * * `structured_output` - structured_output
+       * * `usage` - usage */
+      type: TaskRunEventTypeEnum;
+      /**
+         * Version of the agent server that reported the event.
+         * @maxLength 255
+         */
+      agent_version?: string;
+      /**
+         * Upstream Benjamin commit the agent server runs, when enabled.
+         * @maxLength 255
+         */
+      benjamin_version?: string;
+      /** Classified failure cause, for `failed` events. The server builds the error message from it.
+       *
+       * * `agent_reported` - agent_reported
+       * * `agent_server_crash` - agent_server_crash
+       * * `agent_declined` - agent_declined
+       * * `output_parse_failed` - output_parse_failed
+       * * `poll_timeout` - poll_timeout
+       * * `pi_runtime_error` - pi_runtime_error
+       * * `upstream_stream_terminated` - upstream_stream_terminated
+       * * `upstream_connection_error` - upstream_connection_error
+       * * `upstream_timeout` - upstream_timeout
+       * * `upstream_provider_failure` - upstream_provider_failure
+       * * `upstream_request_rejected` - upstream_request_rejected
+       * * `content_block_rejection` - content_block_rejection
+       * * `turn_ended_without_response` - turn_ended_without_response
+       * * `subscription_usage_limit` - subscription_usage_limit
+       * * `task_spend_limit` - task_spend_limit
+       * * `agent_error` - agent_error */
+      error_type?: ErrorTypeEnum;
+      /** What went wrong, for `failed` events. Secrets must already be redacted. */
+      cause?: string;
+      /**
+         * Git branch the run is working on.
+         * @maxLength 255
+         */
+      branch?: string;
+      /**
+         * GitHub pull request the run opened.
+         * @maxLength 2048
+         */
+      pr_url?: string;
+      /** Structured output, validated against the task's json_schema if one is set. */
+      output?: TaskRunEventOutput;
+      /** Cumulative token usage for the run. */
+      token_usage?: TaskRunEventTokenUsage;
+      /** Latest budget guard snapshot for the run. */
+      budget_guard?: TaskRunEventBudgetGuard;
+    }
+
     export interface AgentCallbackRequest {
-      /** Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.
+      /** Side effect to dispatch. 'run_event' reports a change to the run itself, described by `event`. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.
        *
        * * `heartbeat` - heartbeat
        * * `awaiting_input` - awaiting_input
@@ -11762,10 +11898,11 @@ export namespace Schemas {
        * * `command_dispatched` - command_dispatched
        * * `agent_activity` - agent_activity
        * * `budget_steer` - budget_steer
-       * * `process_killed` - process_killed */
+       * * `process_killed` - process_killed
+       * * `run_event` - run_event */
       kind: AgentCallbackRequestKindEnum;
       /** Whether the agent is currently active (true) or idle (false). This is true for 'heartbeat' and 'agent_activity', and false otherwise. */
-      agent_active: boolean;
+      agent_active?: boolean;
       /** Whether this heartbeat marks new activity after the agent was idle, bypassing throttling. */
       activity_started?: boolean;
       /** Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume to mark the agent idle without sending a completion notification or updating activity. */
@@ -11806,6 +11943,8 @@ export namespace Schemas {
       delivered_at?: string;
       /** The kill the sandbox memory watchdog reported. Required for 'process_killed'. */
       process_killed?: AgentProxyProcessKilled;
+      /** The run change. Required for 'run_event'. */
+      event?: TaskRunEvent;
     }
 
     /**
@@ -42577,46 +42716,6 @@ export namespace Schemas {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
     }
-
-    /**
-     * * `agent_reported` - agent_reported
-     * * `agent_server_crash` - agent_server_crash
-     * * `agent_declined` - agent_declined
-     * * `output_parse_failed` - output_parse_failed
-     * * `poll_timeout` - poll_timeout
-     * * `pi_runtime_error` - pi_runtime_error
-     * * `upstream_stream_terminated` - upstream_stream_terminated
-     * * `upstream_connection_error` - upstream_connection_error
-     * * `upstream_timeout` - upstream_timeout
-     * * `upstream_provider_failure` - upstream_provider_failure
-     * * `upstream_request_rejected` - upstream_request_rejected
-     * * `content_block_rejection` - content_block_rejection
-     * * `turn_ended_without_response` - turn_ended_without_response
-     * * `subscription_usage_limit` - subscription_usage_limit
-     * * `task_spend_limit` - task_spend_limit
-     * * `agent_error` - agent_error
-     */
-    export type ErrorTypeEnum = typeof ErrorTypeEnum[keyof typeof ErrorTypeEnum];
-
-
-    export const ErrorTypeEnum = {
-      AgentReported: 'agent_reported',
-      AgentServerCrash: 'agent_server_crash',
-      AgentDeclined: 'agent_declined',
-      OutputParseFailed: 'output_parse_failed',
-      PollTimeout: 'poll_timeout',
-      PiRuntimeError: 'pi_runtime_error',
-      UpstreamStreamTerminated: 'upstream_stream_terminated',
-      UpstreamConnectionError: 'upstream_connection_error',
-      UpstreamTimeout: 'upstream_timeout',
-      UpstreamProviderFailure: 'upstream_provider_failure',
-      UpstreamRequestRejected: 'upstream_request_rejected',
-      ContentBlockRejection: 'content_block_rejection',
-      TurnEndedWithoutResponse: 'turn_ended_without_response',
-      SubscriptionUsageLimit: 'subscription_usage_limit',
-      TaskSpendLimit: 'task_spend_limit',
-      AgentError: 'agent_error',
-    } as const;
 
     export interface EstimateExperimentScope {
       /**
