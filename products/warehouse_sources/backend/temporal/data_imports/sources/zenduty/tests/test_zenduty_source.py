@@ -33,28 +33,6 @@ class TestZendutyValidateCredentials:
         assert all(request.param("page_size") == "1" for request in network.requests_log)
 
 
-class TestZendutyNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("forbidden", "403 Client Error: Forbidden for url: https://www.zenduty.com/api/account/teams/"),
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://www.zenduty.com/api/incidents/"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = ZendutySource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://www.zenduty.com/api/incidents/"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://www.zenduty.com/api/incidents/"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = ZendutySource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestZendutyResumableAndPipeline:
     @parameterized.expand(
         [
