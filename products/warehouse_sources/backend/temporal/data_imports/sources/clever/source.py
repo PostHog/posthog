@@ -66,7 +66,7 @@ class CleverSource(ResumableSource[CleverSourceConfig, CleverResumeConfig]):
             name=ExternalDataSourceType.CLEVER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Clever",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["rostering", "k-12", "education", "sis"],
             caption="""Enter the bearer token Clever issued to your app for a district. Find it in your Clever
 app dashboard, under that district's **Data Sources** tab in the **API Token** section. See the

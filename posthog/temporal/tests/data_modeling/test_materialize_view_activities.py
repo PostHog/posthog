@@ -815,6 +815,7 @@ class TestNodeSuspension:
             "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: 'b'",
             "This model has been suspended after 5 consecutive failed materializations. "
             "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -2102,7 +2103,6 @@ class TestMaterializeViewPromptJev:
                 AI_GATEWAY_URL="https://gateway.example.com/v1",
                 AI_GATEWAY_API_KEY="test-key",
             ),
-            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
             unittest.mock.patch("httpx.AsyncClient.post", side_effect=_jev_gateway_response),
         ):
             inputs = MaterializeViewInputs(
@@ -2134,7 +2134,6 @@ class TestMaterializeViewPromptJev:
 
         with (
             override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
-            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
             pytest.raises(ResolutionCycleError),
         ):
             [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]

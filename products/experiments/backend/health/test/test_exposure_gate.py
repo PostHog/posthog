@@ -16,15 +16,21 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
-    SplitHistory,
-    SplitHistoryNotChecked,
-    SplitHistoryNotCheckedReason,
+    BucketingChange,
+    BucketingSetting,
+    ChangeWindow,
+    ConditionsChange,
+    FlagHistory,
+    FlagHistoryNotChecked,
+    FlagHistoryNotCheckedReason,
+    SplitChange,
 )
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
-    load_split_history,
+    MAX_OVERRIDE_WINDOWS,
+    load_flag_history,
     query_any_exposure,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
@@ -44,6 +50,9 @@ _BY_EVENT_PROPERTY: dict[str, Any] = {
 }
 _BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
 _UNREADABLE: dict[str, Any] = {"exposure_config": {"kind": "ExperimentEventExposureConfig"}}
+
+
+_EVERYONE: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
 
 
 def _split(control: int, test: int) -> list[dict[str, Any]]:
@@ -67,7 +76,7 @@ def _create_running_experiment(
     )
 
 
-class TestLoadSplitHistory(BaseTest):
+class TestLoadFlagHistory(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -100,16 +109,31 @@ class TestLoadSplitHistory(BaseTest):
             )
         return changed_at
 
+    def _log_change(self, at: datetime, **fields: tuple[Any, Any]) -> None:
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(self.experiment.feature_flag_id),
+            activity="updated",
+            detail={
+                "changes": [
+                    {"type": "FeatureFlag", "action": "changed", "field": field, "before": before, "after": after}
+                    for field, (before, after) in fields.items()
+                ]
+            },
+            created_at=at,
+        )
+
     def _load(
         self,
         answers: list[bool | Exception] | Callable[..., bool],
         *,
         reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
-    ) -> tuple[SplitHistory | SplitHistoryNotChecked | None, MagicMock]:
+    ) -> tuple[FlagHistory | FlagHistoryNotChecked | None, MagicMock]:
         with patch(
             "products.experiments.backend.health.exposure_gate.query_any_exposure", side_effect=answers
         ) as query:
-            history = load_split_history(self.experiment, reader_access=reader_access)
+            history = load_flag_history(self.experiment, reader_access=reader_access)
         return history, query
 
     def test_changes_before_the_first_exposure_do_not_count(self) -> None:
@@ -117,12 +141,70 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([False, True])
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual([change.changed_at for change in history.counted_changes], changed_at[1:])
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[1:])
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(
             [(call.kwargs["window_start"], call.kwargs["window_end"]) for call in query.call_args_list],
             [(self.launched_at, changed_at[0]), (changed_at[0], changed_at[1])],
+        )
+
+    def test_every_kind_of_change_shares_one_walk(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1), first_at + timedelta(hours=2)]
+        with_a_second_condition = {
+            **_filters(_split(50, 50)),
+            "groups": [{"properties": [], "rollout_percentage": 100}, {"properties": [], "rollout_percentage": 50}],
+        }
+        self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), with_a_second_condition))
+        self._log_change(changed_at[1], bucketing_identifier=("distinct_id", "device_id"))
+        self._log_change(
+            changed_at[2],
+            filters=(
+                {**_filters(_split(50, 50)), "aggregation_group_type_index": None},
+                {**_filters(_split(60, 40)), "aggregation_group_type_index": 0},
+            ),
+        )
+
+        history, query = self._load([False, True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.of_kind(ConditionsChange)], changed_at[:1])
+        self.assertEqual(history.counted(ConditionsChange), ())
+        self.assertEqual(
+            [(change.changed_at, change.setting) for change in history.counted(BucketingChange)],
+            [
+                (changed_at[1], BucketingSetting.BUCKETING_IDENTIFIER),
+                (changed_at[2], BucketingSetting.AGGREGATION),
+            ],
+        )
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[2:])
+        self.assertEqual(query.call_count, 2)
+
+    def test_each_window_asks_with_the_key_the_flag_had_then(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1)]
+        self._log_change(changed_at[0], key=("first-key", "second-key"))
+        self._log_change(changed_at[1], key=("second-key", FLAG_KEY))
+
+        history, query = self._load([False, True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([call.kwargs["flag_key"] for call in query.call_args_list], ["first-key", "second-key"])
+        self.assertEqual([change.changed_at for change in history.counted(BucketingChange)], changed_at[1:])
+
+    def test_a_key_set_back_asks_between_with_the_key_in_between(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(minutes=6)]
+        self._log_change(changed_at[0], key=(FLAG_KEY, "renamed"))
+        self._log_change(changed_at[1], key=("renamed", FLAG_KEY))
+
+        history, query = self._load([True, False])
+
+        assert isinstance(history, FlagHistory)
+        self.assertIs(history.exposed_between.get(ExperimentHealthFlagChangeKind.BUCKETING), False)
+        self.assertEqual(
+            (query.call_args.kwargs["flag_key"], query.call_args.kwargs["window_start"]), ("renamed", changed_at[0])
         )
 
     def test_no_exposure_before_any_change(self) -> None:
@@ -130,8 +212,8 @@ class TestLoadSplitHistory(BaseTest):
 
         history, _ = self._load([False, False])
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual(history.counted_changes, ())
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.counted(SplitChange), ())
 
     @parameterized.expand(
         [
@@ -161,24 +243,85 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([True])
 
-        assert isinstance(history, SplitHistory)
+        assert isinstance(history, FlagHistory)
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(query.call_count, 1)
 
+    @parameterized.expand([("too_many_saves", 101, 1), ("too_many_conditions", 1, 101)])
+    def test_a_history_past_the_bounds_is_not_read(self, reason: str, saves: int, conditions: int) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        filters = [
+            {**_filters(_split(60, 40) if index % 2 else _split(50, 50)), "groups": [_EVERYONE] * conditions}
+            for index in range(saves + 1)
+        ]
+        for index, (before, after) in enumerate(zip(filters, filters[1:])):
+            self._log_change(first_at + timedelta(minutes=index), filters=(before, after))
+
+        history, query = self._load([True])
+
+        assert isinstance(history, FlagHistoryNotChecked)
+        self.assertEqual((history.reason, history.changes), (FlagHistoryNotCheckedReason(reason), ()))
+        self.assertEqual(query.call_count, 0)
+
+    def test_an_override_set_and_removed_asks_whether_anyone_was_exposed_while_it_was_in_place(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1), first_at + timedelta(hours=2)]
+        pro = {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]}
+        groups = [[_EVERYONE], [{**_EVERYONE, "variant": "test"}], [_EVERYONE], [_EVERYONE, pro]]
+        for at, before, after in zip(changed_at, groups, groups[1:]):
+            self._log_change(
+                at,
+                filters=({**_filters(_split(50, 50)), "groups": before}, {**_filters(_split(50, 50)), "groups": after}),
+            )
+
+        history, query = self._load([True, False])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(
+            history.exposed_during_overrides, {ChangeWindow(start=changed_at[0], end=changed_at[1]): False}
+        )
+        self.assertEqual(query.call_count, 2)
+
+    def test_override_windows_past_the_bound_are_not_asked(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        unpinned: list[dict[str, Any]] = [
+            {"properties": [{"key": "plan", "value": [f"plan {index}"], "operator": "exact", "type": "person"}]}
+            for index in range(MAX_OVERRIDE_WINDOWS + 1)
+        ]
+        groups = [unpinned]
+        for pinned_index in range(len(unpinned)):
+            groups.append(
+                [
+                    {**condition, "variant": "test"} if index == pinned_index else condition
+                    for index, condition in enumerate(unpinned)
+                ]
+            )
+            groups.append(unpinned)
+        for minute, (before, after) in enumerate(zip(groups, groups[1:])):
+            self._log_change(
+                first_at + timedelta(minutes=minute),
+                filters=({**_filters(_split(50, 50)), "groups": before}, {**_filters(_split(50, 50)), "groups": after}),
+            )
+
+        history, _ = self._load(lambda **kwargs: kwargs["window_start"] == self.launched_at)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(len(history.exposed_during_overrides), MAX_OVERRIDE_WINDOWS)
+
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
-            ("exposure_action", _BY_ACTION, True, True, SplitHistoryNotCheckedReason.EXPOSURE_ACTION),
-            ("exposure_criteria", _UNREADABLE, True, True, SplitHistoryNotCheckedReason.EXPOSURE_CRITERIA),
-            ("no_query_access", {}, True, False, SplitHistoryNotCheckedReason.NO_QUERY_ACCESS),
+            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+            ("exposure_action", _BY_ACTION, True, True, FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
+            ("exposure_criteria", _UNREADABLE, True, True, FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
+            ("no_query_access", {}, True, False, FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
             (
                 "filters_without_query_access",
                 _BY_EVENT_PROPERTY,
                 True,
                 False,
-                SplitHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
             ),
-            ("no_history_access", {}, False, True, SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+            ("no_history_access", {}, False, True, FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
         ]
     )
     def test_split_changes_that_cannot_be_checked(
@@ -187,7 +330,7 @@ class TestLoadSplitHistory(BaseTest):
         exposure_criteria: dict[str, Any],
         can_read_flag_history: bool,
         can_query_events: bool,
-        expected_reason: SplitHistoryNotCheckedReason,
+        expected_reason: FlagHistoryNotCheckedReason,
     ) -> None:
         self.experiment.exposure_criteria = exposure_criteria
         self.experiment.save()
@@ -202,10 +345,10 @@ class TestLoadSplitHistory(BaseTest):
             ),
         )
 
-        assert isinstance(history, SplitHistoryNotChecked)
+        assert isinstance(history, FlagHistoryNotChecked)
         self.assertEqual(history.reason, expected_reason)
         expected_changes = changed_at if can_read_flag_history else []
-        self.assertEqual([change.changed_at for change in history.changes], expected_changes)
+        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], expected_changes)
         self.assertEqual(query.call_count, 0)
 
     @parameterized.expand(
@@ -228,27 +371,45 @@ class TestLoadSplitHistory(BaseTest):
 
         history, _ = self._load([], reader_access=reader_access)
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual(history.counted_changes, ())
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.counted(SplitChange), ())
 
     @parameterized.expand(
         [
-            ("same_split", _split(50, 50)),
-            ("with_a_variant_left_at_zero", [*_split(50, 50), {"key": "blue", "rollout_percentage": 0}]),
+            ("same_split", _filters(_split(50, 50)), [ExperimentHealthFlagChangeKind.SPLIT]),
+            (
+                "with_a_variant_left_at_zero",
+                _filters([*_split(50, 50), {"key": "blue", "rollout_percentage": 0}]),
+                [ExperimentHealthFlagChangeKind.SPLIT],
+            ),
+            # Both kinds ask about the same window, and the second must not query again.
+            (
+                "with_the_conditions_set_back_too",
+                _filters(_split(50, 50)),
+                [ExperimentHealthFlagChangeKind.SPLIT, ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS],
+            ),
         ]
     )
     def test_revert_asks_whether_anyone_was_exposed_in_between(
-        self, _name: str, set_back_to: list[dict[str, Any]]
+        self, _name: str, set_back_to: dict[str, Any], set_back_kinds: list[ExperimentHealthFlagChangeKind]
     ) -> None:
-        changed_at = self._log_split_changes([_split(50, 50), _split(0, 100), set_back_to])
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1)]
+        changed = _filters(_split(0, 100))
+        if ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS in set_back_kinds:
+            changed["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": "test"}]
+        self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), changed))
+        self._log_change(changed_at[1], filters=(changed, set_back_to))
 
         history, query = self._load([True, False])
 
-        assert isinstance(history, SplitHistory)
-        self.assertIs(history.exposed_between, False)
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.exposed_between, dict.fromkeys(set_back_kinds, False))
+        self.assertEqual(query.call_count, 2)
         self.assertEqual(
             query.call_args.kwargs,
             {
+                "flag_key": FLAG_KEY,
                 "window_start": changed_at[0],
                 "window_end": changed_at[1],
                 "variant_keys": ("control", "test"),
@@ -272,8 +433,8 @@ class TestLoadSplitHistory(BaseTest):
             history, _ = self._load([False, error])
         next_load, next_query = self._load([True])
 
-        assert isinstance(history, SplitHistory) and isinstance(next_load, SplitHistory)
-        self.assertEqual([change.changed_at for change in history.counted_changes], changed_at[1:])
+        assert isinstance(history, FlagHistory) and isinstance(next_load, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[1:])
         self.assertIsNone(history.exposed_before_first)
         self.assertIsNone(next_load.exposed_before_first)
         self.assertEqual(next_query.call_count, 0)
@@ -301,9 +462,9 @@ class TestLoadSplitHistory(BaseTest):
         with patch("products.experiments.backend.health.exposure_gate.monotonic", side_effect=lambda: clock[0]):
             history, query = self._load(nobody_exposed)
 
-        assert isinstance(history, SplitHistory)
+        assert isinstance(history, FlagHistory)
         self.assertEqual(query.call_count, expected_queries)
-        self.assertEqual(history.counted_changes[0].changed_at, changed_at[expected_queries])
+        self.assertEqual(history.counted(SplitChange)[0].changed_at, changed_at[expected_queries])
         self.assertIsNone(history.exposed_before_first)
 
     def test_cached_walk_reads_the_cache_once(self) -> None:
@@ -313,8 +474,8 @@ class TestLoadSplitHistory(BaseTest):
         with patch("products.experiments.backend.health.exposure_gate.cache", wraps=cache) as cache_spy:
             history, query = self._load([])
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual(history.counted_changes, ())
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.counted(SplitChange), ())
         self.assertEqual(query.call_count, 0)
         self.assertEqual((cache_spy.get_many.call_count, cache_spy.get.call_count), (1, 0))
 
@@ -347,8 +508,8 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([True])
 
-        assert isinstance(history, SplitHistory)
-        self.assertIsNone(history.exposed_between)
+        assert isinstance(history, FlagHistory)
+        self.assertIsNone(history.exposed_between.get(ExperimentHealthFlagChangeKind.SPLIT))
         self.assertEqual(query.call_count, 1)
 
 
@@ -403,6 +564,7 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
 
         exposed = query_any_exposure(
             experiment,
+            flag_key=FLAG_KEY,
             window_start=now - timedelta(days=5),
             window_end=now - timedelta(days=1),
             variant_keys=["control", "test"],

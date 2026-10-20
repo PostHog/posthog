@@ -2,7 +2,10 @@
 
 Jev answers two separate questions: whether the scanner's question asks who the session belongs to, and whether
 the answer contains personal data. Asked as one question, with the session's identity in view, it could not tell the
-two apart. A flagged answer gets one text-only rewrite, and an answer still flagged after it fails the observation as
+two apart. The personal-data check itself asks about names and about contact details or IDs as two questions in one
+request, because a single question that listed every kind of personal data also flagged company names and business
+contact details.
+A flagged answer gets one text-only rewrite, and an answer still flagged after it fails the observation as
 `pii_detected`. Where Jev is unavailable or errors, the answer passes.
 """
 
@@ -14,7 +17,6 @@ from typing import Any, TypeVar
 
 import structlog
 from google.genai import types
-from posthoganalytics.ai.gemini import genai
 from prometheus_client import Counter
 from pydantic import BaseModel
 
@@ -23,32 +25,62 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.gemini import is_gateway_refusal
 
 logger = structlog.get_logger(__name__)
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
-PII_CHECK_MODEL = "posthog/hogference/jevk5-fp8-0.2"
-# Calibrated offline on production answers: at these values the detector caught 96% of answers that repeated the
-# subject's email unasked, most other flags were real names, and a question that asks for identity scored 0.86.
-PII_FLAG_PROBABILITY = 0.8
+PII_CHECK_MODEL = "posthog/hogference/jeeves-0.1"
+# Calibrated offline in October 2026 on a blind-labelled sample of production answers. Jeeves scores most real names
+# between 0.4 and 0.8, so a higher bar misses most of them. Answers without personal data score near 0.1,
+# which leaves 0.4 well clear of them. Questions that ask for identity separate cleanly at 0.5.
+PII_FLAG_PROBABILITY = 0.4
 ASKS_FOR_IDENTITY_PROBABILITY = 0.5
 _JEV_TIMEOUT_SECONDS = 10.0
 _REWRITE_MODEL = "gemini-3.8-flash"
 _TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
 
-_DETECT_QUESTION = (
-    "The state holds the text an AI scanner wrote about one recorded user session. Does the text contain personal data "
-    "about a specific person: an email address, a person's name, a username or handle, a phone number, a street or IP "
-    "address, payment details, or an account or government ID? Generic references such as 'the user', 'a customer', "
-    "or a company or product name are not personal data."
+_NAME_QUESTION = DecisionQuestion(
+    type=DecisionQuestionType.NOUL,
+    instructions=(
+        "The state holds the text an AI scanner wrote about one recorded user session. Does the text name a specific "
+        "real person, such as the user, a customer, a contact, or a staff member?"
+    ),
+    criteria={
+        "true": "The text gives a real individual's first name, full name, or surname.",
+        "false": (
+            "People are referred to generically ('the user', 'a customer'), or the only names are of companies, shops, "
+            "products, pages, AI personas, or test records, even when such a name contains a first name."
+        ),
+    },
 )
-_ASKS_QUESTION = (
-    "The state holds the question a product team gave an AI scanner that watches recorded user sessions. Does the "
-    "question ask the scanner to identify who the session belongs to, such as the person's name, email, or their "
-    "company?"
+_CONTACT_QUESTION = DecisionQuestion(
+    type=DecisionQuestionType.NOUL,
+    instructions=(
+        "The state holds the text an AI scanner wrote about one recorded user session. Does the text show contact "
+        "details or an identifier that belongs to a specific person?"
+    ),
+    criteria={
+        "true": (
+            "The text shows an actual personal email address, phone number, street or IP address, username or handle, "
+            "payment details, or an account, record or government ID."
+        ),
+        "false": (
+            "No such value appears, the text only says one was entered, or the value belongs to a business: a company "
+            "inbox, a business phone number, or a bare email domain."
+        ),
+    },
+)
+_ASKS_QUESTION = DecisionQuestion(
+    type=DecisionQuestionType.NOUL,
+    instructions=(
+        "The state holds the question a product team gave an AI scanner that watches recorded user sessions. Does the "
+        "question ask the scanner to identify who the session belongs to, such as the person's name, email, or their "
+        "company?"
+    ),
 )
 
 _REWRITE_INSTRUCTIONS = """\
@@ -92,7 +124,9 @@ def answer_text(output: BaseModel) -> dict[str, str]:
     }
 
 
-def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, trace_id: str) -> float | None:
+def _highest_yes_probability(
+    team_id: int, state: dict[str, Any], questions: dict[str, DecisionQuestion], trace_id: str
+) -> float | None:
     if not decision_api.decisions_available_here():
         return None
     try:
@@ -100,7 +134,7 @@ def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, tra
             DecisionRequest(
                 team_id=team_id,
                 state=state,
-                questions={"q": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions)},
+                questions=questions,
                 model=PII_CHECK_MODEL,
                 ai_product="replay_vision",
                 trace_id=trace_id,
@@ -112,14 +146,19 @@ def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, tra
     except Exception:
         logger.warning("replay_vision.pii_check.unavailable", team_id=team_id, exc_info=True)
         return None
-    return getattr(result.answers.get("q"), "probability", None)
+    probabilities = [
+        probability
+        for question_id in questions
+        if (probability := getattr(result.answers.get(question_id), "probability", None)) is not None
+    ]
+    return max(probabilities) if len(probabilities) == len(questions) else None
 
 
 def asks_for_identity(*, team_id: int, question: str, trace_id: str) -> bool | None:
     """Whether the scanner's question asks who the session belongs to; None when Jev could not answer."""
     if not question.strip():
         return False
-    probability = _yes_probability(team_id, {"question": question}, _ASKS_QUESTION, trace_id)
+    probability = _highest_yes_probability(team_id, {"question": question}, {"q": _ASKS_QUESTION}, trace_id)
     return None if probability is None else probability >= ASKS_FOR_IDENTITY_PROBABILITY
 
 
@@ -127,26 +166,29 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
     """Whether the answer's text holds personal data; None when Jev could not answer."""
     if not text:
         return False
-    probability = _yes_probability(team_id, {"text": text}, _DETECT_QUESTION, trace_id)
+    questions = {"name": _NAME_QUESTION, "contact": _CONTACT_QUESTION}
+    probability = _highest_yes_probability(team_id, {"text": text}, questions, trace_id)
     return None if probability is None else probability >= PII_FLAG_PROBABILITY
 
 
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
-    client = genai.AsyncClient(
-        api_key=gemini_api_key(),
-        posthog_privacy_mode=True,
-        posthog_properties={"ai_product": "replay_vision", "feature": "pii_rewrite", "team_id": team_id},
-    )
-    response = await client.models.generate_content(
-        model=_REWRITE_MODEL,
-        contents=_REWRITE_INSTRUCTIONS.format(question=question, answer=json.dumps(text, ensure_ascii=False, indent=2)),
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_Rewrite),
-        posthog_distinct_id=replay_vision_distinct_id(team_id),
-        posthog_trace_id=trace_id,
-        posthog_properties={"$ai_span_name": "pii_rewrite"},
-        posthog_groups={"project": str(team_id)},
-    )
+    properties = {"ai_product": AI_PRODUCT, "feature": "pii_rewrite", "team_id": team_id}
+    client = await replay_gemini_client(team_id, properties=properties)
+    try:
+        response = await client.models.generate_content(
+            model=_REWRITE_MODEL,
+            contents=_REWRITE_INSTRUCTIONS.format(
+                question=question, answer=json.dumps(text, ensure_ascii=False, indent=2)
+            ),
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_Rewrite),
+            posthog_distinct_id=replay_vision_distinct_id(team_id),
+            posthog_trace_id=trace_id,
+            posthog_properties={"$ai_span_name": "pii_rewrite"},
+            posthog_groups={"project": str(team_id)},
+        )
+    finally:
+        await client.aclose()
     rewritten = _Rewrite.model_validate_json(response.text or "{}")
     return {field: new for field in text if isinstance(new := getattr(rewritten, field), str) and new.strip()}
 
@@ -177,7 +219,7 @@ async def keep_unrequested_pii_out(
 
     When the question asks who the session belongs to, the session's own identity values are allowed and only the
     rest of the answer is judged. Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still
-    flagged, or the rewrite fails.
+    flagged, or the rewrite fails other than by a gateway refusal.
     """
     text = answer_text(output)
     if not text:
@@ -197,6 +239,9 @@ async def keep_unrequested_pii_out(
         )
     except Exception as e:
         record_pii_check("failed", scanner_type)
+        # A gateway refusal is our fault; the activity boundary decides whether it retries.
+        if is_gateway_refusal(e):
+            raise
         raise ScannerFailureError(
             "The answer included personal data the scanner didn't ask for, and it could not be removed.",
             kind=FailureKind.PII_DETECTED,

@@ -442,6 +442,8 @@ jobs:
                         - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
+                        - 'products/today/backend/**'
+                        - 'products/product_analytics/backend/insight_series.py'
                         - 'posthog/llm/**'
                         - 'posthog/temporal/dlq_replay/**'
                         - 'posthog/temporal/session_recordings/**'
@@ -577,15 +579,6 @@ jobs:
                         - 'products/data_catalog/backend/**'
                         - 'posthog/tasks/email.py'
                         - 'posthog/models/organization_notification_lock.py'
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
-                        - 'posthog/clickhouse/migrations/**'
-
-                      messaging:
-                        - 'posthog/temporal/messaging/**'
-                        - 'products/web_analytics/backend/temporal/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -1120,14 +1113,36 @@ jobs:
               env:
                   BEFORE: ${{ github.event.before }}
               run: |
-                  BASE="$BEFORE"
-                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
-                      BASE="HEAD^"
+                  WORKFLOW=.github/workflows/container-images-cd.yml
+                  NO_COMMIT=0000000000000000000000000000000000000000
+
+                  BASE="HEAD^"
+                  if [ -n "$BEFORE" ] && [ "$BEFORE" != "$NO_COMMIT" ]; then
+                      if git fetch --depth=1 --no-tags origin "$BEFORE"; then
+                          BASE="$BEFORE"
+                      fi
                   fi
-                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/subscriptions/backend/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
+
+                  general_purpose_paths_at() {
+                      git show "$1:$WORKFLOW" | awk '
+                          /^ *generalPurpose:$/ { in_list = 1; next }
+                          in_list && /^ *- /    { print $2; next }
+                          in_list && /^ *(#|$)/ { next }
+                                                { in_list = 0 }
+                      ' | sort -u
+                  }
+
+                  paths_before=$(general_purpose_paths_at "$BASE")
+                  paths_after=$(general_purpose_paths_at HEAD)
+                  added_paths=$(comm -13 <(echo "$paths_before") <(echo "$paths_after"))
+
+                  if [ -n "$added_paths" ]; then
+                      echo "Paths added to the general purpose list:"
+                      echo "$added_paths"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "changed=false" >> $GITHUB_OUTPUT
+                      echo "No paths added to the general purpose list."
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
@@ -1241,27 +1256,6 @@ jobs:
 
             # NOTE: temporal-worker-llm-analytics rollout moved to cd-llm-analytics-image.yml
             # which builds and deploys a separate Docker image with ML dependencies.
-
-            - name: Trigger Messaging Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.messaging == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-messaging",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": "PostHog/posthog",
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
 
             - name: Trigger MCP Analytics Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.mcpAnalytics == 'true'

@@ -459,7 +459,13 @@ export const PageHistory: Story = {
     render: () => <HistoryAfterLoad />,
 }
 
-function HistoryAfterLoad({ initialCapture }: { initialCapture?: string }): JSX.Element {
+function HistoryAfterLoad({
+    initialCapture,
+    browserOpen = false,
+}: {
+    initialCapture?: string
+    browserOpen?: boolean
+}): JSX.Element {
     const scene = heatmapLogic({ id: 'hm_history' })
     const { savedSettings, loading } = useValues(scene)
     const historyLogic = pageHistoryLogic({ id: 'hm_history' })
@@ -476,8 +482,11 @@ function HistoryAfterLoad({ initialCapture }: { initialCapture?: string }): JSX.
         if (history && !selected.current && initialCapture) {
             selected.current = true
             historyLogic.actions.selectCapture(initialCapture)
+            if (browserOpen) {
+                historyLogic.actions.setHistoryExpanded(true)
+            }
         }
-    }, [history, historyLogic, initialCapture])
+    }, [browserOpen, history, historyLogic, initialCapture])
     return <App />
 }
 
@@ -496,4 +505,14 @@ export const HistoricalDayNarrow: Story = {
         ...PageHistory.parameters,
         testOptions: { waitForLoadersToDisappear: true, viewport: loadedNarrowViewport },
     },
+}
+
+export const PageHistoryBrowser: Story = {
+    ...HistoricalDay,
+    render: () => <HistoryAfterLoad initialCapture="cap-17" browserOpen />,
+}
+
+export const PageHistoryBrowserNarrow: Story = {
+    ...HistoricalDayNarrow,
+    render: () => <HistoryAfterLoad initialCapture="cap-17" browserOpen />,
 }

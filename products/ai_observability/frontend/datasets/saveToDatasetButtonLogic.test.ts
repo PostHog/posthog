@@ -31,6 +31,7 @@ jest.mock('lib/lemon-ui/LemonToast')
 
 describe('saveToDatasetButtonLogic', () => {
     const mockDataset1: Dataset = {
+        tags: [],
         id: 'test-dataset-1',
         name: 'Test Dataset 1',
         description: 'First test dataset',
@@ -46,6 +47,7 @@ describe('saveToDatasetButtonLogic', () => {
     }
 
     const mockDataset2: Dataset = {
+        tags: [],
         id: 'test-dataset-2',
         name: 'Test Dataset 2',
         description: 'Second test dataset',

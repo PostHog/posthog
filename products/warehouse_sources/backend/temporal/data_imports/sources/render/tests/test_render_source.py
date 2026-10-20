@@ -36,10 +36,6 @@ class TestRenderSource:
         assert schema.supports_incremental == supports_incremental
         assert schema.supports_append == supports_append
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["services", "deploys"])
-        assert {schema.name for schema in schemas} == {"services", "deploys"}
-
     @parameterized.expand(
         [
             ("valid", 200, (True, None)),

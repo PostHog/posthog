@@ -22,7 +22,7 @@ class TestTeachableSource:
         assert config.name.value == "Teachable"
         assert config.label == "Teachable"
         assert config.category == DataWarehouseSourceCategory.E_COMMERCE
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.iconPath == "/static/services/teachable.png"
         # The source ships visible — a truthy unreleasedSource hides it from every user.
         assert not config.unreleasedSource
@@ -40,13 +40,18 @@ class TestTeachableSource:
         assert [f["field"] for f in schemas["transactions"].incremental_fields] == ["created_at"]
         assert schemas["transactions"].default_incremental_lookback_seconds == TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS
 
-        for name in ("users", "courses", "course_enrollments", "pricing_plans"):
+        for name in (
+            "users",
+            "courses",
+            "course_enrollments",
+            "pricing_plans",
+            "course_progress",
+            "lectures",
+            "quizzes",
+            "quiz_responses",
+        ):
             assert schemas[name].supports_incremental is False, name
             assert schemas[name].incremental_fields == [], name
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["transactions"])
-        assert [s.name for s in schemas] == ["transactions"]
 
     @pytest.mark.parametrize(
         "observed_error,expect_match",

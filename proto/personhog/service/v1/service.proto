@@ -105,4 +105,8 @@ service PersonHogService {
   // Version floors for the ClickHouse cleanup jobs.
   // The write goes to the primary: same routing caveat as DeletePersons above.
   rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
+
+  // Reads for the person consistency scan and repair. Rows include tombstones.
+  rpc GetDistinctIdRows(personhog.types.v1.GetDistinctIdRowsRequest) returns (personhog.types.v1.GetDistinctIdRowsResponse);
+  rpc ListPersonsForTeam(personhog.types.v1.ListPersonsForTeamRequest) returns (personhog.types.v1.ListPersonsForTeamResponse);
 }

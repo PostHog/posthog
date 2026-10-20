@@ -86,6 +86,14 @@ GUSTO_ENDPOINTS: dict[str, GustoEndpointConfig] = {
         # {"contractor_uuid": ..., "payments": [...]}]}.
         data_key="contractor_payments",
     ),
+    # The date filters here (due date, period, sent-on) don't track `amount_paid` and
+    # `payment_sent_on` changing after a payment is scheduled, so a date watermark would leave
+    # earlier unpaid payments stale. Full refresh keeps payment status current.
+    "tax_payments": GustoEndpointConfig(
+        name="tax_payments",
+        path="/v1/companies/{company_uuid}/tax_payments",
+        primary_keys=["uuid"],
+    ),
 }
 
 ENDPOINTS = tuple(GUSTO_ENDPOINTS.keys())

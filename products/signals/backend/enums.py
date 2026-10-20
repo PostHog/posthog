@@ -20,6 +20,13 @@ class ReportPriority(StrEnum):
     P4 = "P4"
 
 
+class ReportTaskActionKind(LabeledStrEnum):
+    # A report action that starts an agent run from the API. See `report_task_actions.py`.
+    GET_IT_MERGED = "get_it_merged", "Get it merged"
+    MAKE_IT_GREEN = "make_it_green", "Make it green"
+    SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
+
+
 class ReportLinkKind(LabeledStrEnum):
     # How one report relates to another, written as a directed `report_link` artefact on the
     # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that
