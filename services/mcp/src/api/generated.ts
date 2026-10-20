@@ -93166,6 +93166,31 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface PushTokenSubscription {
+      /**
+         * The person's distinct ID in this project.
+         * @maxLength 200
+         */
+      distinct_id: string;
+      /**
+         * The APNs device token or FCM registration token of one device.
+         * @maxLength 4096
+         */
+      device_token: string;
+    }
+
+    export interface PushTokenImportRequest {
+      /** Up to 1000 devices to register on this push channel. List a person once per device. */
+      subscriptions: PushTokenSubscription[];
+    }
+
+    export interface PushTokenImportResponse {
+      /** Number of devices stored on their person. */
+      imported: number;
+      /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+      failed_distinct_ids: string[];
+    }
+
     /**
      * * `run` - Run
      * * `skip` - Skip

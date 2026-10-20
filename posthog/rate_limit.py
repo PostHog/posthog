@@ -1897,6 +1897,18 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Keyed per team, so a large migration cannot flood ingestion by spreading calls across keys.
+    scope = "push_token_import"
+    rate = "60/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class PostHogConnectionForwardThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit the synchronous PostHog-connection forward proxy. Each forward holds an API worker
     # open while it round-trips to another cell, so a burst of concurrent forwards to a slow target

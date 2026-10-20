@@ -42,6 +42,8 @@ import type {
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
     PostHogConnectionTargetApi,
+    PushTokenImportRequestApi,
+    PushTokenImportResponseApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
@@ -750,6 +752,28 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     return apiMutator<void>(getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsPushTokensCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/push_tokens/`
+}
+
+/**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * @summary Import push device tokens
+ */
+export const integrationsPushTokensCreate = async (
+    projectId: string,
+    id: number,
+    pushTokenImportRequestApi: PushTokenImportRequestApi,
+    options?: RequestInit
+): Promise<PushTokenImportResponseApi> => {
+    return apiMutator<PushTokenImportResponseApi>(getIntegrationsPushTokensCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pushTokenImportRequestApi),
     })
 }
 
