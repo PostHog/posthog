@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import {
@@ -46,6 +46,7 @@ import {
     workflowsLogic,
 } from './workflowsLogic'
 import { WorkflowStepMatches } from './WorkflowStepMatches'
+import { workflowsWaitingRefreshLogic } from './workflowsWaitingRefreshLogic'
 import { hasMessagingAction } from './workflowTypeFilters'
 
 const STATUS_CONFIG: Record<HogFlow['status'], { label: string; type: 'success' | 'default' | 'warning' | 'muted' }> = {
@@ -123,6 +124,7 @@ export function WorkflowsTable(): JSX.Element {
     const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const logic = workflowsLogic()
+    useMountedLogic(workflowsWaitingRefreshLogic)
     const {
         workflowsLoading,
         workflows,

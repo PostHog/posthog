@@ -82,6 +82,7 @@ describe('workflowLogic send once verified', () => {
     let patchBodies: Record<string, any>[]
     let storedWorkflow: HogFlow
     let projectSenders: ProjectSender[]
+    let retrieveCount: number
 
     const mountWith = async (
         workflow: HogFlow,
@@ -100,10 +101,14 @@ describe('workflowLogic send once verified', () => {
 
     beforeEach(() => {
         patchBodies = []
+        retrieveCount = 0
         localStorage.clear()
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': () => [200, storedWorkflow],
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    retrieveCount += 1
+                    return [200, storedWorkflow]
+                },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
                 '/api/projects/:team_id/integrations/': () => [
                     200,
@@ -129,6 +134,7 @@ describe('workflowLogic send once verified', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
     })
 
     it('asks before enabling a workflow with an unverified sender, naming the domain', async () => {
@@ -340,5 +346,97 @@ describe('workflowLogic send once verified', () => {
         await mountWith(makeWorkflow())
 
         expect(logic.values.senderDomainNotice).toBeNull()
+    })
+
+    describe('while the workflow waits for its domain', () => {
+        const waiting = makeWorkflow({
+            status: 'waiting_for_domain',
+            enable_requested_at: '2026-05-02T10:00:00Z',
+            unverified_email_senders: [UNVERIFIED_SENDER],
+        })
+        const wentLive: HogFlow = {
+            ...waiting,
+            status: 'active',
+            went_live_at: '2026-05-03T08:30:00Z',
+            updated_at: '2026-05-03T08:30:00Z',
+            unverified_email_senders: [],
+        }
+
+        const mountWaiting = async (): Promise<void> => {
+            jest.useFakeTimers({ advanceTimers: true })
+            await mountWith(waiting)
+            retrieveCount = 0
+        }
+
+        it('shows the workflow going live without a reload, keeps unsaved edits, and stops checking', async () => {
+            await mountWaiting()
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Renamed while waiting')
+            storedWorkflow = wentLive
+
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.originalWorkflow?.status).toEqual('active')
+            expect(logic.values.showStartedSendingNotice).toBe(true)
+            expect(logic.values.senderDomainNotice).toBeNull()
+            expect(logic.values.workflow.name).toEqual('Renamed while waiting')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(retrieveCount).toEqual(1)
+        })
+
+        it('stages later edits as a draft of the live copy, without a conflict', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        patchBodies.push((await request.json()) as Record<string, any>)
+                        return [200, storedWorkflow]
+                    },
+                },
+            })
+            await mountWaiting()
+            logic.actions.setAutoSaveEnabled(false)
+            storedWorkflow = wentLive
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setWorkflowValue('exit_condition', 'exit_on_conversion')
+            await expectLogic(logic, () => {
+                logic.actions.submitWorkflow()
+            }).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(patchBodies).toEqual([
+                expect.objectContaining({
+                    exit_condition: 'exit_on_conversion',
+                    stage_draft: true,
+                    base_updated_at: wentLive.updated_at,
+                }),
+            ])
+        })
+
+        it('checks only while the tab is visible, and checks at once when it shows again', async () => {
+            let hidden = true
+            const hiddenSpy = jest.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden)
+            try {
+                await mountWaiting()
+                document.dispatchEvent(new Event('visibilitychange'))
+
+                await jest.advanceTimersByTimeAsync(60_000)
+                expect(retrieveCount).toEqual(0)
+
+                storedWorkflow = wentLive
+                hidden = false
+                document.dispatchEvent(new Event('visibilitychange'))
+                await jest.advanceTimersByTimeAsync(0)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(retrieveCount).toEqual(1)
+                expect(logic.values.originalWorkflow?.status).toEqual('active')
+            } finally {
+                hiddenSpy.mockRestore()
+            }
+        })
     })
 })

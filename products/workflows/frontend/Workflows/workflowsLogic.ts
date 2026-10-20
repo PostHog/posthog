@@ -68,7 +68,7 @@ const DEFAULT_FILTERS: WorkflowsFilters = {
     page: 1,
 }
 
-type WorkflowsResult = CountedPaginatedResponse<HogFlow>
+export type WorkflowsResult = CountedPaginatedResponse<HogFlow>
 
 const currentTeamId = (): string => String(ApiConfig.getCurrentTeamId())
 
@@ -77,7 +77,7 @@ export interface EnablePrompt {
     domains: string[]
 }
 
-interface WorkflowsListParams {
+export interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string

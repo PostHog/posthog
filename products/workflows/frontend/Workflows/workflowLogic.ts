@@ -70,6 +70,7 @@ import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { SenderDomainNotice, senderDomainNotice } from './senderDomainNotice'
 import { unverifiedSenderDomains } from './unverifiedSenderDomains'
+import { syncWaitingStatusCheck } from './waitingStatusCheck'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { prefilledEmailContent, prefilledWorkflow, withEmailSender, withPrefilledEmail } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
@@ -236,6 +237,29 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+const WORKFLOW_LIFECYCLE_FIELDS = ['status', 'enable_requested_at', 'went_live_at', 'unverified_email_senders'] as const
+
+function lifecycleUpdate(latest: HogFlow, fresh: HogFlow): Partial<HogFlow> | null {
+    const update: Record<string, unknown> = {}
+    for (const field of WORKFLOW_LIFECYCLE_FIELDS) {
+        if (!objectsEqual(latest[field], fresh[field])) {
+            update[field] = fresh[field]
+        }
+    }
+    if (Object.keys(update).length === 0) {
+        return null
+    }
+    // The go-live bumps updated_at. Take the new stamp only when nothing else changed, so the next
+    // save does not conflict with the go-live, but still conflicts with an edit made somewhere else.
+    const onlyLifecycleChanged =
+        latest.draft_updated_at === fresh.draft_updated_at &&
+        objectsEqual(pickWorkflowEdits(latest), pickWorkflowEdits(fresh))
+    if (onlyLifecycleChanged) {
+        update.updated_at = fresh.updated_at
+    }
+    return update as Partial<HogFlow>
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -268,6 +292,7 @@ export interface workflowLogicValues {
     enablePromptOpen: boolean
     senderDomainNotice: SenderDomainNotice | null
     showStartedSendingNotice: boolean
+    isWaitingForDomain: boolean
     startedSendingNoticeKey: string | null
     unverifiedSenderDomains: string[]
     autoSaveEnabled: boolean
@@ -374,6 +399,12 @@ export interface workflowLogicActions {
     }
     setStartedSendingNoticeDismissed: (noticeKey: string) => {
         noticeKey: string
+    }
+    checkWaitingStatus: () => {
+        value: true
+    }
+    setWorkflowLifecycle: (lifecycle: Partial<HogFlow>) => {
+        lifecycle: Partial<HogFlow>
     }
     discardChanges: () => {
         value: true
@@ -3009,6 +3040,7 @@ export interface workflowLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => SenderDomainNotice | null
         startedSendingNoticeKey: (originalWorkflow: HogFlow | null) => string | null
+        isWaitingForDomain: (originalWorkflow: HogFlow | null) => boolean
         showStartedSendingNotice: (
             startedSendingNoticeKey: string | null,
             dismissedStartedSendingNotices: Record<string, true>
@@ -3293,6 +3325,8 @@ export const workflowLogic = kea<workflowLogicType>([
         cancelEnablePrompt: true,
         dismissStartedSendingNotice: true,
         setStartedSendingNoticeDismissed: (noticeKey: string) => ({ noticeKey }),
+        checkWaitingStatus: true,
+        setWorkflowLifecycle: (lifecycle: Partial<HogFlow>) => ({ lifecycle }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
@@ -3754,6 +3788,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflowFailure: () => false,
             },
         ],
+        originalWorkflow: {
+            setWorkflowLifecycle: (state, { lifecycle }) => (state ? { ...state, ...lifecycle } : state),
+        },
+        workflow: {
+            setWorkflowLifecycle: (state, { lifecycle }) => ({ ...state, ...lifecycle }),
+        },
         dismissedStartedSendingNotices: [
             {} as Record<string, true>,
             // pinned: storage key, renaming it shows every dismissed notice again
@@ -3790,6 +3830,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 const emailSenders = integrations?.filter(({ kind }) => kind === 'email') ?? null
                 return senderDomainNotice(workflow, originalWorkflow, emailSenders)
             },
+        ],
+        isWaitingForDomain: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.status === 'waiting_for_domain',
         ],
         startedSendingNoticeKey: [
             (s) => [s.originalWorkflow],
@@ -4398,6 +4442,7 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
+            syncWaitingStatusCheck(cache.disposables, values.isWaitingForDomain, actions.checkWaitingStatus)
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -4439,6 +4484,33 @@ export const workflowLogic = kea<workflowLogicType>([
         confirmEnablePrompt: () => {
             actions.saveWorkflowPartial({ status: 'active' })
         },
+        checkWaitingStatus: async () => {
+            const latest = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            if (!props.id || !latest || values.workflowLoading) {
+                return
+            }
+            let fresh: HogFlow
+            try {
+                fresh = await api.hogFlows.getHogFlow(props.id)
+            } catch {
+                return
+            }
+            const latestNow = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            if (cache.disposables.isDisposed || latestNow !== latest || values.workflowLoading) {
+                return
+            }
+            const lifecycle = lifecycleUpdate(latest, fresh)
+            if (!lifecycle) {
+                return
+            }
+            if (cache.lastSavedWorkflow) {
+                cache.lastSavedWorkflow = { ...cache.lastSavedWorkflow, ...lifecycle }
+            }
+            actions.setWorkflowLifecycle(lifecycle)
+        },
+        setWorkflowLifecycle: () => {
+            syncWaitingStatusCheck(cache.disposables, values.isWaitingForDomain, actions.checkWaitingStatus)
+        },
         dismissStartedSendingNotice: () => {
             if (values.startedSendingNoticeKey) {
                 actions.setStartedSendingNoticeDismissed(values.startedSendingNoticeKey)
@@ -4459,6 +4531,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            syncWaitingStatusCheck(cache.disposables, values.isWaitingForDomain, actions.checkWaitingStatus)
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.
