@@ -178,6 +178,7 @@ function AlertHeader(): JSX.Element {
                             alertForm,
                             alertFormChanged,
                             nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                            maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
                             hasPendingNotifications: pendingNotifications.length > 0,
                         })}
                     />
