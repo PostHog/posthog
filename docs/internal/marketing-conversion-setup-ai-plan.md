@@ -8,7 +8,7 @@ The existing Marketing analytics setup flag must also be enabled.
 ## Analysis lifecycle
 
 A start request begins the first analysis after checking permission to generate.
-The first analysis covers 30 days; later analyses cover 14 days and require an explicit refresh request.
+Analyses cover 30 days until one completes successfully; later analyses cover 14 days and require an explicit refresh request.
 Runs and completed results are stored per project, so reading saved state does not start another analysis.
 After a successful scan, a project waits one hour from completion before starting another scan.
 Failed scans can be retried immediately, and active scans are reused.
@@ -33,8 +33,8 @@ The scan does not inspect warehouse tables or create views.
 Starting analysis requires project admin access, AI data-processing consent, the feature flag, and `marketing_analytics:write` for scoped API keys.
 The worker rechecks access, consent, and the flag before reading source data.
 Read-only MCP sessions cannot start analysis.
-Runs belong to the canonical parent project; environment routes require user access and credential scope for that parent.
-Discovery, goal context, locking, and generation permissions use the same parent project.
+Runs belong to the requested environment, matching its events and configured goals.
+Discovery, goal context, locking, and generation permissions use that same environment; parent and child scans remain separate.
 The model receives aggregate evidence, source metadata, and summaries of existing goals, including goals absent from the recent candidate catalog.
 Summaries include source identity, name, measurement, revenue/customer flags, and whether filters apply; they omit filter values, individual event payloads, and person records.
 Configured action summaries respect action access controls.

@@ -1,11 +1,13 @@
 from django.conf import settings
 from django.db import models
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 
-class ConversionRecommendationRun(TeamScopedRootMixin, UUIDModel):
+class ConversionRecommendationRun(UUIDModel):
+    objects = EnvironmentScopedManager()
+
     class Status(models.TextChoices):
         PENDING = "pending"
         RUNNING = "running"

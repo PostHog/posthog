@@ -135,6 +135,7 @@ class TestConversionRecommendations(APIBaseTest):
             retry = self.client.post(self.base + "/start", {"refresh": True}).json()
         self.assertNotEqual(retry["latest_run"]["id"], response["latest_run"]["id"])
         self.assertEqual(retry["latest_run"]["status"], "pending")
+        self.assertEqual(retry["latest_run"]["lookback_days"], 30)
         enqueue.assert_called_once()
 
     def test_flag_membership_and_project_scope_are_enforced(self) -> None:
@@ -187,10 +188,8 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(ConversionRecommendationRun.objects.for_team(self.team.pk).count(), expected_runs)
         self.assertEqual(enqueue.call_count, expected_runs)
 
-    @parameterized.expand([("child_only", False, 403), ("parent_and_child", True, 200)])
-    def test_recommendations_require_the_canonical_project_in_token_scope(
-        self, _name: str, include_parent: bool, expected_status: int
-    ) -> None:
+    @parameterized.expand([("child_only", False), ("parent_and_child", True)])
+    def test_recommendations_stay_in_the_requested_environment(self, _name: str, include_parent: bool) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Test environment")
         key = self.create_personal_api_key_with_scopes(["marketing_analytics:write"])
         PersonalAPIKey.objects.filter(user=self.user).update(
@@ -199,17 +198,73 @@ class TestConversionRecommendations(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
         endpoint = f"/api/projects/{child.pk}/marketing_analytics/conversion_recommendations"
-        self.assertEqual(self.client.get(endpoint).status_code, expected_status)
+        self.assertIsNone(self.client.get(endpoint).json()["latest_run"])
         with patch(QUEUE) as enqueue, self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(endpoint + "/start", {})
-        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(response.status_code, 200, response.content)
+        run_id = response.json()["latest_run"]["id"]
+        enqueue.assert_called_once_with(child.pk, run_id)
+        self.assertEqual(ConversionRecommendationRun.objects.for_team(child.pk).get(pk=run_id).team_id, child.pk)
+        self.assertFalse(ConversionRecommendationRun.objects.for_team(self.team.pk).exists())
         if include_parent:
-            run_id = response.json()["latest_run"]["id"]
-            enqueue.assert_called_once_with(self.team.pk, run_id)
-            self.assertEqual(self.client.get(self.base).json()["latest_run"]["id"], run_id)
+            self.assertIsNone(self.client.get(self.base).json()["latest_run"])
+            with patch(QUEUE) as enqueue, self.captureOnCommitCallbacks(execute=True):
+                parent = self.client.post(self.base + "/start", {}).json()["latest_run"]
+            self.assertNotEqual(parent["id"], run_id)
+            enqueue.assert_called_once_with(self.team.pk, parent["id"])
+            self.assertEqual(self.client.get(endpoint).json()["latest_run"]["id"], run_id)
         else:
-            enqueue.assert_not_called()
-            self.assertFalse(ConversionRecommendationRun.objects.for_team(self.team.pk).exists())
+            self.assertEqual(self.client.get(self.base).status_code, 403)
+            self.assertEqual(self.client.post(self.base + "/start", {}).status_code, 403)
+
+    def test_child_analysis_uses_its_own_events_and_configured_goals(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Test environment")
+        for team, event in [(self.team, "invoice_paid"), (child, "application_submitted")]:
+            config = get_or_create_team_extension(team, TeamMarketingAnalyticsConfig)
+            config.conversion_goals = [
+                {
+                    "kind": "EventsNode",
+                    "event": event,
+                    "name": event,
+                    "conversion_goal_name": event,
+                    "math": "total",
+                    "schema_map": {},
+                }
+            ]
+            config.save()
+        endpoint = f"/api/projects/{child.pk}/marketing_analytics/conversion_recommendations"
+        with patch(QUEUE), self.captureOnCommitCallbacks(execute=True):
+            run_id = self.client.post(endpoint + "/start", {}).json()["latest_run"]["id"]
+        client = MagicMock()
+        client.with_options.return_value = client
+        client.__enter__.return_value = client
+        client.messages.create.return_value = SimpleNamespace(
+            content=[
+                ToolUseBlock(
+                    type="tool_use",
+                    id="synthetic",
+                    name="recommendations",
+                    input={"recommendations": []},
+                )
+            ]
+        )
+        with (
+            patch(
+                "products.marketing_analytics.backend.services.conversion_recommendations.execute_hogql_query",
+                return_value=SimpleNamespace(results=[["application_submitted", 3, 3], ["invoice_paid", 2, 2]]),
+            ) as query,
+            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
+        ):
+            ConversionRecommendationService(child, self.user).execute(run_id)
+        self.assertEqual(query.call_args.args[1].pk, child.pk)
+        payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
+        self.assertEqual([goal["source_ref"] for goal in payload["configured_goals"]], ["event:application_submitted"])
+        self.assertEqual(
+            {candidate["source_ref"]: candidate["already_configured"] for candidate in payload["candidates"]},
+            {"event:application_submitted": True, "event:invoice_paid": False},
+        )
+        self.assertEqual(self.client.get(endpoint).json()["result_run"]["id"], run_id)
+        self.assertIsNone(self.client.get(self.base).json()["latest_run"])
 
     @parameterized.expand([("amount", True), ("invented_amount", False)])
     def test_revenue_proposal_requires_observed_amount_and_keeps_business_questions(

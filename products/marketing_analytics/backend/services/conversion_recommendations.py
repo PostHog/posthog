@@ -183,7 +183,7 @@ class ConversionRecommendationService:
                 )
             ):
                 return latest
-            days = 14 if latest else 30
+            days = 14 if runs.filter(status=ConversionRecommendationRun.Status.COMPLETED).exists() else 30
             run = runs.create(
                 team_id=self.team.pk,
                 requested_by=self.user,
