@@ -27,10 +27,7 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend.facade.feature_flags import (
-    DATA_WAREHOUSE_SCENE_FLAG,
-    DATA_WAREHOUSE_SCENE_TRINO_FLAG,
-)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
 
 logger = structlog.get_logger(__name__)
@@ -153,7 +150,7 @@ def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
     The Trino flag wins when both are on, so an organization never moves between variants
     because of Trino's state.
     """
-    if _organization_flag_enabled(DATA_WAREHOUSE_SCENE_TRINO_FLAG, organization_id):
+    if _organization_flag_enabled(MANAGED_TRINO_QUERY_FLAG, organization_id):
         return "trino"
     if _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
         return "duckdb"
@@ -660,8 +657,8 @@ def update_team(
 
 
 def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
-    """Persist a team's resolved earliest event date (incl. the no-history sentinel) onto
-    its duckgres team row — the read source for the backfill sensors.
+    """Persist a team's resolved earliest event date onto its duckgres team row — the
+    read source for the backfill sensors.
 
     A failure is logged and swallowed; returns True when the control plane accepted the
     value, so callers (the provisioning-time task, the full-backfill sensor) can leave

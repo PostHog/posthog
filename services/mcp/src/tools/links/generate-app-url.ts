@@ -25,6 +25,10 @@ const URL_CATALOG = [...SCOPE_BY_TEMPLATE.keys()].sort().join('\n')
 
 const PLACEHOLDER = /\{([^}]+)\}/g
 
+function toCanonicalTemplate(template: string): string {
+    return template.replace(/^\/error_tracking(?=\/|$)/, '/error-tracking')
+}
+
 function placeholdersOf(template: string): string[] {
     return [...template.matchAll(PLACEHOLDER)].map((match) => match[1]!)
 }
@@ -63,14 +67,15 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
     context: Context,
     params: Params
 ): Promise<AppUrlResult> => {
-    const scope = SCOPE_BY_TEMPLATE.get(params.url)
+    const template = toCanonicalTemplate(params.url)
+    const scope = SCOPE_BY_TEMPLATE.get(template)
     if (!scope) {
         throw new Error(
             `Unknown url "${params.url}". Pick a path template from this tool's catalog (run \`info generate-app-url\`).`
         )
     }
 
-    const required = placeholdersOf(params.url)
+    const required = placeholdersOf(template)
     const provided = Object.keys(params.params)
     const missing = required.filter((name) => !(name in params.params))
     const unexpected = provided.filter((name) => !required.includes(name))
@@ -96,7 +101,7 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
         baseUrl = context.api.getProjectBaseUrl('@current')
     }
 
-    return { url: `${baseUrl}${substitute(params.url, params.params)}` }
+    return { url: `${baseUrl}${substitute(template, params.params)}` }
 }
 
 export default (): ToolBase<typeof schema, AppUrlResult> => ({

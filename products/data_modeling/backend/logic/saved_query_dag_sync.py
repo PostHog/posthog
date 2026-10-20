@@ -15,9 +15,9 @@ from posthog.hogql.errors import QueryError
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
+from products.data_modeling.backend.logic.saved_query_reads import saved_query_node_ids
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
-from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -64,28 +64,11 @@ def node_type_for(saved_query: "DataWarehouseSavedQuery") -> NodeType:
     return NodeType.VIEW
 
 
-def get_dag_id(team_id: int) -> str:
-    """Return the standard dag_id for a team."""
-    return f"posthog_{team_id}"
-
-
-def _managed_cross_dag_reference(
-    team: "Team", dag: DAG, dependency_name: str, saved_query: "DataWarehouseSavedQuery"
-) -> Node | None:
-    """A table node in `dag` standing in for a saved-query parent whose node lives in a managed
-    DAG (Revenue Analytics). Cross-dag edges are forbidden, so a same-dag reference is the only
-    join available. Returns None when the parent is not in a managed DAG, so the caller resolves
-    normally and a user's own extra DAG stays a loud failure rather than a silent orphan."""
-    if not Node.objects.filter(team=team, saved_query=saved_query, dag__name=REVENUE_ANALYTICS_DAG_NAME).exists():
-        return None
-    node, _ = Node.objects.get_or_create(
-        team=team,
-        dag=dag,
-        name=dependency_name,
-        type=NodeType.TABLE,
-        defaults={"properties": {"origin": "cross_dag_view", "saved_query_id": str(saved_query.id)}},
-    )
-    return node
+def _saved_query_node(team: "Team", dag: DAG, dependency_name: str, saved_query: "DataWarehouseSavedQuery") -> Node:
+    node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).order_by("created_at").first()
+    if node is not None:
+        return node
+    return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
 
 
 def resolve_dependency_to_node(
@@ -122,13 +105,7 @@ def resolve_dependency_to_node(
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
         if saved_query is None:
             raise UnknownParentError(dependency_name, "")
-        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).order_by("created_at").first()
-        if node is not None:
-            return node
-        reference = _managed_cross_dag_reference(team, dag, dependency_name, saved_query)
-        if reference is not None:
-            return reference
-        return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
+        return _saved_query_node(team, dag, dependency_name, saved_query)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -138,17 +115,7 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                node = (
-                    Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query)
-                    .order_by("created_at")
-                    .first()
-                )
-                if node is not None:
-                    return node
-                reference = _managed_cross_dag_reference(team, dag, dependency_name, matview_saved_query)
-                if reference is not None:
-                    return reference
-                return Node.objects.get(team=team, dag=dag, saved_query=matview_saved_query, name=dependency_name)
+                return _saved_query_node(team, dag, dependency_name, matview_saved_query)
             # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
@@ -193,12 +160,6 @@ def resolve_dependency_to_node(
     return node
 
 
-class ManagedDAGError(Exception):
-    """Raised when a user-initiated sync targets a system-managed DAG (e.g. Revenue Analytics)."""
-
-    pass
-
-
 def lock_dag(team_id: int, dag_id: UUID) -> None:
     """Serialize against every other writer of this DAG's edges.
 
@@ -207,26 +168,6 @@ def lock_dag(team_id: int, dag_id: UUID) -> None:
     """
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, str(dag_id)])
-
-
-def _placement_lock_key(dag_id: UUID) -> str:
-    return f"placement:{dag_id}"
-
-
-def lock_dag_placements(team_id: int, dag_id: UUID) -> None:
-    """Hold off every job start in this DAG, so a job cannot be created against a placement a
-    move has already left behind.
-
-    A separate key from `lock_dag`, so a job start does not queue behind edge writes and syncs.
-    """
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, _placement_lock_key(dag_id)])
-
-
-def lock_dag_placements_shared(team_id: int, dag_id: UUID) -> None:
-    """Taken by each job start. Job starts do not block each other, only a move out of this DAG."""
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock_shared(%s, hashtext(%s))", [team_id, _placement_lock_key(dag_id)])
 
 
 def orphaned_table_nodes() -> QuerySet[Node]:
@@ -239,7 +180,11 @@ def orphaned_table_nodes() -> QuerySet[Node]:
 
 
 def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
-    orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids)).delete()
+    orphans = orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids))
+    with transaction.atomic():
+        for dag_id in sorted(set(orphans.values_list("dag_id", flat=True)), key=str):
+            lock_dag(team_id, dag_id)
+        orphans.delete()
 
 
 def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
@@ -253,6 +198,35 @@ def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
     nodes.delete()
     delete_orphaned_table_nodes(team_id, source_ids)
+
+
+def delete_node(team_id: int, node_id: UUID) -> None:
+    delete_nodes(team_id, Node.objects.filter(team_id=team_id, pk=node_id))
+
+
+def deleted_saved_query_nodes() -> QuerySet[Node]:
+    return Node.objects.filter(saved_query__deleted=True)
+
+
+def delete_nodes_and_reconcile(team_id: int, nodes: QuerySet[Node]) -> None:
+    dags = sorted(DAG.objects.filter(team_id=team_id, id__in=nodes.values("dag_id")), key=lambda dag: str(dag.id))
+    with transaction.atomic():
+        for dag in dags:
+            lock_dag(team_id, dag.id)
+        delete_nodes(team_id, nodes)
+    for dag in dags:
+        maybe_reconcile_dag(dag)
+
+
+def delete_deleted_saved_query_nodes_for_teams(team_ids: Iterable[int]) -> list[int]:
+    failed_team_ids: list[int] = []
+    for team_id in team_ids:
+        try:
+            delete_nodes_and_reconcile(team_id, deleted_saved_query_nodes().filter(team_id=team_id))
+        except Exception:
+            logger.exception("Could not delete nodes of deleted saved queries", team_id=team_id)
+            failed_team_ids.append(team_id)
+    return failed_team_ids
 
 
 def replace_incoming_edges(
@@ -305,11 +279,20 @@ def replace_incoming_edges(
     return unresolved
 
 
+def lineage_database(team: "Team") -> Database:
+    """The HogQL database a DAG sync resolves dependencies against."""
+    # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
+    # sees every referenced table/view.
+    return Database.create_for(
+        team=team,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+    )
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
-    dag: DAG | None = None,
-    allow_managed: bool = False,
     reconcile: bool = True,
     database: Database | None = None,
 ) -> Node | None:
@@ -325,37 +308,23 @@ def sync_saved_query_to_dag(
     Args:
         saved_query: The SavedQuery to sync to the DAG
         extra_properties: Optional dict of properties to merge into created nodes and edges
-        dag: Optional DAG to use. If not provided, uses the default team DAG.
-        allow_managed: Whether placement into a system-managed DAG is permitted. Only the
-            internal managed-viewset sync passes this; user-initiated callers must not, so a
-            same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
         database: An optional prebuilt database to reuse for dependency resolution.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
-    Raises ManagedDAGError if dag is system-managed and allow_managed is False.
     """
 
     extra_properties = extra_properties or {}
     team = saved_query.team
-    if dag is None:
-        dag = DAG.get_or_create_default(team)
-    if dag.is_managed and not allow_managed:
-        raise ManagedDAGError(f"Cannot sync saved query into system-managed DAG: dag_id={dag.id}")
+    dag = DAG.get_or_create_default(team)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
     node_type = node_type_for(saved_query)
 
-    # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
-    # sees every referenced table/view.
     if database is None:
-        database = Database.create_for(
-            team=team,
-            bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
-        )
+        database = lineage_database(team)
     # parsed before the node exists, so a query that cannot be parsed leaves nothing to undo
     model_name = saved_query.name
     dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
@@ -396,6 +365,24 @@ def sync_saved_query_to_dag(
     return target
 
 
+def adopt_saved_query_without_edges(team_id: int, saved_query_id: UUID, error: str) -> None:
+    """Give a saved query whose lineage did not sync a node marked sync-failed, without rebuilding its edges."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.select_related("team").get(team_id=team_id, id=saved_query_id)
+    dag = DAG.get_or_create_default(saved_query.team)
+    with transaction.atomic():
+        node, _ = Node.objects.get_or_create(
+            team_id=team_id,
+            saved_query=saved_query,
+            dag=dag,
+            defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
+        )
+        node = Node.objects.select_for_update().get(pk=node.pk)
+        node.mark_lineage_sync_failed(error)
+        node.save(update_fields=["properties"])
+
+
 def _nameless_refusal(view_name: str) -> str:
     return f"Can't delete {view_name} yet. Something else reads from it. Update or delete it first."
 
@@ -430,6 +417,10 @@ class MissingDagNodeError(Exception):
     pass
 
 
+def _nodes_standing_for(saved_query: "DataWarehouseSavedQuery") -> QuerySet[Node]:
+    return Node.objects.filter(team=saved_query.team, id__in=saved_query_node_ids(saved_query.team_id, saved_query.id))
+
+
 def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list["DataWarehouseSavedQuery"]:
     """
     Get SavedQueries that depend on this one (immediate dependents only).
@@ -442,7 +433,7 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
     A dependent that reads the query in more than one DAG is reported once, at its oldest node, so
     the returned order is deterministic even when the query has nodes in several DAGs.
     """
-    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
+    nodes = _nodes_standing_for(saved_query)
     dependent_nodes = (
         Node.objects.filter(
             team=saved_query.team,
@@ -535,113 +526,55 @@ def _oldest_node_id(nodes: QuerySet[Node]) -> str | None:
     return str(oldest_node.id) if oldest_node else None
 
 
+def _lock_dags_and_check_dependents(saved_query: "DataWarehouseSavedQuery", nodes: QuerySet[Node]) -> list[DAG]:
+    """Lock every DAG `nodes` sit in, then raise HasDependentsError if anything reads the query."""
+    dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
+    for dag in dags:
+        lock_dag(saved_query.team_id, dag.id)
+
+    query_dependents = [
+        Dependent(
+            name=dependent.name,
+            kind=node_type_for(dependent),
+            saved_query_id=str(dependent.id),
+            created_by_id=dependent.created_by_id,
+        )
+        for dependent in get_dependent_saved_queries(saved_query)
+    ]
+    dependents = query_dependents + _dependent_metrics(nodes)
+    if dependents:
+        raise HasDependentsError(
+            saved_query.name,
+            tuple(dependents),
+            fallback_node_id=_oldest_node_id(Node.objects.filter(team=saved_query.team, saved_query=saved_query)),
+        )
+    return dags
+
+
+def check_saved_query_deletable(team_id: int, saved_query_id: UUID) -> None:
+    """Raise HasDependentsError if a view, endpoint or metric reads the saved query. Deletes nothing."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.get(team_id=team_id, id=saved_query_id)
+    nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
+    with transaction.atomic():
+        _lock_dags_and_check_dependents(saved_query, nodes)
+
+
 def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     """
     Delete the Node for a SavedQuery (cascades to edges)
 
     Must be called BEFORE soft_delete() due to on_delete=PROTECT on the saved_query FK.
     """
-    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
+    nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
     with transaction.atomic():
         # Hold every DAG this query has a node in, so a sync cannot attach a dependent between the
-        # check below and the delete that would cascade its edge away.
-        dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
-        for dag in dags:
-            lock_dag(saved_query.team_id, dag.id)
-
-        query_dependents = [
-            Dependent(
-                name=dependent.name,
-                kind=node_type_for(dependent),
-                saved_query_id=str(dependent.id),
-                created_by_id=dependent.created_by_id,
-            )
-            for dependent in get_dependent_saved_queries(saved_query)
-        ]
-        dependents = query_dependents + _dependent_metrics(nodes)
-        if dependents:
-            raise HasDependentsError(
-                saved_query.name,
-                tuple(dependents),
-                fallback_node_id=_oldest_node_id(nodes),
-            )
+        # check and the delete that would cascade its edge away.
+        dags = _lock_dags_and_check_dependents(saved_query, nodes)
         delete_nodes(saved_query.team_id, nodes)
     for dag in dags:
         maybe_reconcile_dag(dag)
-
-
-NodeMoveRefusal = Literal["multiple_placements", "blocked", "materializing", "moved"]
-
-
-class NodeMoveError(Exception):
-    """Raised when a saved query's node cannot move to the requested DAG.
-
-    Carries `reason` rather than prose, so a caller serving a user words the refusal itself.
-    """
-
-    def __init__(self, reason: NodeMoveRefusal) -> None:
-        super().__init__(reason)
-        self.reason = reason
-
-
-def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) -> None:
-    """Place a saved query's node in the given DAG, keeping its frequency target and job history.
-
-    Holds the source and destination DAGs for the whole check-and-move, in id order, for the
-    reason `delete_node_from_dag` holds every DAG it touches: otherwise a sync can attach a
-    dependent between the dependents check and the move, leaving an edge whose source sits in
-    another DAG, which `Edge.save` treats as an invariant violation.
-
-    A move is refused while a materialization runs. Its activities load the node by team, node
-    and DAG, so the move makes the remaining ones stop finding it -- including the activity that
-    records the failure, which leaves the job row Running with nothing to close it. Job creation
-    takes the DAG's placement lock and re-reads the node in its DAG, so a job that starts between the
-    check and the move cannot slip past.
-
-    The saved-query row lock is held too, because a query edit picks the DAG to sync into from its
-    own read of the node. Without it that edit can choose the DAG this move is leaving and then
-    `get_or_create` a second node there, which later moves refuse as `multiple_placements`.
-
-    That row lock is `FOR NO KEY UPDATE`, which is what makes it safe to hold alongside a DAG
-    lock. `FOR UPDATE` conflicts with the `KEY SHARE` lock Postgres takes on this row for the
-    foreign key of every job and node insert, so a materialization holding the placement lock and
-    inserting its job row would deadlock against this transaction waiting for that same DAG.
-    """
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-    with transaction.atomic():
-        saved_query = DataWarehouseSavedQuery.objects.select_for_update(no_key=True).get(
-            team_id=team_id, id=saved_query_id
-        )
-        dag = DAG.objects.get(team_id=team_id, id=dag_id)
-        placements = Node.objects.filter(team_id=team_id, saved_query=saved_query)
-        held = {dag.id} | {node.dag_id for node in placements if node.dag_id is not None}
-        for held_dag_id in sorted(held, key=str):
-            lock_dag(team_id, held_dag_id)
-            lock_dag_placements(team_id, held_dag_id)
-
-        nodes = list(placements.select_related("dag"))
-        if len(nodes) > 1:
-            raise NodeMoveError("multiple_placements")
-        if nodes and nodes[0].dag_id != dag.id:
-            node = nodes[0]
-            if node.dag_id not in held:
-                # Another move landed between the read above and the locks, so the DAG this node
-                # sits in now is not one of the ones being held.
-                raise NodeMoveError("moved")
-            if node.dag.is_managed or node.outgoing_edges.exists():
-                raise NodeMoveError("blocked")
-            if DataModelingJob.objects.filter(
-                team_id=team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
-            ).exists():
-                raise NodeMoveError("materializing")
-            previous_dag = node.dag
-            # Rebuild parents in the destination without discarding the node's targets or job history.
-            delete_orphaned_table_nodes(team_id, _delete_incoming_edges(team_id, node))
-            node.dag = dag
-            node.save(update_fields=["dag"])
-            maybe_reconcile_dag(previous_dag)
-        sync_saved_query_to_dag(saved_query, dag=dag)
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
@@ -686,9 +619,5 @@ def promote_view_nodes_to_matview(saved_query: "DataWarehouseSavedQuery") -> int
 
 
 def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
-    """Repair a whole DAG's nodes, for the tier conversion that is about to sweep its v1 schedules.
-
-    v1 materializes a saved query whatever its node type, so a stranded node keeps running right up
-    until that sweep and only goes dark afterwards.
-    """
+    """Repair a whole DAG's nodes, for the tier conversion."""
     return _promote_view_nodes(Node.objects.filter(dag=dag))

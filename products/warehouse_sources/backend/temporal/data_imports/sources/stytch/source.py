@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
+    codebase_detection = detect(
+        env=("^STYTCH_", "^NEXT_PUBLIC_STYTCH_PUBLIC_TOKEN$"),
+        npm=("stytch", "@stytch/vanilla-js", "@stytch/react", "@stytch/nextjs", "@stytch/react-native"),
+        pypi=("stytch",),
+        go=(
+            "github.com/stytchauth/stytch-go",
+            "github.com/stytchauth/stytch-go-magic-links",
+            "github.com/stytchauth/stytch-management-go",
+        ),
+        maven=("com.stytch.java:sdk", "com.stytch.sdk:sdk"),
+        rubygems=("stytch",),
+        swiftpm=(
+            "github.com/stytchauth/stytch-ios",
+            "github.com/stytchauth/stytch-ios-dfp",
+            "github.com/stytchauth/stytch-ios-sdk",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

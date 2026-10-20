@@ -1457,6 +1457,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("inactive@example.com", is_active=False)
 
         digest_data = {
             "team_id": self.team.id,
@@ -1491,6 +1492,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == self.user.email
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 

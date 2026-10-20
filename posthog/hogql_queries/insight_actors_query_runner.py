@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Optional, cast
 
 from posthog.schema import (
@@ -26,7 +27,6 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner, query_node_modifiers
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
 

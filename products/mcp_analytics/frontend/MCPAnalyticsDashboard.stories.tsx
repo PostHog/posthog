@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -9,6 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
+import { modelLab } from './aiLabs'
+import { labMark } from './brandMarks'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
@@ -651,10 +656,24 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 return durationMs
             }
             if (column.endsWith('-- Client')) {
-                return clientName
+                if (!column.startsWith('withIcon(')) {
+                    return clientName
+                }
+                const mark =
+                    {
+                        'claude-code': 'Claude',
+                        'claude-ai': 'Claude',
+                        cursor: 'Cursor',
+                        'posthog-cli': 'PostHog',
+                        windsurf: 'Windsurf',
+                    }[clientName] ?? 'Other harnesses'
+                return ['__hx_tag', 'BrandMarkLabel', 'label', clientName || 'Other', 'mark', mark]
             }
             if (column.endsWith('-- Model')) {
-                return model
+                if (!column.startsWith('withIcon(')) {
+                    return model
+                }
+                return ['__hx_tag', 'BrandMarkLabel', 'label', model, 'mark', labMark(modelLab(model))]
             }
             return null
         })
@@ -988,8 +1007,14 @@ export const DashboardWithMenuBar: Story = {
 // The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
 // viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
+    tags: ['manual-icons'],
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
+        await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
     },
 }
 

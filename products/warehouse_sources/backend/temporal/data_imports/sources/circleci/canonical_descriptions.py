@@ -107,4 +107,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "avatar_url": "URL of the user's avatar on the version control provider.",
         },
     },
+    "environments": {
+        "description": "A deploy environment of the organization, the target that component versions are deployed to.",
+        "docs_url": "https://circleci.com/docs/api/v2/#operation/listEnvironments",
+        "columns": {
+            "id": "Unique identifier for the environment.",
+            "name": "Name of the environment.",
+            "description": "Short description given to the environment.",
+            "labels": "Labels associated with the environment.",
+            "created_at": "Time at which the environment was created.",
+            "updated_at": "Time at which the environment was last updated.",
+        },
+    },
+    "groups": {
+        "description": "A user group in the organization.",
+        "docs_url": "https://circleci.com/docs/api/v2/#operation/getOrganizationGroups",
+        "columns": {
+            "id": "Unique identifier for the group.",
+            "name": "Name of the group.",
+            "description": "Description of the group.",
+        },
+    },
+    "collaborations": {
+        "description": "An organization that the token's user is a member of or can collaborate on.",
+        "docs_url": "https://circleci.com/docs/api/v2/#operation/getCollaborations",
+        "columns": {
+            "id": "Unique identifier for the organization.",
+            "slug": "Slug of the organization, in vcs/org format.",
+            "name": "Name of the organization.",
+            "vcs-type": "Version control provider of the organization.",
+            "avatar_url": "URL of the organization's avatar on the version control provider.",
+        },
+    },
 }

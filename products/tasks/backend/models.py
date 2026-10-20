@@ -41,7 +41,12 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import (
+    DEFAULT_TRUSTED_DOMAINS,
+    GITHUB_PR_URL_PREFIX,
+    PR_LOOP_ENABLED_STATE_KEY,
+    is_same_run_resume_state,
+)
 from products.tasks.backend.dev_stack_image_models import (
     DevStackImageAttempt as DevStackImageAttempt,
     DevStackImageTarget as DevStackImageTarget,
@@ -54,7 +59,11 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
-from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.metrics import (
+    observe_task_run_created,
+    observe_task_run_dispatch_callback,
+    observe_task_run_terminal,
+)
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
@@ -368,6 +377,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
+        ACCOUNT_AUDIT = "account_audit", "Account audit"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
@@ -686,7 +696,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 event=event,
                 properties=all_properties,
                 groups=groups(team=self.team),
-                send_feature_flags=True,
+                send_feature_flags=event not in {"task_created", "task_run_created"},
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
@@ -786,9 +796,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
+        startup_requested_at: datetime | None = None,
     ) -> "TaskRun":
+        startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
             raise ValueError("scheduled_at must be timezone-aware")
+        if scheduled_at is not None:
+            startup_requested_at = max(startup_requested_at, scheduled_at)
 
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
@@ -821,6 +835,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
+            state["startup_requested_at"] = startup_requested_at.isoformat()
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             carry_config_snapshot = (
                 task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
@@ -930,7 +945,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         # under an unclobbered name too — as TaskRun.capture_event already does.
                         "run_environment": task_run.environment,
                         "is_resume": is_resume,
+                        "started_by_agent_sandbox": "agent_parent_task_id" in (state or {}),
                         "has_pending_message": has_pending,
+                        "startup_requested_at": startup_requested_at.isoformat(),
+                        "startup_run_created_at": task_run.created_at.isoformat(),
+                        "startup_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
                     },
                 )
 
@@ -1169,15 +1188,19 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals, autoresearch or metrics import task must carry no GitHub credential at
-        # all, team or personal. Provisioning injects whatever integration is attached, and these runs read
-        # text any member can write, so an attached token turns planted text into repository access.
-        github_resolution_allowed = bool(repository) or origin_product not in (
-            Task.OriginProduct.SIGNALS_CHAT,
-            Task.OriginProduct.SIGNAL_REPORT,
-            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            Task.OriginProduct.AUTORESEARCH,
-            Task.OriginProduct.METRICS_IMPORT,
+        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
+        # credential. Provisioning injects any attached integration; these runs read member-authored
+        # text, so an attached token turns planted text into repository access.
+        github_resolution_allowed = origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
+            bool(repository)
+            or origin_product
+            not in (
+                Task.OriginProduct.SIGNALS_CHAT,
+                Task.OriginProduct.SIGNAL_REPORT,
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                Task.OriginProduct.AUTORESEARCH,
+                Task.OriginProduct.METRICS_IMPORT,
+            )
         )
         github_integration = None
         if github_resolution_allowed:
@@ -1519,6 +1542,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_gateway_server_ids: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
+        startup_requested_at = django_timezone.now()
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,
@@ -1614,6 +1638,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 branch=branch,
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
+                startup_requested_at=startup_requested_at,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)
@@ -2916,6 +2941,13 @@ class TaskRun(models.Model):
                 )
         return props
 
+    @property
+    def startup_requested_at(self) -> str | None:
+        if is_same_run_resume_state(self.state):
+            return self.queued_at.isoformat() if self.queued_at else None
+        value = (self.state or {}).get("startup_requested_at")
+        return value if isinstance(value, str) else None
+
     def analytics_properties(self) -> dict:
         """Run context shared by run events and GitHub PR attribution."""
         return {
@@ -2934,7 +2966,9 @@ class TaskRun(models.Model):
             # client's deployment-region super-property, so ship the run's
             # local/cloud value under an unclobbered name too.
             "run_environment": self.environment,
+            "startup_requested_at": self.startup_requested_at,
             "mode": self.mode,
+            "started_by_agent_sandbox": "agent_parent_task_id" in (self.state or {}),
             "slack_session_id": self._slack_session_id(),
             **self._analytics_usage_properties(),
         }
@@ -2976,7 +3010,7 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
-                "send_feature_flags": True,
+                "send_feature_flags": event != "task_run_created",
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid
@@ -3002,6 +3036,21 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
+    def _save_terminal_status(self, update_fields: list[str]) -> bool:
+        """Save a terminal status and return whether this write moved the row out of a live status.
+
+        Reads the status under the row lock that the run PATCH and the status activity also take,
+        so a concurrent terminal write cannot make two writers each report the transition.
+        """
+        with transaction.atomic():
+            # Match start_task_run's lock order: saving the run also bumps its task's activity.
+            Task.objects.select_for_update().get(pk=self.task_id)
+            stored_status = (
+                TaskRun.objects.select_for_update().filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+            self.save(update_fields=update_fields)
+        return stored_status not in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
+
     def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
         """Mark the progress as completed.
 
@@ -3012,7 +3061,8 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
-        self.save(update_fields=["status", "completed_at"])
+        if self._save_terminal_status(["status", "completed_at"]):
+            observe_task_run_terminal(self, error_type=None, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
@@ -3043,7 +3093,8 @@ class TaskRun(models.Model):
         self.status = self.Status.FAILED
         self.error_message = error
         self.completed_at = django_timezone.now()
-        self.save(update_fields=["status", "error_message", "completed_at"])
+        if self._save_terminal_status(["status", "error_message", "completed_at"]):
+            observe_task_run_terminal(self, error_type=error_type, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",
@@ -3518,7 +3569,10 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     # db_constraint=False on the team FK: adding an FK constraint to that hot table
     # locks it and stalls deploys; Django still enforces the relation and on_delete at
     # the app level (see safe-django-migrations.md).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # db_index=False: sandbox_session_team_attr_idx leads with team_id and serves every team filter.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
     task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="sandbox_sessions")
 
     sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")

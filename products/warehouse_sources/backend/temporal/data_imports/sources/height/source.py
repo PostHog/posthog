@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,6 +26,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeightSource(SimpleSource[HeightSourceConfig]):
+    codebase_detection = detect(env=("^HEIGHT_API_KEY$",))
+
     # v1 is the terminal Height API version: Height discontinued its service on 2025-09-24 and ships
     # no successor, so there is no version to repin to. The per-version deprecation framework does
     # not apply, because it never deprecates a source's sole/default version.

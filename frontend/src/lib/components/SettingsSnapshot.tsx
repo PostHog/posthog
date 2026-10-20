@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { settingsLogic } from 'scenes/settings/settingsLogic'
+
+import { settingsSnapshotLogic } from './settingsSnapshotLogic'
 
 type Props = {
     at?: string
@@ -19,8 +20,8 @@ export function SettingsSnapshot({
     showHeader = true,
     className,
 }: Props): JSX.Element | null {
-    const { loadSettingsAsOf } = useActions(settingsLogic)
-    const { settingsSnapshot, settingsSnapshotLoading } = useValues(settingsLogic)
+    const { loadSettingsAsOf } = useActions(settingsSnapshotLogic)
+    const { settingsSnapshot, settingsSnapshotLoading } = useValues(settingsSnapshotLogic)
 
     const scopeKey = useMemo(() => scope.join('|'), [scope])
 

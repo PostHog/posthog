@@ -34,7 +34,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'

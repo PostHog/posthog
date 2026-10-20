@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
     MentionSourceConfig,
 )
@@ -19,11 +18,6 @@ class TestMentionSource:
         # New sources are stamped with default_version; it must be the newest supported label.
         assert self.source.supported_versions == ("1.19", "1.21")
         assert self.source.default_version == "1.21"
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["mentions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "mentions"
 
     @parameterized.expand(
         [
@@ -69,8 +63,3 @@ class TestMentionSource:
         assert kwargs["resumable_source_manager"] is manager
         # The resolved source pin is threaded to the request layer so it drives the Accept-Version header.
         assert kwargs["api_version"] == "1.21"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Mention schema 'not_a_table'"

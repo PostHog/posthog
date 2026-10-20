@@ -26,6 +26,8 @@ import type {
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
+    LogsNaturalLanguageQueryRequestApi,
+    LogsNaturalLanguageQueryResponseApi,
     LogsRetentionRuleApi,
     LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
@@ -306,7 +308,7 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
 }
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history.
  */
 export const logsAlertsEventsList = async (
     projectId: string,
@@ -662,6 +664,26 @@ export const logsMetricRulesDestroy = async (projectId: string, id: string, opti
     return apiMutator<void>(getLogsMetricRulesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLogsNaturalLanguageQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/natural_language_query/`
+}
+
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreate = async (
+    projectId: string,
+    logsNaturalLanguageQueryRequestApi: LogsNaturalLanguageQueryRequestApi,
+    options?: RequestInit
+): Promise<LogsNaturalLanguageQueryResponseApi> => {
+    return apiMutator<LogsNaturalLanguageQueryResponseApi>(getLogsNaturalLanguageQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsNaturalLanguageQueryRequestApi),
     })
 }
 

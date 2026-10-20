@@ -16,7 +16,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import NEEDS_REAUTHORIZATION_Q, UserGitHubIntegration, UserIntegration
 
 _OBSERVABILITY_SOURCE = "integration"
 
@@ -36,9 +36,11 @@ class PersonalGitHubDiscovery:
 
 
 def _newest_personal_github_integration(user: User) -> UserIntegration | None:
+    # A row flagged for reauthorization holds no user tokens, so it is not a connection.
     return (
         UserIntegration.objects.filter(user=user, kind="github")
         .exclude(sensitive_config={})
+        .exclude(NEEDS_REAUTHORIZATION_Q)
         .order_by("-created_at")
         .first()
     )
@@ -66,7 +68,10 @@ def usable_personal_github_credential(user: User) -> PersonalGitHubCredential | 
     not itself an error.
     """
     integrations = (
-        UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).order_by("-created_at")
+        UserIntegration.objects.filter(user=user, kind="github")
+        .exclude(sensitive_config={})
+        .exclude(NEEDS_REAUTHORIZATION_Q)
+        .order_by("-created_at")
     )
     for integration in integrations:
         try:

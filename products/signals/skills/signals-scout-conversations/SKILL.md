@@ -49,8 +49,9 @@ Your unit is always a dated, dimension-named operational metric across many tick
 
 A scheduled run can start with a `<precheck_result>` block. Its rows are the result of the 30-day query below, so the inbox is in use. When the block is present, skip the `not-in-use` check. The baseline close-out still applies.
 
-If `$conversation_ticket_created` is absent from `top_events` (and `$conversation_message_sent` / `_received` are too), the Conversations product isn't in use here.
-`top_events` counts are windowed, so before closing out a busy-looking project, rule out a capture gap with one `execute-sql` over 30 days:
+If the profile's `surfaces["signals-scout-conversations"]` entry reads `in_use: false`, the Conversations product isn't in use here.
+Do not read absence from `top_events` as "not in use": it keeps only the top events by volume, and a quiet inbox falls off it.
+When the entry reads `in_use: null`, check with one `execute-sql` over 30 days:
 
 ```sql
 SELECT event, count() AS c, max(timestamp) AS last_seen
@@ -178,7 +179,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 
 ### Decide
 
-The generic report mechanics — search the inbox first (via the `report:conversations:<dimension>` pointer, else an `inbox-reports-list` search on the specific dimension), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt. Do not re-derive them. This section is only the Conversations judgment on top:
+The generic report mechanics — search the inbox first (via the `report:conversations:<dimension>` pointer, else an `inbox-reports-list` search on the specific dimension), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` / actionability fields — live in the harness prompt. Do not re-derive them. This section is only the Conversations judgment on top:
 
 - **Author** when nothing live covers the regression. A report-worthy finding names the **dimension** (SLA breach / first-response / backlog / channel), shows the **rate vs baseline with its volume guard**, dates the onset with a daily breakdown, and localizes it (which channel / role / priority) in the `evidence`. Attach the dimension's own metric via `charts` — breach share with ticket volume alongside, p90 first-response latency, or created/resolved/net backlog counts — so the chart draws the regression the report claims. Most findings are operational (staffing, process, routing) → `actionability=requires_human_input`, `repository=NO_REPO`. The exception: a config/instrumentation defect the data reveals — SLA never set on a channel that should have one, an assignment automation that silently stopped, a status never reaching `resolved` — can be `actionability=immediately_actionable` with a repo when the fix clearly lives in code. Priority: a broad SLA-breach spike or a compounding backlog is **P2** (**P1** if it's severe and still climbing); a single-channel or narrow-window regression is **P3**.
 - **Edit** when a live report already tracks the same dimension and it is still moving — add the fresh daily rate and baseline with `append_evidence`. A persistent regression is one report across runs, not a new report per tick.

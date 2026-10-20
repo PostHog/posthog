@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,55 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^MATOMO_", "^NEXT_PUBLIC_MATOMO_URL$", "^NEXT_PUBLIC_MATOMO_SITE_ID$"),
+        script_hosts=("cdn.matomo.cloud", "cdn.innocraft.cloud"),
+        npm=(
+            "matomo-tracker",
+            "vue-matomo",
+            "ngx-matomo-client",
+            "@ngx-matomo/tracker",
+            "@ngx-matomo/router",
+            "@socialgouv/matomo-next",
+            "@datapunt/matomo-tracker-react",
+            "@datapunt/matomo-tracker-js",
+            "@jonkoops/matomo-tracker",
+            "@jonkoops/matomo-tracker-react",
+            "matomo-tracker-react-native",
+            "matomo-tracker-for-react",
+            "docusaurus-plugin-matomo",
+            "astro-matomo",
+            "@openmost/nuxt-matomo",
+            "piwik-react-router",
+            "piwik-tracker",
+        ),
+        pypi=("piwikapi", "piwik-tracker", "django-matomo", "matomo-api"),
+        cocoapods=("MatomoTracker", "PiwikTracker"),
+        composer=(
+            "matomo/matomo-php-tracker",
+            "piwik/piwik-php-tracker",
+            "matomo/matomo",
+            "visualappeal/matomo-php-api",
+            "webfactory/piwik-bundle",
+        ),
+        maven=(
+            "org.piwik.java.tracking:matomo-java-tracker",
+            "org.piwik.java.tracking:matomo-java-tracker-core",
+            "org.piwik.java.tracking:matomo-java-tracker-java11",
+            "org.piwik.java.tracking:matomo-java-tracker-java17",
+            "org.piwik.java.tracking:matomo-java-tracker-servlet",
+            "org.piwik.java.tracking:matomo-java-tracker-servlet-jakarta",
+            "org.piwik.java.tracking:matomo-java-tracker-servlet-javax",
+            "org.piwik.java.tracking:matomo-java-tracker-spring-boot-starter",
+            "org.piwik.java.tracking:piwik-java-tracker",
+            "com.github.matomo-org:matomo-sdk-android",
+        ),
+        pub=("matomo_tracker", "matomo"),
+        rubygems=("autometal-piwik", "piwik_analytics"),
+        swiftpm=("github.com/matomo-org/matomo-sdk-ios",),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://developer.matomo.org/api-reference/reporting-api"

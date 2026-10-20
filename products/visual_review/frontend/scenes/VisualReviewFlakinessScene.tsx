@@ -10,10 +10,13 @@ import {
     LemonTable,
     Link,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -79,6 +82,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         quarantineIdentifier,
         unquarantineIdentifier,
     } = useActions(visualReviewFlakinessSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isFiltered =
         filters.typeKeys.length > 0 || filters.areas.length > 0 || filters.teams.length > 0 || filters.search.length > 0
@@ -107,9 +111,16 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                 repoFullName={repoFullName}
                 activeTab="flakiness"
                 actions={
-                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                        Settings
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>
+                            <IconGear />
+                            Settings
+                        </Button>
+                    ) : (
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                            Settings
+                        </LemonButton>
+                    )
                 }
             />
             <VisualReviewTabs activeKey="flakiness" repoFullName={repoFullName} />
