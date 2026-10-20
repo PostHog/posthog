@@ -277,7 +277,7 @@ describe('Hono MCP analytics contexts', () => {
             expected: {
                 mcp_project_has_data: false,
                 mcp_no_data_action: 'none',
-                mcp_no_data_install_notice_variant: 'block',
+                '$feature/mcp-no-data-install-notice': 'block',
             },
         },
         {
@@ -288,7 +288,7 @@ describe('Hono MCP analytics contexts', () => {
             expected: {
                 mcp_project_has_data: false,
                 mcp_no_data_action: 'blocked',
-                mcp_no_data_install_notice_variant: 'block',
+                '$feature/mcp-no-data-install-notice': 'block',
             },
         },
         {
@@ -299,7 +299,7 @@ describe('Hono MCP analytics contexts', () => {
             expected: {
                 mcp_project_has_data: false,
                 mcp_no_data_action: 'warned',
-                mcp_no_data_install_notice_variant: 'warn',
+                '$feature/mcp-no-data-install-notice': 'warn',
             },
         },
         {
@@ -310,7 +310,7 @@ describe('Hono MCP analytics contexts', () => {
             expected: {
                 mcp_project_has_data: true,
                 mcp_no_data_action: undefined,
-                mcp_no_data_install_notice_variant: undefined,
+                '$feature/mcp-no-data-install-notice': undefined,
             },
         },
     ])('stamps the project data state for $name', async ({ projectHasData, variant, noDataAction, expected }) => {

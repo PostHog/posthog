@@ -83,6 +83,8 @@ export function noDataAnalyticsProperties(
     }
     return {
         mcp_no_data_action: action ?? 'none',
-        ...(typeof variant === 'string' ? { mcp_no_data_install_notice_variant: variant } : {}),
+        // The experiment uses this tool call as its custom exposure event, and a custom exposure event
+        // assigns the variant only through `$feature/<flag key>`. The server reads flags without an exposure event.
+        ...(typeof variant === 'string' ? { [`$feature/${MCP_NO_DATA_INSTALL_NOTICE_FLAG}`]: variant } : {}),
     }
 }
