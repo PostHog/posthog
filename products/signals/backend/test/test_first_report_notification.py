@@ -41,7 +41,7 @@ class TestFirstReportNotification(BaseTest):
             override_settings(
                 POSTHOG_HOST="https://us.posthog.com",
                 POSTHOG_PROJECT_ID=123456789,
-                POSTHOG_PROJECT_SECRET_API_KEY="phs_fake_transactional_key",
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_fake_transactional_key",
             )
         )
         self.enterContext(patch(f"{MODULE}.SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID", str(self.template_id)))
@@ -248,7 +248,7 @@ class TestFirstReportNotification(BaseTest):
             patch(f"{MODULE}.is_cloud", return_value=reason != "not_cloud"),
             override_settings(
                 POSTHOG_PROJECT_ID=0 if reason == "no_project" else 123456789,
-                POSTHOG_PROJECT_SECRET_API_KEY="" if reason == "no_key" else "phs_fake_transactional_key",
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="" if reason == "no_key" else "phs_fake_transactional_key",
                 POSTHOG_HOST="" if reason == "no_host" else "https://us.posthog.com",
             ),
         ):
