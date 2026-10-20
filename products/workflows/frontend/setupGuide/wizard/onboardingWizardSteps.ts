@@ -38,7 +38,6 @@ export const WIZARD_ENTRIES = [
     'automation_banner',
     'broadcasts_empty_state',
 ] as const
-/** Where a person opened the wizard from. */
 export type WizardEntry = (typeof WIZARD_ENTRIES)[number]
 
 export function onboardingWizardUrl(
