@@ -2856,10 +2856,11 @@ def _has_duplicate_primary_keys(
     except psycopg.errors.RaiseException:
         # SQLSTATE P0001, raised only by a plain `RAISE EXCEPTION` inside a PL/pgSQL function —
         # never by Postgres itself. Since this source only reads, it's almost always a row-level
-        # security policy or computed-column function blocking the SELECT. Swallowing it as "no
-        # duplicate keys" would be a false negative, and the extraction that follows fails on the
-        # same raise — already surfaced as non-retryable with an actionable message via
-        # `get_non_retryable_errors`. Propagate rather than capture it as noise.
+        # security policy or computed-column function blocking the SELECT, and the extraction
+        # that follows hits the same raise. Swallowing it as "no duplicate keys" would be a false
+        # negative and double the error-tracking noise. Propagate so it surfaces once, through
+        # the same non-retryable classification (where the message names an access denial) as the
+        # extraction failure; a transient custom raise stays retryable either way.
         raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new

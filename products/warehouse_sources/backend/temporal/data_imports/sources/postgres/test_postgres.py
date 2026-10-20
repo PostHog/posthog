@@ -1620,21 +1620,48 @@ class TestPostgresSourceNonRetryableErrors:
         assert first_match is not None, "Recursive RLS policy error should surface an actionable message"
         assert "BYPASSRLS" in first_match
 
-    def test_custom_raise_exception_is_non_retryable(self, source):
-        # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
-        # The raw psycopg message is arbitrary customer-authored RAISE text with no fixed
-        # substring, so only this wrapped form can be matched generically across customers.
-        error_msg = "RaiseException: Access denied: No user ID provided"
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class
+            # name. Unlike InsufficientPrivilege's SQLSTATE 42501 text, this wording is
+            # customer-authored RAISE text, but "access denied"/"unauthorized" is common enough
+            # phrasing for a hand-rolled access check to match directly, without a class name.
+            "Access denied: No user ID provided",
+            "unauthorized: missing tenant claim",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class
+            # name, matched the same way regardless.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_access_denial_raise_is_non_retryable(self, source, error_msg):
+        # Matching is case-insensitive in production (`error_message_matches`), unlike the
+        # customer-authored sentence-case wording a hand-rolled RAISE typically uses.
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Custom RAISE EXCEPTION error should be non-retryable: {error_msg}"
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Custom access-denial RAISE EXCEPTION should be non-retryable: {error_msg}"
+        )
 
-    def test_custom_raise_exception_returns_friendly_message(self, source):
+    def test_custom_access_denial_raise_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
         error_msg = "RaiseException: Access denied: No user ID provided"
-        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "Custom RAISE EXCEPTION error should surface an actionable message"
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, "Custom access-denial RAISE EXCEPTION should surface an actionable message"
         assert "row-level security" in friendly[0]
+
+    def test_unrelated_custom_raise_exception_stays_retryable(self, source):
+        # A custom RAISE EXCEPTION that doesn't name an access denial (e.g. a lock wait or a
+        # maintenance-window check) must stay retryable — classifying every RaiseException would
+        # wrongly auto-disable a sync over a transient condition instead of a permanent one.
+        error_msg = "RaiseException: table is temporarily locked for maintenance, try again later"
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Unrelated custom RAISE EXCEPTION should stay retryable: {error_msg}"
+        )
 
     @pytest.mark.parametrize(
         "error_msg",
