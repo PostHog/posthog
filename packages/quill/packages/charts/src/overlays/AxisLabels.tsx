@@ -42,9 +42,12 @@ interface XLabelCandidate {
     x: number
 }
 
+const PATH_LIKE = /^(\/|[a-z][a-z\d+.-]*:\/\/)/i
+
 /** Truncate a category label for display; carry the full value as `title` only when it was cut. */
 function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { text: string; title?: string } {
-    const text = truncateToWidth(fullText, maxCategoryLabelWidth)
+    const position = PATH_LIKE.test(fullText) ? 'middle' : 'end'
+    const text = truncateToWidth(fullText, maxCategoryLabelWidth, AXIS_LABEL_FONT, position)
     return { text, title: text === fullText ? undefined : fullText }
 }
 

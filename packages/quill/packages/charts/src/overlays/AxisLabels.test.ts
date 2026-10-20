@@ -20,18 +20,24 @@ describe('computeVisibleXLabels', () => {
         expect(visible.every((v) => v.text === labels[v.index])).toBe(true)
     })
 
-    it('sets title to the full value only on labels that were truncated', () => {
-        const labels = ['short', longUrl]
-        // Budget fits "short" but not the URL, so only the URL truncates.
-        const budget = measureLabelWidth(longUrl) / 2
+    it.each([
+        [longUrl, 'https://app', 'string'],
+        ['/blog/being-in-a-sales-role-is-fun', '/blog/', 'is-fun'],
+        ['filesystem::play_open_in_app::from_the_toolbar', 'filesystem', '…'],
+    ])('truncates %s keeping %s and %s, with the full value as title', (longLabel, start, end) => {
+        const labels = ['short', longLabel]
+        // Budget fits "short" but not the long label, so only the long label truncates.
+        const budget = measureLabelWidth(longLabel) / 2
         const visible = computeVisibleXLabels(labels, wideScale(labels), undefined, budget)
 
         const short = visible.find((v) => v.index === 0)
         const long = visible.find((v) => v.index === 1)
         expect(short?.title).toBeUndefined()
         expect(short?.text).toBe('short')
-        expect(long?.title).toBe(longUrl)
-        expect(long?.text.endsWith('…')).toBe(true)
+        expect(long?.title).toBe(longLabel)
+        expect(long?.text).toContain('…')
+        expect(long?.text.startsWith(start)).toBe(true)
+        expect(long?.text.endsWith(end)).toBe(true)
     })
 
     it('drops labels whose scale returns null', () => {

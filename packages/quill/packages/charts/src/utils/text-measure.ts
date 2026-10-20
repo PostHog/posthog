@@ -31,25 +31,34 @@ export function measureLabelWidth(text: string, font: string = AXIS_LABEL_FONT):
     return ctx.measureText(text).width
 }
 
-/** Truncate `text` with a trailing ellipsis so its rendered width fits within `maxWidth`.
+/** Truncate `text` with an ellipsis so its rendered width fits within `maxWidth`.
+ *  `'middle'` keeps both ends, for paths and URLs whose distinct part is at the end.
  *  Returns the original string when it already fits, or when `maxWidth` is non-positive. */
-export function truncateToWidth(text: string, maxWidth: number, font: string = AXIS_LABEL_FONT): string {
+export function truncateToWidth(
+    text: string,
+    maxWidth: number,
+    font: string = AXIS_LABEL_FONT,
+    position: 'end' | 'middle' = 'end'
+): string {
     if (maxWidth <= 0 || measureLabelWidth(text, font) <= maxWidth) {
         return text
     }
     if (measureLabelWidth(ELLIPSIS, font) >= maxWidth) {
         return ELLIPSIS
     }
+    const clip = (kept: number): string =>
+        position === 'middle'
+            ? `${text.slice(0, Math.ceil(kept / 2)).trimEnd()}${ELLIPSIS}${text.slice(text.length - Math.floor(kept / 2)).trimStart()}`
+            : `${text.slice(0, kept).trimEnd()}${ELLIPSIS}`
     let low = 0
     let high = text.length
     while (low < high) {
         const mid = Math.ceil((low + high) / 2)
-        const candidate = `${text.slice(0, mid).trimEnd()}${ELLIPSIS}`
-        if (measureLabelWidth(candidate, font) <= maxWidth) {
+        if (measureLabelWidth(clip(mid), font) <= maxWidth) {
             low = mid
         } else {
             high = mid - 1
         }
     }
-    return `${text.slice(0, low).trimEnd()}${ELLIPSIS}`
+    return clip(low)
 }
