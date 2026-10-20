@@ -1236,8 +1236,8 @@ importers:
         specifier: ^1.7.11
         version: 1.7.11(react@18.3.1)
       react-grid-layout:
-        specifier: ^2.2.4
-        version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.3.0
+        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
@@ -3096,9 +3096,12 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
       react-grid-layout:
-        specifier: ^2.2.4
-        version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.3.0
+        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
       '@testing-library/react':
         specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3183,6 +3186,9 @@ importers:
 
   products/dashboards:
     dependencies:
+      '@floating-ui/react':
+        specifier: ^0.27.19
+        version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
         version: 0.12.3(react@18.3.1)
@@ -3228,6 +3234,9 @@ importers:
       react-grid-layout:
         specifier: ^2.2.4
         version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-intersection-observer:
+        specifier: ^9.5.3
+        version: 9.5.3(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -21207,6 +21216,12 @@ packages:
 
   react-grid-layout@2.2.4:
     resolution: {integrity: sha512-Eb57FsgOMYOfsUGrMI1ku/FFR+dPNPrE8qo+3hwZubpqVSy4GO9v52DeX50Tl3JDYAlCypP4rmw7Vrqk/zOIvA==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
+  react-grid-layout@2.3.0:
+    resolution: {integrity: sha512-4ofzuR/MlYchp+ixDUVBxH6ybaw+JH51M+rpf675ik/++4Dn0Kax/Vf2Gv/7Z++mV1ZC7mY9UV2sRRycjGjKXQ==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -43609,6 +43624,17 @@ snapshots:
       unlayer-types: 1.521.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      clsx: 2.1.1
+      fast-equals: 4.0.3
+      prop-types: 15.8.1
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+      react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-resizable: 3.2.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      resize-observer-polyfill: 1.5.1
+
+  react-grid-layout@2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       fast-equals: 4.0.3
