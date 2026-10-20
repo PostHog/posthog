@@ -974,6 +974,10 @@ def _aged_out_candidate_runs_sql() -> str:
     """
 
 
+# Server-side ceiling for the completion check of a final batch. A lock wait (for example behind
+# partition DDL) then fails the attempt, and the batch retries, instead of holding the loader thread.
+UNFINISHED_EARLIER_BATCHES_STATEMENT_TIMEOUT_MS = 30_000
+
 # Reads the earlier batches of one run through ``sb_run_uuid_bi_idx``. The team and
 # schema filters guard against a run_uuid collision across groups.
 _UNFINISHED_EARLIER_BATCHES_SQL = f"""
@@ -1977,6 +1981,7 @@ class BatchQueue:
         run_uuid: str,
         before_batch_index: int,
         connect_timeout_seconds: int = 10,
+        statement_timeout_ms: int = UNFINISHED_EARLIER_BATCHES_STATEMENT_TIMEOUT_MS,
     ) -> UnfinishedEarlierBatches:
         """The batches of a run before ``before_batch_index`` that did not reach 'succeeded'.
 
@@ -1985,6 +1990,8 @@ class BatchQueue:
         complete, so the staged cursor must not advance past it. Runs on the same
         small sync pool as :meth:`verify_group_lease_sync`, with the same retry for a
         connection the queue DB dropped while idle.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
         """
         pool = _sync_connection_pool(database_url, connect_timeout_seconds)
         params = {
@@ -1996,7 +2003,12 @@ class BatchQueue:
         for attempt in (1, 2):
             with pool.connection() as conn:
                 try:
-                    row = conn.execute(_UNFINISHED_EARLIER_BATCHES_SQL, params).fetchone()
+                    # The timeout is transaction-local, so it never leaks into the pooled session.
+                    with conn.transaction():
+                        conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
+                        row = conn.execute(_UNFINISHED_EARLIER_BATCHES_SQL, params).fetchone()
+                except psycopg.errors.QueryCanceled:
+                    raise
                 except psycopg.OperationalError:
                     pool.discard(conn)
                     if attempt == 2:

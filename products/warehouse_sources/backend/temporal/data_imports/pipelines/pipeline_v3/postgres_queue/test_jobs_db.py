@@ -1638,6 +1638,43 @@ class TestUnfinishedEarlierBatchesSync:
 
         assert self._check(_db_url).count == 0
 
+    @pytest.mark.asyncio
+    async def test_reports_the_aged_out_batch_that_the_claim_skipped(self, conn, _db_url):
+        # The run gates do not read an aged-out 'pending' batch, so the claim hands out the final
+        # batch of its run. The completion check must still see the aged batch.
+        aged = await _insert_batch(conn, batch_index=0)
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 days' WHERE id = %s", (aged,))
+        await _insert_batch(conn, batch_index=1, is_final_batch=True)
+
+        claimed = await _claim(conn)
+        try:
+            assert [b.batch_index for b in claimed] == [1]
+            unfinished = self._check(_db_url, before_batch_index=1)
+        finally:
+            await _release(conn, batches=claimed)
+
+        assert (unfinished.count, unfinished.first_batch_index, unfinished.states) == (1, 0, ("pending",))
+
+    @pytest.mark.asyncio
+    async def test_gives_up_at_its_statement_timeout(self, conn, conn_b, _db_url):
+        await _insert_batch(conn, batch_index=0)
+        # A lock that the check must wait for stands in for partition DDL on the queue DB.
+        async with conn_b.transaction():
+            await conn_b.execute(f"LOCK TABLE {BATCH_TABLE} IN ACCESS EXCLUSIVE MODE")
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                BatchQueue.get_unfinished_earlier_batches_sync(
+                    _db_url,
+                    team_id=1,
+                    schema_id="schema-1",
+                    run_uuid="run-1",
+                    before_batch_index=3,
+                    connect_timeout_seconds=5,
+                    statement_timeout_ms=50,
+                )
+
+        # A canceled check leaves the pooled connection usable.
+        assert self._check(_db_url).count == 1
+
 
 @pytest.mark.django_db(transaction=True)
 class TestClaimWindowSkipsForeignLeasedGroups:
