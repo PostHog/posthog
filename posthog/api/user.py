@@ -121,7 +121,13 @@ from posthog.models.organization_notification_lock import notification_locks_for
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
+from posthog.models.user import (
+    ROLE_CHOICES,
+    Notifications,
+    OnboardingFlowVariant,
+    OnboardingSkippedReason,
+    ShortcutPosition,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -236,6 +242,11 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
+    )
+    flow_variant = serializers.ChoiceField(
+        choices=OnboardingFlowVariant.choices,
+        required=False,
+        help_text="Which onboarding flow the user skipped from, for analytics only.",
     )
 
 
@@ -1092,9 +1103,9 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    # credentials_review_complete only dismisses the review screen. Requiring a fresh session for it
-    # sends a user with an older session back to the review screen on every load.
-    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete"]
+    # These actions only dismiss a screen (the credential review, the onboarding redirect). Requiring a
+    # fresh session for them sends a user with an older session back to that screen on every load.
+    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete", "onboarding_skip"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
@@ -1423,6 +1434,7 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         reason = validated["reason"]
         step_at_skip = validated.get("step_at_skip") or ""
+        flow_variant = validated.get("flow_variant")
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -1495,7 +1507,11 @@ class UserViewSet(
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event="onboarding skipped",
-                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                            properties={
+                                "step_at_skip": step_at_skip or None,
+                                "reason": reason,
+                                "flow_variant": flow_variant,
+                            },
                         )
                     except Exception as exc:
                         capture_exception(exc)

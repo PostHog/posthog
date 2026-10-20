@@ -3720,3 +3720,56 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
         ]
+
+
+class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
+    """One rolling LLM summary of what one user has been doing in one project.
+
+    `update_activity_summary` in `activity_summary/logic.py` writes it from the user's own tasks and
+    activity log rows. A failed update records the error and keeps the last good summary and the
+    watermark, so the next update reads the same inputs again.
+    """
+
+    class Status(models.TextChoices):
+        OK = "ok"
+        FAILED = "failed"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents. Django still cascades a delete of either parent.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+
+    # Output: the normalized answer (summary, focus_areas, products, recent_shift) and its embeddable text.
+    summary = models.JSONField(null=True, blank=True)
+    summary_text = models.TextField(null=True, blank=True)
+    generated_at = models.DateTimeField(null=True, blank=True)
+    model = models.CharField(max_length=100, null=True, blank=True)
+    prompt_version = models.PositiveSmallIntegerField(null=True, blank=True)
+    render_version = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # Accounting of the latest update. Null when the response had no usage or the model has no price.
+    tokens_in = models.IntegerField(null=True, blank=True)
+    tokens_out = models.IntegerField(null=True, blank=True)
+    cost_usd = models.FloatField(null=True, blank=True)
+    latency_ms = models.IntegerField(null=True, blank=True)
+    # Line counts per section and drop counts per filter rule of the latest update.
+    inputs_used = models.JSONField(default=dict, blank=True)
+
+    status = models.CharField(max_length=20, choices=Status)
+    # One of the fixed error strings of `summaries.py`, never model output.
+    error = models.CharField(max_length=200, null=True, blank=True)
+    # The newest input timestamp the stored summary includes. The next update reads only later rows.
+    input_watermark = models.DateTimeField(null=True, blank=True)
+    next_eligible_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="signals_activity_summary_team_user"),
+        ]
