@@ -118,7 +118,13 @@ from products.alerts.backend.models.alert import (
 )
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert
 from products.alerts.backend.platform_alert_reads import platform_checks, with_platform_runtime
-from products.alerts.backend.platform_ownership import PlatformCannotOwn, before_delete, on_created, on_updated
+from products.alerts.backend.platform_ownership import (
+    PlatformCannotOwn,
+    before_delete,
+    on_created,
+    on_deleted,
+    on_updated,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -1653,7 +1659,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: AlertConfiguration) -> None:
         # Before the delete, while the destinations a firing's resolve goes to still exist.
         before_delete(instance)
-        super().perform_destroy(instance)
+        # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
+        with transaction.atomic():
+            on_deleted(instance)
+            super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

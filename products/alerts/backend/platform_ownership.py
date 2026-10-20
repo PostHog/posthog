@@ -62,11 +62,23 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
 
 
 def before_delete(alert: AlertConfiguration) -> None:
-    """Ends a moved alert's firings while its destinations still exist, then deletes its copy."""
-    if not alert.platform_owned:
-        return
-    close_owned_firings_now(team_id=alert.team_id, legacy_configuration_id=alert.id)
-    delete_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id)
+    """Ends a moved alert's firings while its destinations still exist.
+
+    Outside the delete's transaction, because the resolve it sends reads the history this commits.
+    """
+    if alert.platform_owned:
+        close_owned_firings_now(team_id=alert.team_id, legacy_configuration_id=alert.id)
+
+
+def on_deleted(alert: AlertConfiguration) -> None:
+    """Deletes a moved alert's copy, inside the transaction that deletes the alert.
+
+    A copy whose alert is deleted another way, such as with its insight, switches itself off at its
+    next check.
+    """
+    locked = AlertConfiguration.objects.select_for_update(no_key=True, of=("self",)).filter(id=alert.id).first()
+    if locked is not None and locked.platform_owned:
+        delete_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id)
 
 
 def _platform_change_of(
