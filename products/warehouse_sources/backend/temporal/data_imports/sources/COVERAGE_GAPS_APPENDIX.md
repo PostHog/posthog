@@ -4027,17 +4027,17 @@ Note: The synced `goals` table is Drip's /v2/{account_id}/goals endpoint, which 
 
 ## DropboxSign — gaps
 
-Today (8): `account`, `api_apps`, `bulk_send_jobs`, `faxes`, `signature_requests`, `team`, `team_members`, `templates`
+Today (11): `account`, `api_apps`, `bulk_send_jobs`, `fax_lines`, `faxes`, `signature_requests`, `team`, `team_invites`, `team_members`, `team_sub_teams`, `templates`
 
 Diffed against: <https://raw.githubusercontent.com/hellosign/hellosign-openapi/main/openapi.yaml>
 
 - [x] `GET /team/members/{team_id} (teamMembers)` — member roster that resolves the account IDs carried on signature_requests and templates (high) — added as `team_members`. The path takes a team id, resolved from `/team/info` at sync time.
 - [x] `GET /bulk_send_job/list + /bulk_send_job/{id} (bulkSendJobList)` — bulk send batches and their per-batch signature request status (medium) — added as `bulk_send_jobs` from the list endpoint. `/bulk_send_job/{id}` is not synced: it returns the batch's signature requests, which the `signature_requests` table already holds, and every row there carries `bulk_send_job_id` to join on.
 - [x] `GET /team and /team/info (teamGet, teamInfo)` — team/org record with seat and usage counts to join members against (medium) — added as `team`, from `/team/info`, which carries the team id, name and the member and sub-team counts. `/team` is not used: its payload has no id field to key a row on, and its `accounts` array repeats `team_members`.
-- [ ] `GET /team/sub_teams/{team_id} (teamSubTeams)` — team hierarchy lookup for rolling member activity up to parent teams (low)
-- [ ] `GET /team/invites (teamInvites)` — pending invites for onboarding/seat funnel analysis (low)
+- [x] `GET /team/sub_teams/{team_id} (teamSubTeams)` — team hierarchy lookup for rolling member activity up to parent teams (low) — added as `team_sub_teams`. The path takes the team id from `/team/info`, so the table holds the direct sub-teams of the connected team.
+- [x] `GET /team/invites (teamInvites)` — pending invites for onboarding/seat funnel analysis (low) — added as `team_invites`, off by default. The endpoint returns all invites in one response, with no pagination.
 - [x] `GET /fax/list (faxList)` — sent/received fax transactions for accounts using the fax product (low) — added as `faxes`, off by default since faxing is a separate product most accounts do not use.
-- [ ] `GET /fax_line/list (faxLineList)` — fax line lookup that resolves the line a fax was sent on (low)
+- [x] `GET /fax_line/list (faxLineList)` — fax line lookup that resolves the line a fax was sent on (low) — added as `fax_lines`, off by default like `faxes`.
 
 Note: Spec has 36 paths; the only other GETs are file downloads, embedded URL generators and OAuth. /report/create is POST-only and emails a CSV, so it is not warehouse-queryable.
 The team endpoints 404 for an account that belongs to no team, which the source treats as an empty table rather than a failed sync.
@@ -11605,8 +11605,8 @@ Today (9): `escalation_policies`, `incidents`, `postmortems`, `runbooks`, `sched
 Diffed against: <https://developers.incidents.cloud.solarwinds.com/llms.txt>
 
 - [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high)
-- [ ] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
-- [ ] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
+- [x] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
+- [x] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
 - [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high)
 - [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium)
 - [ ] `incidents/{incidentID}/notes` — responder commentary attached to incidents (medium)
