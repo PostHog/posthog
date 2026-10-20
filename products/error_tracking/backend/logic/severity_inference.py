@@ -1,7 +1,6 @@
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -9,7 +8,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.ph_client import feature_enabled_or_false
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, sync_issues_to_clickhouse
 from products.ml_inference.backend.facade import api as ml_inference
@@ -18,7 +16,6 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
 logger = structlog.get_logger(__name__)
 
-SEVERITY_INFERENCE_FLAG = "error-tracking-severity-inference"
 SEVERITY_INFERENCE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 
 _SEVERITY_QUESTION_ID = "severity"
@@ -32,24 +29,6 @@ _SEVERITY_QUESTION = DecisionQuestion(
         ErrorTrackingIssue.Severity.LOW.value: "Noise with no user impact, such as expected errors, cancelled requests, or browser extension and third-party script errors",
     },
 )
-
-
-def severity_inference_enabled(team_id: int) -> bool:
-    # The analytics SDK is disabled in local dev, so the flag always reads as off there.
-    if settings.DEBUG:
-        return True
-    try:
-        return feature_enabled_or_false(
-            SEVERITY_INFERENCE_FLAG,
-            str(team_id),
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.exception("error_tracking_severity_inference_flag_check_failed", team_id=team_id)
-        return False
 
 
 def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -> str:

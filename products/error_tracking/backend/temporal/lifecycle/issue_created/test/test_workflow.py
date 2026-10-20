@@ -237,12 +237,12 @@ def _decision(choice: str) -> DecisionResult:
 
 
 @pytest.mark.parametrize(
-    "enabled,decide_outcome,expected_result,expected_error_type",
+    "ai_approved,decide_outcome,expected_result,expected_error_type",
     [
         (
             False,
             _decision("critical"),
-            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DISABLED),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
             None,
         ),
         (
@@ -283,9 +283,7 @@ def _decision(choice: str) -> DecisionResult:
 @patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.select_related")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.severity_inference_enabled")
 def test_severity_inference_outcomes(
-    severity_inference_enabled: MagicMock,
     select_related: MagicMock,
     fetch_event_properties: MagicMock,
     decide: MagicMock,
@@ -293,13 +291,12 @@ def test_severity_inference_outcomes(
     logger: MagicMock,
     inference_outcomes: MagicMock,
     capture_exception: MagicMock,
-    enabled: bool,
+    ai_approved: bool,
     decide_outcome: DecisionResult | Exception,
     expected_result: IssueSeverityInferenceResult | None,
     expected_error_type: str | None,
 ) -> None:
-    severity_inference_enabled.return_value = enabled
-    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = True
+    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = ai_approved
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     if isinstance(decide_outcome, Exception):
         decide.side_effect = decide_outcome
@@ -330,6 +327,8 @@ def test_severity_inference_outcomes(
     inference_outcomes.labels.assert_called_once_with(outcome=expected_outcome, severity=expected_severity)
     inference_outcomes.labels.return_value.inc.assert_called_once_with()
     capture_exception.assert_not_called()
+    if not ai_approved:
+        decide.assert_not_called()
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
