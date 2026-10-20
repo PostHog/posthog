@@ -499,9 +499,11 @@ export interface inboxTaskKickoffLogicActions {
         question: string,
         agentQuestion?: string,
         intent?: ReportDiscussionIntent,
-        pullRequestUrl?: string
+        pullRequestUrl?: string,
+        background?: boolean
     ) => {
         agentQuestion: string | undefined
+        background: boolean | undefined
         intent: ReportDiscussionIntent | undefined
         pullRequestUrl: string | undefined
         question: string
@@ -612,7 +614,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             question: string,
             agentQuestion?: string,
             intent?: ReportDiscussionIntent,
-            pullRequestUrl?: string
+            pullRequestUrl?: string,
+            background?: boolean
         ) => ({
             report,
             reportUrl,
@@ -620,6 +623,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             agentQuestion,
             intent,
             pullRequestUrl,
+            background,
         }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
@@ -818,7 +822,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl }) => {
+        discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -885,10 +889,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     ...selectedPullRequest,
                     ...contextItems,
                 ])
-                const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
+                // A background ask leaves the warm sandbox to the sidebar composer it was started for.
+                const warmLease =
+                    !background && values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
                     actions.setReportWarmLease(null)
-                } else if (cache.warmingReportId === report.id) {
+                } else if (!background && cache.warmingReportId === report.id) {
                     cache.warmReleaseRequested = true
                 }
                 const { taskId, runId } = await createReportTask(
@@ -906,7 +912,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 if (sentContextKeys.length > 0) {
                     actions.markContextSent(taskId, sentContextKeys)
                 }
-                if (panelStillOnReport(values.reportChatContext, report.id)) {
+                if (background) {
+                    lemonToast.success('Asked AI about this report', {
+                        button: { label: 'View', action: () => actions.openReportTask(report, taskId, runId) },
+                    })
+                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
                     const stream = runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
