@@ -2847,8 +2847,7 @@ class TaskRun(models.Model):
         if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
             return
 
-        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
-        # state at dispatch; fail closed while the stamp is absent.
+        # Fail closed while the dispatch stamp is absent, so runs that never dispatch stay unmirrored.
         if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
             return
 

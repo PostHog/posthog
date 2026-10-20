@@ -25,7 +25,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
-    TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
@@ -79,11 +78,7 @@ from products.tasks.backend.temporal.metrics import (
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
-from products.tasks.backend.temporal.observability import (
-    emit_agent_log,
-    log_activity_execution,
-    log_with_activity_context,
-)
+from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
 )
@@ -365,30 +360,6 @@ def _prewarmed_resume_needs_fresh_agent(
     except Exception:
         logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
         return True
-
-
-def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
-    if not needs_full_history(ctx.origin_product):
-        return False
-
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
-                distinct_id=ctx.distinct_id,
-                groups={"organization": ctx.organization_id},
-                group_properties={"organization": {"id": ctx.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as error:
-        log_with_activity_context(
-            "blobless_signals_clone_flag_check_failed",
-            run_id=ctx.run_id,
-            error=str(error),
-        )
-        return False
 
 
 def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo: bool) -> int | None:
@@ -1186,7 +1157,7 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
-    blobless_clone = _is_blobless_signals_clone_enabled(ctx)
+    blobless_clone = needs_full_history(ctx.origin_product)
 
     with log_activity_execution(
         "clone_repository_in_sandbox",
