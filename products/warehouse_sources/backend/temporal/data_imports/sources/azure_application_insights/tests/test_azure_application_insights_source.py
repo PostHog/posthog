@@ -9,9 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_appl
     PERMISSION_ERROR,
     AzureApplicationInsightsSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapplicationinsights import (
     AzureApplicationInsightsSourceConfig,
 )
@@ -67,9 +64,10 @@ def test_token_error_mapping(
     if status in (400, 401):
         assert source.validate_credentials(config, 1) == (False, AUTH_ERROR)
     else:
-        with pytest.raises(OAuth2AuthRequestError) as error:
-            source.validate_credentials(config, 1)
-        assert not error.value.is_permanent
+        assert source.validate_credentials(config, 1) == (
+            False,
+            "Couldn't reach Microsoft Azure (Application Insights) to check your credentials. Try again in a few minutes.",
+        )
     assert http_mock.call_count == 1
 
 
