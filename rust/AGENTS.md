@@ -15,7 +15,8 @@ When emitting metrics via the `metrics` crate (`histogram!`, `counter!`, `gauge!
 
 ## Container images
 
-A pull request builds no Rust service image by default.
+A pull request builds no Rust image unless it carries a `smoke_test:<image>` label (one image) or `smoke_test` (all images).
 `ci-rust.yml` compiles every affected crate, so a code change needs no image build.
-Add the `smoke_test:<image>` label to build one image, or `smoke_test` to build all, when a change can break the image build but not `cargo build` (a new binary or image entry, a `build.rs` or system dependency change, a crate added to the workspace, a Dockerfile edit), or when the PR needs a deployable image.
+Add a label when the change can break the image build but not `cargo build`: a new binary or image entry, a `build.rs` or system dependency change, a new workspace crate, or a Dockerfile edit.
+Add one too when the PR needs a deployable image.
 Master builds and deploys after merge, and a broken image stops that deploy.
