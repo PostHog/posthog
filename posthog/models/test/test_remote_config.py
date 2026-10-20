@@ -438,13 +438,33 @@ class TestRemoteConfig(_RemoteConfigBase):
             assert session_recording["version"] == 2
             assert session_recording["triggerGroups"] == expected_trigger_groups
 
-    def test_session_recording_trigger_group_flag_object_sent_as_stored_while_rollout_is_off(self) -> None:
+    @parameterized.expand(
+        [
+            ("rollout_region", "US", {"flag": "k", "variant": "test"}),
+            ("same_project_id_other_region", "EU", {"id": 7, "key": "k", "variant": "test"}),
+        ]
+    )
+    def test_session_recording_trigger_group_flag_rollout_targets_one_region(
+        self, _name: str, region: str, expected_flag: dict[str, Any]
+    ) -> None:
+        def rollout_for_us_project(key: str, *args: Any, group_properties: Any = None, **kwargs: Any) -> bool:
+            project = (group_properties or {}).get("project", {})
+            return (
+                key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT
+                and project.get("id") == str(self.team.id)
+                and project.get("region") == "US"
+            )
+
         flag = {"id": 7, "key": "k", "variant": "test"}
         self.team.session_recording_trigger_groups = {"version": 2, "groups": [_flag_group(flag, events=["purchase"])]}
-        self.team.save()
-        self.sync_remote_config()
+        with (
+            override_settings(CLOUD_DEPLOYMENT=region),
+            patch("posthoganalytics.feature_enabled", side_effect=rollout_for_us_project),
+        ):
+            self.team.save()
+            self.sync_remote_config()
         assert self.remote_config.config["sessionRecording"]["triggerGroups"] == [
-            _flag_group(flag, events=[{"name": "purchase"}])
+            _flag_group(expected_flag, events=[{"name": "purchase"}])
         ]
 
     def test_extra_settings_recorder_script(self):

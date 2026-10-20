@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+from posthog.utils import get_instance_region
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
@@ -69,17 +70,21 @@ def indent_js(js_content: str, indent: int = 4) -> str:
 
 
 # Converting a trigger group's flag object starts recordings that the group never made before.
-# This PostHog flag targets the project group by id. PostHog turns it on for a team only after it notifies that team.
+# This PostHog flag targets the project group by id and region.
+# PostHog turns it on for a team only after it notifies that team.
 TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT = "replay-trigger-group-object-flags"
 
 
 def _converts_trigger_group_object_flags(team_id: int) -> bool:
     # Local evaluation keeps a config build from waiting on a remote call. A flag that cannot be evaluated reads as off.
+    # Each region numbers its teams separately. EU evaluates a mirror of the US flag.
+    # Every condition must filter on region, or it also matches the project with the same id in the other region.
+    region = get_instance_region() or "DEV"
     return feature_enabled_or_false(
         TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
         f"team-{team_id}",
-        groups={"project": str(team_id)},
-        group_properties={"project": {"id": str(team_id)}},
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
