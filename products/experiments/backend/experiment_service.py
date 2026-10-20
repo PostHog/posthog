@@ -166,7 +166,7 @@ BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
 
 
 def _is_imported_concluded(experiment: Experiment) -> bool:
-    """An experiment that gets its start_date after its end_date has passed never ran in PostHog: it is an import."""
+    """An experiment whose end_date has passed at create or launch never ran in PostHog: it is an import."""
     return experiment.end_date is not None and experiment.end_date <= timezone.now()
 
 
