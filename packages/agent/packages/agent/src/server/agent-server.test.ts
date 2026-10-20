@@ -1674,6 +1674,32 @@ describe("AgentServer HTTP Mode", () => {
       ]);
     });
 
+    it("retries a budget snapshot whose delivery failed, and skips one that landed", async () => {
+      const testServer = createUsageTestServer();
+      testServer.posthogAPI.sendAgentCallback
+        .mockRejectedValueOnce(Object.assign(new Error("bad"), { status: 400 }))
+        .mockResolvedValue(true);
+      const budget = { stage: "warn", steers: [{ stage: "warn" }] };
+
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(
+          1,
+        ),
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(
+          2,
+        ),
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+
+      expect(testServer.posthogAPI.sendAgentCallback).toHaveBeenCalledTimes(2);
+    });
+
     it("reports a budget snapshot once per change", async () => {
       const testServer = createUsageTestServer();
       const warn = { stage: "warn", steers: [{ stage: "warn" }] };

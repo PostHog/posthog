@@ -256,14 +256,19 @@ export class AgentCallbackReporter {
       });
       return Promise.resolve("skipped");
     }
+    const callback: AgentCallback = {
+      kind: "run_event",
+      agent_active: false,
+      event,
+    };
     if (event.type === "failed") {
       this.runEnded = true;
+      const delivered = this.deliver(callback, RUN_EVENT_ATTEMPTS);
+      this.runQueue = Promise.all([this.runQueue, delivered]);
+      return delivered;
     }
     const delivered = this.runQueue.then(() =>
-      this.deliver(
-        { kind: "run_event", agent_active: false, event },
-        RUN_EVENT_ATTEMPTS,
-      ),
+      this.deliver(callback, RUN_EVENT_ATTEMPTS),
     );
     this.runQueue = delivered;
     return delivered;

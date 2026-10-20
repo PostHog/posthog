@@ -2218,6 +2218,7 @@ export class AgentServer {
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
     this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
@@ -5739,6 +5740,7 @@ export class AgentServer {
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = null;
     this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     this.session = null;
   }
 
@@ -5789,6 +5791,7 @@ export class AgentServer {
   }
 
   private lastPersistedBudgetKey: string | undefined;
+  private budgetPersistInFlightKey: string | undefined;
 
   private persistBudgetSnapshotIfChanged(
     budget: Record<string, unknown>,
@@ -5796,11 +5799,23 @@ export class AgentServer {
     const payload = this.session?.payload;
     if (!payload) return;
     const key = JSON.stringify([payload.run_id, budget.stage, budget.steers]);
-    if (key === this.lastPersistedBudgetKey) {
+    if (
+      key === this.lastPersistedBudgetKey ||
+      key === this.budgetPersistInFlightKey
+    ) {
       return;
     }
-    this.lastPersistedBudgetKey = key;
-    void this.agentCallbacks.reportRun({ type: "usage", budget_guard: budget });
+    this.budgetPersistInFlightKey = key;
+    void this.agentCallbacks
+      .reportRun({ type: "usage", budget_guard: budget })
+      .then((outcome) => {
+        if (outcome === "dispatched") {
+          this.lastPersistedBudgetKey = key;
+        }
+        if (this.budgetPersistInFlightKey === key) {
+          this.budgetPersistInFlightKey = undefined;
+        }
+      });
   }
 
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {

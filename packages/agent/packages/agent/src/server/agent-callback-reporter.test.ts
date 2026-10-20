@@ -364,6 +364,36 @@ describe("AgentCallbackReporter", () => {
     expect([sent.length, outcome]).toEqual([1, "skipped"]);
   });
 
+  it("sends a failure without waiting for earlier run events", async () => {
+    let releaseBranch!: () => void;
+    const branchPending = new Promise<boolean>((resolve) => {
+      releaseBranch = () => resolve(true);
+    });
+    const { reporter, sent } = createReporter({
+      sendsCallbacks: false,
+      send: (callback) =>
+        callback.kind === "run_event" &&
+        callback.event.type === "branch_changed"
+          ? branchPending
+          : Promise.resolve(true),
+    });
+
+    void reporter.reportRun({ type: "branch_changed", branch: "feat/x" });
+    await reporter.reportRun({
+      type: "failed",
+      error_type: "agent_server_crash",
+      cause: "boom",
+    });
+    releaseBranch();
+    await reporter.settled();
+
+    expect(
+      sent.map(
+        (callback) => callback.kind === "run_event" && callback.event.type,
+      ),
+    ).toEqual(["failed", "branch_changed"]);
+  });
+
   it("does not hold run events behind a callback waiting for its ack", async () => {
     const { reporter, sent } = createReporter({
       awaitEventAck: () => new Promise<number>(() => {}),
