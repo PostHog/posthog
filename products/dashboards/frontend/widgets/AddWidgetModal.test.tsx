@@ -86,6 +86,7 @@ describe('AddWidgetModal', () => {
         const badges = screen.getByTestId('dashboard-widget-product-badges')
         expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
             'Activity',
+            'Canvas',
             'Error tracking',
             'Experiments',
             'Logs',
