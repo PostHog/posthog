@@ -10,6 +10,8 @@ export interface BillingPeriodMarker {
     date: Dayjs
 }
 
+export type BillingPeriodMarkerKind = 'billing_period' | 'pricing_reset'
+
 /** Gap between the label and the top of the plot, so it clears the topmost y-axis tick. */
 const LABEL_GAP = 4
 
@@ -39,7 +41,22 @@ export function resolveMarkerX(markerTs: number, labelTimestamps: number[], labe
     return null
 }
 
-function BillingPeriodExplanation(): JSX.Element {
+function BillingPeriodExplanation({ kind }: { kind: BillingPeriodMarkerKind }): JSX.Element {
+    if (kind === 'pricing_reset') {
+        return (
+            <div className="p-2">
+                <strong>Pricing tiers reset</strong>
+                <p className="mt-2 text-xs">
+                    Usage from this date is priced in a new billing period. Reporting delays can make this date differ
+                    from your subscription renewal date.
+                </p>
+                <p className="mt-2 text-xs">
+                    Free allowances and volume discounts start again, which can change daily spend even when usage stays
+                    steady.
+                </p>
+            </div>
+        )
+    }
     return (
         <div className="p-2">
             <strong>New billing period started</strong>
@@ -63,7 +80,13 @@ function BillingPeriodExplanation(): JSX.Element {
  * month intervals. Its label is also a plain string, not a node, so it can't carry the explanation
  * tooltip. Teaching `ReferenceLine` to take an interpolated x would let this collapse into it.
  */
-export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker[] }): JSX.Element | null {
+export function BillingPeriodMarkers({
+    markers,
+    kind = 'billing_period',
+}: {
+    markers: BillingPeriodMarker[]
+    kind?: BillingPeriodMarkerKind
+}): JSX.Element | null {
     const { labels, scales, dimensions, theme } = useChartLayout()
 
     const labelTimestamps = useMemo(() => labels.map((label) => dayjs.utc(label).valueOf()), [labels])
@@ -111,9 +134,9 @@ export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker
                 className="absolute -translate-x-1/2 -translate-y-full pointer-events-auto cursor-default"
                 style={{ left: labelLeft, top: dimensions.plotTop - LABEL_GAP }}
             >
-                <Tooltip title={<BillingPeriodExplanation />} placement="bottom">
+                <Tooltip title={<BillingPeriodExplanation kind={kind} />} placement="bottom">
                     <div className="flex items-center gap-1 px-2 py-1 text-xs font-normal whitespace-nowrap rounded-sm border border-primary bg-surface-primary text-secondary">
-                        New billing period
+                        <span>{kind === 'pricing_reset' ? 'Pricing tiers reset' : 'New billing period'}</span>
                         <IconInfo className="w-3 h-3" />
                     </div>
                 </Tooltip>

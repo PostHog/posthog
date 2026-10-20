@@ -172,6 +172,17 @@ export interface BillingTimeSeriesPointApi {
     breakdown_value?: unknown
 }
 
+export interface BillingSpendTimeSeriesResponseApi {
+    status?: string
+    type?: string
+    customer_id?: number
+    results: BillingTimeSeriesPointApi[]
+    team_id_options?: number[]
+    next?: string
+    total_count?: number
+    pricing_reset_dates?: string[]
+}
+
 export interface BillingTimeSeriesResponseApi {
     status?: string
     type?: string
@@ -1115,13 +1126,14 @@ export interface BillingSpendSummaryApi {
     products: ProductSpendApi[]
 }
 
-export interface PaginatedBillingTimeSeriesPointListApi {
+export interface PaginatedBillingSpendTimeSeriesListApi {
     count: number
     /** @nullable */
     next: string | null
     /** @nullable */
     previous: string | null
     results: BillingTimeSeriesPointApi[]
+    pricing_reset_dates?: string[]
 }
 
 /**
@@ -1272,6 +1284,15 @@ export interface BillingUsageStatusApi {
     /** @nullable */
     usage_reported_through: string | null
     products: ProductUsageStatusApi[]
+}
+
+export interface PaginatedBillingTimeSeriesPointListApi {
+    count: number
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    results: BillingTimeSeriesPointApi[]
 }
 
 export interface ProjectUsageItemApi {

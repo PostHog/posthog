@@ -36,13 +36,22 @@ describe('billingReadsLogic', () => {
                 ],
                 '/api/organizations/@current/billing/spend/timeseries/': () => [
                     200,
-                    { count: 1, next: null, previous: null, results: [point('organization spend')] },
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [point('organization spend')],
+                        pricing_reset_dates: ['2026-08-19'],
+                    },
                 ],
                 '/api/billing/usage/': ({ request }) => [
                     200,
                     { results: [point(`legacy usage ${new URL(request.url).searchParams.get('breakdowns')}`)] },
                 ],
-                '/api/billing/spend/': () => [200, { results: [point('legacy spend')] }],
+                '/api/billing/spend/': () => [
+                    200,
+                    { results: [point('legacy spend')], pricing_reset_dates: ['2026-08-19'] },
+                ],
             },
         })
         featureFlagLogic.mount()
@@ -83,7 +92,9 @@ describe('billingReadsLogic', () => {
                 breakdown_value: null,
             },
         ])
-        expect((await reads.spendSeries(SERIES)).results[0].label).toEqual(expected.spendLabel)
+        const spend = await reads.spendSeries(SERIES)
+        expect(spend.results[0].label).toEqual(expected.spendLabel)
+        expect(spend).toHaveProperty('pricing_reset_dates', ['2026-08-19'])
         expect(reads.usageExportUrl(SERIES).split('?')[0]).toEqual(expected.usageExport)
         expect(reads.spendExportUrl(SERIES).split('?')[0]).toEqual(expected.spendExport)
         expect(await reads.reportedProjectIds()).toEqual(expected.projectIds)

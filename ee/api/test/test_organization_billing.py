@@ -556,6 +556,18 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         # An unpaged answer has no links and counts what it holds.
         self.assertEqual((body["count"], body["next"], body["previous"]), (3, None, None))
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_spend_preserves_pricing_reset_dates_and_accepts_an_older_billing_response(self, mock_get):
+        mock_get.return_value = _response({**SERIES, "pricing_reset_dates": ["2026-09-19"]})
+        response = self.client.get(self._url("spend/timeseries/?start_date=2026-09-01&end_date=2026-09-30"))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["pricing_reset_dates"], ["2026-09-19"])
+
+        mock_get.return_value = _response(SERIES)
+        response = self.client.get(self._url("spend/timeseries/?start_date=2026-09-01&end_date=2026-09-30"))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["pricing_reset_dates"], [])
+
     def test_team_scoped_key_is_refused_on_organization_endpoints_like_everywhere_else(self):
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(

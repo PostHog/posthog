@@ -73,6 +73,21 @@ describe('BillingChart', () => {
         expect(await screen.findByText('New billing period')).toBeTruthy()
     })
 
+    it('labels spend markers as pricing resets', async () => {
+        render(
+            <BillingChart
+                series={SERIES}
+                dates={DATES}
+                hiddenSeries={[]}
+                billingPeriodMarkers={[{ date: dayjs.utc('2026-01-02') }]}
+                periodMarkerKind="pricing_reset"
+            />
+        )
+
+        expect(await screen.findByText('Pricing tiers reset')).toBeTruthy()
+        expect(screen.queryByText('New billing period')).toBeNull()
+    })
+
     it('draws a dashed line per in-range marker but labels only the most recent one', async () => {
         const { container } = render(
             <BillingChart

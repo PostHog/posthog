@@ -14,7 +14,7 @@ import { getColorVar, getSeriesColor } from 'lib/colors'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { BillingPeriodMarkers } from './BillingPeriodMarkers'
-import type { BillingPeriodMarker } from './BillingPeriodMarkers'
+import type { BillingPeriodMarker, BillingPeriodMarkerKind } from './BillingPeriodMarkers'
 import { FOLDED_SERIES_LABEL, MAX_CHARTED_BILLING_SERIES } from './constants'
 import type { BillingChartType } from './types'
 
@@ -35,6 +35,7 @@ export interface BillingChartProps {
     legendInteractive?: boolean
     interval?: 'hour' | 'day' | 'week' | 'month'
     billingPeriodMarkers?: BillingPeriodMarker[]
+    periodMarkerKind?: BillingPeriodMarkerKind
     /** Most series to draw. Beyond this the chart draws the largest and says what it left out. */
     maxSeries?: number
     /** Lines show each series' own shape; stacked bars show what the total is made of.
@@ -107,6 +108,7 @@ export function BillingChart({
     legendInteractive = false,
     interval = 'day',
     billingPeriodMarkers = NO_MARKERS,
+    periodMarkerKind = 'billing_period',
     maxSeries = MAX_CHARTED_BILLING_SERIES,
     chartType = 'line',
     cumulativeLabel,
@@ -199,7 +201,7 @@ export function BillingChart({
         onError: handleChartError,
         className: 'overflow-visible!',
     }
-    const markers = <BillingPeriodMarkers markers={billingPeriodMarkers} />
+    const markers = <BillingPeriodMarkers markers={billingPeriodMarkers} kind={periodMarkerKind} />
     const dataAttr = chartType === 'bar' ? 'billing-chart-bar' : 'billing-chart-line'
 
     return (

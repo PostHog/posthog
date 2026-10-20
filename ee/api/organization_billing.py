@@ -486,6 +486,10 @@ class PaginatedBillingTimeSeriesPointListSerializer(serializers.Serializer):
     results = BillingTimeSeriesPointSerializer(many=True)
 
 
+class PaginatedBillingSpendTimeSeriesListSerializer(PaginatedBillingTimeSeriesPointListSerializer):
+    pricing_reset_dates = serializers.ListField(child=serializers.DateField(), required=False)
+
+
 class OrganizationTimeseriesRequestSerializer(BillingUsageRequestSerializer):
     """The root series read's parameters, with its cursor paging expressed the API's way: `limit`
     and `cursor` in the request, `next` and `previous` links in the response."""
@@ -735,6 +739,8 @@ class BillingReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "next": self._cursor_url(request, data.get("next")),
                 "previous": self._previous_url(request, data.get("previous")),
                 "results": results,
+                # Older billing deployments have no annotation metadata; do not infer a reset.
+                **({"pricing_reset_dates": data.get("pricing_reset_dates", [])} if kind == "spend" else {}),
             }
         )
 
@@ -999,7 +1005,7 @@ class OrganizationBillingViewSet(BillingReadViewSet):
         summary="Spend over time",
         description=BETA_NOTICE,
         parameters=[OrganizationTimeseriesRequestSerializer],
-        responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
+        responses={200: OpenApiResponse(response=PaginatedBillingSpendTimeSeriesListSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="spend/timeseries")
     def spend_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:

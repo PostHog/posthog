@@ -578,6 +578,10 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     total_count = serializers.IntegerField(required=False)
 
 
+class BillingSpendTimeSeriesResponseSerializer(BillingTimeSeriesResponseSerializer):
+    pricing_reset_dates = serializers.ListField(child=serializers.DateField(), required=False)
+
+
 class BillingTeamOptionsResponseSerializer(serializers.Serializer):
     team_id_options = serializers.ListField(
         child=serializers.IntegerField(), help_text="Project ids that appear in the organization's usage reports."
@@ -1224,7 +1228,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="spend",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
-        responses={200: BillingTimeSeriesResponseSerializer},
+        responses={200: BillingSpendTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
