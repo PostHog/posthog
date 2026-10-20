@@ -585,55 +585,63 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
     assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 
+DOCUMENT_TABLES = (
+    "sharded_posthog_document_embeddings_buffer",
+    "distributed_posthog_document_embeddings_text_embedding_3_large_3072",
+)
+
+
 @pytest.mark.django_db
 def test_delete_team_product_documents_job_keeps_other_products_and_teams(cluster: ClickhouseCluster):
     timestamp = datetime.now().replace(microsecond=0)
-    documents = [
-        (team_id, product, f"{team_id}-{product}")
-        for team_id in (9100, 9101)
-        for product in ("llm-analytics", "error_tracking")
-    ]
 
+    # Ingestion writes to the buffer, and a materialized view copies each row into its model table,
+    # so every document below exists twice.
     def insert_documents(client: Client) -> None:
         client.execute(
-            """INSERT INTO writable_posthog_document_embeddings_text_embedding_3_large_3072
-               (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            """INSERT INTO sharded_posthog_document_embeddings_buffer
+               (team_id, product, document_type, model_name, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
             [
                 (
                     team_id,
                     product,
                     "doc",
+                    "text-embedding-3-large-3072",
                     "text",
-                    f"trace-{document_id}::job",
+                    f"trace-{team_id}-{product}::job",
                     timestamp,
                     timestamp,
                     "text",
                     [0.0] * 3072,
                 )
-                for team_id, product, document_id in documents
+                for team_id in (9100, 9101)
+                for product in ("llm-analytics", "error_tracking")
             ],
         )
 
-    def surviving_documents(client: Client) -> set[tuple[int, str]]:
-        result = client.execute(
-            "SELECT team_id, product FROM distributed_posthog_document_embeddings_text_embedding_3_large_3072 WHERE team_id IN (9100, 9101)"
-        )
+    def surviving_documents(table: str, client: Client) -> set[tuple[int, str]]:
+        result = client.execute(f"SELECT team_id, product FROM {table} WHERE team_id IN (9100, 9101)")
         return {(row[0], row[1]) for row in result} if isinstance(result, list) else set()
 
     cluster.any_host(insert_documents).result()
 
-    delete_team_product_documents_job.execute_in_process(
-        run_config={
-            "ops": {"delete_team_product_documents": {"config": {"team_id": 9100, "product": "llm-analytics"}}}
-        },
-        resources={"cluster": cluster},
-    )
+    def run(product: str) -> bool:
+        return delete_team_product_documents_job.execute_in_process(
+            run_config={"ops": {"delete_team_product_documents": {"config": {"team_id": 9100, "product": product}}}},
+            resources={"cluster": cluster},
+            raise_on_error=False,
+        ).success
 
-    assert cluster.any_host(surviving_documents).result() == {
-        (9100, "error_tracking"),
-        (9101, "llm-analytics"),
-        (9101, "error_tracking"),
-    }
+    # A misspelled product matches nothing, so it must fail rather than report a clean delete.
+    assert not run("llm_analytics")
+    assert run("llm-analytics")
+
+    for table in DOCUMENT_TABLES:
+        assert cluster.any_host(partial(surviving_documents, table)).result() == {
+            (9100, "error_tracking"),
+            (9101, "llm-analytics"),
+            (9101, "error_tracking"),
+        }, table
 
 
 def _mid_month(months_ago: int) -> datetime:

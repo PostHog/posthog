@@ -1,4 +1,5 @@
 import abc
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -20,10 +21,12 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    MutationNotFound,
     MutationWaiter,
     MutationWaiters,
     NodeRole,
     Query,
+    RetryPolicy,
     Workload,
     wait_for_mutations_on_shards,
 )
@@ -60,7 +63,11 @@ from posthog.models.person.sql import (
     PERSONS_TABLE,
 )
 
-from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
+from products.error_tracking.backend.facade.api import (
+    DocumentEmbeddingTable,
+    document_embedding_tables,
+    document_embeddings_buffer_table,
+)
 
 
 class DeleteConfig(dagster.Config):
@@ -128,6 +135,12 @@ class TeamProductDocumentsDeleteConfig(dagster.Config):
         min_length=1,
         description="Delete only the documents this product wrote, e.g. llm-analytics. Other products "
         "write to the same tables, so their documents stay.",
+    )
+    timeout_seconds: int = pydantic.Field(
+        default=6 * 60 * 60,
+        gt=0,
+        description="Fail the run if the deletes have not finished in this many seconds, including the wait "
+        "for other mutations on the tables to finish first.",
     )
 
 
@@ -1289,6 +1302,38 @@ def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) ->
 
 
 _TEAM_PRODUCT_DOCUMENTS_PREDICATE = "team_id = %(team_id)s AND product = %(product)s"
+_MUTATION_POLL_SECONDS = 15.0
+
+
+def _team_product_document_tables(cluster: ClickhouseCluster) -> list[str]:
+    """The sharded tables that can hold a document: every model table, and the buffer that feeds them."""
+    tables = [table.sharded_table for table in _present_document_embedding_tables(cluster)]
+    buffer = document_embeddings_buffer_table()
+    if _any_node_has(cluster, buffer):
+        tables.append(buffer)
+    return tables
+
+
+def _count_documents_per_table(
+    cluster: ClickhouseCluster, tables: list[str], predicate: str, parameters: dict[str, str | int]
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for table in tables:
+        query = Query(f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE {predicate}", parameters)
+        counts[table] = sum(rows[0][0] for rows in cluster.map_one_host_per_shard(query).result().values() if rows)
+    return counts
+
+
+def _wait_until(waiters: MutationWaiters, deadline: float) -> Callable[[Client], None]:
+    def wait(client: Client) -> None:
+        while not waiters.is_done(client):
+            if time.monotonic() > deadline:
+                raise dagster.Failure(
+                    description=f"Mutations {[w.mutation_ids for w in waiters.waiters]} did not finish in time"
+                )
+            time.sleep(_MUTATION_POLL_SECONDS)
+
+    return wait
 
 
 @dagster.op
@@ -1304,35 +1349,52 @@ def delete_team_product_documents(
     them in place until the table TTL drops them. This job removes them on request.
     """
     parameters: dict[str, str | int] = {"team_id": config.team_id, "product": config.product}
-    tables = _present_document_embedding_tables(cluster)
+    tables = _team_product_document_tables(cluster)
+
+    # The delete and the survivor count read the same product value, so a misspelled product
+    # deletes nothing and still reports zero survivors. Refuse it before deleting instead.
+    found = _count_documents_per_table(cluster, tables, _TEAM_PRODUCT_DOCUMENTS_PREDICATE, parameters)
+    context.add_output_metadata({"documents_found": dagster.MetadataValue.json(found)})
+    if not any(found.values()):
+        products: set[str] = set()
+        for table in tables:
+            query = Query(
+                f"SELECT DISTINCT product FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE team_id = %(team_id)s",
+                parameters,
+            )
+            for rows in cluster.map_one_host_per_shard(query).result().values():
+                products.update(row[0] for row in rows)
+        raise dagster.Failure(
+            description=f"Team {config.team_id} has no documents for product {config.product!r}. "
+            f"Products with documents for this team: {sorted(products)}. Check the product name. "
+            "If an earlier run already deleted them, there is nothing left to do."
+        )
+
+    deadline = time.monotonic() + config.timeout_seconds
     reuse_floor = _mutation_reuse_floor(cluster)
     by_shard: dict[int, list[MutationWaiter]] = {}
     for table in tables:
         runner = LightweightDeleteMutationRunner(
-            table=table.sharded_table,
+            table=table,
             predicate=_TEAM_PRODUCT_DOCUMENTS_PREDICATE,
             parameters=parameters,
             reuse_since=reuse_floor,
+            capacity_timeout=config.timeout_seconds,
         )
         for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
             if host.shard_num is not None:
                 by_shard.setdefault(host.shard_num, []).append(mutation)
 
-    wait_for_mutations_on_shards(
-        cluster, {shard_num: MutationWaiters(waiters=waiters) for shard_num, waiters in by_shard.items()}
-    )
+    # Under replication lag a mutation can be briefly invisible on a replica, as in wait_for_mutations_on_shards.
+    retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
+    cluster.map_all_hosts_in_shards(
+        {
+            shard_num: retry_policy(_wait_until(MutationWaiters(waiters=waiters), deadline))
+            for shard_num, waiters in by_shard.items()
+        }
+    ).result()
 
-    surviving: dict[str, int] = {}
-    for table in tables:
-        rows = cluster.any_host_by_role(
-            Query(
-                f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table.distributed_table} "
-                f"WHERE {_TEAM_PRODUCT_DOCUMENTS_PREDICATE}",
-                parameters,
-            ),
-            NodeRole.DATA,
-        ).result()
-        surviving[table.distributed_table] = rows[0][0] if rows else 0
+    surviving = _count_documents_per_table(cluster, tables, _TEAM_PRODUCT_DOCUMENTS_PREDICATE, parameters)
     context.add_output_metadata({"surviving_documents": dagster.MetadataValue.json(surviving)})
     if any(surviving.values()):
         raise dagster.Failure(
