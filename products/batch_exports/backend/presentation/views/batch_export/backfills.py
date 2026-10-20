@@ -22,12 +22,10 @@ from products.batch_exports.backend.facade import (
 )
 from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
 from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
-from products.batch_exports.backend.presentation.views.utils import parse_path_uuid
+from products.batch_exports.backend.presentation.views.utils import BIG_INTEGER_MAX, BIG_INTEGER_MIN, parse_path_uuid
 
 logger = structlog.get_logger(__name__)
 
-# The bounds of a big integer column, which a model serializer reads off the model.
-BIG_INTEGER_MIN, BIG_INTEGER_MAX = -(2**63), 2**63 - 1
 BATCH_EXPORT_NOT_FOUND = "BatchExport not found."
 
 # The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.

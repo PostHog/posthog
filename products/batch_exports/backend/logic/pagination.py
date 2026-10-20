@@ -4,6 +4,8 @@ from collections.abc import Collection
 
 from django.db.models import Model, QuerySet
 
+from posthog.api.pagination import stable_queryset_ordering
+
 from products.batch_exports.backend.facade import contracts
 
 
@@ -12,8 +14,8 @@ def select_page[M: Model](
 ) -> list[M]:
     """Return the rows of one page of ``queryset``.
 
-    The primary key breaks ties on the first ordering field, in the same direction. Without it,
-    rows that share a value can change places between two queries, so a page boundary between
+    The rows are also sorted by primary key, in the direction of the first ordering field. Without
+    it, rows that share a value can change places between two queries, so a page boundary between
     them can skip or repeat a row.
     """
     for term in page.ordering:
@@ -21,8 +23,7 @@ def select_page[M: Model](
             raise ValueError(f"Cannot order by {term!r}")
 
     first = page.ordering[0]
-    direction = "-" if first.startswith("-") else ""
-    queryset = queryset.order_by(*page.ordering, f"{direction}pk")
+    queryset = stable_queryset_ordering(queryset.order_by(*page.ordering))
 
     if page.bound is not None:
         comparison = "lt" if page.bound.before else "gt"

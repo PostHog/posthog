@@ -43,7 +43,7 @@ def _to_run_detail(run: BatchExportRun) -> contracts.BatchExportRunDetail:
     )
 
 
-def _runs_of_export(team_id: int, export_id: UUID) -> QuerySet[BatchExportRun]:
+def _query_export_runs(team_id: int, export_id: UUID) -> QuerySet[BatchExportRun]:
     return BatchExportRun.objects.filter(batch_export_id=export_id, batch_export__team_id=team_id)
 
 
@@ -60,7 +60,7 @@ def _filter_runs(runs: QuerySet[BatchExportRun], filters: contracts.BatchExportR
 
 
 def _get_run(team_id: int, export_id: UUID, run_id: UUID, filters: contracts.BatchExportRunFilters) -> BatchExportRun:
-    runs = _filter_runs(_runs_of_export(team_id, export_id), filters)
+    runs = _filter_runs(_query_export_runs(team_id, export_id), filters)
     try:
         return runs.select_related("batch_export").get(id=run_id)
     except BatchExportRun.DoesNotExist as e:
@@ -70,7 +70,7 @@ def _get_run(team_id: int, export_id: UUID, run_id: UUID, filters: contracts.Bat
 def list_runs(
     team_id: int, export_id: UUID, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
 ) -> list[contracts.BatchExportRunDetail]:
-    runs = _filter_runs(_runs_of_export(team_id, export_id), filters)
+    runs = _filter_runs(_query_export_runs(team_id, export_id), filters)
     return [_to_run_detail(run) for run in select_page(runs, page, ordering_fields=ORDERING_FIELDS)]
 
 

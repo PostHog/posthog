@@ -1,4 +1,3 @@
-import uuid
 import datetime as dt
 from typing import Any, cast
 
@@ -38,6 +37,7 @@ from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
+    parse_path_uuid,
 )
 
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -400,10 +400,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
     def dangerously_get_object(self) -> contracts.FileDownloadRun:
         # This replaces the queryset read only. The facade scopes the read to the team, and the
         # object permissions run on the contract as they ran on the model. `logs` reads the run here.
-        try:
-            run_id = uuid.UUID(str(self.kwargs["pk"]))
-        except ValueError:
-            raise NotFound()
+        run_id = parse_path_uuid(self.kwargs["pk"])
         try:
             run = batch_exports_api.get_file_download_run(self.team_id, run_id)
         except contracts.FileDownloadNotFoundError as e:

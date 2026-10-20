@@ -149,7 +149,7 @@ def _to_backfill_detail(backfill: BatchExportBackfill) -> contracts.BatchExportB
     )
 
 
-def _backfills_of_export(team_id: int, export_id: UUID) -> QuerySet[BatchExportBackfill]:
+def _query_export_backfills(team_id: int, export_id: UUID) -> QuerySet[BatchExportBackfill]:
     # The progress of a backfill reads the interval of its batch export.
     return BatchExportBackfill.objects.filter(batch_export_id=export_id, batch_export__team_id=team_id).select_related(
         "batch_export"
@@ -158,7 +158,7 @@ def _backfills_of_export(team_id: int, export_id: UUID) -> QuerySet[BatchExportB
 
 def _get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> BatchExportBackfill:
     try:
-        return _backfills_of_export(team_id, export_id).get(id=backfill_id)
+        return _query_export_backfills(team_id, export_id).get(id=backfill_id)
     except BatchExportBackfill.DoesNotExist as e:
         raise contracts.BatchExportBackfillNotFoundError() from e
 
@@ -166,7 +166,7 @@ def _get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> BatchExpo
 def list_backfills(
     team_id: int, export_id: UUID, page: contracts.ListPage
 ) -> list[contracts.BatchExportBackfillDetail]:
-    backfills = select_page(_backfills_of_export(team_id, export_id), page, ordering_fields=ORDERING_FIELDS)
+    backfills = select_page(_query_export_backfills(team_id, export_id), page, ordering_fields=ORDERING_FIELDS)
     return [_to_backfill_detail(backfill) for backfill in backfills]
 
 

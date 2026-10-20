@@ -21,11 +21,13 @@ from products.batch_exports.backend.facade import (
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
-from products.batch_exports.backend.presentation.views.utils import parse_path_uuid
-
-# The bounds of the integer columns, which a model serializer reads off the model.
-INTEGER_MIN, INTEGER_MAX = -(2**31), 2**31 - 1
-BIG_INTEGER_MIN, BIG_INTEGER_MAX = -(2**63), 2**63 - 1
+from products.batch_exports.backend.presentation.views.utils import (
+    BIG_INTEGER_MAX,
+    BIG_INTEGER_MIN,
+    INTEGER_MAX,
+    INTEGER_MIN,
+    parse_path_uuid,
+)
 
 # The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
 BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
