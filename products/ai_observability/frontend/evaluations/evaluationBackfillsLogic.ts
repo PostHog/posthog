@@ -387,14 +387,18 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             ): EvaluationTargetEnumApi => estimate?.unit ?? evaluation?.target ?? 'generation',
         ],
         startDisabledReason: [
-            (s) => [s.hasActiveBackfill, s.conditions, s.estimate, s.estimateLoading, s.estimateError],
+            (s) => [s.evaluation, s.hasActiveBackfill, s.conditions, s.estimate, s.estimateLoading, s.estimateError],
             (
+                evaluation: EvaluationConfig | null,
                 hasActiveBackfill: boolean,
                 conditions: EvaluationConditionSet[],
                 estimate: EvaluationBackfillEstimateApi | null,
                 estimateLoading: boolean,
                 estimateError: string | null
             ): string | undefined => {
+                if (evaluation?.enabled === false) {
+                    return 'Enable the evaluation before backfilling it'
+                }
                 if (hasActiveBackfill) {
                     return 'This evaluation already has a running backfill'
                 }
