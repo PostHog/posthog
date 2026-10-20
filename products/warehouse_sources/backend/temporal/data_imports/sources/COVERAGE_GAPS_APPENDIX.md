@@ -4738,11 +4738,11 @@ Today (6): `commissions`, `payouts`, `promo_codes`, `promoter_campaigns`, `promo
 
 Diffed against: <https://docs.firstpromoter.com/llms.txt>
 
-- [ ] `Get reports for overview (GET /api/v2/company/reports/overview)` — measure affiliate clicks, conversion rates, earnings per click, and churn over time (high)
-- [ ] `Get reports for campaigns (GET /api/v2/company/reports/campaigns)` — compare campaign clicks, conversions, and revenue by period, beyond current promoter campaign snapshots (high)
-- [ ] `Get reports for traffic sources (GET /api/v2/company/reports/traffic_sources)` — compare referral channels by traffic, conversion rates, and attributed revenue (medium)
+- [x] `Get reports for overview (GET /api/v2/company/reports/overview)` — measure affiliate clicks, conversion rates, earnings per click, and churn over time (high)
+- [x] `Get reports for campaigns (GET /api/v2/company/reports/campaigns)` — compare campaign clicks, conversions, and revenue by period, beyond current promoter campaign snapshots (high)
+- [x] `Get reports for traffic sources (GET /api/v2/company/reports/traffic_sources)` — compare referral channels by traffic, conversion rates, and attributed revenue (medium)
 - [ ] `Get reports for URLs (GET /api/v2/company/reports/urls)` — find landing pages that generate affiliate traffic and paying customers (medium)
-- [ ] `Get promoter referral links (GET /api/v2/company/promoters/{id}/referral_links)` — identify custom referral links and sub-IDs beyond the default campaign link (medium)
+- [x] `Get promoter referral links (GET /api/v2/company/promoters/{id}/referral_links)` — identify custom referral links and sub-IDs beyond the default campaign link (medium)
 
 Note: Parsed the official documentation index and the embedded OpenAPI definitions on the V2 report and referral-link pages. Reports need date windows and metric selection; referral links need promoter fan-out. Campaign metadata already appears inside promoter_campaigns, so a separate campaign lookup is not a gap. Excluded tracking writes, batch progress, and payout summaries that repeat synced data.
 
