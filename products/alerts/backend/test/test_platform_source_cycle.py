@@ -21,6 +21,7 @@ from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
@@ -149,18 +150,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("source_owned", "source", {"breaches": ["above 100"]}),
-            (
-                "platform_owned",
-                "platform",
-                {"breaches": ["above 100"], "insight_chart_url": "https://example.com/chart.png"},
-            ),
+            ("source_owned", "source", {}),
+            ("platform_owned", "platform", {"insight_chart_url": "https://example.com/chart.png"}),
         ]
     )
     def test_a_firing_records_what_production_sends_beside_it(
-        self, _name: str, owner: str, expected: dict[str, Any]
+        self, _name: str, owner: str, chart: dict[str, Any]
     ) -> None:
-        configuration = self._copy(self._alert(), owner=owner)
+        alert = self._alert()
+        configuration = self._copy(alert, owner=owner)
+        expected = {
+            "breaches": ["above 100"],
+            "insight_name": alert.insight.name,
+            "insight_short_id": alert.insight.short_id,
+            **chart,
+        }
 
         with patch(f"{_MODULE}.render_alert_insight_chart_url", return_value="https://example.com/chart.png") as render:
             outcome, _ = self._evaluate(
@@ -230,6 +234,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             (delivery.configuration_id, delivery.destination_alert_id, delivery.event_ids_by_kind)
             for delivery in self.deliveries
         ] == (expected if allowlisted and not was_firing else [])
+        # A native message links to the alert on its insight, where the insight stack's messages link.
+        assert all(
+            delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
+            for delivery in self.deliveries
+        )
 
     @parameterized.expand(
         [

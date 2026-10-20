@@ -39,6 +39,7 @@ from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, c
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -221,9 +222,20 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        source_alert_url=_alert_url(check, legacy_id),
         overflowed=outcome.overflowed,
         parts=delivery_parts(outcome),
     )
+
+
+def _alert_url(check: PlatformAlertCheckInput, legacy_id: str) -> str | None:
+    """The alert's page on its insight, so a native message links where the insight stack's does."""
+    insight_short_id = (
+        AlertConfiguration.objects.filter(team_id=check.team_id, id=legacy_id)
+        .values_list("insight__short_id", flat=True)
+        .first()
+    )
+    return insight_alert_url(check.team_id, insight_short_id, legacy_id) if insight_short_id else None
 
 
 def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
@@ -430,7 +442,11 @@ def _firing_detail(
     check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    detail: dict[str, Any] = {"breaches": list(breaches)}
+    detail: dict[str, Any] = {
+        "breaches": list(breaches),
+        "insight_name": alert.insight.name,
+        "insight_short_id": alert.insight.short_id,
+    }
     # A render takes up to a minute and a half, so only an alert the platform delivers for pays
     # for one. Production renders no chart for a real-time alert either.
     if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:

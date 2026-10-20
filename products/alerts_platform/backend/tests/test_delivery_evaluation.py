@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
@@ -482,6 +482,8 @@ class TestDeliverEvaluation(APIBaseTest):
         assert delivery_paths._chooser is not None
         # Without it an insight alert on the HogFunction path sends nothing at all.
         assert delivery_paths.emitter_for(SourceKind.INSIGHT) is not None
+        # Without it a native insight message carries only the platform's "Value" line.
+        assert SourceKind.INSIGHT in describers._describers
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
