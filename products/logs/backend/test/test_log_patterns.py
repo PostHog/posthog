@@ -133,8 +133,8 @@ class TestStoredPatternGroups(TestCase):
 
         groups = group_stored_patterns(canonical, total_count=total)
 
-        assert sum(group.count for group in groups) < total
-        assert bool(groups) == (count > 1)
+        assert sum(group.count for group in groups) == (total if count > 1 else 0)
+        assert len({group.pattern for group in groups}) == (1 if count > 1 else 0)
         counts = {pattern.pattern: pattern.count for pattern in canonical}
         for group in groups:
             assert len(group.match_patterns) <= 50
