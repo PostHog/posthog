@@ -44,7 +44,6 @@ from products.alerts_platform.backend.facade.api import due_check_ids, due_check
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
-    Grouping,
     GroupingMode,
     InstanceCheckState,
     PlatformAlertCheckInput,
@@ -306,10 +305,6 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
-    if alert.detector_config:
-        # A detector scores the insight's series together, so it reaches one verdict whatever the
-        # copy's grouping says. The per-series path would reject it and disable the alert.
-        check = replace(check, grouping=Grouping())
     if check.grouping.mode != GroupingMode.SINGLE:
         return _decide_grouped(check, snapshot, alert, now=now)
     started_at = time.monotonic()
