@@ -2768,7 +2768,6 @@ export interface runStreamLogicMeta {
             currentRunStatus: RunStatus | null,
             sseStatus: RunSseStatus,
             runOpening: boolean,
-            logBootstrapLoading: boolean,
             arg: boolean | undefined
         ) => 'idle' | 'provisioning' | 'thinking'
         showThinkingIndicator: (
@@ -3641,29 +3640,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * not yet connecting). A read-only viewer is always `idle` — it never streams.
          */
         streamPhase: [
-            (s, p) => [
-                s.runStarted,
-                s.isThinking,
-                s.currentRunStatus,
-                s.sseStatus,
-                s.runOpening,
-                s.logBootstrapLoading,
-                p.replayOnly!,
-            ],
+            (s, p) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus, s.runOpening, p.replayOnly!],
             (
                 runStarted: boolean,
                 isThinking: boolean,
                 currentRunStatus: RunStatus | null,
                 sseStatus: RunSseStatus,
                 runOpening: boolean,
-                logBootstrapLoading: boolean,
                 replayOnly: boolean | undefined
             ): 'provisioning' | 'thinking' | 'idle' => {
                 // A read-only snapshot never provisions or thinks — there is no live stream behind it.
                 if (replayOnly) {
-                    return 'idle'
-                }
-                if (logBootstrapLoading && !runOpening) {
                     return 'idle'
                 }
                 if (runOpening && isTerminalRunStatus(currentRunStatus)) {

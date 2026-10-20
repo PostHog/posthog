@@ -2731,12 +2731,10 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.bootstrapLoading).toBe(false)
             expect(logic.values.logBootstrapLoading).toBe(true)
-            expect(logic.values.streamPhase).toBe('idle')
 
             logic.actions.bootstrapLogReady()
 
             expect(logic.values.logBootstrapLoading).toBe(false)
-            expect(logic.values.streamPhase).toBe('provisioning')
 
             resolveRun({ status: 'completed' })
             await expectLogic(logic).toFinishAllListeners()
