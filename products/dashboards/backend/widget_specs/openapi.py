@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from django.db import models
+
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from pydantic import BaseModel
 from rest_framework import serializers
@@ -36,6 +38,22 @@ WIDGET_BATCH_ADD_OPENAPI_HELP = (
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
     + ". Use dashboard-widget-catalog-list for per-type config_schema documentation."
 )
+
+
+class DashboardWidgetType(models.TextChoices):
+    """Every registered widget type. test_widget_openapi_enums checks it against WIDGET_SPECS."""
+
+    ACTIVITY_EVENTS_LIST = "activity_events_list"
+    CANVAS_APP = "canvas_app"
+    CONVERSATIONS_RECENT_TICKETS = "conversations_recent_tickets"
+    ERROR_TRACKING_LIST = "error_tracking_list"
+    EXPERIMENT_RESULTS = "experiment_results"
+    EXPERIMENTS_LIST = "experiments_list"
+    LOGS_LIST = "logs_list"
+    NOTEBOOK_WIDGET = "notebook_widget"
+    SESSION_REPLAY_LIST = "session_replay_list"
+    SURVEY_RESULTS = "survey_results"
+
 
 # Batch tool schemas leave config untyped so they do not grow with each widget type.
 # validate_widget_config still checks every config against its widget type.
@@ -198,7 +216,7 @@ class DashboardWidgetConfigField(serializers.JSONField):
 @extend_schema_serializer(component_name="AddDashboardWidgetRequest")
 class _AddDashboardWidgetRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
     widget_type = serializers.ChoiceField(
-        choices=sorted(EXPECTED_WIDGET_TYPES),
+        choices=DashboardWidgetType.choices,
         help_text="Widget type to add. Use dashboard-widget-catalog-list to pick one.",
     )
     config = serializers.DictField(child=serializers.JSONField(), help_text=WIDGET_CONFIG_BATCH_HELP)
@@ -228,7 +246,7 @@ class _UpdateDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
 @extend_schema_serializer(component_name="UpdateDashboardWidgetRequest")
 class _UpdateDashboardWidgetRequestOpenApiSerializer(_UpdateDashboardWidgetTileFieldsOpenApiSerializer):
     widget_type = serializers.ChoiceField(
-        choices=sorted(EXPECTED_WIDGET_TYPES),
+        choices=DashboardWidgetType.choices,
         required=False,
         help_text="The tile's widget type. It cannot be changed, so omit it or pass the current type.",
     )
@@ -264,7 +282,7 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
         help_text="Existing widget row ID when updating a widget tile via dashboard PATCH.",
     )
     widget_type = serializers.ChoiceField(
-        choices=sorted(EXPECTED_WIDGET_TYPES),
+        choices=DashboardWidgetType.choices,
         required=False,
         help_text="Widget type identifier (cannot be changed on update).",
     )

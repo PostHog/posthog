@@ -840,19 +840,6 @@ SPECTACULAR_SETTINGS = {
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
-            # Every OpenAPI widget_type field that accepts all types shares this enum.
-            "DashboardWidgetTypeEnum": [
-                "activity_events_list",
-                "canvas_app",
-                "conversations_recent_tickets",
-                "error_tracking_list",
-                "experiment_results",
-                "experiments_list",
-                "logs_list",
-                "notebook_widget",
-                "session_replay_list",
-                "survey_results",
-            ],
         }
     ),
 }
