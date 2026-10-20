@@ -102891,6 +102891,264 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    /**
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week
+     */
+    export type ServiceHealthBaselineEnum = typeof ServiceHealthBaselineEnum[keyof typeof ServiceHealthBaselineEnum];
+
+
+    export const ServiceHealthBaselineEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
+    /**
+     * * `status` - Status
+     * * `error_rate` - Error Rate
+     * * `p95` - P95
+     * * `throughput` - Throughput
+     * * `error_count` - Error Count
+     */
+    export type ServiceHealthOrderByEnum = typeof ServiceHealthOrderByEnum[keyof typeof ServiceHealthOrderByEnum];
+
+
+    export const ServiceHealthOrderByEnum = {
+      Status: 'status',
+      ErrorRate: 'error_rate',
+      P95: 'p95',
+      Throughput: 'throughput',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface _ServiceHealthDateRange {
+      /**
+         * Relative (-30m, -6h, -7d) or ISO 8601.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * Same format. Omit or null for "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
+    /**
+     * * `entry` - Entry
+     * * `all` - All
+     */
+    export type ServiceHealthSpanScopeEnum = typeof ServiceHealthSpanScopeEnum[keyof typeof ServiceHealthSpanScopeEnum];
+
+
+    export const ServiceHealthSpanScopeEnum = {
+      Entry: 'entry',
+      All: 'all',
+    } as const;
+
+    export interface _ServiceHealthQuery {
+      /** The window to score. Defaults to the last hour. */
+      dateRange?: _ServiceHealthDateRange;
+      /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
+       *
+       * * `none` - None
+       * * `previous_period` - Previous Period
+       * * `previous_day` - Previous Day
+       * * `previous_week` - Previous Week */
+      compare?: ServiceHealthBaselineEnum;
+      /**
+         * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
+         * @nullable
+         */
+      environment?: string | null;
+      /**
+         * Only these services.
+         * @maxItems 100
+         */
+      serviceNames?: string[];
+      /** entry (default) counts root, server and consumer spans, one per request. all counts every span.
+       *
+       * * `entry` - Entry
+       * * `all` - All */
+      spanScope?: ServiceHealthSpanScopeEnum;
+      /** status (default) puts silent, regressed and degraded first. The others sort high to low.
+       *
+       * * `status` - Status
+       * * `error_rate` - Error Rate
+       * * `p95` - P95
+       * * `throughput` - Throughput
+       * * `error_count` - Error Count */
+      orderBy?: ServiceHealthOrderByEnum;
+      /**
+         * Max service rows, 1-200.
+         * @minimum 1
+         * @maximum 200
+         */
+      limit?: number;
+    }
+
+    export interface ServiceHealthRequest {
+      /** The service health query. Every field is optional. */
+      query: _ServiceHealthQuery;
+      /** An explicit baseline window. Overrides query.compare. */
+      baselineDateRange?: _ServiceHealthDateRange;
+    }
+
+    export interface _ServiceHealthTimeRange {
+      /** Start, ISO 8601 UTC, inclusive. */
+      date_from: string;
+      /** End, ISO 8601 UTC, exclusive. */
+      date_to: string;
+    }
+
+    export interface _ServiceHealthWindow {
+      /** The scored window. Reuse it as dateRange in follow-up calls. */
+      current: _ServiceHealthTimeRange;
+      /** The baseline window. Null when compare is none. */
+      baseline: _ServiceHealthTimeRange | null;
+      /** Always UTC. */
+      timezone: string;
+    }
+
+    export interface _ServiceHealthSummary {
+      /** Services scored, before the limit. */
+      services: number;
+      /** Requests over all scored services. */
+      requests: number;
+      /** Services per status. */
+      ok: number;
+      /** Services per status. */
+      degraded: number;
+      /** Services per status. */
+      regressed: number;
+      /** Services per status. */
+      silent: number;
+      /** Services per status. */
+      new: number;
+      /** Services per status. */
+      recovered: number;
+      /** Services per status. */
+      improved: number;
+    }
+
+    /**
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok
+     */
+    export type ServiceHealthStatusEnum = typeof ServiceHealthStatusEnum[keyof typeof ServiceHealthStatusEnum];
+
+
+    export const ServiceHealthStatusEnum = {
+      Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
+      Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
+    } as const;
+
+    export interface _ServiceHealthRow {
+      /** Service name. */
+      service: string;
+      /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
+       *
+       * * `silent` - Silent
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
+      status: ServiceHealthStatusEnum;
+      /** Why the service has this status. Empty for ok. */
+      reason: string;
+      /** Spans in the window, in the chosen spanScope. */
+      requests: number;
+      /** Requests per minute. */
+      throughput_per_min: number;
+      /** Requests with OTel status Error. */
+      error_count: number;
+      /**
+         * Error share of requests, percent.
+         * @nullable
+         */
+      error_rate_pct: number | null;
+      /**
+         * Change from the baseline, points.
+         * @nullable
+         */
+      error_rate_delta_pp: number | null;
+      /**
+         * Median duration, ms.
+         * @nullable
+         */
+      p50_ms: number | null;
+      /**
+         * 95th percentile duration, ms.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /**
+         * p95 change from the baseline, percent.
+         * @nullable
+         */
+      p95_change_pct: number | null;
+      /**
+         * 99th percentile duration, ms.
+         * @nullable
+         */
+      p99_ms: number | null;
+      /**
+         * Baseline requests. Null without one.
+         * @nullable
+         */
+      baseline_requests: number | null;
+      /**
+         * Last span, ISO 8601 UTC.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    /**
+     * The prefilled query argument.
+     */
+    export type _ServiceHealthNextCallQuery = { [key: string]: unknown };
+
+    export interface _ServiceHealthNextCall {
+      /** The tool to call next. */
+      tool: string;
+      /** What the call answers. */
+      why: string;
+      /** The prefilled query argument. */
+      query: _ServiceHealthNextCallQuery;
+    }
+
+    export interface ServiceHealthResponse {
+      /** The absolute UTC windows the server used. */
+      window: _ServiceHealthWindow;
+      /** Counts over all scored services. */
+      summary: _ServiceHealthSummary;
+      /** One row per service, in orderBy order. */
+      services: _ServiceHealthRow[];
+      /** Prefilled follow-up calls. */
+      next: _ServiceHealthNextCall[];
+      /** True when more services matched than limit. */
+      truncated: boolean;
+      /** Caveats about this result. */
+      notes: string[];
+    }
+
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
@@ -133225,6 +133483,21 @@ export namespace Schemas {
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType;
     /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Max results (default: 100).
      * @minimum 1
      * @maximum 100
@@ -133256,10 +133529,20 @@ export namespace Schemas {
 
     export type TracingSpansServiceNamesRetrieveParams = {
     /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
      * @minLength 1
      */
     dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
     /**
      * Search filter for service names.
      * @minLength 1
@@ -133277,6 +133560,21 @@ export namespace Schemas {
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType;
+    /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
     /**
      * The attribute key to get values for.
      * @minLength 1
