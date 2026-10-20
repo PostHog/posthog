@@ -64,7 +64,11 @@ def trial_scout_limit(team_id: int) -> int | None:
     grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
     return grant.scout_limit if grant is not None and grant.exhausted_at is None else None
 
+
 def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
     if trial_scout_limit(team.parent_team_id or team.id) is None:
+        return None
+    decision = TrialPolicy(team).flag_decision()
+    if not decision.confirmed or decision.enabled is not True:
         return None
     return AgentRuntime(runtime_adapter="codex", model="gpt-6-luna")

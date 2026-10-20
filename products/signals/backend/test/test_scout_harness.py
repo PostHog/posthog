@@ -2645,6 +2645,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 
     with (
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
         patch(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
             return_value=resolved,
