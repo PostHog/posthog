@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -35,8 +35,8 @@ use cohort_stream_processor::filters::{
 };
 use cohort_stream_processor::observability::disk::SharedDiskUtilization;
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_for, partition_of, run_rebalance_worker, CohortConsumerContext,
-    ConsumerPauser, Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser,
+    merge_partition_key, partition_for, partition_of, CohortConsumerContext, ConsumerPauser,
+    Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionOwnership, PartitionPauser,
     PartitionRouter, SeedPacingConfig, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
@@ -47,6 +47,7 @@ use cohort_stream_processor::producer::{
 };
 use cohort_stream_processor::stage1::bucket_tz::day_idx_in_tz;
 use cohort_stream_processor::stage2::state::Stage2State;
+use cohort_stream_processor::store::durability::PodOrdinal;
 use cohort_stream_processor::store::{
     CohortStore, OffloadConfig, OffloadMode, ReadLane, Stage2Key, StagedBatch, StoreConfig,
     StoreHandle,
@@ -60,14 +61,13 @@ use futures::FutureExt;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde_json::json;
 use tempfile::TempDir;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -214,9 +214,7 @@ fn events_client_config(group: &str) -> ClientConfig {
         .set("group.id", group)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("partition.assignment.strategy", "cooperative-sticky")
-        .set("session.timeout.ms", "6000");
+        .set("auto.offset.reset", "earliest");
     config
 }
 
@@ -457,8 +455,13 @@ async fn produce_reconcile(
 }
 
 fn open_store(dir: &TempDir) -> CohortStore {
+    open_store_as(dir, PartitionOwnership::single(NUM_PARTITIONS as u16))
+}
+
+fn open_store_as(dir: &TempDir, ownership: PartitionOwnership) -> CohortStore {
     CohortStore::open(&StoreConfig {
         path: dir.path().join("db"),
+        ownership,
         ..StoreConfig::default()
     })
     .expect("open store")
@@ -544,7 +547,22 @@ struct Instance {
     seed_tracker: Arc<OffsetTracker>,
     seed_consumer: Arc<StreamConsumer>,
     live_watermarks: Arc<LiveWatermarks>,
+    /// The partitions each input's consumer is assigned: events, merges, transfers, cascades and
+    /// seeds, in that order.
+    assignments: [Vec<i32>; 5],
     tasks: Vec<JoinHandle<()>>,
+}
+
+fn assigned<C: ConsumerContext>(consumer: &StreamConsumer<C>) -> Vec<i32> {
+    let mut partitions: Vec<i32> = consumer
+        .assignment()
+        .expect("read the consumer's assignment")
+        .elements()
+        .iter()
+        .map(|elem| elem.partition())
+        .collect();
+    partitions.sort_unstable();
+    partitions
 }
 
 impl Instance {
@@ -615,6 +633,7 @@ async fn spawn_instance(
     store: CohortStore,
     catalog: CatalogHandle,
     handles: [Handle; 5],
+    ownership: PartitionOwnership,
     fence_margin_ms: i64,
     membership: Option<Arc<dyn MembershipSink>>,
 ) -> Instance {
@@ -720,30 +739,27 @@ async fn spawn_instance(
             .create()
             .expect("create seed follower consumer"),
     );
-    let followers = Arc::new(FollowerSet::new([
+    FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
         Follower::new(seeds_consumer.clone(), topics.seeds.clone()),
-    ]));
+    ])
+    .assign(&ownership)
+    .expect("assign the followers");
+    let follower_assignments = [
+        assigned(&merges_consumer),
+        assigned(&transfers_consumer),
+        assigned(&cascade_consumer),
+        assigned(&seeds_consumer),
+    ];
 
-    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)
-        .create_with_context(context)
+        .create_with_context(CohortConsumerContext)
         .expect("create events consumer");
-    events_client
-        .subscribe(&[topics.events.as_str()])
-        .expect("subscribe events");
     let events_client = Arc::new(events_client);
 
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-    let mut tasks = vec![tokio::spawn(run_rebalance_worker(
-        rebalance_rx,
-        dispatcher.clone(),
-        followers,
-        command_tx,
-        events_handle.shutdown_token(),
-    ))];
+    let mut tasks = Vec::new();
 
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
@@ -801,6 +817,7 @@ async fn spawn_instance(
     );
     tasks.push(tokio::spawn(seed_follower.process()));
 
+    let events_probe = events_client.clone();
     let events_consumer = CohortStreamEventsConsumer::new(
         events_client,
         topics.events.clone(),
@@ -809,11 +826,12 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        NUM_PARTITIONS as usize,
-        command_rx,
+        ownership,
         None,
-    );
+    )
+    .expect("assign cohort_stream_events");
     tasks.push(tokio::spawn(events_consumer.process()));
+    let [merges, transfers, cascades, seeds] = follower_assignments;
 
     Instance {
         dispatcher,
@@ -822,8 +840,69 @@ async fn spawn_instance(
         seed_tracker,
         seed_consumer: seeds_consumer,
         live_watermarks,
+        assignments: [assigned(&events_probe), merges, transfers, cascades, seeds],
         tasks,
     }
+}
+
+/// Two pods at N=2 each own one residue class of every input, so no partition of any input belongs
+/// to both, and the dispatcher owns the same class the consumers fetch.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn two_pods_own_disjoint_residue_classes_on_all_five_inputs() {
+    let suffix = Uuid::new_v4();
+    let topics = Topics::unique(&suffix);
+    let groups = Groups::unique(&suffix);
+    with_topics_cleanup(&topics.names(), async {
+        topics.create().await;
+
+        let pods = NonZeroU16::new(2).unwrap();
+        let mut pods_running = Vec::new();
+        for ordinal in 0..pods.get() {
+            let mut manager = Manager::builder(format!("seed-split-itest-{ordinal}"))
+                .with_trap_signals(false)
+                .build();
+            let handles = register_instance(&mut manager);
+            let shutdown = handles[0].clone();
+            let monitor = manager.monitor_background();
+            let dir = TempDir::new().unwrap();
+            let ownership =
+                PartitionOwnership::new(pods, PodOrdinal::from(ordinal), NUM_PARTITIONS as u16)
+                    .unwrap();
+            let instance = spawn_instance(
+                &topics,
+                &groups,
+                open_store_as(&dir, ownership),
+                seed_catalog(),
+                handles,
+                ownership,
+                2_000,
+                None,
+            )
+            .await;
+            pods_running.push((dir, monitor, shutdown, instance));
+        }
+
+        for (ordinal, (_, _, _, instance)) in pods_running.iter().enumerate() {
+            let class: Vec<i32> = (0..NUM_PARTITIONS)
+                .filter(|partition| partition % 2 == ordinal as i32)
+                .collect();
+            assert_eq!(
+                instance.assignments,
+                [(); 5].map(|()| class.clone()),
+                "pod {ordinal}"
+            );
+            let mut owned: Vec<i32> = instance.owned().into_iter().collect();
+            owned.sort_unstable();
+            assert_eq!(owned, class, "pod {ordinal}'s dispatcher");
+        }
+
+        for (_, _, shutdown, instance) in pods_running {
+            shutdown.request_shutdown();
+            instance.join().await;
+        }
+    })
+    .await;
 }
 
 /// A tile lands on its owning worker via the 5-topic co-assignment, applies behind an open
@@ -851,6 +930,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
             open_store(&dir),
             seed_catalog(),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
             2_000,
             None,
         )
@@ -1030,6 +1110,7 @@ async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
             open_store(&dir),
             seed_catalog(),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
             2_000,
             Some(failing.clone()),
         )
@@ -1095,6 +1176,7 @@ async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
             reopen_store_live(&dir).await,
             seed_catalog(),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
             2_000,
             None,
         )
@@ -1171,6 +1253,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
             open_store(&dir),
             seed_catalog(),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
             2_000,
             None,
         )
@@ -1518,6 +1601,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
             open_store(&dir),
             seed_catalog(),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
             fence_margin_ms,
             None,
         )
