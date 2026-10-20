@@ -170,7 +170,10 @@ export class MessageAssetsService {
     buildRowForPush(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
-        platforms: string[]
+        platforms: string[],
+        // The person whose devices took delivery, which the step's Distinct ID input can point away
+        // from the run's own person.
+        recipient: { distinctId: string; personId: string | undefined }
     ): MessageAssetRow | null {
         if (!invocation.state.actionId) {
             return null
@@ -185,7 +188,6 @@ export class MessageAssetsService {
         if (platforms.length === 0) {
             return null
         }
-        const recipient = params.distinctId
         return {
             team_id: invocation.teamId,
             function_kind: 'hog_flow',
@@ -194,11 +196,11 @@ export class MessageAssetsService {
             invocation_id: invocation.id,
             action_id: invocation.state.actionId ?? '',
             kind: 'push',
-            distinct_id: recipient,
-            person_id: invocation.state.globals.person?.id ?? '',
+            distinct_id: recipient.distinctId,
+            person_id: recipient.personId ?? '',
             // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
             // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
-            recipient,
+            recipient: recipient.distinctId,
             subject: payload.title,
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
