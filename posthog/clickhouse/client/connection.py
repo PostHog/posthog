@@ -3,6 +3,7 @@ import json
 import time
 import base64
 import logging
+import threading
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import field
@@ -530,10 +531,35 @@ def get_pool(
     creds = connection_creds(workload, ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
+    credential_provider = None
     if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
-        return make_ch_pool(credential_provider=creds.read_password, **kwargs)
+        credential_provider = creds.read_password
+    if workload == Workload.NEW_EVENTS_CLUSTER:
+        return _native_events_pool(credential_provider, kwargs)
+    if credential_provider is not None:
+        return make_ch_pool(credential_provider=credential_provider, **kwargs)
     return make_ch_pool(**kwargs)
+
+
+_native_events_pools: dict[tuple, tuple[str, "ClickHouseChPool"]] = {}
+_native_events_pools_lock = threading.Lock()
+
+
+def _native_events_pool(credential_provider: Callable[[], str] | None, kwargs: dict[str, Any]) -> "ClickHouseChPool":
+    # The native host is an instance setting that staff can change at runtime. Keep one pool per identity and
+    # retire the pool of the previous host, so a worker does not keep idle connections to every host it used.
+    host = kwargs["host"]
+    identity = (credential_provider, *sorted((key, value) for key, value in kwargs.items() if key != "host"))
+    with _native_events_pools_lock:
+        current = _native_events_pools.get(identity)
+        if current is not None and current[0] == host:
+            return current[1]
+        pool = _make_ch_pool(credential_provider=credential_provider, **kwargs)
+        _native_events_pools[identity] = (host, pool)
+    if current is not None:
+        current[1].retire()
+    return pool
 
 
 def default_client(
@@ -582,6 +608,17 @@ class ClickHouseChPool(ChPool):
     """A pool of ClickHouseClient. ``ChPool._connect`` hardcodes the driver's client class, so it is
     repeated here with ours."""
 
+    _pool: list[SyncClient]
+
+    def retire(self) -> None:
+        # Disconnect the idle clients now. With no minimum to keep, push() disconnects each in-flight client when
+        # its query finishes, so a query that still runs on this pool is not interrupted.
+        with self._lock:
+            self.connections_min = 0
+            idle, self._pool = self._pool, []
+        for client in idle:
+            client.disconnect()
+
     def _connect(self, key: str | None = None) -> ClickHouseClient:
         client = ClickHouseClient(**self.connection_args)
         if key is not None:
@@ -616,7 +653,7 @@ def _make_ch_pool(
     client_settings: Mapping[str, str] | None = None,
     credential_provider: Callable[[], str] | None = None,
     **overrides,
-) -> ChPool:
+) -> "ClickHouseChPool":
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
