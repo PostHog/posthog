@@ -264,6 +264,7 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 )
                 // A quiet group is removed, so a 404 means the table is stale.
                 if (error?.status === 404) {
+                    actions.closeCustomSnooze()
                     actions.loadConfiguration()
                 }
             }

@@ -37,7 +37,8 @@ export function PlatformAlertScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    if (configurationLoading || configurationError || !configuration) {
+    // A reload of an alert already on screen keeps the page, so a stale-group refresh does not blank it.
+    if (configurationError || !configuration) {
         return (
             <SceneContent>
                 <SceneTitleSection name={configurationLoading ? '' : 'Alert'} resourceType={{ type: 'inbox' }} />
@@ -108,12 +109,11 @@ export function PlatformAlertScene(): JSX.Element {
                     <LemonBanner type="warning">
                         <p className="m-0 font-semibold">{overflow}</p>
                         <p className="m-0">
-                            The last check found more groups than this alert's limit
-                            {configuration.grouping.max_instances !== undefined && (
-                                <span> of {configuration.grouping.max_instances}</span>
-                            )}
-                            , so it left the new ones out. To track them, raise the group limit or narrow the alert so
-                            fewer groups match.
+                            {`The last check found more groups than this alert's limit${
+                                configuration.grouping.max_instances !== undefined
+                                    ? ` of ${configuration.grouping.max_instances}`
+                                    : ''
+                            }, so it left the new ones out. To track them, raise the group limit or narrow the alert so fewer groups match.`}
                         </p>
                     </LemonBanner>
                 )}

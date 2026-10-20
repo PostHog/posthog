@@ -19,9 +19,11 @@ function GroupCell({ alert, groupingKeys }: { alert: PlatformAlertApi; groupingK
     }
     return (
         <Tooltip title={`Group key: ${alert.grouping_key}`}>
-            <div className="flex flex-wrap gap-1" translate="no">
-                {labels.map(({ name, value }) => (
-                    <LemonTag key={name} type="muted" className="max-w-full">
+            {/* An auto-layout table sizes a column to its widest unbreakable content, so a long label
+                pushes the snooze action off screen. A container-relative cap lets the tag truncate. */}
+            <div className="flex flex-wrap gap-1 max-w-[35cqw]" translate="no">
+                {labels.map(({ key, name, value }) => (
+                    <LemonTag key={key} type="muted" className="max-w-full">
                         <span className="truncate">
                             {name}: {value}
                         </span>
@@ -58,10 +60,12 @@ export function PlatformAlertGroupsTable({
         },
         {
             title: 'Last notified',
+            className: 'hidden @min-[48rem]/alert-groups:table-cell',
             render: (_, alert) => <OptionalTimeLabel time={alert.last_notified_at} fallback="Never" />,
         },
         {
             title: 'Snoozed until',
+            className: 'hidden @min-[40rem]/alert-groups:table-cell',
             render: (_, alert) => <OptionalTimeLabel time={alert.snooze_until} fallback="Not snoozed" />,
         },
     ]
@@ -74,11 +78,13 @@ export function PlatformAlertGroupsTable({
     }
 
     return (
-        <LemonTable
-            dataSource={[...alerts]}
-            columns={columns}
-            rowKey="id"
-            emptyState="No checks have run for this alert yet."
-        />
+        <div className="@container/alert-groups">
+            <LemonTable
+                dataSource={[...alerts]}
+                columns={columns}
+                rowKey="id"
+                emptyState="No checks have run for this alert yet."
+            />
+        </div>
     )
 }

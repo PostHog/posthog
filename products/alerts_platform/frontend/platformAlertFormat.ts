@@ -90,17 +90,23 @@ const LABEL_NAMES: Record<string, string> = {
 }
 
 export interface GroupLabel {
+    key: string
     name: string
     value: string
 }
 
 /** A group's labels in the order the alert groups by, with readable names. */
 export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly string[]): GroupLabel[] {
-    const known = groupingKeys.filter((key) => key in alert.labels)
+    // Label keys are user-typed attributes, so a key like `constructor` must not resolve through the prototype.
+    const known = groupingKeys.filter((key) => Object.hasOwn(alert.labels, key))
     const rest = Object.keys(alert.labels)
         .filter((key) => !groupingKeys.includes(key))
         .sort()
-    return [...known, ...rest].map((key) => ({ name: LABEL_NAMES[key] ?? key, value: alert.labels[key] }))
+    return [...known, ...rest].map((key) => ({
+        key,
+        name: Object.hasOwn(LABEL_NAMES, key) ? LABEL_NAMES[key] : key,
+        value: alert.labels[key],
+    }))
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {

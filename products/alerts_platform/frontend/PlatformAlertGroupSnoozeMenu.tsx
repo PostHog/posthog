@@ -57,6 +57,7 @@ export function PlatformAlertGroupSnoozeMenu({ alert }: { alert: PlatformAlertAp
                 size="xsmall"
                 sideIcon={<IconChevronDown />}
                 loading={inFlight}
+                tooltip={snoozed ? `Snoozed until ${dayjs(alert.snooze_until).format('MMM D, HH:mm')}` : undefined}
                 disabledReason={
                     snoozingGroupKey !== null && !inFlight ? 'Wait for the other group to finish saving' : undefined
                 }

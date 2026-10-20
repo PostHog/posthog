@@ -170,7 +170,9 @@ export const DetailGroupedSnoozeMenuOpen: Story = {
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Snoozed')
         const triggers = canvasElement.querySelectorAll<HTMLElement>('[data-attr="platform-alert-group-snooze-menu"]')
-        triggers[1].click()
+        Array.from(triggers)
+            .find((trigger) => trigger.textContent === 'Snoozed')
+            ?.click()
         await within(document.body).findByText('Unsnooze')
     },
 }
