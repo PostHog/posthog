@@ -324,7 +324,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         now=now,
         value=result.value,
         query_duration_ms=duration_ms,
-        firing=(alert, result.breaches),
+        firing=(alert, result.breaches or []),
     )
 
 
