@@ -146,8 +146,6 @@ impl StampedList {
     }
 
     /// Fails with `Fenced` once the stamp is revoked.
-    // `clippy.toml` disallows `Consumer::commit` everywhere else, so no commit leaves without a
-    // stamp.
     #[allow(clippy::disallowed_methods)]
     pub fn commit<C, X>(&self, consumer: &C, mode: CommitMode) -> KafkaResult<()>
     where
@@ -183,7 +181,10 @@ mod tests {
 
     #[test]
     fn empty_metadata_is_unstamped_and_anything_else_unreadable_is_unrecognized() {
+        let own = PartitionOwnership::single(64);
         assert_eq!(Stamp::parse(""), Stamp::Unstamped);
+        assert!(!Stamp::Unstamped.is_foreign_to(&own));
+        assert!(Stamp::parse("cohort-split/1:1:0:32").is_foreign_to(&own));
         for metadata in [
             "cohort-split/2:2:0:64",
             "other-tool",
@@ -194,11 +195,13 @@ mod tests {
             "cohort-split/1:2:2:64",
             "cohort-split/1:2:x:64",
         ] {
+            let stamp = Stamp::parse(metadata);
             assert_eq!(
-                Stamp::parse(metadata),
+                stamp,
                 Stamp::Unrecognized(metadata.to_owned()),
                 "{metadata}"
             );
+            assert!(stamp.is_foreign_to(&own), "the audit stops on {metadata}");
         }
     }
 

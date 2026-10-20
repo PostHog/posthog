@@ -198,13 +198,15 @@ The pod reads these stamps three times:
    A commit without a stamp passes, because older builds and standard Kafka tools, such as an offset reset, write none.
    A checkpoint restore waits for the same check again before it commits the follower positions.
 2. After the store opens, it checks the stamps again, commits every owned partition on every group with its own stamp, and reads the stamps back.
-   Another split's stamp, or a stamp that reads back empty, stops the pod with an error.
+   Another split's stamp, metadata it cannot read, or a stamp that reads back empty stops the pod with an error.
    An empty read-back means the broker does not keep commit metadata, so the fence cannot work on it.
 3. Every 30 seconds, an audit reads the stamps on the owned partitions.
    Another split's stamp, or metadata it cannot read, increments `ownership_fence_violations_total{topic}`, makes every later commit of the pod fail, and stops the pod.
    So the final commits of that stop fail and leave the foreign stamp in place, and the next boot holds at step 1.
 
 Two processes of the same split, such as two pods with the same ordinal, write the same stamp, so the fence cannot tell them apart.
+Builds from before stamps commit without one, so the fence cannot see them either.
+Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
 
 So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
 That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.

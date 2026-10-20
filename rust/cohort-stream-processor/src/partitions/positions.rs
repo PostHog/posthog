@@ -249,7 +249,6 @@ impl GroupReader {
         Ok(positions)
     }
 
-    /// The group's resume positions on `partitions`.
     fn positions(&self, partitions: &BTreeSet<u16>) -> Result<InputPositions, PositionsError> {
         let client = self.client()?;
         let commits = self.commits(&client, partitions)?;
@@ -287,8 +286,8 @@ impl GroupReader {
     }
 }
 
-/// A follower's group has no members, so a commit from any client needs no generation. Only
-/// followers get one: the events group commits through its member consumer.
+/// A follower's group has no members, so a commit from any client needs no generation. The
+/// restore commits follower positions through it before any consumer runs.
 pub struct FollowerGroup(GroupReader);
 
 impl FollowerGroup {
@@ -386,7 +385,10 @@ impl InputGroups {
     ) -> Result<(), PositionsError> {
         self.readers()
             .zip(ledger.inputs())
-            .try_for_each(|(reader, commits)| reader.restamp(stamp, commits))
+            .try_for_each(|(reader, commits)| {
+                debug_assert_eq!(reader.topic(), commits.topic());
+                reader.restamp(stamp, commits)
+            })
     }
 
     /// Every input's resume positions on `partitions`.

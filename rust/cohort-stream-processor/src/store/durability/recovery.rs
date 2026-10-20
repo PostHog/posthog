@@ -45,8 +45,8 @@ use crate::observability::metrics::{
 use crate::partitions::{AdmittedSplit, InputGroups, InputTopic};
 use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
 
-const RETRY_START: Duration = Duration::from_secs(30);
-const RETRY_MAX: Duration = Duration::from_secs(300);
+pub(crate) const RETRY_START: Duration = Duration::from_secs(30);
+pub(crate) const RETRY_MAX: Duration = Duration::from_secs(300);
 
 /// Where the live store came from.
 #[derive(Debug)]
@@ -205,7 +205,7 @@ pub async fn open_store(
     lineage: Option<CheckpointLineage>,
     groups: Arc<InputGroups>,
 ) -> Result<(CohortStore, Option<PendingRestore>), StoreError> {
-    let boot = restore_until_ready(config.clone(), *admitted, lineage, groups).await;
+    let boot = restore_until_ready(config.clone(), admitted.clone(), lineage, groups).await;
 
     // A published restore leaves a store at the path, so `effective_wipe_on_start` keeps it.
     let store_config = config.store_config(admitted.ownership());

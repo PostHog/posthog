@@ -1,6 +1,6 @@
-//! The ownership fence: one owner per partition, across pods and restarts. Every commit on the
-//! input groups carries its committer's split (see [`super::stamp`]), and the fence reads those
-//! stamps three times.
+//! The ownership fence finds a partition that two splits commit, across pods and restarts. Every
+//! commit on the input groups carries its committer's split (see [`super::stamp`]), and the fence
+//! reads those stamps three times.
 //!
 //! 1. **Admission**, before the store opens. A stamp from another split on an owned partition holds
 //!    the boot.
@@ -10,7 +10,9 @@
 //! 3. **The audit**, while the pod runs. Another split's commit on an owned partition revokes this
 //!    pod's commits and stops the pod, so the next boot holds in admission.
 //!
-//! Two processes with one ordinal are not fenced: they carry the same stamp.
+//! The fence detects an overlap but cannot prevent one, because Kafka commits are last-writer-wins
+//! and have no compare-and-set. So a change of split relies on every pod of the old split stopping
+//! first. Two processes with one ordinal are not fenced: they carry the same stamp.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -26,13 +28,9 @@ use super::positions::{InputGroups, InputTopic, PositionsError, ResumeOffset};
 use super::stamp::{CommitStamp, Stamp};
 use super::PartitionOwnership;
 use crate::observability::metrics::{OWNERSHIP_FENCE_BLOCKED, OWNERSHIP_FENCE_VIOLATIONS_TOTAL};
+use crate::store::durability::recovery::{RETRY_MAX, RETRY_START};
 use crate::sweep::Sweeper;
 
-/// The admission retries as a blocked restore does.
-const RETRY_START: Duration = Duration::from_secs(30);
-const RETRY_MAX: Duration = Duration::from_secs(300);
-
-/// How often the audit reads the stamps on the owned partitions.
 pub const AUDIT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// The last commit of one group on one partition.
@@ -128,6 +126,29 @@ impl CommitLedger {
         }
         Ok(())
     }
+
+    /// The claim's read-back: every partition of the ledger carries `ownership`'s stamp.
+    fn confirm(&self, ownership: PartitionOwnership) -> anyhow::Result<()> {
+        let ours = Stamp::Split(ownership);
+        for input in self.inputs() {
+            let topic = input.topic();
+            for (&partition, committed) in input.commits() {
+                match committed.stamp() {
+                    Some(found) if *found == ours => {}
+                    Some(found @ (Stamp::Split(_) | Stamp::Unrecognized(_))) => bail!(
+                        "{topic} partition {partition} read back {found} after this pod stamped \
+                         it: another process committed it during the claim"
+                    ),
+                    Some(Stamp::Unstamped) | None => bail!(
+                        "the broker does not keep offset commit metadata, so the ownership fence \
+                         cannot work: {topic} partition {partition} read back no stamp after this \
+                         pod stamped it"
+                    ),
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Why the fence holds the boot.
@@ -160,7 +181,6 @@ impl FenceBlock {
         }
     }
 
-    /// Holds `ownership_fence_blocked` at 1 for `blocked`'s reason, and at 0 for the others.
     fn record(blocked: Option<&Self>) {
         let reason = blocked.map(Self::reason);
         for label in Self::REASONS {
@@ -182,10 +202,10 @@ pub enum FenceError {
 }
 
 /// A split the fence admitted: no other split commits its partitions. Only the admission builds
-/// one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// one. The claim hands its stamp on, so the audit's revoke reaches every stamp the pod uses.
+#[derive(Debug, Clone)]
 pub struct AdmittedSplit {
-    ownership: PartitionOwnership,
+    stamp: CommitStamp,
 }
 
 impl AdmittedSplit {
@@ -237,48 +257,34 @@ impl AdmittedSplit {
     ) -> Result<Self, FenceError> {
         let partitions: BTreeSet<u16> = ownership.partitions().collect();
         groups.ledger(&partitions)?.admit(ownership)?;
-        Ok(Self { ownership })
+        Ok(Self {
+            stamp: CommitStamp::new(ownership),
+        })
     }
 
     pub fn ownership(&self) -> PartitionOwnership {
-        self.ownership
+        self.stamp.split()
     }
 
     pub fn stamp(&self) -> CommitStamp {
-        CommitStamp::new(self.ownership)
+        self.stamp.clone()
     }
 
     /// Checks the fence again, then commits every owned partition on every group again with this
     /// pod's stamp, at the group's commit or at the low watermark where the group never committed,
     /// and reads the stamps back. Blocks on Kafka.
     pub fn claim(self, groups: &InputGroups) -> anyhow::Result<ClaimedSplit> {
-        let partitions: BTreeSet<u16> = self.ownership.partitions().collect();
-        // Another split can claim while this pod opens its store. The restamp would cover that
-        // split's stamps, so the claim checks the fence on the same commits that it overwrites.
+        let ownership = self.ownership();
+        let partitions: BTreeSet<u16> = ownership.partitions().collect();
+        // Another split can claim while this pod opens its store, so the claim checks the fence
+        // again first. Commits have no compare-and-set: a commit between this read and the
+        // restamp is overwritten, and only the audit can catch it.
         let ledger = groups.ledger(&partitions)?;
-        ledger.admit(self.ownership)?;
-        let stamp = self.stamp();
-        groups.restamp(&stamp, &ledger)?;
-        let ours = Stamp::Split(self.ownership);
-        for input in groups.ledger(&partitions)?.inputs() {
-            for (&partition, committed) in input.commits() {
-                let topic = input.topic();
-                match committed.stamp() {
-                    Some(stamp) if *stamp == ours => {}
-                    Some(stamp @ (Stamp::Split(_) | Stamp::Unrecognized(_))) => bail!(
-                        "{topic} partition {partition} read back {stamp} after this pod stamped \
-                         it: another process committed it during the claim"
-                    ),
-                    Some(Stamp::Unstamped) | None => bail!(
-                        "the broker does not keep offset commit metadata, so the ownership fence \
-                         cannot work: {topic} partition {partition} read back no stamp after this \
-                         pod stamped it"
-                    ),
-                }
-            }
-        }
-        info!(ownership = %self.ownership, "claimed every owned partition; the stamps read back");
-        Ok(ClaimedSplit(stamp))
+        ledger.admit(ownership)?;
+        groups.restamp(&self.stamp, &ledger)?;
+        groups.ledger(&partitions)?.confirm(ownership)?;
+        info!(%ownership, "claimed every owned partition; the stamps read back");
+        Ok(ClaimedSplit(self.stamp))
     }
 }
 
@@ -444,6 +450,28 @@ mod tests {
         for (name, ownership, events, merges, expected) in rows {
             let ledger = CommitLedger::new(commits(EVENTS, events), vec![commits(MERGES, merges)]);
             assert_eq!(ledger.admit(ownership), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_claim_confirms_only_its_own_stamp_on_every_partition() {
+        let ours = || by(1, 0);
+        let rows = [
+            ("every partition reads back its stamp", ours(), true),
+            (
+                "the broker drops commit metadata",
+                Some(Stamp::Unstamped),
+                false,
+            ),
+            ("the restamp left a partition uncommitted", None, false),
+            ("another split committed during the claim", by(2, 0), false),
+        ];
+        for (name, read_back, confirmed) in rows {
+            let ledger = CommitLedger::new(
+                commits(EVENTS, [ours(), ours(), ours(), ours()]),
+                vec![commits(MERGES, [ours(), ours(), read_back, ours()])],
+            );
+            assert_eq!(ledger.confirm(split(1, 0)).is_ok(), confirmed, "{name}");
         }
     }
 }
