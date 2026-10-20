@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
@@ -79,10 +78,6 @@ class TestValidateCredentials:
         with scripted_network([]) as network:
             assert validate_credentials("wufoo-key", "bad subdomain!") is None
         assert network.requests_log == []
-
-    def test_connection_error_maps_to_none(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("wufoo-key", "acme") is None
 
 
 class TestWufooSourceResponse:

@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "@posthog/brand": "catalog:",
+        "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",

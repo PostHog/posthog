@@ -822,6 +822,12 @@ tools:
             starting a second one.
 
 
+            An experiment that started too long ago cannot be recalculated. The response is then a run that is already
+            failed, and every metric in metric_errors has error_type recalculation_window_too_long. Do not retry or poll
+            it; tell the user the message from metric_errors. The earlier results stay available from
+            experiment-metrics-recalculation-latest-retrieve.
+
+
             The response has no results array, the run has only just been queued. Take the returned id and poll
             experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest-retrieve,
             until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a
