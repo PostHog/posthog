@@ -1,8 +1,11 @@
 import { RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-export function useDashboardContainerWidth(): { width: number; containerRef: RefObject<HTMLDivElement> } {
+export function useDashboardContainerWidth(initialWidth = 1280): {
+    width: number
+    containerRef: RefObject<HTMLDivElement>
+} {
     const containerRef = useRef<HTMLDivElement>(null)
-    const [width, setWidth] = useState(1280)
+    const [width, setWidth] = useState(initialWidth)
 
     useLayoutEffect(() => {
         const container = containerRef.current
@@ -27,7 +30,9 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
         }
 
         let pendingWidth = Math.round(container.getBoundingClientRect().width)
-        setWidth(pendingWidth)
+        if (pendingWidth > 0) {
+            setWidth(pendingWidth)
+        }
         let timer: ReturnType<typeof setTimeout> | undefined
         let deferredDuringResize = false
         const commitWidth = (): void => {
@@ -45,7 +50,7 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
             }
 
             const nextWidth = Math.round(entry.contentRect.width)
-            if (nextWidth === pendingWidth) {
+            if (nextWidth <= 0 || nextWidth === pendingWidth) {
                 return
             }
 
