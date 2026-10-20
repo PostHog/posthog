@@ -254,7 +254,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             content="Canvas created",
             payload={
                 "canvas_name": "Research canvas",
-                "canvas_url": f"https://app.posthog.com/code/canvas/channel/{canvas_id}",
+                "canvas_url": f"https://app.posthog.com/code/canvas/channel/{canvas_id}?project={self.team.id}",
             },
         )
         root = Comment.objects.create(
