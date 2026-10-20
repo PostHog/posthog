@@ -1105,6 +1105,7 @@ doesn't conflict with concurrent PRs.
 - collibra
 - commission_junction
 - commslayer
+- conecto_crm
 - constant_contact
 - conta_azul
 - contentsquare
@@ -1268,6 +1269,7 @@ doesn't conflict with concurrent PRs.
 - kinde
 - kion
 - kissmetrics
+- klar
 - koyeb
 - kyve
 - labelbox
