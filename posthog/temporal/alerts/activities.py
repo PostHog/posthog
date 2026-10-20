@@ -14,7 +14,7 @@ from typing import ParamSpec, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models import Case, Count, F, IntegerField, Min, Value, When, Window
 from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
@@ -46,7 +46,7 @@ from posthog.tasks.alerts.utils import (
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
-    evaluated_by_insight_stack_q,
+    due_insight_alerts_q,
     get_alert_error_notification_recipients,
     next_check_time,
     next_scheduled_check_time,
@@ -169,14 +169,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        due_alerts_query = (
-            AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
-            )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
-            .filter(insight__deleted=False)
-            .filter(evaluated_by_insight_stack_q(polled_at))
-        )
+        due_alerts_query = AlertConfiguration.objects.filter(due_insight_alerts_q(polled_at))
         # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
         in_flight = inflight_alert_ids()
         selectable_query = due_alerts_query.exclude(id__in=in_flight) if in_flight else due_alerts_query
