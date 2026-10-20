@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -215,6 +216,9 @@ describe('EmailDomainScene', () => {
     })
 
     it('offers workflows suggested from the data on the last step, loaded while DNS was checked', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const shownEvents = (): unknown[][] =>
+            capture.mock.calls.filter(([event]) => event === 'workflows data suggestions shown')
         turnOnSuggestions(true)
         seedSender()
         backend.publishRecords(DOMAIN)
@@ -222,6 +226,7 @@ describe('EmailDomainScene', () => {
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep('Checking your settings…')
         expect(screen.queryByText('Welcome new teammates')).not.toBeInTheDocument()
+        expect(shownEvents()).toHaveLength(0)
 
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
@@ -230,12 +235,21 @@ describe('EmailDomainScene', () => {
         expect(element('workflows-data-suggestion-ai')).toHaveTextContent('Create workflow')
         expect(element('email-domain-create-welcome-workflow')).toBeInTheDocument()
         expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
+        expect(shownEvents()).toEqual([
+            ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
+        ])
     })
 
     it.each<[string, boolean, (backend: FakeEmailDomainBackend) => void]>([
         ['suggestions are off', false, (fake) => fake.suggestWorkflows([SUGGESTED_WORKFLOW])],
         ['no suggestion could be made', true, () => {}],
         ['the suggestions fail to load', true, (fake) => fake.fail('data_suggestions_generate', { status: 500 })],
+        ['the suggestions request is still pending', true, (fake) => void fake.hold('data_suggestions_generate')],
+        [
+            'the suggestions are still being written',
+            true,
+            (fake) => (fake.dataSuggestions = { status: 'generating', suggestions: [] }),
+        ],
     ])('keeps the welcome template on the last step when %s', async (_, suggestionsOn, prepare) => {
         turnOnSuggestions(suggestionsOn)
         seedSender()
@@ -243,7 +257,8 @@ describe('EmailDomainScene', () => {
         prepare(backend)
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep(/You can send from/)
-        expect(document.querySelector('[data-attr="workflows-data-suggestions"]')).toBeNull()
+        expect(document.querySelector('[data-attr="workflows-data-suggestion-ai"]')).toBeNull()
+        expect(element('email-domain-create-welcome-workflow')).toHaveClass('LemonButton--primary')
         click('email-domain-create-welcome-workflow')
         expect(router.values.location.pathname).toContain(urls.workflowNew())
     })

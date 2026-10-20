@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -9,7 +10,13 @@ import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 const LOADING_CARD_COUNT = 3
 
 export function WorkflowDataSuggestions({ surface }: { surface: WorkflowDataSuggestionsSurface }): JSX.Element | null {
-    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface }))
+    const logic = workflowDataSuggestionsLogic({ surface })
+    const { cards, generating } = useValues(logic)
+    const { reportCardsShown } = useActions(logic)
+
+    useEffect(() => {
+        reportCardsShown()
+    }, [cards, reportCardsShown])
 
     // Suggestions are optional: a failed or empty run shows nothing, not even the divider.
     if (!generating && cards.length === 0) {

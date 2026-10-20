@@ -94,6 +94,9 @@ export interface workflowDataSuggestionsLogicActions {
         aiResult: DataSuggestionsResponseApi | null
         payload?: any
     }
+    reportCardsShown: () => {
+        value: true
+    }
     setBuildingKey: (key: string | null) => {
         key: string | null
     }
@@ -139,6 +142,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
     })),
     actions({
         giveUpPolling: true,
+        reportCardsShown: true,
         startSuggestion: (card: SuggestionCard) => ({ card }),
         setBuildingKey: (key: string | null) => ({ key }),
     }),
@@ -217,17 +221,21 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 }, 'poll')
                 return
             }
-            if (aiResult?.status === 'ready' && aiResult.suggestions.length > 0) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('workflows data suggestions shown', {
-                    surface: props.surface,
-                    source: aiResult.suggestions.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
-                    trigger_events: aiResult.suggestions.map((suggestion) => suggestion.trigger_event),
-                    stages: aiResult.suggestions.map((suggestion) => suggestion.stage),
-                })
-            }
         }
         return {
+            // The logic can load before its cards are on screen, so the component that renders them reports the view.
+            reportCardsShown: () => {
+                const aiResult = values.aiResult
+                if (aiResult?.status === 'ready' && aiResult.suggestions.length > 0) {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows data suggestions shown', {
+                        surface: props.surface,
+                        source: aiResult.suggestions.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
+                        trigger_events: aiResult.suggestions.map((suggestion) => suggestion.trigger_event),
+                        stages: aiResult.suggestions.map((suggestion) => suggestion.stage),
+                    })
+                }
+            },
             loadAiResultSuccess: ({ aiResult }) => {
                 cache.pollDeadline = Date.now() + POLL_DEADLINE_MS
                 handleResult(aiResult)
