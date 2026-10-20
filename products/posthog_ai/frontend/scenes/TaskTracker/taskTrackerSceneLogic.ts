@@ -207,8 +207,8 @@ export interface taskTrackerSceneLogicValues {
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
-    taskDefaults: TasksTaskDefaultsApi | null // taskDefaultsLogic
     defaultCloudTargetSaving: boolean // taskDefaultsLogic
+    taskDefaults: TasksTaskDefaultsApi | null // taskDefaultsLogic
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultRuntimeAdapter: string | null // taskRunDefaultsLogic
@@ -222,6 +222,7 @@ export interface taskTrackerSceneLogicValues {
     autoPublishCloudRuns: boolean
     composerAdapter: string
     consentBlocked: boolean
+    customImages: SandboxCustomImageDTOApi[] | null
     desktopAccess: LegacyDesktopAccessResponseApi | null
     desktopAccessLoading: boolean
     displayEffort: ReasoningEffortEnumApi
@@ -229,7 +230,6 @@ export interface taskTrackerSceneLogicValues {
     displayModel: string
     effectiveComposerOverride: ComposerOverride | null
     effectiveRepositoryConfig: RepositoryConfig
-    customImages: SandboxCustomImageDTOApi[] | null
     favoriteCloudTarget: string | null
     hasDesktopAccess: boolean
     headlineSeed: number
@@ -290,6 +290,13 @@ export interface taskTrackerSceneLogicActions {
     toggleHistory: () => {
         value: true
     } // runnerPanelLogic
+    saveDefaultCloudTarget: (
+        cloudTarget: string | null,
+        previous: string | null
+    ) => {
+        cloudTarget: string | null
+        previous: string | null
+    } // taskDefaultsLogic
     loadMyConfigSuccess: (
         myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi,
         payload?: any
@@ -297,9 +304,6 @@ export interface taskTrackerSceneLogicActions {
         myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi
         payload?: any
     } // taskRunDefaultsLogic
-    saveDefaultCloudTarget: (cloudTarget: string | null) => {
-        cloudTarget: string | null
-    } // taskDefaultsLogic
     consumeWarm: (
         submission: WarmSubmission,
         runId: string | null
@@ -377,17 +381,24 @@ export interface taskTrackerSceneLogicActions {
     openExistingTask: (task: Task) => {
         task: Task
     }
-    pickPermissionMode: (permissionMode: PermissionMode) => {
-        permissionMode: PermissionMode
-    }
     pickCloudTarget: (cloudTarget: string | null) => {
         cloudTarget: string | null
+    }
+    pickPermissionMode: (permissionMode: PermissionMode) => {
+        permissionMode: PermissionMode
     }
     resetNewTaskData: () => {
         value: true
     }
     setActiveSuggestionGroup: (group: SuggestionGroup | null) => {
         group: SuggestionGroup | null
+    }
+    setCloudTargets: (
+        environments: SandboxEnvironmentDTOApi[] | null,
+        images: SandboxCustomImageDTOApi[] | null
+    ) => {
+        environments: SandboxEnvironmentDTOApi[] | null
+        images: SandboxCustomImageDTOApi[] | null
     }
     setHeadlineSeed: (seed: number) => {
         seed: number
@@ -397,13 +408,6 @@ export interface taskTrackerSceneLogicActions {
     }
     setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => {
         config: PersistedRepositoryConfig
-    }
-    setCloudTargets: (
-        environments: SandboxEnvironmentDTOApi[] | null,
-        images: SandboxCustomImageDTOApi[] | null
-    ) => {
-        environments: SandboxEnvironmentDTOApi[] | null
-        images: SandboxCustomImageDTOApi[] | null
     }
     submitNewTask: () => {
         value: true
@@ -837,7 +841,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             const next = values.favoriteCloudTarget === cloudTarget ? null : cloudTarget
             posthog.capture('task composer environment starred', { starred: next !== null })
-            actions.saveDefaultCloudTarget(next)
+            actions.saveDefaultCloudTarget(next, values.favoriteCloudTarget)
         },
         setCloudTargets: () => {
             actions.noteNewTaskDraft()

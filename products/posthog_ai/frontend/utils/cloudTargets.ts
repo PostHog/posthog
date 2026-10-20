@@ -25,6 +25,10 @@ export function cloudTargetIds(key: string | null): CloudTargetIds {
     return {}
 }
 
+export function readyImages(images: SandboxCustomImageDTOApi[] | null): SandboxCustomImageDTOApi[] | null {
+    return images === null ? null : images.filter((image) => image.status === 'ready')
+}
+
 export function standaloneReadyImages(
     images: SandboxCustomImageDTOApi[] | null,
     environments: SandboxEnvironmentDTOApi[] | null

@@ -25,7 +25,7 @@ import { cloudEnvironmentsLogic } from 'scenes/settings/environment/cloudEnviron
 
 import type { SandboxCustomImageDTOApi, SandboxEnvironmentDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { cloudTargetKey } from '../../utils/cloudTargets'
+import { cloudTargetKey, standaloneReadyImages } from '../../utils/cloudTargets'
 
 export interface QuillCloudEnvironmentSelectProps {
     value: string | null
@@ -70,14 +70,31 @@ interface OptionRowProps {
     description: string
     selected: boolean
     onSelect: () => void
+    onToggleFavorite?: () => void
     actions?: JSX.Element
 }
 
-function OptionRow({ icon, title, description, selected, onSelect, actions }: OptionRowProps): JSX.Element {
+function OptionRow({
+    icon,
+    title,
+    description,
+    selected,
+    onSelect,
+    onToggleFavorite,
+    actions,
+}: OptionRowProps): JSX.Element {
     return (
         <DropdownMenuItem
             aria-current={selected ? 'true' : undefined}
+            aria-keyshortcuts={onToggleFavorite ? 'S' : undefined}
             onClick={onSelect}
+            onKeyDown={(event) => {
+                if (onToggleFavorite && event.key.toLowerCase() === 's' && !event.metaKey && !event.ctrlKey) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onToggleFavorite()
+                }
+            }}
             render={
                 <ItemMenuItem size="xs" className="w-full flex-nowrap" render={<div />}>
                     <ItemMedia variant="icon" className="mt-2 ml-2">
@@ -123,7 +140,7 @@ export function QuillCloudEnvironmentSelect({
             description: environmentDescription(environment),
             image: false,
         })),
-        ...(images ?? []).map((image) => ({
+        ...standaloneReadyImages(images, environments).map((image) => ({
             key: cloudTargetKey('image', image.id),
             name: image.name,
             description: `v${image.version}, full network access`,
@@ -151,6 +168,7 @@ export function QuillCloudEnvironmentSelect({
                 description={option.description}
                 selected={option.key === value}
                 onSelect={() => pick(option.key)}
+                onToggleFavorite={favoriteSaving ? undefined : () => onToggleFavorite(option.key)}
                 actions={
                     <Button
                         type="button"
@@ -162,6 +180,7 @@ export function QuillCloudEnvironmentSelect({
                             isFavorite ? `Stop using ${option.name} by default` : `Use ${option.name} by default`
                         }
                         aria-pressed={isFavorite}
+                        title={`${isFavorite ? 'Stop using' : 'Use'} ${option.name} by default (S)`}
                         onPointerDown={(event) => {
                             event.preventDefault()
                             event.stopPropagation()

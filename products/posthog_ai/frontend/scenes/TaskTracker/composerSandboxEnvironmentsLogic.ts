@@ -12,7 +12,7 @@ import {
     SandboxCustomImagesListOriginProduct,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { cloudTargetKey, standaloneReadyImages } from '../../utils/cloudTargets'
+import { cloudTargetKey, readyImages } from '../../utils/cloudTargets'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 export interface ComposerSandboxEnvironmentsLogicProps {
@@ -90,10 +90,18 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
                         return null
                     }
                     try {
-                        const page = await sandboxCustomImagesList(String(values.currentProjectId), {
-                            origin_product: SandboxCustomImagesListOriginProduct.PosthogAi,
-                        })
-                        return page.results
+                        const images: SandboxCustomImageDTOApi[] = []
+                        let count = Infinity
+                        while (images.length < count) {
+                            const page = await sandboxCustomImagesList(String(values.currentProjectId), {
+                                origin_product: SandboxCustomImagesListOriginProduct.PosthogAi,
+                                limit: 100,
+                                offset: images.length,
+                            })
+                            images.push(...page.results)
+                            count = page.results.length > 0 ? page.count : images.length
+                        }
+                        return images
                     } catch (error: any) {
                         if (error?.status === 403) {
                             actions.markImagesUnavailable()
@@ -125,8 +133,7 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
     }),
     listeners(({ actions, values }) => ({
         syncCloudTargets: () => {
-            const images = values.images === null ? null : standaloneReadyImages(values.images, values.environments)
-            actions.setCloudTargets(values.environments, images)
+            actions.setCloudTargets(values.environments, readyImages(values.images))
         },
         loadEnvironmentsSuccess: () => actions.syncCloudTargets(),
         loadImagesSuccess: () => actions.syncCloudTargets(),
@@ -151,10 +158,7 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
                 ...(values.environments ?? []).filter((existing) => existing.id !== environment.id),
                 environment,
             ]
-            actions.setCloudTargets(
-                environments,
-                values.images === null ? null : standaloneReadyImages(values.images, environments)
-            )
+            actions.setCloudTargets(environments, readyImages(values.images))
             actions.pickCloudTarget(cloudTargetKey('environment', environment.id))
         },
     })),
