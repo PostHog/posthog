@@ -47,6 +47,7 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     destinationGroup: LogsAlertDestinationGroup | null
     eventLabelByHogFunctionId: Record<string, string>
+    recentSendsDue: boolean
     firstSlackIntegration: IntegrationType | undefined
     hasLoaded: boolean
     hogFunctionId: string
@@ -132,6 +133,13 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
         eventLabelByHogFunctionId: (destinationGroup: LogsAlertDestinationGroup | null) => Record<string, string>
+        recentSendsDue: (
+            featureFlags: FeatureFlagsSet,
+            destinationGroup: LogsAlertDestinationGroup | null,
+            recentSends: LogsAlertDestinationSendApi[] | null,
+            recentSendsLoading: boolean,
+            recentSendsError: boolean
+        ) => boolean
         messageCustomized: (
             alert: LogsAlertConfigurationDetailApi | null,
             destinationGroup: LogsAlertDestinationGroup | null
@@ -279,6 +287,24 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 return groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
             },
         ],
+        // Due once per page: a pause or enable reloads the functions but changes no past send, and a
+        // failed load waits for Retry. Watched rather than checked after the functions load, so a flag
+        // that turns on later still loads the sends.
+        recentSendsDue: [
+            (s) => [s.featureFlags, s.destinationGroup, s.recentSends, s.recentSendsLoading, s.recentSendsError],
+            (
+                featureFlags: FeatureFlagsSet,
+                group: LogsAlertDestinationGroup | null,
+                recentSends: LogsAlertDestinationSendApi[] | null,
+                loading: boolean,
+                error: boolean
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] &&
+                group !== null &&
+                recentSends === null &&
+                !loading &&
+                !error,
+        ],
         eventLabelByHogFunctionId: [
             (s) => [s.destinationGroup],
             (group: LogsAlertDestinationGroup | null): Record<string, string> =>
@@ -328,17 +354,6 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     }),
 
     listeners(({ actions, values, props }) => ({
-        loadHogFunctionsSuccess: () => {
-            // Only the first load: a pause or enable reloads the functions but changes no past send.
-            if (
-                values.featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] &&
-                values.destinationGroup &&
-                values.recentSends === null &&
-                !values.recentSendsLoading
-            ) {
-                actions.loadRecentSends()
-            }
-        },
         deleteDestination: async ({ displayLabel }) => {
             const group = values.destinationGroup
             if (!group || !values.currentTeamId) {
@@ -384,6 +399,11 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     })),
 
     subscriptions(({ values, actions }) => ({
+        recentSendsDue: (due: boolean) => {
+            if (due) {
+                actions.loadRecentSends()
+            }
+        },
         currentTeamId: (currentTeamId: number | null) => {
             if (!currentTeamId) {
                 return

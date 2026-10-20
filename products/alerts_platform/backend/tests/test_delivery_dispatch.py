@@ -309,19 +309,22 @@ class TestDeliveryTelemetry(SimpleTestCase):
         self, _name: str, succeeded: bool, error: str | None, level: str, message: str
     ) -> None:
         with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
-            record_delivery(
-                team_id=2,
-                configuration_id="cfg-1",
-                provider="slack",
-                destination_id="fn-1",
-                succeeded=succeeded,
-                error=error,
-            )
+            for _ in range(2):
+                record_delivery(
+                    team_id=2,
+                    configuration_id="cfg-1",
+                    provider="slack",
+                    destination_id="fn-1",
+                    succeeded=succeeded,
+                    error=error,
+                )
 
-        metrics, log = [c.kwargs["data"] for c in producer.return_value.produce.call_args_list]
+        metrics, log, _, second_log = [c.kwargs["data"] for c in producer.return_value.produce.call_args_list]
         assert metrics["instance_id"] == "fn-1"
-        assert (log["log_source"], log["log_source_id"], log["instance_id"]) == ("alert_destination", "fn-1", "cfg-1")
+        assert (log["log_source"], log["log_source_id"]) == ("alert_destination", "fn-1")
         assert (log["level"], log["message"]) == (level, message)
+        # Two sends in the same microsecond would otherwise share a sorting key and merge into one row.
+        assert log["instance_id"] != second_log["instance_id"]
 
     def test_a_broken_producer_does_not_fail_a_send_that_already_happened(self) -> None:
         with patch(

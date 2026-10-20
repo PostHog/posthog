@@ -12,6 +12,7 @@ loses ids as event kinds are switched on and off, and its history would go with 
 
 import datetime as dt
 from typing import Final
+from uuid import uuid4
 
 import structlog
 
@@ -20,7 +21,8 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_LOG_ENTRIES
 from posthog.models.event.util import format_clickhouse_timestamp
 
 ALERT_APP_SOURCE: Final = "alert"
-# `log_source_id` is the destination HogFunction id and `instance_id` the alert configuration id.
+# `log_source_id` is the destination HogFunction id. `instance_id` is unique per send, because `log_entries`
+# is a ReplacingMergeTree and two sends with the same key and microsecond would collapse into one row.
 NATIVE_SEND_LOG_SOURCE: Final = "alert_destination"
 NATIVE_SEND_SUCCEEDED_MESSAGE: Final = "Sent"
 _MAX_ERROR_LENGTH: Final = 500
@@ -65,7 +67,7 @@ def record_delivery(
                     "team_id": team_id,
                     "log_source": NATIVE_SEND_LOG_SOURCE,
                     "log_source_id": destination_id,
-                    "instance_id": configuration_id,
+                    "instance_id": str(uuid4()),
                     "timestamp": format_clickhouse_timestamp(timestamp),
                     "level": "INFO" if succeeded else "ERROR",
                     "message": NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH],

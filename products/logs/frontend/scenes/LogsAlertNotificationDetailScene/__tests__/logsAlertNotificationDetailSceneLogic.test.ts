@@ -72,4 +72,20 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
 
         expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual(expected)
     })
+
+    it('loads the sends when the flag turns on after the functions loaded', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const logic = logsAlertNotificationDetailSceneLogic({ alertId: 'alert-1', hogFunctionId: 'fn-resolved' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockSends).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION]: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual([
+            ['fn-firing', 'fn-resolved'],
+        ])
+    })
 })
