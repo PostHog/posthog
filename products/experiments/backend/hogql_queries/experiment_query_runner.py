@@ -235,7 +235,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
     def _should_precompute(self) -> bool:
-        return self._precompute_skip_reason() not in BLOCKING_PRECOMPUTE_SKIP_REASONS
+        return (
+            not self.modifiers.useNewEventsCluster
+            and self._precompute_skip_reason() not in BLOCKING_PRECOMPUTE_SKIP_REASONS
+        )
 
     def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""

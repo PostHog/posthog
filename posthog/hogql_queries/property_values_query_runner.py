@@ -103,6 +103,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     @cached_property
     def _use_property_values_table(self) -> bool:
+        if self.modifiers.useNewEventsCluster:
+            return False
         # Column and virtual lookups stay on the events scan: the table only
         # holds keys from the properties blob. event_names is deliberately not
         # a fallback: the table has no event dimension, so flagged teams get
