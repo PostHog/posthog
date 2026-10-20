@@ -471,7 +471,7 @@ def _without_stale_groups(
         return outcome
     if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
         return outcome
-    return replace(outcome, groups=(), overflowed=0, evicted=())
+    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=())
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -542,6 +542,10 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                     continue
                 touched.append(alert)
                 alert.last_seen_at = now
+                # A hashed key's group that a check did not return arrives without labels, and its
+                # labels have not changed, so the stored ones stay.
+                if group.labels:
+                    alert.labels = group.labels
                 # Before either row is mutated, so the history row keeps the state the check found.
                 rows.append(
                     _event_row(
@@ -578,6 +582,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 )
             configuration.check_status = _check_status(configuration, outcome)
             configuration.consecutive_failures = outcome.consecutive_failures
+            if outcome.failure is None and not outcome.skipped:
+                configuration.overflowed_groups = outcome.overflowed
+                configuration.overflow_is_lower_bound = outcome.overflow_is_lower_bound
             if outcome.disable:
                 configuration.enabled = False
             configuration.next_check_at = advance_schedule(
@@ -593,10 +600,18 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
         # Batched, because a grouped check writes a row per group rather than one per configuration.
         PlatformAlert.objects.for_team(team_id).bulk_update(
-            touched, ["state", "last_notified_at", "firing_started_at", "last_seen_at"], batch_size=500
+            touched, ["state", "last_notified_at", "firing_started_at", "last_seen_at", "labels"], batch_size=500
         )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
-            configurations, ["check_status", "consecutive_failures", "enabled", "next_check_at"]
+            configurations,
+            [
+                "check_status",
+                "consecutive_failures",
+                "enabled",
+                "next_check_at",
+                "overflowed_groups",
+                "overflow_is_lower_bound",
+            ],
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
@@ -678,6 +693,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
         if revived:
             defaults["consecutive_failures"] = 0
             defaults["check_status"] = PlatformAlertConfiguration.CheckStatus.OK
+            defaults["overflowed_groups"] = 0
+            defaults["overflow_is_lower_bound"] = False
             # After any check already running, so an outcome it read before the source came back
             # on, such as a stop, finds the row no longer due and records nothing.
             defaults["next_check_at"] = max(
@@ -725,9 +742,16 @@ def write_edit(
         "cooldown_minutes",
         "updated_at",
     ]
+    reenabled = edit.enabled and not configuration.enabled
+    if regrouped or reenabled:
+        # The count describes groups under old keys or from before the alert was off, so it says
+        # nothing until the next check.
+        configuration.overflowed_groups = 0
+        configuration.overflow_is_lower_bound = False
+        update_fields += ["overflowed_groups", "overflow_is_lower_bound"]
     # An alert turned back on starts clean, as a revived copy does. A BROKEN one would otherwise stay
     # out of discovery for good.
-    if edit.enabled and not configuration.enabled:
+    if reenabled:
         configuration.consecutive_failures = 0
         configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
         configuration.next_check_at = now + _REVIVE_FENCE

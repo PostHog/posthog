@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
+    get_configuration,
     give_back_ownership,
     record_outcomes,
     slot_of,
@@ -421,6 +422,54 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.id, "configuration_id": self.configuration.id},
         )
         assert (keys, rows) == (["api"], [("api",)])
+
+    @parameterized.expand(
+        [
+            ("cleared_by_a_check_that_fits", {}, (0, False)),
+            (
+                "kept_by_a_failed_check",
+                {
+                    "groups": (),
+                    "failure": CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=False),
+                    "consecutive_failures": 1,
+                },
+                (3, True),
+            ),
+            ("kept_by_a_skipped_check", {"groups": (), "skipped": True}, (3, True)),
+        ]
+    )
+    def test_the_configuration_shows_the_overflow_of_the_last_check_that_ran(
+        self, _name: str, next_check: dict[str, Any], expected: tuple[int, bool]
+    ) -> None:
+        def shown() -> tuple[int, bool]:
+            with team_scope(self.team.id):
+                view = get_configuration(
+                    team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=self.configuration.id
+                )
+            assert view is not None
+            return view.overflowed_groups, view.overflow_is_lower_bound
+
+        self._record(overflowed=3, overflow_is_lower_bound=True)
+        assert shown() == (3, True)
+
+        self._record(at=self._next_due(), **next_check)
+
+        assert shown() == expected
+
+    def test_an_instance_keeps_its_labels_when_a_check_returns_its_group_without_them(self) -> None:
+        labelled = GroupOutcome(
+            grouping_key="api",
+            kind=AlertEventKind.CHECK,
+            new_state="not_firing",
+            notified=False,
+            labels={"service_name": "api"},
+        )
+        self._record(groups=(labelled,))
+        assert self._alert("api").labels == {"service_name": "api"}
+
+        self._record(at=self._next_due(), groups=(self._group("api"),))
+
+        assert self._alert("api").labels == {"service_name": "api"}
 
     @parameterized.expand([("stale", ("severity_text",), []), ("current", ("service_name",), ["api", "web"])])
     def test_a_check_that_ran_under_another_grouping_records_no_groups(

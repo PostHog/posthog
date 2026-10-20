@@ -179,10 +179,13 @@ def build_message(
     else:
         details = list(description.details or _breach_details(transition))
     if overflowed:
+        untracked = pluralize(overflowed, "more group")
+        if announcement.overflow_is_lower_bound:
+            untracked = f"At least {untracked}"
         details.append(
             MessageDetail(
                 label="Untracked groups",
-                value=f"{pluralize(overflowed, 'more group')} not tracked because this alert is at its group limit",
+                value=f"{untracked} not tracked because this alert is at its group limit",
             )
         )
     return AlertMessage(

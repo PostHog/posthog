@@ -90,6 +90,11 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     check_status = models.CharField(
         max_length=16, choices=CheckStatus.choices, default=CheckStatus.OK.value, db_default="ok"
     )
+    # New groups the last check that ran turned away at `max_instances`. A failed or skipped check
+    # leaves both as they were, because it measured no groups.
+    overflowed_groups = models.PositiveIntegerField(default=0, db_default=0)
+    # The source cut its results before admission saw them all, so more groups may have been turned away.
+    overflow_is_lower_bound = models.BooleanField(default=False, db_default=False)
 
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.
@@ -158,6 +163,9 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     # The last check that returned this group. Reaping reads it to free the slot of a group that
     # stopped appearing. Null for a row no check has recorded since the column existed.
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    # The result labels whose values make `grouping_key`. Kept because a hashed key cannot be decoded
+    # back into them.
+    labels = models.JSONField(default=dict, db_default={})
 
     class Meta:
         db_table = "alerts_platformalert"

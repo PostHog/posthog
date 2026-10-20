@@ -45,6 +45,7 @@ def instance_view(alert: PlatformAlert, configuration: PlatformAlertConfiguratio
         firing_started_at=alert.firing_started_at,
         last_notified_at=alert.last_notified_at,
         snooze_until=seen.snooze_until,
+        labels=alert.labels,
     )
 
 
@@ -68,6 +69,8 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         grouping=Grouping.from_stored(configuration.grouping),
         snooze_until=configuration.snooze_until,
         check_status=configuration.check_status,
+        overflowed_groups=configuration.overflowed_groups,
+        overflow_is_lower_bound=configuration.overflow_is_lower_bound,
         owner=configuration.owner,
         created_at=configuration.created_at,
         updated_at=configuration.updated_at,

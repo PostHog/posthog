@@ -72,6 +72,10 @@ class TestPlatformAlertAPI(APIBaseTest):
                 state=PlatformAlert.State.FIRING,
                 firing_started_at=firing_started_at,
                 last_notified_at=firing_started_at,
+                labels={"service_name": "checkout"},
+            )
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=2, overflow_is_lower_bound=True
             )
         list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
 
@@ -79,6 +83,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         results = list_response.json()["results"]
         assert [r["id"] for r in results] == [str(configuration.id)]
         assert results[0]["legacy_configuration_id"] == str(legacy_configuration_id)
+        assert (results[0]["overflowed_groups"], results[0]["overflow_is_lower_bound"]) == (2, True)
         assert results[0]["alerts"] == [
             {
                 "id": str(alert.id),
@@ -87,6 +92,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "firing_started_at": "2026-09-16T10:00:00Z",
                 "last_notified_at": "2026-09-16T10:00:00Z",
                 "snooze_until": None,
+                "labels": {"service_name": "checkout"},
             }
         ]
 
@@ -260,6 +266,9 @@ class TestPlatformAlertAPI(APIBaseTest):
         configuration = self._create_configuration(self.team, "API errors", owner="platform")
         with team_scope(self.team.id):
             PlatformAlert.objects.create(team=self.team, configuration=configuration, state=PlatformAlert.State.FIRING)
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=4, overflow_is_lower_bound=True
+            )
             PlatformAlertThread.objects.create(
                 team=self.team,
                 configuration=configuration,
@@ -283,6 +292,7 @@ class TestPlatformAlertAPI(APIBaseTest):
             "on_overflow": "degrade_visible",
         }
         assert (body["name"], body["alerts"]) == ("API errors", [])
+        assert (body["overflowed_groups"], body["overflow_is_lower_bound"]) == (0, False)
         with team_scope(self.team.id):
             assert not PlatformAlertThread.objects.filter(configuration=configuration).exists()
 

@@ -160,9 +160,19 @@ class GroupDecision:
     evicted: frozenset[str] = frozenset()
 
     def as_outcome(
-        self, *, configuration_id: UUID, evaluation_key: str, grouping: Grouping, query_duration_ms: int | None
+        self,
+        *,
+        configuration_id: UUID,
+        evaluation_key: str,
+        grouping: Grouping,
+        query_duration_ms: int | None,
+        results_cut: bool = False,
     ) -> PlatformAlertOutcome:
-        """The outcome of a grouped check that ran. A query that ran reset the failure count."""
+        """The outcome of a grouped check that ran. A query that ran reset the failure count.
+
+        `results_cut` says the source dropped results before they were observed. Groups it dropped
+        may also have been turned away, so a non-zero overflow is then only a lower bound.
+        """
         return PlatformAlertOutcome(
             configuration_id=configuration_id,
             evaluation_key=evaluation_key,
@@ -171,6 +181,7 @@ class GroupDecision:
             grouping=grouping,
             query_duration_ms=query_duration_ms,
             overflowed=self.overflowed,
+            overflow_is_lower_bound=results_cut and self.overflowed > 0,
             evicted=tuple(sorted(self.evicted)),
         )
 

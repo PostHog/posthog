@@ -543,6 +543,8 @@ class PlatformAlertOutcome:
     skipped: bool = False
     # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
     overflowed: int = 0
+    # The source cut its results before admission, so `overflowed` counts only the groups it saw.
+    overflow_is_lower_bound: bool = False
     # Resting instances whose slot a new group took. The write deletes them before it creates rows.
     evicted: tuple[str, ...] = ()
     error_message: str | None = None
@@ -695,6 +697,7 @@ class EvaluationAnnouncement:
     # Groups the configuration had no room for. The first message names them, so a cap never drops
     # a group without anyone being told.
     overflowed: int = 0
+    overflow_is_lower_bound: bool = False
 
 
 @frozen
@@ -737,6 +740,7 @@ class AlertDeliveryRequest:
     source_alert_url: str | None = None
     owned_by_platform: bool = False
     overflowed: int = 0
+    overflow_is_lower_bound: bool = False
     # How many activities the delivery workflow splits an evaluation into, by `MAX_TRANSITIONS_PER_DELIVERY`,
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
@@ -784,6 +788,7 @@ class PlatformAlertSnapshot:
     firing_started_at: datetime | None
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 @frozen
@@ -812,6 +817,8 @@ class PlatformAlertConfigurationView:
     grouping: Grouping
     snooze_until: datetime | None
     check_status: str
+    overflowed_groups: int
+    overflow_is_lower_bound: bool
     owner: str
     created_at: datetime
     updated_at: datetime

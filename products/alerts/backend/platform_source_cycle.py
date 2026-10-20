@@ -222,6 +222,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         overflowed=outcome.overflowed,
+        overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome),
     )
 
@@ -422,6 +423,7 @@ def _decide_grouped(
         evaluation_key=_evaluation_key(check, now),
         grouping=check.grouping,
         query_duration_ms=duration_ms,
+        results_cut=evaluated.truncated,
     )
 
 

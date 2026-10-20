@@ -95,6 +95,7 @@ def _request(
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
     overflowed: int = 0,
+    overflow_is_lower_bound: bool = False,
     parts: int = 1,
     part: int = 0,
 ) -> AlertDeliveryRequest:
@@ -110,6 +111,7 @@ def _request(
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
         owned_by_platform=owned_by_platform,
         overflowed=overflowed,
+        overflow_is_lower_bound=overflow_is_lower_bound,
         parts=parts,
         part=part,
     )
@@ -160,6 +162,7 @@ class TestDeliverEvaluation(APIBaseTest):
         incident_actions: dict[str, IncidentAction] | None = None,
         owned_by_platform: bool = False,
         overflowed: int = 0,
+        overflow_is_lower_bound: bool = False,
         parts: int = 1,
         part: int = 0,
         kinds: dict[str, AlertEventKind] | None = None,
@@ -194,6 +197,7 @@ class TestDeliverEvaluation(APIBaseTest):
                     incident_actions=incident_actions,
                     owned_by_platform=owned_by_platform,
                     overflowed=overflowed,
+                    overflow_is_lower_bound=overflow_is_lower_bound,
                     parts=parts,
                     part=part,
                 )
@@ -216,22 +220,38 @@ class TestDeliverEvaluation(APIBaseTest):
             ("C-resolves", "Log alert 'API errors' is resolved"),
         ]
 
-    def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
+    @parameterized.expand(
+        [
+            ("exact", False, "3 more groups not tracked because this alert is at its group limit"),
+            ("lower_bound", True, "At least 3 more groups not tracked because this alert is at its group limit"),
+        ]
+    )
+    def test_a_destination_subscribed_to_both_hears_about_both(
+        self, _name: str, overflow_is_lower_bound: bool, notice: str
+    ) -> None:
         announced = _announcement(
             _transition(AlertEventKind.FIRING, "checkout"),
             _transition(AlertEventKind.RESOLVED, "search"),
         )
 
-        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]}, overflowed=3)
+        self._run(
+            announced,
+            {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]},
+            overflowed=3,
+            overflow_is_lower_bound=overflow_is_lower_bound,
+        )
 
         assert sorted(m.headline for _, m in RecordingTransport.sends) == [
             "Log alert 'API errors' is firing",
             "Log alert 'API errors' is resolved",
         ]
         overflow_notices = [
-            detail for _, m in RecordingTransport.sends for detail in m.details if detail.label == "Untracked groups"
+            detail.value
+            for _, m in RecordingTransport.sends
+            for detail in m.details
+            if detail.label == "Untracked groups"
         ]
-        assert len(overflow_notices) == 1
+        assert overflow_notices == [notice]
 
     def test_each_destination_hears_the_overflow_once_across_the_parts_of_a_split_delivery(self) -> None:
         # Sorted by key, the firing lands in part 0 and the resolve in part 1, so a destination

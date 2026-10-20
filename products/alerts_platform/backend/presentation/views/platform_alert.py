@@ -69,6 +69,12 @@ class PlatformAlertSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Time until which notifications are snoozed. Null when not snoozed.",
     )
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Result labels and their values for the group this instance tracks, such as "
+        '{"service_name": "checkout"}. Empty when the source does not group results.',
+    )
 
 
 class GroupingSerializer(serializers.Serializer):
@@ -179,6 +185,16 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether the alert's checks succeed. Holds for every instance, because a failed check "
         "names no group.",
+    )
+    overflowed_groups = serializers.IntegerField(
+        read_only=True,
+        help_text="New groups the last successful check could not track because the alert already held "
+        "grouping.max_instances instances. 0 when every group fit.",
+    )
+    overflow_is_lower_bound = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the last successful check cut its results before counting overflowed_groups. "
+        "When true, more groups than overflowed_groups may be untracked.",
     )
     owner = serializers.ChoiceField(
         choices=PlatformAlertOwner.choices,
