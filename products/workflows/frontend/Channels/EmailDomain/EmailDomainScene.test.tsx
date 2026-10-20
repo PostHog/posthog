@@ -215,7 +215,7 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
     })
 
-    it('offers workflows suggested from the data on the last step, loaded while DNS was checked', async () => {
+    it('replaces the template with workflows suggested from the data, loaded while DNS was checked', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         const shownEvents = (): unknown[][] =>
             capture.mock.calls.filter(([event]) => event === 'workflows data suggestions shown')
@@ -233,11 +233,15 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
         expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
         expect(element('workflows-data-suggestion-ai')).toHaveTextContent('Create workflow')
-        expect(element('email-domain-create-welcome-workflow')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="email-domain-create-welcome-workflow"]')).toBeNull()
         expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
         expect(shownEvents()).toEqual([
             ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
         ])
+
+        click('email-domain-create-blank-workflow')
+        expect(router.values.location.pathname).toContain(urls.workflowNew())
+        expect(router.values.searchParams).not.toHaveProperty('templateId')
     })
 
     it.each<[string, boolean, (backend: FakeEmailDomainBackend) => void]>([
@@ -250,18 +254,23 @@ describe('EmailDomainScene', () => {
             true,
             (fake) => (fake.dataSuggestions = { status: 'generating', suggestions: [] }),
         ],
-    ])('keeps the welcome template on the last step when %s', async (_, suggestionsOn, prepare) => {
-        turnOnSuggestions(suggestionsOn)
-        seedSender()
-        backend.verifyDomain(DOMAIN)
-        prepare(backend)
-        await open(urls.workflowsEmailDomain(SENDER_ID))
-        expectStep(/You can send from/)
-        expect(document.querySelector('[data-attr="workflows-data-suggestion-ai"]')).toBeNull()
-        expect(element('email-domain-create-welcome-workflow')).toHaveClass('LemonButton--primary')
-        click('email-domain-create-welcome-workflow')
-        expect(router.values.location.pathname).toContain(urls.workflowNew())
-    })
+    ])(
+        'keeps the welcome template and a blank workflow on the last step when %s',
+        async (_, suggestionsOn, prepare) => {
+            turnOnSuggestions(suggestionsOn)
+            seedSender()
+            backend.verifyDomain(DOMAIN)
+            prepare(backend)
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            expectStep(/You can send from/)
+            expect(document.querySelector('[data-attr="workflows-data-suggestion-ai"]')).toBeNull()
+            expect(element('email-domain-create-welcome-workflow')).toHaveClass('LemonButton--primary')
+            expect(element('email-domain-create-blank-workflow')).toHaveTextContent('Blank workflow')
+            click('email-domain-create-welcome-workflow')
+            expect(router.values.location.pathname).toContain(urls.workflowNew())
+            expect(router.values.searchParams).toHaveProperty('templateId')
+        }
+    )
 
     it('refuses a second submit while creating, shows the error, and lets the person try again', async () => {
         const release = backend.hold('integration_create')
