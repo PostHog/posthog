@@ -139,7 +139,6 @@ function delayWait(action: ActionOf<'delay'>): WaitPresentation {
 export const waitConditionName = (action: ActionOf<'wait_until_condition'>): string | undefined =>
     action.config.condition.name?.trim() || undefined
 
-/** The runner continues when any of the events fires or the person matches the condition. */
 function waitConditionText(action: ActionOf<'wait_until_condition'>): string {
     const parts = [...(action.config.events ?? []).map((event) => event.filters), action.config.condition.filters]
         .map(conditionText)

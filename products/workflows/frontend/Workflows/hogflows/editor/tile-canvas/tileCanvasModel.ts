@@ -254,7 +254,6 @@ function encloses(outer: PathGroup, inner: PathGroup): boolean {
 
 /** A path's parent is the smallest other path that holds its split and all of its steps. */
 function parentsOf(groups: PathGroup[]): Map<string, string> {
-    // Smallest first, so the search stops at the first path that encloses: deep nesting would otherwise check every ancestor.
     const holding = new Map<string, PathGroup[]>()
     ;[...groups]
         .sort((a, b) => a.memberIds.length - b.memberIds.length)

@@ -43,7 +43,6 @@ export function TileFace({
                     style={{ borderColor: tile.color }}
                 >
                     {emailPlaceholder ? (
-                        // Same box as the thumbnail's card size.
                         <span className="block h-28 w-40" />
                     ) : (
                         <EmailPreviewThumbnail html={html} title={`${action.name} preview`} size="card" />
