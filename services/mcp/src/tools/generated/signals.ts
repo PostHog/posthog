@@ -502,6 +502,7 @@ const inboxReportsList = (): ToolBase<
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 created_after: params.created_after,
+                exclude: params.exclude,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 include_source_metadata: params.include_source_metadata,
@@ -2160,6 +2161,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -3187,6 +3189,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })

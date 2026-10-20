@@ -779,9 +779,19 @@ def _github_error_message(response: requests.Response) -> str:
 
 # GitHub answers 403 both for a real permission denial and for a repository feature the owner has
 # switched off — Dependabot alerts disabled, code scanning without Advanced Security, an archived
-# repository. A switched-off feature has nothing to sync now or on any later run, so it is a
-# zero-row skip rather than something to fail the schema over. Matched against GitHub's own message.
-_FEATURE_UNAVAILABLE_MARKERS = ("is disabled", "are disabled", "must be enabled", "not enabled", "is archived")
+# repository. It also answers 403 for a feature its plan gates, such as rulesets on a private
+# repository under a free plan ("Upgrade to GitHub Pro or make this repository public to enable this
+# feature."). A switched-off or plan-gated feature has nothing to sync until the owner changes the
+# repository, so it is a zero-row skip rather than something to fail the schema over. Matched
+# against GitHub's own message.
+_FEATURE_UNAVAILABLE_MARKERS = (
+    "is disabled",
+    "are disabled",
+    "must be enabled",
+    "not enabled",
+    "is archived",
+    "to enable this feature",
+)
 
 
 def _is_feature_unavailable_denial(message: str) -> bool:

@@ -2,6 +2,33 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
+_METRIC_COLUMNS = {
+    "period": "Month the metrics cover.",
+    "clicks_count": "Referral link clicks in the period.",
+    "referrals_count": "Referrals (leads and signups) tracked in the period.",
+    "customers_count": "Referrals that became paying customers in the period.",
+    "sales_count": "Sales tracked in the period.",
+    "refunds_count": "Refunds tracked in the period.",
+    "cancelled_customers_count": "Referred customers who cancelled in the period.",
+    "revenue_amount": "Revenue from referred customers in the period.",
+    "promoter_earnings_amount": "Commissions promoters earned in the period.",
+    "referrals_to_customers_cr": "Share of referrals that converted to customers.",
+    "clicks_to_customers_cr": "Share of clicks that converted to customers.",
+    "clicks_to_referrals_cr": "Share of clicks that converted to referrals.",
+}
+
+_PROGRAM_METRIC_COLUMNS = {
+    **_METRIC_COLUMNS,
+    "active_customers": "Referred customers active in the period.",
+    "monthly_churn": "Share of referred customers who churned in the period.",
+    "net_revenue_amount": "Revenue from referred customers in the period, net of refunds.",
+    "non_link_customers": "Customers attributed without a referral link click, for example through a coupon.",
+    "3m_epc": "Earnings per click over the trailing three months.",
+    "6m_epc": "Earnings per click over the trailing six months.",
+    "promoter_paid_amount": "Commissions paid out to promoters in the period.",
+    "signups_count": "Referred signups in the period.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "commissions": {
         "description": "Commissions earned by promoters for the sales and events they referred.",
@@ -143,5 +170,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "cancelled_at": "When the referral cancelled, if they did.",
             "created_at": "When the referral was first tracked.",
         },
+    },
+    "promoter_referral_links": {
+        "description": "Referral links of each promoter: the default link plus any campaign or custom links.",
+        "docs_url": "https://docs.firstpromoter.com/api-reference-v2/api-admin/promoters/get-promoter-referral-links",
+        "columns": {
+            "promoter_id": "Identifier of the promoter the link belongs to.",
+            "id": "Identifier of the link, when it has one.",
+            "name": "Display name of the link.",
+            "url": "The referral link URL.",
+            "is_default": "Whether this is the promoter's default link.",
+            "source": "Where the link comes from: campaign or promoter.",
+            "sub_id": "Sub-ID appended to the link, for custom links.",
+            "campaign": "Campaign the link belongs to, with its id and name.",
+        },
+    },
+    "reports_overview": {
+        "description": "Program-wide affiliate metrics for each month.",
+        "docs_url": "https://docs.firstpromoter.com/api-reference-v2/api-admin/reports/get-reports-for-overview",
+        "columns": _PROGRAM_METRIC_COLUMNS,
+    },
+    "reports_campaigns": {
+        "description": "Affiliate metrics for each campaign and month.",
+        "docs_url": "https://docs.firstpromoter.com/api-reference-v2/api-admin/reports/get-reports-for-campaigns",
+        "columns": {
+            **_PROGRAM_METRIC_COLUMNS,
+            "campaign_id": "Identifier of the campaign.",
+            "campaign_name": "Name of the campaign.",
+        },
+    },
+    "reports_traffic_sources": {
+        "description": "Affiliate metrics for each referral traffic source and month.",
+        "docs_url": "https://docs.firstpromoter.com/api-reference-v2/api-admin/reports/get-reports-for-traffic-sources",
+        "columns": {**_METRIC_COLUMNS, "source": "Traffic source the clicks came from."},
     },
 }
