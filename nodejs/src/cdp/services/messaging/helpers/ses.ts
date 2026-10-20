@@ -212,9 +212,19 @@ const sesUnattributedEventsCounter = new Counter({
 export const SES_LINK_INDEX_TAG = 'phl'
 
 // SES message tag set at send time on emails whose template is marked sensitive, and echoed back on
-// every event for that message. A clicked link in such an email can carry a reset token or a login code,
-// so its click is recorded with the normalized URL, which drops the query string.
+// every event for that message. Such an email's subject and link paths can carry a login code or a
+// reset token, so its events keep no subject and only each clicked link's origin. `$link_index` still
+// tells the links apart.
 export const SES_SENSITIVE_TAG = 'ph_sensitive'
+
+const sensitiveLinkOrigin = (link: string): string => {
+    try {
+        const url = new URL(link)
+        return url.host ? `${url.protocol}//${url.host}` : url.protocol
+    } catch {
+        return ''
+    }
+}
 
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
@@ -733,9 +743,10 @@ export class SesWebhookHandler {
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
+                const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
-                    $email_subject: rec.mail.commonHeaders?.subject,
+                    ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -747,10 +758,7 @@ export class SesWebhookHandler {
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
                     const destination = resolveClickDestination(rec.click.link)
-                    properties.$link_url =
-                        rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
-                            ? normalizeClickUrl(destination)
-                            : destination
+                    properties.$link_url = isSensitive ? sensitiveLinkOrigin(destination) : destination
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
@@ -806,7 +814,9 @@ export class SesWebhookHandler {
                         instanceIdOverride: buildLinkInstanceId(
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
-                            normalizeClickUrl(resolveClickDestination(rec.click.link))
+                            isSensitive
+                                ? sensitiveLinkOrigin(resolveClickDestination(rec.click.link))
+                                : normalizeClickUrl(resolveClickDestination(rec.click.link))
                         ),
                         timestamp,
                         workflowVersion,

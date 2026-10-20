@@ -131,13 +131,18 @@ describe('SesWebhookHandler', () => {
         })
     })
 
-    it('records a click from a sensitive email without its query string or token-like path segments', async () => {
+    it('records a click from a sensitive email with only the link origin and no subject', async () => {
         const body = [
             {
                 eventType: 'Click',
-                mail: { ...baseMail, tags: { ...baseMail.tags, ph_sensitive: ['true'] } },
+                mail: {
+                    ...baseMail,
+                    commonHeaders: { subject: 'Your login code is 482913' },
+                    tags: { ...baseMail.tags, ph_sensitive: ['true'] },
+                },
                 click: {
-                    link: 'https://app.posthog.com/reset/abc123def456?token=s3cret',
+                    link: 'https://app.posthog.com/reset/Xk3pR9mQ2a?token=s3cret',
+                    linkTags: { phl: ['1'] },
                     timestamp: '2025-10-03T12:02:00Z',
                 },
             },
@@ -145,8 +150,10 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
-            $link_url: 'https://app.posthog.com/reset/*',
+            $link_url: 'https://app.posthog.com',
+            $link_index: '1',
         })
+        expect(result.metrics?.[1].instanceIdOverride).toEqual('act789|1|https://app.posthog.com')
     })
 
     it('emits a per-link companion metric keyed by action, link index and normalized url', async () => {
