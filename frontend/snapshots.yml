@@ -6846,6 +6846,14 @@ snapshots:
         hash: v1.k794b7964.9572c4979a6934a94886531af0d64845148e3417b98fe8010c677420bbd1f3b7.zdaJR_5DwY5IX5qeFfu9O2I6VajkSqqv9XU46z8HcMQ
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--tile-filters-read-only--light:
         hash: v1.k794b7964.355b2fe7000461fbb2fb166e627e8f9b4f39631649ff62fd9966c69fa990f94e.GcjA3-hBC1df2mGFD0d6crjPeEbeOnwEZLOICsPTp6Y
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app-widget-settings--default--dark:
+        hash: v1.k794b7964.ca92a759abc1822693d6065dba266039e51715a55500585faa2c53982304b214.WNCPKOtHIS1BZuO06dIjRhBREKOJXce328yi8xfAnDc
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app-widget-settings--default--light:
+        hash: v1.k794b7964.ec9689b0dd77a08cdf3db21e1c4b31a971ae9bc613e96020f8c38c6f580a8d03.26ASqIdeg3tr4iUF6GSqlvkpMD5HaOUWt_dXoITysB4
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app-widget-settings--no-canvas-selected--dark:
+        hash: v1.k794b7964.c000be8f30049d3a0784e85c23e265e4a1a631bf2f9350d46c5d93a8f5e2b1da.MOfMIlYUUHMlLKBSk75b4hbtV3QXMCA0UY02s2FXaBU
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app-widget-settings--no-canvas-selected--light:
+        hash: v1.k794b7964.ce08cd0a1dce9ea81b3b8e3324a10393b6a42afb4740a65b0b2ef7bdd0340646.gbr4nk1WAbomPR7y3lGRqD6rSP6iW7jXOxmXwqwi4-A
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--default--dark:
         hash: v1.k794b7964.0c5e48132f055382561335fea973ddf546cf7216ce997c00e4c5d871838bbb1f.ALpVMICEU6x_cD5zCzaVXJBuqGqjWXHVTivfn-jrmik
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--default--light:
