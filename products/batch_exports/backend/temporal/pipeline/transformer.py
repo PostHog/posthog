@@ -423,9 +423,6 @@ class ParquetStreamTransformer:
         if target_row_group_size_bytes is None:
             target_row_group_size_bytes = settings.BATCH_EXPORT_PARQUET_TARGET_ROW_GROUP_SIZE_BYTES
         if max_file_size_bytes:
-            # Row groups near the end of a file are sized with the compression ratio of the previous row
-            # group, so data that compresses much worse can overshoot. Never holding more than one max file
-            # size of record batches bounds that overshoot to about one max file size.
             target_row_group_size_bytes = min(target_row_group_size_bytes, max_file_size_bytes)
         self.target_row_group_size_bytes = target_row_group_size_bytes
 
