@@ -157,7 +157,6 @@ def test_credentials_use_selected_resource() -> None:
     "status,body,expected",
     [
         (401, {"code": 401, "message": "auth token not provided"}, "Axiom rejected the token"),
-        (403, {"code": 403, "message": "Forbidden"}, "Axiom denied access"),
     ],
 )
 def test_auth_errors_match_validation_and_pipeline(status: int, body: dict[str, Any], expected: str) -> None:

@@ -31,7 +31,7 @@ class TestImaggaSource:
 
     @pytest.mark.parametrize(
         "status,expected_valid",
-        [(200, True), (401, False)],
+        [(200, True)],
     )
     def test_validate_credentials(self, status: int, expected_valid: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:

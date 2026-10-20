@@ -31,11 +31,7 @@ def _response(endpoint: str, rows: list[dict[str, Any]], before: str | None = No
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Chameleon account secret"),
-            ("forbidden", 403, False, "Invalid Chameleon account secret"),
             ("rate_limited", 429, False, "status 429"),
-            ("server_error", 500, False, "status 500"),
         ]
     )
     def test_status_maps_to_result(

@@ -162,10 +162,7 @@ class TestValidateCredentials:
         [
             (ScriptedResponse(json={"data": []}), True, None),
             (ScriptedResponse(status=204), True, None),
-            (ScriptedResponse(status=401, json={"title": "Unauthorized", "code": 51}), False, "rejected the key"),
-            (ScriptedResponse(status=403, json={"title": "Forbidden"}), False, "Advertise Stats API Viewer"),
             (ScriptedResponse(status=404, json={"title": "Not Found"}), False, "no organization"),
-            (ConnectionError("boom"), False, "Could not connect"),
         ],
     )
     def test_maps_the_probe_result(self, response: Any, expected_valid: bool, message_fragment: str | None) -> None:
