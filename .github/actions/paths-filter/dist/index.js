@@ -43990,7 +43990,6 @@ exports.bindChannels = bindChannels;
 exports.projectLegacyFilters = projectLegacyFilters;
 exports.serializePolicy = serializePolicy;
 exports.policyDigest = policyDigest;
-exports.validateConsumerBinding = validateConsumerBinding;
 const crypto_1 = __nccwpck_require__(6982);
 const yaml = __importStar(__nccwpck_require__(4281));
 const filter_1 = __nccwpck_require__(9037);
@@ -44160,27 +44159,6 @@ function serializePolicy(entries) {
 }
 function policyDigest(entries) {
     return (0, crypto_1.createHash)('sha256').update(serializePolicy(entries), 'utf8').digest('hex');
-}
-function validateConsumerBinding(consumer, source, destination) {
-    const expected = [destination.registry, ...destination.replicas].map(registry => `${registry}/${destination.repository}`).sort();
-    const checks = [
-        ['sourceRepository', source.sourceRepository === exports.CANONICAL_SOURCE_REPOSITORY && consumer.sourceRepository === source.sourceRepository],
-        ['implementation', consumer.implementation === 'ordered-image-v2'],
-        ['logicalImageGroups', consumer.logicalImageGroups === 1],
-        ['owner', consumer.owner === destination.owner],
-        ['sourceImage', consumer.sourceImage === `${source.registry}/${source.repository}`],
-        ['destination', source.destinations.some(approved => approved.owner === destination.owner && approved.registry === destination.registry &&
-                approved.repository === destination.repository &&
-                JSON.stringify([...approved.replicas].sort()) === JSON.stringify([...destination.replicas].sort()))],
-        ['repositories', JSON.stringify([...consumer.repositories].sort()) === JSON.stringify(expected)]
-    ];
-    for (const [field, valid] of checks) {
-        if (!valid)
-            throw new Error(`${consumer.owner}.${field}: unsupported source/consumer binding`);
-    }
-    if (consumer.inheritedGitFilters.length) {
-        throw new Error(`${consumer.owner}: conflicting inherited Git filters: ${consumer.inheritedGitFilters.join(', ')}`);
-    }
 }
 
 

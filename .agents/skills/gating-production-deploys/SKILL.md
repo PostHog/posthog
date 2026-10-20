@@ -77,3 +77,10 @@ repository helper and canonical policy. Selective publication evaluates each
 configured channel from its own verified publication frontier after the common
 alias attempt. Activation requires approved destinations and one explicit seed.
 Services built elsewhere retain their existing publisher family.
+
+The publisher validates source policy and approved publication destinations.
+For new-service onboarding or an existing-service migration, hand the consumer's
+source identity, policy and destination coordinates to the Charts migration
+helper. The helper checks owner, lane, image group, repositories, regional
+replicas and inherited Git filters against the resolved Charts consumer.
+Obtain that check before treating the consumer setup as ready.

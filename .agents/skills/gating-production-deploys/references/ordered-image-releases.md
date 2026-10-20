@@ -32,6 +32,8 @@ Compare this channel's effective policy at B and every policy transition through
 
 For a deliberate release without matching paths, dispatch the workflow with `shared-image-force` as a JSON array of explicit `image/channel` keys. Unknown keys and implicit wildcards fail. Force bypasses relevance only. It cannot bypass build success, history, image identity, immutability or ordinal checks. Path filters do not detect every external dependency or base-image security update; use this manual release path for those changes.
 
+The publisher validates the source policy and approved publication destinations. The Charts migration helper owns consumer binding for new-service onboarding and existing-service migration. Hand source identity, policy and destination coordinates to Charts. The helper checks owner, lane, image group, repositories, regional replicas and inherited Git filters against the resolved Charts consumer. Obtain that check before treating the consumer setup as ready.
+
 ## One-seed bootstrap
 
 Dispatch the default-branch workflow with `shared-image-bootstrap` containing one `channel`, full seed `revision` and exact seed `digest`. Use an approved successful build already available at the source coordinate. Ordinary channels refuse empty destinations. Bootstrap accepts an empty destination, derives the seed's ordinal from verified executing history, validates image identity and uses the same publish/readback helper.
