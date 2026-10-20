@@ -98,7 +98,7 @@ export function withEmailSender(workflow: HogFlow, integrationId: number): { wor
     const actions = workflow.actions.map((action) => {
         const config = action.config as Record<string, any>
         const value = config?.template_id === 'template-email' ? config.inputs?.email?.value : null
-        if (!value || value.from?.integrationId) {
+        if (!value || value.from?.integrationId || value.from?.integrationIds?.length) {
             return action
         }
         filled = true
