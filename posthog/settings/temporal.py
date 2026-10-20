@@ -81,6 +81,10 @@ TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
 
+TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED: bool = get_from_env(
+    "TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED", False, type_cast=str_to_bool
+)
+
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
@@ -181,6 +185,12 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
 TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
     "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
     True,
+    type_cast=str_to_bool,
+)
+
+TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED: bool = get_from_env(
+    "TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED",
+    False,
     type_cast=str_to_bool,
 )
 
@@ -291,6 +301,14 @@ DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
 )
+# An incremental merge import moves its watermark each time a contiguous prefix of its batches is
+# loaded, so a run that fails keeps the progress of the batches that loaded. The import pods record
+# the per-batch values and the load pods promote them, so set it on both. Enable it only when every
+# source that says sort_mode="asc" reads its rows in that order, because the next run reads only
+# the rows above the promoted value.
+DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED", False, type_cast=str_to_bool
+)
 # At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
 # nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
 # hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes
@@ -326,6 +344,9 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
+EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-activity-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -395,6 +416,9 @@ LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # A tick costs one candidate query whatever it dispatches, so a larger batch means fewer ticks and
 # less ClickHouse work for the same backfill.
 LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
+# Evaluations one backfill runs at once. A run holds one of the shared CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
+# slots only while it reads its unit, so most runs wait on the judge. Lower this if backfills crowd out live work.
+LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT: int = get_from_env("LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT", 16, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

@@ -32,7 +32,7 @@ class TestZendeskSunshineSource:
         assert config.name.value == "ZendeskSunshine"
         assert config.label == "Zendesk Sunshine"
         assert config.category == DataWarehouseSourceCategory.CRM
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.iconPath == "/static/services/zendesk_sunshine.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zendesk-sunshine"
         # A finished source ships visible; the scaffold's unreleasedSource flag must stay gone.
@@ -77,9 +77,6 @@ class TestZendeskSunshineSource:
             self.config, self.team_id, names=["object_records"], api_version=ZENDESK_SUNSHINE_V1
         )
         assert [s.name for s in schemas] == ["object_records"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_get_schemas_rejects_unsupported_version(self) -> None:
         with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):

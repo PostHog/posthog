@@ -9,6 +9,8 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import NodeKind
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorS3FileChangedDuringRead
@@ -76,15 +78,26 @@ def test_a_breaker_replay_keeps_the_ordinary_failure_path() -> None:
         _run(replay)
 
 
-def test_a_sql_query_clickhouse_rejects_becomes_an_extraction_error() -> None:
-    error = CHQueryErrorNoCommonType(
-        "Code: 386. DB::Exception: There is no supertype for types DateTime64(6, 'UTC'), String. Stack trace: ...",
-        code=386,
-        code_name="no_common_type",
-    )
-    with pytest.raises(
-        AlertExtractionError, match=r"^There is no supertype for types DateTime64\(6, 'UTC'\), String\.$"
-    ):
+@pytest.mark.parametrize(
+    "error,expected_message",
+    [
+        (
+            CHQueryErrorNoCommonType(
+                "Code: 386. DB::Exception: There is no supertype for types DateTime64(6, 'UTC'), String. Stack trace: ...",
+                code=386,
+                code_name="no_common_type",
+            ),
+            r"^There is no supertype for types DateTime64\(6, 'UTC'\), String\.$",
+        ),
+        (
+            QueryError("Function 'toStartOfHour' expects 1 argument, found 2"),
+            r"^Function 'toStartOfHour' expects 1 argument, found 2$",
+        ),
+    ],
+    ids=["clickhouse", "hogql"],
+)
+def test_a_sql_query_the_engine_rejects_becomes_an_extraction_error(error, expected_message) -> None:
+    with pytest.raises(AlertExtractionError, match=expected_message):
         _run(error, {"kind": NodeKind.HOG_QL_QUERY, "query": "select 1"})
 
 
@@ -93,10 +106,11 @@ def test_a_sql_query_clickhouse_rejects_becomes_an_extraction_error() -> None:
     [
         (CHQueryErrorNoCommonType("no supertype", code=386), {"kind": NodeKind.TRENDS_QUERY, "series": []}),
         (CHQueryErrorS3FileChangedDuringRead("file changed", code=36), {"kind": NodeKind.HOG_QL_QUERY}),
+        (QueryError("Unknown function"), {"kind": NodeKind.TRENDS_QUERY, "series": []}),
     ],
-    ids=["posthog_built_query", "transient_error"],
+    ids=["posthog_built_query", "transient_error", "posthog_built_hogql"],
 )
-def test_a_clickhouse_error_outside_the_owners_sql_keeps_the_ordinary_failure_path(error, query) -> None:
+def test_a_query_error_outside_the_owners_sql_keeps_the_ordinary_failure_path(error, query) -> None:
     with pytest.raises(type(error)):
         _run(error, query)
 

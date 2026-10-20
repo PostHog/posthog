@@ -34,7 +34,7 @@ describe('scannerStepErrors', () => {
                 duration: 'Duration filters above 1 hour match nothing',
             })
         ).toEqual({
-            template: [],
+            goal: [],
             overview: [],
             details: [],
             configure: ['Prompt is required'],
@@ -81,7 +81,7 @@ describe('scannerEditorSceneLogic', () => {
                 window.dispatchEvent(new PopStateEvent('popstate'))
             })
             count = 1
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            router.actions.push(urls.replayVisionScannerGoal('new'))
             count = 2
             router.actions.push(urls.replayVisionScannerConfigure('new'))
             const push = jest.spyOn(router.actions, 'push')
@@ -93,11 +93,11 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     describe('URL → state', () => {
-        it('reflects the template step for a new scanner', async () => {
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+        it('reflects the goal step for a new scanner', async () => {
+            router.actions.push(urls.replayVisionScannerGoal('new'))
             await expectLogic(logic).toMatchValues({
                 scannerId: 'new',
-                step: 'template',
+                step: 'goal',
                 isNew: true,
             })
         })
@@ -120,8 +120,8 @@ describe('scannerEditorSceneLogic', () => {
             })
         })
 
-        it('redirects /:id/template → /:id/details for existing scanners', async () => {
-            router.actions.push(urls.replayVisionScannerTemplate('abc-123'))
+        it('redirects /:id/goal → /:id/details for existing scanners', async () => {
+            router.actions.push(urls.replayVisionScannerGoal('abc-123'))
             await expectLogic(logic).toMatchValues({
                 scannerId: 'abc-123',
                 step: 'details',
@@ -132,9 +132,9 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     describe('breadcrumbs', () => {
-        it('points the back-arrow crumb at the template step past it when creating', async () => {
+        it('points the back-arrow crumb at the goal step past it when creating', async () => {
             // The scene back arrow navigates to the second-to-last crumb, so the crumb before
-            // the current step must be the template picker or the wizard cannot go back.
+            // the current step must be the goal step or the wizard cannot go back.
             router.actions.push(urls.replayVisionScannerConfigure('new'))
             await expectLogic(logic).toMatchValues({
                 breadcrumbs: [
@@ -142,27 +142,15 @@ describe('scannerEditorSceneLogic', () => {
                     expect.objectContaining({
                         key: 'new-scanner',
                         name: 'New scanner',
-                        path: urls.replayVisionTemplates(),
+                        path: urls.replayVisionNewScanner(),
                     }),
                     expect.objectContaining({ key: 'new-scanner-step', name: 'Configure' }),
                 ],
             })
         })
 
-        it('keeps the template param on the back-arrow crumb, so going back preserves the type lock', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('new'), { template: 'dead_end' })
-            await expectLogic(logic).toMatchValues({
-                breadcrumbs: expect.arrayContaining([
-                    expect.objectContaining({
-                        key: 'new-scanner',
-                        path: `${urls.replayVisionTemplates()}?template=dead_end`,
-                    }),
-                ]),
-            })
-        })
-
-        it('shows no step crumb on the template step, so the back arrow exits to the list', async () => {
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+        it('shows no step crumb on the goal step, so the back arrow exits to the list', async () => {
+            router.actions.push(urls.replayVisionScannerGoal('new'))
             await expectLogic(logic).toMatchValues({
                 breadcrumbs: [
                     expect.objectContaining({ key: 'replay-vision', name: 'Replay vision' }),

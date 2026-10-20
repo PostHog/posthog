@@ -89,6 +89,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -621,7 +622,7 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -719,6 +720,8 @@ export interface LogsAlertDestinationConfigApi {
     type: LogsAlertDestinationTypeEnumApi
     /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
     enabled: boolean
+    /** Whether any HogFunction in the group sends something other than the stock message, such as an edited body, headers, method or code. A customized destination sends exactly what its HogFunctions build. */
+    message_customized: boolean
     slack_workspace_id?: number
     slack_channel_id?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
@@ -791,7 +794,7 @@ export interface LogsAlertConfigurationDetailApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -893,7 +896,7 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -1072,7 +1075,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minutes to wait after firing before sending another notification.
+     * Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number

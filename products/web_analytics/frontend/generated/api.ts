@@ -9,9 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AEOPromptApi,
+    AEOPromptBulkImportRequestApi,
+    AEOPromptImportResultApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoPromptsListParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -42,11 +46,13 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
+    PaginatedAEOPromptListApi,
     PaginatedContentAutopilotOpportunityListApi,
     PaginatedContentAutopilotProposalListListApi,
     PaginatedContentAutopilotRunListApi,
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
+    PatchedAEOPromptUpdateRequestApi,
     PatchedContentAutopilotSiteProfileApi,
     PatchedHeatmapCaptureSettingsRequestApi,
     PatchedHeatmapScreenshotSettingsRequestApi,
@@ -91,6 +97,97 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/`
+}
+
+/**
+ * Lists the project's AEO prompt set, grouped by topic, one page at a time.
+ * @summary List AEO prompts
+ */
+export const aeoPromptsList = async (
+    projectId: string,
+    params?: AeoPromptsListParams,
+    options?: RequestInit
+): Promise<PaginatedAEOPromptListApi> => {
+    return apiMutator<PaginatedAEOPromptListApi>(getAeoPromptsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/`
+}
+
+/**
+ * @summary Get an AEO prompt
+ */
+export const aeoPromptsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOPromptApi> => {
+    return apiMutator<AEOPromptApi>(getAeoPromptsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/`
+}
+
+/**
+ * @summary Turn an AEO prompt on or off
+ */
+export const aeoPromptsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAEOPromptUpdateRequestApi?: PatchedAEOPromptUpdateRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptApi> => {
+    return apiMutator<AEOPromptApi>(getAeoPromptsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAEOPromptUpdateRequestApi),
+    })
+}
+
+export const getAeoPromptsBulkImportUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/bulk_import/`
+}
+
+/**
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state.
+ * @summary Import AEO prompts
+ */
+export const aeoPromptsBulkImport = async (
+    projectId: string,
+    aEOPromptBulkImportRequestApi: AEOPromptBulkImportRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptImportResultApi> => {
+    return apiMutator<AEOPromptImportResultApi>(getAeoPromptsBulkImportUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
 
 export const getHeatmapCapturePagesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_capture/pages/`

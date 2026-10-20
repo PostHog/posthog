@@ -231,14 +231,9 @@ pub fn process_single_event(
 /// (resolved into `DataType::AiEvents` at classification time), event
 /// restrictions, the AI lane's per-project byte budget, global rate
 /// limiting (per `token:distinct_id`), historical rerouting, and per-key
-/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
-/// goes through the shared [`stamp_overflow_reason`] helper, which the AI
-/// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
-/// call so every `DataType::AnalyticsMain` event gets identical limiter
-/// semantics regardless of entry point. The kafka sink is a pure mechanism
-/// layer — it reads `ProcessedEventMetadata::data_type`,
-/// `overflow_reason`, `force_overflow`, `redirect_to_dlq`, and
-/// `redirect_to_topic` to decide which topic and key to produce to.
+/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping goes through
+/// [`stamp_overflow_reason`], shared with the AI and OTEL handlers. The sink
+/// maps the stamped metadata to an address through [`crate::pipeline::resolve`].
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
 pub async fn process_events(
@@ -434,10 +429,10 @@ async fn process_events_inner(
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
     // on the way to the error tracking topic, and vice versa. Snapshots have
-    // no pipeline here and flow through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
-    // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
-    // win over the lane, redirect_to_topic beats the AI topic in the sink,
-    // force_overflow keeps it on the AI lane) -- mirroring v1.
+    // no pipeline here and flow through unrestricted. `AiEvents` looks up the
+    // `ai` pipeline, so ai-scoped restrictions govern a diverted AI event.
+    // `force_overflow` sends it to the AI overflow lane where the deployment
+    // has one, never to analytics overflow.
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
@@ -518,10 +513,9 @@ async fn process_events_inner(
 
                 if limited {
                     event.metadata.skip_person_processing = true;
-                    // Reroute the hot key to overflow. AnalyticsMain only: historical
-                    // never overflows, the AI lane keeps its dedicated topic (v1
-                    // gates the same way on Destination::AnalyticsMain), and only
-                    // AnalyticsMain acts on overflow_reason.
+                    // Reroute the hot key to overflow on AnalyticsMain only. Historical
+                    // never overflows. An AI hot key loses person processing but stays
+                    // on its lane.
                     if event.metadata.data_type == DataType::AnalyticsMain {
                         event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                     }
@@ -2403,26 +2397,22 @@ mod tests {
         );
     }
 
-    struct AiValveCase {
+    struct AiLimiterCase {
         ai_limiter_present: bool,
         expected_reason: Option<OverflowReason>,
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted AI event
-    /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
-    /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(AiValveCase {
+    #[case::limiter_present(AiLimiterCase {
         ai_limiter_present: true,
         expected_reason: Some(OverflowReason::ForceLimited),
     })]
-    #[case::limiter_absent(AiValveCase {
+    #[case::limiter_absent(AiLimiterCase {
         ai_limiter_present: false,
         expected_reason: None,
     })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiLimiterCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);

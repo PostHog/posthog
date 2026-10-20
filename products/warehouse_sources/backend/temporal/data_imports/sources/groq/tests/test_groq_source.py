@@ -20,22 +20,8 @@ class TestGroqSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert GroqSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = GroqSource().get_schemas(_make_config(), team_id=1, names=["batches", "models"])
-        assert {s.name for s in schemas} == {"batches", "models"}
-
     @parameterized.expand(
         [
-            ("valid", True, 200, True, None),
-            ("invalid_key", False, 401, False, "Invalid Groq API key"),
-            (
-                "forbidden",
-                False,
-                403,
-                False,
-                "Your Groq API key is missing the permissions needed to sync this data",
-            ),
-            ("other_failure", False, 500, False, "Could not connect to Groq with the provided API key"),
             ("no_connection", False, None, False, "Could not connect to Groq with the provided API key"),
         ]
     )

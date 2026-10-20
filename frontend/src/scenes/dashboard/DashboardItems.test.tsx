@@ -46,8 +46,8 @@ jest.mock('kea-router', () => ({
     router: { __mock: 'router' },
 }))
 
-jest.mock('lib/hooks/useResizeObserver', () => ({
-    useResizeObserver: () => ({ width: 1200, ref: { current: null } }),
+jest.mock('products/dashboards/frontend/useDashboardContainerWidth', () => ({
+    useDashboardContainerWidth: () => ({ width: 1200, containerRef: { current: null } }),
 }))
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
@@ -408,7 +408,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: false,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -446,7 +445,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -499,7 +497,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -556,7 +553,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }

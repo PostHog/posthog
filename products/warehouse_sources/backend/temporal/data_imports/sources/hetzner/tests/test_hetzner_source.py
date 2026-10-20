@@ -24,7 +24,7 @@ class TestHetznerSource:
         # The token is a credential — it must render as a masked password input and be marked secret,
         # or it would be stored/echoed in plaintext.
         config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hetzner"
         fields = config.fields
         assert len(fields) == 1
