@@ -40,7 +40,10 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -48,6 +51,7 @@ from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
+    HEAVY_FAILURE_COOLDOWN_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
@@ -68,6 +72,19 @@ logger = structlog.get_logger(__name__)
 _MAX_ERROR_MESSAGE_LENGTH = 2000
 
 _OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
+
+_REUSED_FAILURE_MESSAGES: dict[str, str] = {
+    "byte_limit": "This metric read too much data the last time it was calculated.",
+    "out_of_memory": "This metric ran out of memory the last time it was calculated.",
+    "timeout": "This metric timed out the last time it was calculated.",
+}
+_REUSED_FAILURE_NEXT_STEP = (
+    "To protect query capacity, PostHog waits before it runs this metric again. "
+    "Narrow the metric, for example with a filter or a shorter date range, to calculate it now."
+)
+
+# Bounds the run history the reuse check reads for one metric.
+_REUSED_FAILURE_LOOKBACK_RUNS = 20
 
 # Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
 _CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
@@ -395,25 +412,36 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
 
 
 def _record_failure(
-    recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str, retriable: bool
+    recalculation_id: str,
+    metric_uuid: str,
+    step: str,
+    message: str,
+    *,
+    error_type: str,
+    retriable: bool,
+    reused: bool = False,
 ) -> None:
     """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
 
     Idempotent on Temporal retries: the dict is keyed by metric_uuid, so re-running this for the same metric
     just overwrites the existing entry with a fresh timestamp. retriable is True only when a transient error
     exhausted its attempts, so the frontend heals that metric on page load and leaves the rest to a user retry.
+    reused marks a failure copied from an earlier run without a query, so the cooldown stays on the real failure.
     """
     capped = message[:_MAX_ERROR_MESSAGE_LENGTH]
     with transaction.atomic():
         recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
         metric_errors = recalc.metric_errors or {}
-        metric_errors[metric_uuid] = {
+        entry: dict[str, Any] = {
             "step": step,
             "message": capped,
             "error_type": error_type,
             "retriable": retriable,
             "timestamp": timezone.now().isoformat(),
         }
+        if reused:
+            entry["reused"] = True
+        metric_errors[metric_uuid] = entry
         recalc.metric_errors = metric_errors
         recalc.save(update_fields=["metric_errors"])
 
@@ -492,14 +520,54 @@ def _clear_error(recalculation_id: str, metric_uuid: str) -> None:
 
 
 def _fail(
-    recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str
+    recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str, reused: bool = False
 ) -> MetricRecalculationResult:
     """Record a permanent failure on the job (lookup step: job-only; calculation step: also persists a result row upstream)."""
-    _record_failure(recalculation_id, metric_uuid, step, message, error_type=error_type, retriable=False)
+    _record_failure(recalculation_id, metric_uuid, step, message, error_type=error_type, retriable=False, reused=reused)
     _clear_retry(recalculation_id, metric_uuid)
     return MetricRecalculationResult(
         metric_uuid=metric_uuid, success=False, error_step=step, error_message=message[:_MAX_ERROR_MESSAGE_LENGTH]
     )
+
+
+def _recent_heavy_failure_type(
+    experiment_id: int, calculation_config: MetricCalculationConfig, results: MetricResultStore
+) -> str | None:
+    """The error type of a heavy failure of this calculation config that is still inside its cooldown, if any.
+
+    The newest finished run that calculated the metric decides. A success or a lighter error there lets the query
+    run. Reused failures are skipped, so the cooldown counts from the run that actually ran the query. The failed
+    result row under the current fingerprint proves that the failure belongs to this config.
+    """
+    metric_uuid = calculation_config.metric_id
+    now = timezone.now()
+    recent_runs = (
+        ExperimentMetricsRecalculation.objects.filter(
+            experiment_id=experiment_id,
+            completed_at__gte=now - timedelta(seconds=max(HEAVY_FAILURE_COOLDOWN_SECONDS.values())),
+            query_to__isnull=False,
+            metric_uuids__contains=[metric_uuid],
+        )
+        .order_by("-completed_at")
+        .values_list("completed_at", "query_to", "metric_errors")[:_REUSED_FAILURE_LOOKBACK_RUNS]
+    )
+    for completed_at, query_to, metric_errors in recent_runs:
+        entry = (metric_errors or {}).get(metric_uuid)
+        if entry is None:
+            return None
+        if entry.get("reused"):
+            continue
+        error_type = entry.get("error_type")
+        cooldown_seconds = HEAVY_FAILURE_COOLDOWN_SECONDS.get(error_type)
+        # The filter already excludes NULL timestamps. The checks narrow the types.
+        if completed_at is None or query_to is None or cooldown_seconds is None:
+            return None
+        if completed_at < now - timedelta(seconds=cooldown_seconds):
+            return None
+        if not results.has_failed(calculation_config, window=query_to):
+            return None
+        return error_type
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -692,6 +760,30 @@ def _calculate_experiment_metric_for_recalculation_sync(
             # next one; clear so a completed metric can't keep reporting as retrying.
             _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        reused_error_type = _recent_heavy_failure_type(experiment_id, calculation_config, results)
+        if reused_error_type is not None:
+            message = f"{_REUSED_FAILURE_MESSAGES[reused_error_type]} {_REUSED_FAILURE_NEXT_STEP}"
+            results.record_run_failure(
+                recalculation_id,
+                calculation_config,
+                window=query_to_dt,
+                query_from=experiment.start_date,
+                error_message=message,
+                query_id=None,
+            )
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                role,
+                metric_dict,
+                "experiment metric error",
+                {"error_type": reused_error_type, "error_message": message, "reused_failure": True},
+                trigger=state.trigger,
+            )
+            return _fail(
+                recalculation_id, metric_uuid, "calculation", message, error_type=reused_error_type, reused=True
+            )
 
         client_query_id = _client_query_id(recalculation_id, metric_uuid, attempt)
 
