@@ -3005,6 +3005,7 @@ export interface workflowLogicMeta {
         senderDomainNotice: (
             workflow: HogFlow,
             originalWorkflow: HogFlow | null,
+            integrations: IntegrationType[] | null,
             featureFlags: FeatureFlagsSet
         ) => SenderDomainNotice | null
         startedSendingNoticeKey: (originalWorkflow: HogFlow | null) => string | null
@@ -3776,15 +3777,21 @@ export const workflowLogic = kea<workflowLogicType>([
                 enablePromptOpen ? unverifiedSenderDomains : null,
         ],
         senderDomainNotice: [
-            (s) => [s.workflow, s.originalWorkflow, s.featureFlags],
+            (s) => [s.workflow, s.originalWorkflow, s.integrations, s.featureFlags],
             (
                 workflow: HogFlow,
                 originalWorkflow: HogFlow | null,
+                integrations: IntegrationType[] | null,
                 featureFlags: FeatureFlagsSet
-            ): SenderDomainNotice | null =>
-                featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] && originalWorkflow
-                    ? senderDomainNotice(workflow, originalWorkflow)
-                    : null,
+            ): SenderDomainNotice | null => {
+                if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] || !originalWorkflow) {
+                    return null
+                }
+                const existingSenderIds = integrations
+                    ? new Set(integrations.filter(({ kind }) => kind === 'email').map(({ id }) => id))
+                    : null
+                return senderDomainNotice(workflow, originalWorkflow, existingSenderIds)
+            },
         ],
         startedSendingNoticeKey: [
             (s) => [s.originalWorkflow],

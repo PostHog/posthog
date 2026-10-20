@@ -9,15 +9,25 @@ export type SenderDomainNotice =
     | { stage: 'no_domain'; url: string }
     | { stage: 'unverified' | 'waiting'; domains: string[]; url: string }
 
-function hasEmailStepWithoutSender(workflow: HogFlow): boolean {
+function chosenSenderIds(sender: EmailTemplateFrom | undefined): number[] {
+    return sender?.integrationIds?.length ? sender.integrationIds : sender?.integrationId ? [sender.integrationId] : []
+}
+
+function hasEmailStepWithoutSender(workflow: HogFlow, existingSenderIds: ReadonlySet<number> | null): boolean {
     return workflow.actions.filter(isEmailAction).some((action) => {
-        const sender: EmailTemplateFrom | undefined = action.config.inputs.email?.value?.from
-        return !sender?.integrationId && !sender?.integrationIds?.length
+        const senderIds = chosenSenderIds(action.config.inputs.email?.value?.from)
+        return existingSenderIds
+            ? !senderIds.some((senderId) => existingSenderIds.has(senderId))
+            : senderIds.length === 0
     })
 }
 
-export function senderDomainNotice(workflow: HogFlow, savedWorkflow: HogFlow): SenderDomainNotice | null {
-    if (hasEmailStepWithoutSender(workflow)) {
+export function senderDomainNotice(
+    workflow: HogFlow,
+    savedWorkflow: HogFlow,
+    existingSenderIds: ReadonlySet<number> | null
+): SenderDomainNotice | null {
+    if (hasEmailStepWithoutSender(workflow, existingSenderIds)) {
         return { stage: 'no_domain', url: urls.workflows('channels') }
     }
     const domains = unverifiedSenderDomains(savedWorkflow)

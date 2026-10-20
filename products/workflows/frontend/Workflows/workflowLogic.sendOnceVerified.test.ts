@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -80,6 +81,7 @@ describe('workflowLogic send once verified', () => {
         logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(integrationsLogic).toFinishAllListeners()
     }
 
     beforeEach(() => {
@@ -89,6 +91,11 @@ describe('workflowLogic send once verified', () => {
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => [200, storedWorkflow],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/projects/:team_id/integrations/': {
+                    results: [7, 8].map((id) => ({ id, kind: 'email', config: { verified: false } })),
+                    count: 2,
+                    next: null,
+                },
             },
             patch: {
                 '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
@@ -227,6 +234,14 @@ describe('workflowLogic send once verified', () => {
 
     it.each([
         ['an email step has no sender', 'draft', {}, [], true, { stage: 'no_domain', url: '/workflows/channels' }],
+        [
+            'the sender of an email step was deleted',
+            'draft',
+            { integrationId: 99 },
+            [],
+            true,
+            { stage: 'no_domain', url: '/workflows/channels' },
+        ],
         [
             'a draft sends from an unverified domain',
             'draft',

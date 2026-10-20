@@ -50,7 +50,9 @@ export function WorkflowStatusBar({
         ? 'The live version keeps running until you publish.'
         : isActive
           ? 'Changes you make save as a draft.'
-          : null
+          : isWaitingForDomain
+            ? 'Sending starts once every email domain is verified.'
+            : null
     const autoSaveExplanation = isActive
         ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
         : isWaitingForDomain
