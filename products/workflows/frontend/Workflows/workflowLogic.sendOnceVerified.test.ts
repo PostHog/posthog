@@ -8,10 +8,19 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { HogFlow } from './hogflows/types'
+import type { SenderDomainNotice } from './senderDomainNotice'
 import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-send-once-verified-1'
 const UNVERIFIED_SENDER = { id: 7, domain: 'example.com' }
+
+interface ProjectSender {
+    id: number
+    domain: string
+    verified: boolean
+}
+const PENDING_PROJECT_SENDER: ProjectSender = { ...UNVERIFIED_SENDER, verified: false }
+const VERIFIED_PROJECT_SENDER: ProjectSender = { id: 8, domain: 'mail.example.org', verified: true }
 
 const emailStep = (from: Record<string, unknown>): HogFlow['actions'][number] =>
     ({
@@ -72,9 +81,14 @@ describe('workflowLogic send once verified', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let patchBodies: Record<string, any>[]
     let storedWorkflow: HogFlow
+    let projectSenders: ProjectSender[]
 
-    const mountWith = async (workflow: HogFlow, { flagOn = true } = {}): Promise<void> => {
+    const mountWith = async (
+        workflow: HogFlow,
+        { flagOn = true, senders = [PENDING_PROJECT_SENDER] }: { flagOn?: boolean; senders?: ProjectSender[] } = {}
+    ): Promise<void> => {
         storedWorkflow = workflow
+        projectSenders = senders
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: flagOn })
@@ -91,11 +105,18 @@ describe('workflowLogic send once verified', () => {
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => [200, storedWorkflow],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
-                '/api/projects/:team_id/integrations/': {
-                    results: [7, 8].map((id) => ({ id, kind: 'email', config: { verified: false } })),
-                    count: 2,
-                    next: null,
-                },
+                '/api/projects/:team_id/integrations/': () => [
+                    200,
+                    {
+                        results: projectSenders.map(({ id, domain, verified }) => ({
+                            id,
+                            kind: 'email',
+                            config: { domain, verified },
+                        })),
+                        count: projectSenders.length,
+                        next: null,
+                    },
+                ],
             },
             patch: {
                 '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
@@ -232,37 +253,84 @@ describe('workflowLogic send once verified', () => {
         expect(logic.values.showStartedSendingNotice).toBe(false)
     })
 
-    it.each([
-        ['an email step has no sender', 'draft', {}, [], true, { stage: 'no_domain', url: '/workflows/channels' }],
-        [
-            'the sender of an email step was deleted',
-            'draft',
-            { integrationId: 99 },
-            [],
-            true,
-            { stage: 'no_domain', url: '/workflows/channels' },
-        ],
-        [
-            'a draft sends from an unverified domain',
-            'draft',
-            { integrationId: 7 },
-            [UNVERIFIED_SENDER],
-            true,
-            { stage: 'unverified', domains: ['example.com'], url: '/workflows/channels' },
-        ],
-        [
-            'an enabled workflow waits for its domain',
-            'waiting_for_domain',
-            { integrationId: 7 },
-            [UNVERIFIED_SENDER],
-            true,
-            { stage: 'waiting', domains: ['example.com'], url: '/workflows/channels' },
-        ],
-        ['every sender is verified', 'active', { integrationId: 7 }, [], true, null],
-        ['the flag is off', 'draft', {}, [], false, null],
-    ] as const)('shows the sender domain notice when %s', async (_name, status, from, senders, flagOn, notice) => {
-        await mountWith(withEmailStep(makeWorkflow({ status, unverified_email_senders: [...senders] }), { ...from }), {
+    it.each<{
+        name: string
+        status: HogFlow['status']
+        from: Record<string, unknown>
+        unverified: { id: number; domain: string }[]
+        senders: ProjectSender[]
+        flagOn?: boolean
+        notice: SenderDomainNotice | null
+    }>([
+        {
+            name: 'a step has no sender and the project has a verified sender',
+            status: 'draft',
+            from: {},
+            unverified: [],
+            senders: [PENDING_PROJECT_SENDER, VERIFIED_PROJECT_SENDER],
+            notice: null,
+        },
+        {
+            name: 'a step has no sender and the project has no sender',
+            status: 'draft',
+            from: {},
+            unverified: [],
+            senders: [],
+            notice: { stage: 'no_domain', url: '/workflows/channels' },
+        },
+        {
+            name: 'a step has no sender and the project only has a pending domain',
+            status: 'draft',
+            from: {},
+            unverified: [],
+            senders: [PENDING_PROJECT_SENDER],
+            notice: { stage: 'unverified', domains: ['example.com'], url: '/workflows/channels' },
+        },
+        {
+            name: 'the sender of a step was deleted and the project has no other sender',
+            status: 'draft',
+            from: { integrationId: 99 },
+            unverified: [],
+            senders: [],
+            notice: { stage: 'no_domain', url: '/workflows/channels' },
+        },
+        {
+            name: 'a draft sends from an unverified domain',
+            status: 'draft',
+            from: { integrationId: 7 },
+            unverified: [UNVERIFIED_SENDER],
+            senders: [PENDING_PROJECT_SENDER, VERIFIED_PROJECT_SENDER],
+            notice: { stage: 'unverified', domains: ['example.com'], url: '/workflows/channels' },
+        },
+        {
+            name: 'an enabled workflow waits for its domain',
+            status: 'waiting_for_domain',
+            from: { integrationId: 7 },
+            unverified: [UNVERIFIED_SENDER],
+            senders: [PENDING_PROJECT_SENDER],
+            notice: { stage: 'waiting', domains: ['example.com'], url: '/workflows/channels' },
+        },
+        {
+            name: 'every sender is verified',
+            status: 'active',
+            from: { integrationId: 8 },
+            unverified: [],
+            senders: [VERIFIED_PROJECT_SENDER],
+            notice: null,
+        },
+        {
+            name: 'the flag is off',
+            status: 'draft',
+            from: {},
+            unverified: [],
+            senders: [],
+            flagOn: false,
+            notice: null,
+        },
+    ])('shows the sender domain notice when $name', async ({ status, from, unverified, senders, flagOn, notice }) => {
+        await mountWith(withEmailStep(makeWorkflow({ status, unverified_email_senders: unverified }), from), {
             flagOn,
+            senders,
         })
 
         expect(logic.values.senderDomainNotice).toEqual(notice)

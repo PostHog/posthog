@@ -3787,10 +3787,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] || !originalWorkflow) {
                     return null
                 }
-                const existingSenderIds = integrations
-                    ? new Set(integrations.filter(({ kind }) => kind === 'email').map(({ id }) => id))
-                    : null
-                return senderDomainNotice(workflow, originalWorkflow, existingSenderIds)
+                const emailSenders = integrations?.filter(({ kind }) => kind === 'email') ?? null
+                return senderDomainNotice(workflow, originalWorkflow, emailSenders)
             },
         ],
         startedSendingNoticeKey: [
