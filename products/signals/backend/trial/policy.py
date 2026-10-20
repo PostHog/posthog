@@ -76,18 +76,28 @@ class TrialPolicy:
     def organization_grants_claimed(self) -> int:
         return SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization_id).count()
 
+    def enabled(self) -> bool:
+        return self.flag_decision().enabled is True
+
+    def check_enabled(self) -> None:
+        decision = self.flag_decision()
+        if not decision.confirmed or decision.enabled is not True:
+            raise TrialRefused("flag_unavailable" if not decision.confirmed else "not_enabled")
+
     def grant(self) -> SignalTrialGrant | None:
         return SignalTrialGrant.objects.for_team(self.team_id, canonical=True).first()
+
+    def active_grant(self) -> SignalTrialGrant | None:
+        grant = self.grant()
+        return grant if grant is not None and self.enabled() else None
 
     def claim(self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS) -> SignalTrialGrant:
         from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
 
+        self.check_enabled()
         existing = self.grant()
         if existing is not None:
             return existing
-        decision = self.flag_decision()
-        if not decision.confirmed or decision.enabled is not True:
-            raise TrialRefused("flag_unavailable" if not decision.confirmed else "not_enabled")
         with transaction.atomic():
             # Scout writers acquire their config before the organization lock too.
             list(SignalScoutConfig.objects.for_team(self.team_id, canonical=True).select_for_update().order_by("id"))
@@ -168,6 +178,9 @@ class TrialPolicy:
         report_id: UUID | None = None,
         finishing_research: bool = False,
     ) -> TrialFunding:
+        if not self.enabled():
+            # Funding already promised to a pass must survive rollout changes.
+            return parent or TrialFunding(funding="existing")
         grant = self.grant()
         if parent is not None and parent.grant_id is None:
             return parent
@@ -188,6 +201,8 @@ class TrialPolicy:
             return parent or TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
 
     def check_funding(self, funding: TrialFunding, *, finishing_research: bool = False) -> None:
+        if not self.enabled():
+            return
         if funding.grant_id is not None:
             with self.locked_grant(funding.grant_id) as grant:
                 self.check_admitted(grant, finishing_research=finishing_research)
@@ -205,7 +220,7 @@ class TrialPolicy:
             raise TrialRefused("accounting_pending")
 
     def reserve_direct_report(self, funding: TrialFunding, report_id: UUID, *, run_id: UUID | None = None) -> None:
-        if funding.grant_id is None:
+        if funding.grant_id is None or not self.enabled():
             return
         with self.locked_grant(funding.grant_id) as grant:
             if grant.exhausted_at is not None:
@@ -261,7 +276,7 @@ class TrialPolicy:
             return
         with self.locked_grant(reservation.grant_id) as grant:
             reservation.refresh_from_db()
-            if reservation.status == SignalTrialReportReservation.Status.RELEASED and delivered:
+            if reservation.status == SignalTrialReportReservation.Status.RELEASED and delivered and self.enabled():
                 raise TrialRefused("report_reservation_released")
             yield
             if reservation.status != SignalTrialReportReservation.Status.CONSUMED:
@@ -284,6 +299,8 @@ class TrialPolicy:
                 grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
 
     def reserve_report_layers(self, parent_id: UUID, child_ids: list[UUID]) -> bool:
+        if not self.enabled():
+            return True
         from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
         snapshot = (

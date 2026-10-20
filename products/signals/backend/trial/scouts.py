@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import lock_organization_trial
+from products.signals.backend.trial.policy import TrialPolicy, lock_organization_trial
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
@@ -19,6 +19,10 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
         yield
         return
     team = config.team
+    policy = TrialPolicy(team)
+    if not policy.enabled():
+        yield
+        return
     team_id = team.parent_team_id or team.id
     with transaction.atomic():
         previous = (
@@ -52,5 +56,7 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
 
 
 def trial_scout_limit(team_id: int) -> int | None:
-    grant = SignalTrialGrant.objects.for_team(team_id).filter(exhausted_at__isnull=True).first()
-    return grant.scout_limit if grant is not None else None
+    from posthog.models import Team  # noqa: PLC0415 -- avoid model registration cycle
+
+    grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
+    return grant.scout_limit if grant is not None and grant.exhausted_at is None else None

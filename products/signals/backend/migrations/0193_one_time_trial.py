@@ -102,9 +102,7 @@ class Migration(migrations.Migration):
                 ("active_attempts", models.PositiveIntegerField(default=0)),
                 (
                     "attempt_run_ids",
-                    django.contrib.postgres.fields.ArrayField(
-                        base_field=models.UUIDField(), default=list, size=None
-                    ),
+                    django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), default=list, size=None),
                 ),
                 (
                     "grant",

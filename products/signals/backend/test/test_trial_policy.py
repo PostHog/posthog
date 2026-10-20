@@ -172,12 +172,15 @@ class TestTrialPolicy(BaseTest):
         slot = SignalTrialReportReservation.objects.for_team(self.team.pk).get(report_id=report)
         assert slot.status == SignalTrialReportReservation.Status.CONSUMED
 
-    def test_scout_cap_is_shared_with_environments_and_supports_swapping(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_scout_cap_is_shared_with_environments_and_supports_swapping(self, enabled: bool) -> None:
         self.claim()
-        self.flag_mock.return_value = False
-        self.policy.flag_decision()
+        self.flag_mock.return_value = enabled
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         scouts = [SignalScoutConfig.objects.create(team=child, skill_name=f"scout-{i}") for i in range(4)]
+        if not enabled:
+            assert all(scout.enabled for scout in scouts)
+            return
         assert [scout.enabled for scout in scouts] == [True, True, True, False]
         scouts[-1].enabled = True
         with self.assertRaises(ValidationError):
@@ -190,9 +193,13 @@ class TestTrialPolicy(BaseTest):
         assert SignalScoutConfig.objects.for_team(self.team.pk).filter(enabled=True).count() == 3
 
     def test_admitted_report_pass_keeps_trial_funding_after_flag_off(self) -> None:
-        self.claim()
+        grant = self.claim()
         report = uuid4()
         parent = self.admit(report_id=report)
+        grant.settled_microusd = grant.allowance_microusd
+        grant.exhausted_at = timezone.now()
+        grant.exhaustion_reason = "cost_limit"
+        grant.save()
         self.flag_mock.return_value = False
         child = self.policy.admit(
             parent=parent,
@@ -201,6 +208,14 @@ class TestTrialPolicy(BaseTest):
         )
         assert child.funding == "trial"
         assert child.grant_id == parent.grant_id
+        self.policy.check_funding(parent)
+        assert self.admit().funding == "existing"
+        assert self.policy.reserve_report_layers(report, [uuid4() for _ in range(grant.report_limit + 1)])
+        self.policy.reserve_direct_report(parent, uuid4())
+        assert SignalTrialReportReservation.objects.for_team(self.team.id).count() == 1
+        with self.policy.publish_report(report, delivered=True):
+            pass
+        assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report).status == "consumed"
 
     @parameterized.expand([(False, "released"), (True, "consumed")])
     def test_deletion_releases_only_undelivered_report_slots(self, delivered: bool, status: str) -> None:
