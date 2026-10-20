@@ -183,8 +183,8 @@ enum UploadKind<'a> {
 enum FullReason {
     NoBaseline,
     /// The baseline went up under another lineage: a reshard child restored its parent's
-    /// checkpoint. An incremental chain would name objects in the parent's prefix, which the parent
-    /// prunes and expires on its own.
+    /// checkpoint. An incremental chain would name objects in the parent's prefix, and a lineage
+    /// must hold every object its own restores need.
     OtherLineage,
     /// A created store restarts SST numbering, so a file name from another DB names other data.
     OtherDb,

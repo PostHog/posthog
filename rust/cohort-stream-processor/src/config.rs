@@ -1053,6 +1053,14 @@ impl Config {
     /// `COHORT_PARTITION_COUNT` partitions, resharded from `COHORT_RESHARD_FROM_POD_COUNT` pods
     /// when that is set.
     pub fn split_claim(&self) -> anyhow::Result<SplitClaim> {
+        ensure!(
+            self.cohort_reshard_from_pod_count.is_none()
+                || self.checkpoint_enabled
+                || !self.durable_restore_enabled,
+            "COHORT_RESHARD_FROM_POD_COUNT with DURABLE_RESTORE_ENABLED requires CHECKPOINT_ENABLED: \
+             without checkpoints each child starts empty while its parent deletes the partitions it \
+             gave away",
+        );
         SplitClaim::new(
             self.partition_ownership()?,
             self.cohort_reshard_from_pod_count,
@@ -1688,7 +1696,7 @@ mod tests {
     #[test]
     fn the_split_claim_comes_from_the_pod_count_the_pod_name_ordinal_and_the_reshard_marker() {
         type Env = &'static [(&'static str, &'static str)];
-        let cases: [(Env, Result<&str, &str>); 8] = [
+        let cases: [(Env, Result<&str, &str>); 9] = [
             (&[], Ok("pod 0 of 1 over 64 partitions")),
             (
                 &[
@@ -1719,7 +1727,16 @@ mod tests {
                     ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
                     ("POD_NAME", "cohort-stream-processor-1"),
                 ],
-                Ok("pod 1 of 2 over 64 partitions, taking over from pod 0 of 1 over 64 partitions"),
+                Ok("pod 1 of 2 over 64 partitions, resharded from pod 0 of 1 over 64 partitions"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
+                    ("DURABLE_RESTORE_ENABLED", "true"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Err("requires CHECKPOINT_ENABLED"),
             ),
             (
                 &[

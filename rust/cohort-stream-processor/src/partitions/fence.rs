@@ -139,10 +139,10 @@ impl CommitLedger {
     }
 
     /// Refuses a stamp on an owned partition that `claim` does not accept. An owned partition may
-    /// carry no stamp, this pod's split, or during a reshard the parent's. A child accepts no stamp
-    /// because its partitions belonged to the parent, which may have run a build without stamps. A
-    /// follower partition may also carry any split that covers this pod, because a pod of that
-    /// split that still runs also commits the events group.
+    /// carry no stamp, this pod's split, or during a reshard the parent's. An unstamped commit
+    /// passes in every role, because older builds and standard Kafka tools write none. A follower
+    /// partition may also carry any split that covers this pod, because a pod of that split that
+    /// still runs also commits the events group.
     fn check_stamps(&self, claim: &SplitClaim) -> Result<(), FenceBlock> {
         let ownership = claim.ownership();
         let parent = match claim.role() {
@@ -349,10 +349,11 @@ impl AdmittedSplit {
         self.stamp.clone()
     }
 
-    /// Checks the fence again, then commits every owned partition on every group again with this
-    /// pod's stamp, at the group's commit or at the low watermark where the group never committed,
-    /// and reads the stamps back. Run it after the store opens: a child that stops before its claim
-    /// still reads as its parent's, so the next boot takes over again. Blocks on Kafka.
+    /// Checks the stamps on the owned partitions again, then commits every owned partition on every
+    /// group again with this pod's stamp, at the group's commit or at the low watermark where the
+    /// group never committed, and reads the stamps back. Run it after the store opens: a child that
+    /// stops before its claim still reads as its parent's, so the next boot takes over again.
+    /// Blocks on Kafka.
     pub fn claim(self, groups: &InputGroups) -> anyhow::Result<ClaimedSplit> {
         let ownership = self.ownership();
         let partitions: BTreeSet<u16> = ownership.partitions().collect();

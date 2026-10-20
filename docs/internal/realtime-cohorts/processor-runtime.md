@@ -215,6 +215,7 @@ Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
 
 `COHORT_RESHARD_FROM_POD_COUNT` marks a reshard and names the old pod count.
 `COHORT_POD_COUNT` must be a larger whole multiple of it, or the pod refuses to start.
+With durable restore enabled, the pod also refuses to start without checkpoints, because each parent deletes the slices it gives away and its child would start without them.
 
 - A pod whose ordinal is below the old count is a parent.
   It reopens its store, and boot deletes the slices it gave away.

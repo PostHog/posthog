@@ -377,18 +377,20 @@ async fn prepare_store(
     };
     let mut search = Search::default();
 
-    // The local directory holds only this pod's own lineage.
-    let (searched, s3_label) = match source {
-        StoreSource::Own => (lineage, "s3"),
-        StoreSource::TakeOver { parent } => (CheckpointLineage::new(parent.ordinal()), "parent_s3"),
-    };
-    let local = match source {
-        StoreSource::Own => newest_fresh_local_checkpoint(
-            &local_dir,
-            durability.local_checkpoint_max_staleness,
-            searched_at,
+    let (local, searched, s3_label) = match source {
+        StoreSource::Own => (
+            newest_fresh_local_checkpoint(
+                &local_dir,
+                durability.local_checkpoint_max_staleness,
+                searched_at,
+            ),
+            lineage,
+            "s3",
         ),
-        StoreSource::TakeOver { .. } => None,
+        // The local directory holds only this pod's own lineage.
+        StoreSource::TakeOver { parent } => {
+            (None, CheckpointLineage::new(parent.ordinal()), "parent_s3")
+        }
     };
     if let Some(attempt) = local {
         let verdict = match attempt {

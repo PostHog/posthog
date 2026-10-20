@@ -1833,7 +1833,6 @@ async fn resharding_one_pod_into_two_keeps_every_member() {
             dispatcher,
             groups.clone(),
             claimed,
-            single.checkpoint_lineage().unwrap(),
             single.durability_config(),
             1,
             tokio_util::sync::CancellationToken::new(),
@@ -1884,7 +1883,6 @@ async fn resharding_one_pod_into_two_keeps_every_member() {
     .await
     .expect("the child restores its parent's checkpoint");
     let restore = restore.expect("the child restores from the parent's lineage");
-    assert_eq!(restore.source().label(), "s3");
     let child_claimed = claim(admitted, &groups).await;
 
     let mut manager = Manager::builder("reshard-itest-2")
@@ -1935,7 +1933,6 @@ async fn resharding_one_pod_into_two_keeps_every_member() {
         child_dispatcher,
         groups.clone(),
         child_claimed,
-        child_lineage,
         child_config.durability_config(),
         1,
         tokio_util::sync::CancellationToken::new(),

@@ -94,9 +94,8 @@ impl fmt::Display for SplitClaim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.role {
             Role::Steady => write!(f, "{}", self.ownership),
-            Role::Parent { parent } => write!(f, "{}, resharded from {parent}", self.ownership),
-            Role::Child { parent, .. } => {
-                write!(f, "{}, taking over from {parent}", self.ownership)
+            Role::Parent { parent } | Role::Child { parent, .. } => {
+                write!(f, "{}, resharded from {parent}", self.ownership)
             }
         }
     }
