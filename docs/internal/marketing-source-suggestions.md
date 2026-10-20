@@ -309,3 +309,5 @@ Attributed PostHog conversion goals retain their summary cards without sparkline
 
 Advertising metrics appear first, followed by attributed conversion goals and their cost per conversion.
 The goal cards use a separate grid so cards without sparklines keep a compact height.
+
+The overview loads on demand so other query surfaces do not load marketing-specific validation eagerly.

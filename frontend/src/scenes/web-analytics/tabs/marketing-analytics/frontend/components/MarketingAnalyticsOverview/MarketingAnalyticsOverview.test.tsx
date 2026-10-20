@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTilesLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
+import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, MarketingAnalyticsAggregatedQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -27,15 +27,15 @@ describe('Ad performance metric selection', () => {
         ['CTR', 'ctr'],
     ])('selecting %s updates the existing trend without changing the filters', async (label, metric) => {
         render(
-            <MarketingAnalyticsOverview
+            <Query
                 query={{ kind: NodeKind.MarketingAnalyticsAggregatedQuery, properties: [] }}
                 cachedResults={response}
                 context={{}}
                 uniqueKey="metric-selection"
             />
         )
-        const before = (marketingAnalyticsTilesLogic.values.marketingChartTile.query as InsightVizNode).source
         const button = (await screen.findByText(label)).closest('button')!
+        const before = (marketingAnalyticsTilesLogic.values.marketingChartTile.query as InsightVizNode).source
         fireEvent.click(button)
         expect(marketingAnalyticsLogic.values.tileColumnSelection).toBe(metric)
         expect(button.getAttribute('aria-pressed')).toBe('true')
