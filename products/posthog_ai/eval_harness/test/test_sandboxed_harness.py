@@ -184,12 +184,13 @@ def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str,
         pytest.param("ok", 0.5, None, 1, id="no_scores_with_gate"),
         pytest.param("timeout", None, 0.0, 0, id="timeout_without_gate"),
         pytest.param("timeout", 0.5, 0.0, 1, id="timeout_below_gate"),
+        pytest.param("check", None, None, 0, id="configuration_check_only"),
     ],
 )
 def test_eval_run_exit_status(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    outcome: Literal["ok", "case_error", "engine_error", "both_errors", "timeout", "crash"],
+    outcome: Literal["ok", "case_error", "engine_error", "both_errors", "timeout", "crash", "check"],
     fail_under: float | None,
     score: float | None,
     expected_exit_code: int,
@@ -197,6 +198,7 @@ def test_eval_run_exit_status(
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
 
     async def suite(ctx: EvalContext) -> None:
+        assert outcome != "check", "Configuration checks must not execute cases"
         if outcome == "crash":
             raise RuntimeError("Synthetic suite failure")
         await ctx.reporter.case_done("experiment", "completed-case", duration_seconds=1.0)
@@ -224,12 +226,19 @@ def test_eval_run_exit_status(
     )
     monkeypatch.setattr(lifecycle, "infra_union", lambda _kinds: frozenset())
     monkeypatch.setattr(lifecycle, "validate_eval_env", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", lambda *_args: None)
+    bootstrap = MagicMock()
+    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", bootstrap)
     args = [] if fail_under is None else ["--fail-under", str(fail_under)]
+    if outcome == "check":
+        args.append("--check")
 
     assert SandboxedEvalHarness(parse_args(args)).run() == expected_exit_code
     output = capsys.readouterr().out
-    assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+    if outcome == "check":
+        bootstrap.assert_not_called()
+        assert "SUITE START" not in output
+    else:
+        assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
 
 
 @pytest.mark.asyncio
