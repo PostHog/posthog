@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -7,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { DesktopBridgeBody } from './DesktopBridgeBody'
 import { DESKTOP_SCHEME } from './desktopScheme'
+import { webPath } from './webPath'
 
 export interface CodeCanvasLinkProps {
     channelId: string
@@ -39,7 +42,9 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
     const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
     // The web canvas scene shows "Not found" without this flag, so only offer it to visitors who have it.
     const webCanvasEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const webUrl = webCanvasEnabled && dashboardId ? urls.canvasDetail(dashboardId) : null
+    const { searchParams } = useValues(router)
+    const webUrl =
+        webCanvasEnabled && dashboardId ? webPath(searchParams.project, urls.canvasDetail(dashboardId)) : null
 
     useEffect(() => {
         if (deepLink) {

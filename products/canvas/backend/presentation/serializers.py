@@ -41,8 +41,9 @@ _CANVAS_URL_HELP_TEXT = (
 
 def canvas_url(canvas: CanvasRecord) -> str:
     # The same shape the thread-message announcements use; the route deep-links
-    # into the desktop app and renders in the web app.
-    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
+    # into the desktop app and renders in the web app. `project` tells the web
+    # interstitial which project owns the canvas, so its browser link resolves.
+    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}?project={canvas.team_id}"
 
 
 class CanvasComponentSizeSerializer(serializers.Serializer):

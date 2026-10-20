@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -7,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { DesktopBridgeBody } from './DesktopBridgeBody'
 import { DESKTOP_SCHEME } from './desktopScheme'
+import { webPath } from './webPath'
 
 export interface CodeChannelLinkProps {
     channelId: string
@@ -41,7 +44,9 @@ export function CodeChannelLink({ channelId, taskId }: CodeChannelLinkProps): JS
     const target = taskId ? 'thread' : 'channel'
     // The web space scene shows "Not found" without this flag, so only offer it to visitors who have it.
     const webSpacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const webUrl = webSpacesEnabled && channelId && !taskId ? urls.taskSpace(channelId) : null
+    const { searchParams } = useValues(router)
+    const webUrl =
+        webSpacesEnabled && channelId && !taskId ? webPath(searchParams.project, urls.taskSpace(channelId)) : null
 
     useEffect(() => {
         if (deepLink) {
