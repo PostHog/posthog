@@ -637,11 +637,16 @@ def _alert_trigger_error(request: Request | None, team: Team, filters: dict, *, 
             None if is_draft else "Pick an alert for this trigger. Without one it runs for every alert in the project."
         )
     user = getattr(request, "user", None)
-    person = user is not None and user.is_authenticated and not isinstance(user, SyntheticUser)
+    user_access_control = (
+        UserAccessControl(user=user, team=team)
+        # A synthetic or anonymous caller is not a `User`, and has no access control of its own.
+        if isinstance(user, User)
+        else None
+    )
     return workflow_trigger_refusal(
         team_id=team.id,
         configuration_ids=configuration_ids,
-        user_access_control=UserAccessControl(user=user, team=team) if person else None,
+        user_access_control=user_access_control,
         token_scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
     )
 
@@ -1872,7 +1877,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                 if _subscribes_to(ALERT_TRANSITION_EVENT):
                     alert_error = _alert_trigger_error(
-                        self.context.get("request"), self.context["get_team"](), filters, is_draft=is_draft
+                        self.context.get("request"), self.context["get_team"](), filters, is_draft=bool(is_draft)
                     )
                     if alert_error:
                         raise serializers.ValidationError({"filters": alert_error})
