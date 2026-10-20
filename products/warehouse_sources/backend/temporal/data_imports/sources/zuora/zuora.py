@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.sett
     ZUORA_ENDPOINTS,
     ZUORA_ENVIRONMENT_HOSTS,
 )
+
+ZUORA_INCOMPLETE_LIST_ERROR = "Zuora returned a full page for a list that has no next-page token"
 
 
 @dataclasses.dataclass
@@ -124,6 +127,25 @@ class ZuoraCursorPaginator(BasePaginator):
         return "ZuoraCursorPaginator()"
 
 
+class ZuoraFullPageGuardPaginator(SinglePagePaginator):
+    """Fetch a one-response list, and fail when the response fills the requested page.
+
+    A full page can hide more rows that the API gives no way to fetch. The check runs before the
+    page is yielded, so a truncated full refresh never replaces the table."""
+
+    def __init__(self, page_size: int) -> None:
+        super().__init__()
+        self.page_size = page_size
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is not None and len(data) >= self.page_size:
+            raise ValueError(f"{ZUORA_INCOMPLETE_LIST_ERROR} ({len(data)} rows), so the table could be incomplete.")
+        super().update_state(response, data)
+
+    def __str__(self) -> str:
+        return f"ZuoraFullPageGuardPaginator(page_size={self.page_size})"
+
+
 def _object_query_endpoint(
     endpoint: str, should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any]
 ) -> Endpoint:
@@ -143,13 +165,18 @@ def _object_query_endpoint(
 
 def _commerce_endpoint(endpoint: str) -> Endpoint:
     commerce = ZUORA_COMMERCE_ENDPOINTS[endpoint]
-    paginator: PaginatorConfig = (
-        JSONResponseCursorPaginator(cursor_path="nextPageToken", cursor_param="pageToken")
-        if commerce.paginated
-        else "single_page"
-    )
+    params: dict[str, Any] = {}
+    paginator: PaginatorConfig = "single_page"
+    if commerce.paginated:
+        paginator = JSONResponseCursorPaginator(
+            cursor_path="nextPageToken", cursor_param="pageToken", raise_on_repeated_cursor=True
+        )
+    elif commerce.page_size_param is not None:
+        params[commerce.page_size_param] = PAGE_SIZE
+        paginator = ZuoraFullPageGuardPaginator(PAGE_SIZE)
     return {
         "path": commerce.path,
+        "params": params,
         "data_selector": commerce.data_selector,
         "paginator": paginator,
     }

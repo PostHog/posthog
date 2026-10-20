@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.sett
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.source import ZuoraSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.zuora import (
+    ZUORA_INCOMPLETE_LIST_ERROR,
     ZuoraResumeConfig,
     _base_url,
     _format_timestamp,
@@ -121,15 +122,25 @@ class TestGetRows:
         assert "pageSize" not in request.url
 
     @pytest.mark.parametrize(
-        "endpoint, path, body",
+        "endpoint, path, body, expected_query",
         [
-            ("features", "/commerce/features", {"features": [{"id": "f1"}, {"id": "f2"}]}),
-            ("features", "/commerce/features", {"items": [{"id": "f1"}, {"id": "f2"}]}),
-            ("billable_metrics", "/commerce/billable-metrics", {"data": [{"id": "f1"}, {"id": "f2"}]}),
-            ("billable_metrics", "/commerce/billable-metrics", {"response": {"data": [{"id": "f1"}, {"id": "f2"}]}}),
+            ("features", "/commerce/features", {"features": [{"id": "f1"}, {"id": "f2"}]}, {}),
+            ("features", "/commerce/features", {"items": [{"id": "f1"}, {"id": "f2"}]}, {}),
+            (
+                "billable_metrics",
+                "/commerce/billable-metrics",
+                {"data": [{"id": "f1"}, {"id": "f2"}]},
+                {"pagination.page_size": ("99",)},
+            ),
+            (
+                "billable_metrics",
+                "/commerce/billable-metrics",
+                {"response": {"data": [{"id": "f1"}, {"id": "f2"}]}},
+                {"pagination.page_size": ("99",)},
+            ),
         ],
     )
-    def test_commerce_lists_read_either_documented_array_key(self, endpoint, path, body):
+    def test_commerce_lists_read_either_documented_array_key(self, endpoint, path, body, expected_query):
         result = _driver().run(
             endpoint, route({"/oauth/token": [_token_response()], path: [ScriptedResponse(json=body)]})
         )
@@ -137,7 +148,19 @@ class TestGetRows:
         assert [row["id"] for row in result.rows] == ["f1", "f2"]
         data_requests = _data_requests(result)
         assert len(data_requests) == 1
-        assert dict(data_requests[0].query) == {}
+        assert dict(data_requests[0].query) == expected_query
+
+    def test_billable_metrics_full_page_fails_before_yielding_rows(self):
+        full_page = {"data": [{"id": f"bm-{index}"} for index in range(99)]}
+        result = _driver().run(
+            "billable_metrics",
+            route(
+                {"/oauth/token": [_token_response()], "/commerce/billable-metrics": [ScriptedResponse(json=full_page)]}
+            ),
+        )
+
+        assert result.rows == []
+        assert ZUORA_INCOMPLETE_LIST_ERROR in str(result.raised)
 
     def test_entitlement_grants_follow_next_page_token(self):
         result = _driver().run(

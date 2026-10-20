@@ -47,6 +47,8 @@ class ZuoraCommerceEndpoint:
     data_selector: str
     # Only paginated lists return a nextPageToken; the others return every row in one response.
     paginated: bool = False
+    # Set for a one-response list that takes a page size but returns no next-page token.
+    page_size_param: str | None = None
 
 
 # Stream name -> Commerce API list endpoint. These lists expose no updated-date filter, so they
@@ -54,7 +56,9 @@ class ZuoraCommerceEndpoint:
 # selectors match either key.
 ZUORA_COMMERCE_ENDPOINTS: dict[str, ZuoraCommerceEndpoint] = {
     "billable_metrics": ZuoraCommerceEndpoint(
-        path="commerce/billable-metrics", data_selector="(data[*]) | (response.data[*])"
+        path="commerce/billable-metrics",
+        data_selector="(data[*]) | (response.data[*])",
+        page_size_param="pagination.page_size",
     ),
     "features": ZuoraCommerceEndpoint(path="commerce/features", data_selector="(features[*]) | (items[*])"),
     "entitlement_grants": ZuoraCommerceEndpoint(
