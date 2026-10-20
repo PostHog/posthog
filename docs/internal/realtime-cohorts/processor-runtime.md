@@ -62,6 +62,8 @@ A commit from a client outside the group is refused while the group has a live m
 librdkafka logs each refused commit as a `COMMITFAIL` warning, and the next commit retries it.
 `rebalances_total` counts rebalance callbacks on the events consumer, which fire only if the consumer subscribes.
 `owned_partitions` and `partition_ownership_info`, labelled by `pods` and `ordinal`, show the pod's share.
+No pod can see the StatefulSet's replica count, so fewer replicas than `COHORT_POD_COUNT` leave the partitions of the missing ordinals without a consumer.
+Only their group lag and a `sum(owned_partitions)` below `COHORT_PARTITION_COUNT` show it, so alert on that sum.
 
 The merge, transfer, cascade and seed followers start only after the first catalog load and the end of boot recovery.
 The events consumer does not wait for the catalog.
@@ -200,10 +202,10 @@ At boot the processor:
 1. validates its configuration, refuses unsafe combinations, and works out the partitions it owns,
 2. binds the health server, so `/_health` answers from here on and `/_ready` reads not ready,
 3. loads the catalog once,
-4. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
+4. checks the partition counts of the co-partitioned topics against broker metadata,
+5. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
    A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
    A store written under another split of the partitions refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
-5. checks the partition counts of the co-partitioned topics against broker metadata,
 6. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
@@ -212,7 +214,7 @@ With durable restore enabled, a restart reopens the same local store instead, an
 
 1. Before its first poll, it deletes the slices of partitions it does not own, and re-produces every transfer waiting in the merge outbox, clearing each outbox row from outside the worker.
 2. After a checkpoint restore, it seeks every owned partition back to the position the restore kept for it, or to the first event it polled and did not dispatch if that is lower.
-   It dispatches nothing these polls return.
+   It dispatches nothing it polls before that seek succeeds.
    It then commits those positions and deletes the restore marker.
    A failed seek, commit or delete is retried on the next poll, and nothing is dispatched until all of them succeed.
    The consumer reports no liveness while one of them fails, so a failure that persists restarts the process.

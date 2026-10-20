@@ -1137,26 +1137,10 @@ impl Config {
             .find(|id| !id.is_empty())
     }
 
-    /// Build the `rdkafka` client config for the `cohort_stream_events` consumer.
-    ///
-    /// Auto-commit and auto-offset-store are off: the consume loop marks offsets only after a
-    /// sub-batch is routed and produced. The consumer assigns itself the partitions this pod owns
-    /// and never joins the group, so `group.id` only names where its commits land.
-    /// `auto.offset.reset` is hard-coded to `earliest`, as for the followers: a group without
-    /// members is `Empty` to the broker, which can expire its committed offsets, and a tail reset
-    /// would then silently skip the events in between. It sets no `group.instance.id`: librdkafka
-    /// sends that id with every offset commit, and a broker can refuse a commit that names a static
-    /// member from a client outside the group.
+    /// Build the `rdkafka` client config for the `cohort_stream_events` consumer: the follower
+    /// config on the events group, with a bounded fetch buffer.
     pub fn consumer_client_config(&self) -> ClientConfig {
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", &self.kafka_hosts)
-            .set("group.id", &self.kafka_consumer_group)
-            .set("enable.auto.commit", "false")
-            .set("enable.auto.offset.store", "false")
-            .set("auto.offset.reset", "earliest")
-            .set("socket.timeout.ms", "10000");
-
+        let mut config = self.follower_client_config(&self.kafka_consumer_group);
         // Bound librdkafka's fetch buffer: an aggregate byte ceiling plus a per-partition prefetch floor.
         let fetch = self.fetch_queue_config();
         config
@@ -1165,31 +1149,19 @@ impl Config {
                 fetch.queued_max_messages_kbytes.to_string(),
             )
             .set("queued.min.messages", fetch.queued_min_messages.to_string());
-
-        if let Some(id) = self.pod_identity() {
-            config.set("client.id", id);
-        }
-        if !self.kafka_client_id.is_empty() {
-            config.set("client.id", &self.kafka_client_id);
-        }
-        if !self.kafka_client_rack.is_empty() {
-            config.set("client.rack", &self.kafka_client_rack);
-        }
-        if self.kafka_tls {
-            config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
-        }
         config
     }
 
-    /// Build the `rdkafka` client config for a merge-protocol follower consumer.
+    /// Build the `rdkafka` client config for a consumer of `group`: the events consumer or a
+    /// follower.
     ///
-    /// Followers assign themselves the partitions this pod owns, like the events consumer, so
-    /// `group.id` exists only so commits land on an observable group. `auto.offset.reset` is hard-coded to `earliest`: a
-    /// never-subscribing group is `Empty` to the broker, so its committed offsets are pruned after
-    /// `offsets.retention.minutes`, and a tail reset after pruning would silently skip the merge
-    /// backlog.
+    /// Auto-commit and auto-offset-store are off: a consume loop marks offsets only after its
+    /// messages are processed. Every consumer assigns itself the partitions this pod owns and never
+    /// joins its group, so `group.id` only names where its commits land. `auto.offset.reset` is
+    /// hard-coded to `earliest`: a group without members is `Empty` to the broker, which can expire
+    /// its committed offsets, and a tail reset would then silently skip the messages in between. It
+    /// sets no `group.instance.id`: librdkafka sends that id with every offset commit, and a broker
+    /// can refuse a commit that names a static member from a client outside the group.
     pub fn follower_client_config(&self, group: &str) -> ClientConfig {
         let mut config = ClientConfig::new();
         config

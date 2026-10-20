@@ -2936,6 +2936,15 @@ mod tests {
             CohortStore::open(&under(pod_one)),
             Err(StoreError::OwnershipMismatch { .. })
         ));
+
+        CohortStore::open(&under(pod_zero))
+            .unwrap()
+            .write_batch(|batch| batch.put::<Meta>(&META_POD_PARTITIONS, &[0xFF]))
+            .unwrap();
+        assert!(matches!(
+            CohortStore::open(&under(pod_zero)),
+            Err(StoreError::OwnershipMismatch { found: None, .. })
+        ));
     }
 
     #[test]

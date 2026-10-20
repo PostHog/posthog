@@ -176,6 +176,25 @@ mod tests {
     }
 
     #[test]
+    fn the_ownership_record_keeps_its_layout_and_rejects_bytes_encode_never_writes() {
+        let pod_one_of_two =
+            PartitionOwnership::new(NonZeroU16::new(2).unwrap(), PodOrdinal::from(1), 64).unwrap();
+        assert_eq!(pod_one_of_two.encode(), [0, 2, 0, 1, 0, 64]);
+        assert_eq!(
+            PartitionOwnership::decode(&[0, 2, 0, 1, 0, 64]),
+            Some(pod_one_of_two)
+        );
+        for bytes in [
+            &[0, 2, 0, 1, 0][..],
+            &[0, 0, 0, 0, 0, 64],
+            &[0, 2, 0, 2, 0, 64],
+            &[0, 3, 0, 0, 0, 64],
+        ] {
+            assert_eq!(PartitionOwnership::decode(bytes), None, "{bytes:?}");
+        }
+    }
+
+    #[test]
     fn the_assignment_resumes_each_owned_partition_at_its_committed_offset() {
         let ownership =
             PartitionOwnership::new(NonZeroU16::new(2).unwrap(), PodOrdinal::from(1), 4).unwrap();
