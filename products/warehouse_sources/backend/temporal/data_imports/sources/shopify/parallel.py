@@ -50,16 +50,20 @@ class ReadWindow:
             "stop_hi": self.stop_hi.isoformat(),
             "cursor": self.cursor,
             "done": self.done,
+            "progress": self.progress.isoformat() if self.progress is not None else None,
         }
 
     @classmethod
     def from_state(cls, state: dict[str, Any]) -> "ReadWindow":
+        progress = state.get("progress")
         return cls(
             lo=datetime.fromisoformat(state["lo"]),
             query_hi=datetime.fromisoformat(state["query_hi"]),
             stop_hi=datetime.fromisoformat(state["stop_hi"]),
             cursor=state.get("cursor"),
             done=bool(state.get("done")),
+            # A resumed window splits above the rows it already handed over, not from `lo`.
+            progress=datetime.fromisoformat(progress) if progress else None,
         )
 
 
@@ -79,8 +83,10 @@ class _WindowPage:
     error: BaseException | None = None
 
 
-# Reads the pages of one window, from its cursor, and owns the session it uses.
-FetchWindowPages = Callable[[ReadWindow], Iterator[FetchedPage]]
+# Reads the pages of one window, from its cursor, and owns the session it uses. It stops asking
+# Shopify for pages once the given event is set, so a stopped read does not keep spending the
+# store's query budget against the run that replaces it.
+FetchWindowPages = Callable[[ReadWindow, threading.Event], Iterator[FetchedPage]]
 
 
 def _split(windows: list[ReadWindow], active: list[ReadWindow]) -> ReadWindow | None:
@@ -144,7 +150,7 @@ def read_windows(
 
     def read(window: ReadWindow) -> None:
         try:
-            for fetched in fetch_pages(window):
+            for fetched in fetch_pages(window, stop):
                 with lock:
                     # Rows are sorted by `updated_at`, so the first row at or above the stop ends
                     # the window. A split can lower the stop while this page is in flight.

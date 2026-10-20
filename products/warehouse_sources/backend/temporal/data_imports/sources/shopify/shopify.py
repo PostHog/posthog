@@ -1,5 +1,6 @@
 import re
 import json
+import threading
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ import structlog
 from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity.nap import sleep as retry_sleep
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -332,6 +334,10 @@ class ShopifyQueryCostExceededError(Exception):
     """Shopify rejected the query because its requested cost is above the single-query limit."""
 
 
+class ShopifyReadStopped(Exception):
+    """Raised inside a paged read whose caller stopped wanting rows, to end it without more requests."""
+
+
 def _is_max_cost_exceeded(errors: Any) -> bool:
     if not isinstance(errors, list):
         return False
@@ -377,8 +383,21 @@ def iter_shopify_pages(
     logger: FilteringBoundLogger,
     query: str | None = None,
     initial_cursor: str | None = None,
+    stop: threading.Event | None = None,
 ) -> Iterator[ShopifyPage]:
+    """Yield the pages of one query.
+
+    `stop`, when given, ends the read: no request or retry starts once it is set, and a backoff
+    already waiting gives up as soon as it is. A read that only the caller abandons keeps spending
+    the store's query budget for as long as its retries last, which a parallel read cannot afford.
+    """
     endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
+
+    def wait_unless_stopped(seconds: float) -> None:
+        if stop is None:
+            retry_sleep(seconds)
+        else:
+            stop.wait(seconds)
 
     @retry(
         # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
@@ -390,9 +409,12 @@ def iter_shopify_pages(
         ),
         stop=stop_after_attempt(5),
         wait=_shopify_retry_wait,
+        sleep=wait_unless_stopped,
         reraise=True,
     )
     def execute(vars: dict[str, Any]):
+        if stop is not None and stop.is_set():
+            raise ShopifyReadStopped(f"Shopify: read of {graphql_object.name} stopped")
         # `post` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. It's transient — retry it like a 5xx below.
         try:
@@ -539,7 +561,7 @@ def _read_in_parallel(
     endpoint_config = ENDPOINT_CONFIGS[graphql_object.name]
     time_field = SHOPIFY_PARALLEL_READ_TIME_FIELDS[graphql_object.name]
 
-    def fetch_pages(window: ReadWindow) -> Iterator[FetchedPage]:
+    def fetch_pages(window: ReadWindow, stop: threading.Event) -> Iterator[FetchedPage]:
         query = " AND ".join(
             [
                 f"{endpoint_config.query_filter}:>='{window.lo.isoformat()}'",
@@ -550,7 +572,7 @@ def _read_in_parallel(
         # Each window runs on its own thread, and a `requests` session is not safe to share.
         with make_session() as window_sess:
             for page in iter_shopify_pages(
-                url, window_sess, graphql_object, logger, query=query, initial_cursor=window.cursor
+                url, window_sess, graphql_object, logger, query=query, initial_cursor=window.cursor, stop=stop
             ):
                 yield FetchedPage(rows=page.rows, next_cursor=page.next_cursor)
 

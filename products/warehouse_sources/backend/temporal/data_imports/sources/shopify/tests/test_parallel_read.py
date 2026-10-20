@@ -1,9 +1,10 @@
 import re
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -15,9 +16,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ShopifyAuthMethodConfig,
     ShopifySourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    ABANDONED_CHECKOUTS,
+    SHOPIFY_GRAPHQL_OBJECTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.parallel import ReadWindow, _split
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     PHASE_PARALLEL,
+    ShopifyReadStopped,
     ShopifyResumeConfig,
+    iter_shopify_pages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
@@ -139,3 +147,44 @@ def test_reads_pages_in_one_chain_when_the_parallel_read_does_not_apply(kwargs: 
 
     assert sorted(row["id"] for row in result.rows) == sorted(_ORDER_IDS)
     assert not any("updated_at" in search for search in _searches(result))
+
+
+def test_a_resumed_window_splits_above_the_rows_it_already_handed_over() -> None:
+    window = ReadWindow(
+        lo=_CLUSTER_START, query_hi=_CLUSTER_START + timedelta(hours=4), stop_hi=_CLUSTER_START + timedelta(hours=4)
+    )
+    window.progress = _CLUSTER_START + timedelta(hours=3)
+    window.cursor = "40"
+
+    resumed = ReadWindow.from_state(window.to_state())
+    new_window = _split([resumed], [resumed])
+
+    assert new_window is not None
+    # Splitting from `lo` would give the new window a range the resumed window already read.
+    assert new_window.lo > window.progress
+    assert resumed.stop_hi == new_window.lo
+
+
+def test_a_stopped_read_asks_shopify_for_no_more_pages() -> None:
+    stop = threading.Event()
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "data": {ABANDONED_CHECKOUTS: {"nodes": [{"id": "1"}], "pageInfo": {"hasNextPage": True, "endCursor": "2"}}}
+    }
+    sess = MagicMock()
+    sess.post.return_value = response
+
+    pages = iter_shopify_pages(
+        "https://example.invalid/graphql",
+        sess,
+        SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS],
+        MagicMock(),
+        stop=stop,
+    )
+
+    assert next(pages).next_cursor == "2"
+    stop.set()
+    with pytest.raises(ShopifyReadStopped):
+        next(pages)
+    assert sess.post.call_count == 1
