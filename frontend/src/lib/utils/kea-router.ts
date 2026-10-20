@@ -136,6 +136,10 @@ export function stripTrailingSlashFromUrl(url: string): string {
     return stripTrailingSlash(url.slice(0, separator)) + url.slice(separator)
 }
 
+export function stripQueryAndHash(href: string): string {
+    return href.split(/[?#]/)[0]
+}
+
 export function removeFlagIdIfPresent(path: string): string {
     if (path.match(/^\/feature_flags\/\d+/)) {
         return path.replace(/(feature_flags).*$/, '$1/')

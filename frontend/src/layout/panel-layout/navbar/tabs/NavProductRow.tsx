@@ -8,7 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { removeProjectIdIfPresent, stripQueryAndHash } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
@@ -33,10 +33,12 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
     const shortcut = findProductShortcut(item, shortcutData)
     const currentPath = removeProjectIdIfPresent(pathname)
     const href = item.href ?? ''
+    // The pathname has no query string, so a filtered destination like `/views?type=canvas` matches on its path
+    const hrefPath = stripQueryAndHash(href)
     const active =
-        currentPath === href ||
-        (href !== urls.projectRoot() && currentPath.startsWith(`${href}/`)) ||
-        (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
+        currentPath === hrefPath ||
+        (hrefPath !== urls.projectRoot() && currentPath.startsWith(`${hrefPath}/`)) ||
+        (hrefPath === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
         (item.path === 'Session replay' && currentPath.startsWith('/replay/'))
     const disabledReason = getProductAccessDisabledReason(item)
 

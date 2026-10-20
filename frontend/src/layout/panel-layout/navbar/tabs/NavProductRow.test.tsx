@@ -43,6 +43,21 @@ describe('NavProductRow', () => {
         expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
     })
 
+    // A product can link to a filtered list, so its href carries a query string the pathname never has
+    it.each([
+        ['/project/1/views', true],
+        ['/project/1/notebooks', false],
+    ])('marks the row with a query-bearing href active on %s: %s', (path, expected) => {
+        router.actions.push(path)
+        panelLayoutLogic.mount()
+        const { container } = render(
+            <NavProductRow item={{ path: 'Canvases', iconType: 'tools', href: '/views?type=canvas' }} />
+        )
+
+        const row = container.querySelector('[data-attr="nav-apps-item"]')!
+        expect(row.classList.contains('button-primitive--active')).toBe(expected)
+    })
+
     it('disables navigation and starring when access to a product is denied', () => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT!,

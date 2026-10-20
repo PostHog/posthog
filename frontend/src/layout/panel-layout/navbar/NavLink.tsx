@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { removeProjectIdIfPresent, stripQueryAndHash } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -29,13 +29,15 @@ export function NavLink({
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
 
-    const isHomePage = to === urls.projectRoot()
+    // The pathname has no query string, so a filtered destination like `/views?type=canvas` matches on its path
+    const toPath = stripQueryAndHash(to)
+    const isHomePage = toPath === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isInbox = to === urls.inbox()
+    const isInbox = toPath === urls.inbox()
     const isActive =
-        currentPath === to ||
+        currentPath === toPath ||
         (isHomePage && currentPath === urls.projectHomepage()) ||
-        (isInbox && currentPath.startsWith(`${to}/`))
+        (isInbox && currentPath.startsWith(`${toPath}/`))
     const hasSideActionRight = !!sideAction && !isCollapsed
 
     return (
