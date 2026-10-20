@@ -2021,11 +2021,11 @@ Diffed against: <https://buildkite.com/docs/llms.txt>
 - [x] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
 - [x] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
 - [x] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
-- [ ] `organizations/{org}/clusters` — lookup resolving cluster IDs carried on agents and queues (medium)
-- [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/artifacts` — artifact inventory and sizes per build, useful for storage and output tracking (medium)
-- [ ] `organizations/{org}/teams/{team}/members` — membership table joining users to teams (medium)
+- [x] `organizations/{org}/clusters` — lookup resolving cluster IDs carried on agents and queues (medium)
+- [x] `organizations/{org}/pipelines/{pipeline}/builds/{number}/artifacts` — artifact inventory and sizes per build, useful for storage and output tracking (medium)
+- [x] `organizations/{org}/teams/{team}/members` — membership table joining users to teams (medium)
 - [x] `organizations/{org}/pipelines/{pipeline}/schedules` — explains which builds are scheduled vs triggered — a common breakdown dimension on build volume (medium)
-- [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/annotations` — build annotations carry test summaries and custom CI reporting output (low)
+- [x] `organizations/{org}/pipelines/{pipeline}/builds/{number}/annotations` — build annotations carry test summaries and custom CI reporting output (low)
 
 Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.txt with one line per REST resource; every endpoint below is named there.
 
