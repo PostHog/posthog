@@ -273,6 +273,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             ("highlights with only today", "get", "highlights", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("pins with today read", "get", "pulse_pins", ["today:read"], status.HTTP_200_OK),
+            ("saving pins with today read", "put", "pulse_pins", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("saving pins with today write", "put", "pulse_pins", ["today:write"], status.HTTP_200_OK),
         ]
     )
     def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
@@ -289,6 +292,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/today/{path}/",
+                {"pins": []} if method == "put" else None,
+                format="json",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
 

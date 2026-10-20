@@ -1,4 +1,4 @@
-import { type FocusEvent, type ReactNode, useCallback, useRef, useState } from 'react'
+import { type FocusEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
@@ -19,12 +19,24 @@ export function TodayPulseHoverCard({
     onOpenChange?: (open: boolean) => void
 }): JSX.Element {
     const [open, setOpenState] = useState(false)
+    const openRef = useRef(false)
+    const onOpenChangeRef = useRef(onOpenChange)
+    onOpenChangeRef.current = onOpenChange
     const setOpen = (next: boolean): void => {
-        if (next !== open) {
+        if (next !== openRef.current) {
             onOpenChange?.(next)
         }
+        openRef.current = next
         setOpenState(next)
     }
+    useEffect(
+        () => () => {
+            if (openRef.current) {
+                onOpenChangeRef.current?.(false)
+            }
+        },
+        []
+    )
     const popupRef = useRef<HTMLDivElement>(null)
     const triggerRef = useCallback((): void => trackPointer(), [])
     const show = (next: boolean): void => {

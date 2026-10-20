@@ -112,10 +112,16 @@ function useSettleOnReorder(listRef: RefObject<HTMLUListElement>): void {
             const left = tile.getBoundingClientRect().left
             const before = lefts.current.get(key)
             if (!still && before !== undefined && Math.abs(before - left) > 1) {
-                tile.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], {
-                    duration: REORDER_MS,
-                    easing: 'cubic-bezier(0.2, 0, 0, 1)',
-                })
+                tile.animate(
+                    [
+                        { opacity: 0, transform: 'translateY(4px)' },
+                        { opacity: 1, transform: 'none' },
+                    ],
+                    {
+                        duration: REORDER_MS,
+                        easing: 'cubic-bezier(0.2, 0, 0, 1)',
+                    }
+                )
             }
             lefts.current.set(key, left)
         })

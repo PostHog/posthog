@@ -104,7 +104,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get the numbers the person keeps",
         description="The numbers the person keeps at the start of the key numbers on their home, in order. Suggestions fill the free places. 404 when the person does not have the new navigation.",
     )
-    @action(detail=False, methods=["get"], url_path="pulse_pins", required_scopes=["today:read"])
+    @action(detail=False, methods=["get"], url_path="pulse_pins")
     def pulse_pins(self, request: Request, **kwargs) -> Response:
         user = cast(User, request.user)
         if not api.is_enabled_for(user, self.team):

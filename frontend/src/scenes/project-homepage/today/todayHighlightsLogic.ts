@@ -71,7 +71,8 @@ export interface todayHighlightsLogicValues {
     pulseInsightResults: PinnedPulseMetric[]
     pulseInsightResultsLoading: boolean
     pulseOrderHeld: string[] | null
-    pulsePinsSaved: boolean
+    pulsePinsSavedVersion: number
+    pulsePinsVersion: number
     unconfirmedPinKeys: string[]
     pulsePins: PulsePinApi[]
     pulsePinsLoading: boolean
@@ -167,8 +168,8 @@ export interface todayHighlightsLogicActions {
         pin: PinnedPulseMetric
         source: PulsePinSource
     }
-    pulsePinsSaved: () => {
-        value: true
+    pulsePinsSaved: (version: number) => {
+        version: number
     }
     pulsePinAdded: (key: string) => {
         key: string
@@ -251,13 +252,13 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         setPinnedPulseKeys: (metrics: PinnedPulseMetric[]) => ({ metrics }),
         pulseEditorOpened: true,
         togglePulsePin: (pin: PinnedPulseMetric, source: PulsePinSource) => ({ pin, source }),
-        pulsePinsSaved: true,
+        pulsePinsSaved: (version: number) => ({ version }),
         pulsePinAdded: (key: string) => ({ key }),
         pulsePinsConfirmed: true,
         holdPulseOrder: (keys: string[]) => ({ keys }),
         releasePulseOrder: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         pulseInsightResults: [
             [] as PinnedPulseMetric[],
             {
@@ -310,7 +311,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                         return null
                     }
                     try {
+                        const confirmsVersion =
+                            values.pulsePinsSavedVersion === values.pulsePinsVersion ? values.pulsePinsVersion : null
                         const loaded = await todayHighlightsRetrieve(String(values.currentProjectId))
+                        cache.loadConfirmsPinsVersion = confirmsVersion
                         const previous = values.highlights
                         return loaded.generated_at === null && previous?.generated_at
                             ? { ...previous, status: loaded.status }
@@ -336,13 +340,8 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 pulsePinsConfirmed: () => [],
             },
         ],
-        pulsePinsSaved: [
-            false,
-            {
-                setPinnedPulseKeys: () => false,
-                pulsePinsSaved: () => true,
-            },
-        ],
+        pulsePinsVersion: [0, { setPinnedPulseKeys: (version) => version + 1 }],
+        pulsePinsSavedVersion: [0, { pulsePinsSaved: (_, { version }) => version }],
         pulseOrderHeld: [
             null as string[] | null,
             {
@@ -452,6 +451,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setPinnedPulseKeys: async ({ metrics }, breakpoint) => {
+            const version = values.pulsePinsVersion
             await breakpoint(PULSE_PINS_SAVE_DEBOUNCE_MS)
             try {
                 await todayPulsePinsUpdate(String(values.currentProjectId), { pins: metrics })
@@ -461,12 +461,13 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 return
             }
             breakpoint()
-            actions.pulsePinsSaved()
+            actions.pulsePinsSaved(version)
             actions.loadHighlights()
         },
         togglePulsePin: ({ pin, source }) => {
             const pinned = values.pinnedPulseMetrics.some((existing) => existing.key === pin.key)
-            if (pulsePinLimitReason(values.pinnedPulseMetrics.length, pinned)) {
+            const pinnedCountBefore = values.pinnedPulseMetrics.length
+            if (pulsePinLimitReason(pinnedCountBefore, pinned)) {
                 return
             }
             if (!pinned) {
@@ -480,7 +481,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             posthog.capture(pinned ? 'today pulse number unpinned' : 'today pulse number pinned', {
                 kind: pulseKind(pin.key),
                 source,
-                pinned_count: values.pinnedPulseMetrics.length,
+                pinned_count_before: pinnedCountBefore,
             })
         },
         pulseEditorOpened: () => {
@@ -545,7 +546,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             if (!highlights) {
                 return
             }
-            if (values.pulsePinsSaved && highlights.status !== 'computing') {
+            if (cache.loadConfirmsPinsVersion === values.pulsePinsVersion && highlights.status !== 'computing') {
                 actions.pulsePinsConfirmed()
             }
             if (highlights.status === 'computing') {
