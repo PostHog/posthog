@@ -14,6 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    DeliveryPath,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
     SourceCorrespondence,
@@ -21,7 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryPath
 
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
@@ -70,14 +71,27 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
     return PlatformAlertConfiguration.objects.filter(id__in=list(configuration_ids), next_check_at__lte=at).count()
 
 
-def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
-    """Put a configuration's instance inside a firing, as live delivery can leave one."""
+def start_firing(
+    configuration_id: UUID, *, team_id: int, at: datetime, delivered_via: DeliveryPath | None = None
+) -> None:
+    """Put a configuration's instance inside a firing, as live delivery can leave one.
+
+    With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
+    """
     PlatformAlert.objects.update_or_create(
         team_id=team_id,
         configuration_id=configuration_id,
         grouping_key="",
         defaults={"state": "firing", "firing_started_at": at},
     )
+    if delivered_via is not None:
+        PlatformAlertDeliveryPath.objects.for_team(team_id).create(
+            team_id=team_id,
+            configuration_id=str(configuration_id),
+            grouping_key="",
+            episode_started_at=at,
+            path=delivered_via.value,
+        )
 
 
 def set_check_status(configuration_id: UUID, check_status: str) -> None:
@@ -94,6 +108,9 @@ def record_check(
     previous_state: str,
     state: str,
     error_message: str | None = None,
+    value: float | None = None,
+    condition: dict[str, Any] | None = None,
+    query_duration_ms: int | None = None,
 ) -> None:
     """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
     insert_events(
@@ -111,11 +128,11 @@ def record_check(
                 previous_state=previous_state,
                 state=state,
                 episode_started_at=None,
-                value=None,
+                value=value,
                 labels={},
-                condition_snapshot={},
+                condition_snapshot=condition or {},
                 source_config_snapshot={},
-                query_duration_ms=None,
+                query_duration_ms=query_duration_ms,
                 error_message=error_message,
                 consecutive_failures=0,
                 muted_notification="",

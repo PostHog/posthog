@@ -7,8 +7,8 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { picksInListFromFlag } from './picksInList'
 import { emptyImpressionsStorageKey, picksShownCountStorageKey, watchPicksLogic } from './watchPicksLogic'
-import { watchPicksVariantFromFlag } from './watchPicksVariant'
 
 describe('watchPicksLogic', () => {
     let feedSpy: jest.Mock
@@ -42,13 +42,13 @@ describe('watchPicksLogic', () => {
     })
 
     it.each([
-        ['in-list', 'in-list'],
-        ['watch-tab', 'watch-tab'],
-        ['both', 'both'],
-        ['control', null],
-        [undefined, null],
-    ])('maps flag value %p to variant %p', (flagValue, variant) => {
-        expect(watchPicksVariantFromFlag(flagValue)).toBe(variant)
+        ['in-list', true],
+        ['control', false],
+        ['watch-tab', false],
+        ['both', false],
+        [undefined, false],
+    ])('maps flag value %p to picks in the list: %p', (flagValue, expected) => {
+        expect(picksInListFromFlag(flagValue)).toBe(expected)
     })
 
     describe('inside a recordings list', () => {
@@ -89,7 +89,28 @@ describe('watchPicksLogic', () => {
 
         it('opens on the picks and reports the impression with its count', () => {
             expect(logic.values.effectiveListMode).toBe('picks')
-            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3, shown_count: 1 }])
+            expect(shownEvents()).toEqual([
+                expect.objectContaining({
+                    view: 'list',
+                    count: 3,
+                    unwatched_count: 3,
+                    shown_count: 1,
+                    feed_load_id: logic.values.picksLoad?.feedLoadId,
+                    observation_ids: ['o1', 'o2', 'o3'],
+                }),
+            ])
+        })
+
+        it('reports impressions of served picks only, not of the unranked fallback rows', () => {
+            const [served] = logic.values.picks ?? []
+            logic.actions.cardSeen(served as any, 0)
+            logic.actions.cardSeen(item('fallback', 'session-c') as any, 0)
+            logic.unmount()
+            const batches = captureSpy.mock.calls
+                .filter(([name]) => name === 'replay_vision_watch_feed_impressions')
+                .map(([, props]) => props.impressions.map((i: { observation_id: string }) => i.observation_id))
+            expect(batches).toEqual([['o1']])
+            logic.mount()
         })
 
         it.each([
@@ -164,7 +185,7 @@ describe('watchPicksLogic', () => {
         it('selects the pick, seeks ahead of its key moment, and marks it viewed for this person', async () => {
             expect(logic.values.unwatchedCount).toBe(3)
             await expectLogic(logic, () => {
-                logic.actions.watchPick(logic.values.picks![0], 0, 'list')
+                logic.actions.watchPick(logic.values.picks![0], 0)
             })
                 .toDispatchActions([playlistLogic.actionCreators.setSelectedRecordingId('session-a')])
                 .toFinishAllListeners()
@@ -174,36 +195,6 @@ describe('watchPicksLogic', () => {
             expect(logic.values.unwatchedCount).toBe(2)
             expect(viewedSpy).toHaveBeenCalledTimes(1)
             expect(viewedSpy.mock.calls[0][0].request.url).toContain('/vision/observations/o1/viewed/')
-        })
-    })
-
-    describe('on the What to watch page', () => {
-        let logic: ReturnType<typeof watchPicksLogic.build>
-
-        beforeEach(async () => {
-            logic = watchPicksLogic({ logicKey: 'test-page' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadPicksSuccess']).toFinishAllListeners()
-        })
-
-        afterEach(() => {
-            logic.unmount()
-        })
-
-        it.each([
-            ['with a key moment', 0, 'session-a', 42],
-            ['without one', 2, 'session-b', undefined],
-        ])('opens the pick on the Recordings tab %s', async (_, index, sessionId, t) => {
-            await expectLogic(logic, () => {
-                logic.actions.watchPick(logic.values.picks![index], index, 'top_10')
-            }).toFinishAllListeners()
-            expect(router.values.location.pathname).toMatch(/\/replay\/home$/)
-            expect(router.values.searchParams).toMatchObject({
-                sessionRecordingId: sessionId,
-                sidebarTab: 'observations',
-                showInspector: true,
-            })
-            expect(router.values.searchParams.t).toBe(t)
         })
     })
 })

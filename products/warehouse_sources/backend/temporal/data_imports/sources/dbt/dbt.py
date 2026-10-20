@@ -320,9 +320,10 @@ def get_endpoint_permissions(
         if config.discovery is not None:
             results[endpoint] = discovery_error
             continue
-        # A run fan-out reads the runs list plus a per-run route; the list is the permission that
-        # decides whether the table can sync at all.
-        probe_path = config.path if config.path is not None else DBT_ENDPOINTS["runs"].path
+        # A fan-out reads its parent list plus a per-parent route; the parent list is the permission
+        # that decides whether the table can sync at all.
+        parent = "projects" if config.project_fanout is not None else "runs"
+        probe_path = config.path if config.path is not None else DBT_ENDPOINTS[parent].path
         assert probe_path is not None
         url = f"{base_url}/api{probe_path.format(account_id=account_id)}?limit=1"
         try:
@@ -417,6 +418,8 @@ def _iter_offset_pages(
         data = _fetch_page(session, url, headers, logger)
 
         rows = data.get("data") or []
+        if isinstance(rows, dict):
+            rows = [rows]
         if not rows:
             return
 
@@ -524,6 +527,65 @@ def _iter_run_fanout_rows(
             break
         if page.has_more:
             resumable_source_manager.save_state(DbtResumeConfig(parent_offset=page.next_offset))
+
+
+def _keyed_rows(rows: list[dict[str, Any]], key_field: str) -> list[dict[str, Any]]:
+    """Turn objects keyed by a type name ({"developer": {...}, ...}) into one row per key."""
+    return [{key_field: key, **value} for row in rows for key, value in row.items() if isinstance(value, dict)]
+
+
+def _project_ids(
+    session: requests.Session,
+    base_url: str,
+    account_id: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[int]:
+    path = DBT_ENDPOINTS["projects"].path
+    assert path is not None
+
+    project_ids: list[int] = []
+    for page in _iter_offset_pages(
+        session, base_url, path.format(account_id=account_id), {"limit": DBT_PAGE_LIMIT}, headers, logger
+    ):
+        project_ids.extend(row["id"] for row in page.rows if row.get("id") is not None)
+    return project_ids
+
+
+def _iter_project_fanout_rows(
+    session: requests.Session,
+    base_url: str,
+    account_id: str,
+    config: DbtEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[DbtResumeConfig],
+    resume: DbtResumeConfig | None,
+) -> Iterator[Any]:
+    fanout = config.project_fanout
+    assert fanout is not None
+
+    project_ids = _project_ids(session, base_url, account_id, headers, logger)
+    start_index = resume.parent_offset if resume is not None else 0
+
+    for index in range(start_index, len(project_ids)):
+        start_offset = resume.offset if resume is not None and index == start_index else 0
+        for page in _iter_offset_pages(
+            session,
+            base_url,
+            fanout.path.format(account_id=account_id, project_id=project_ids[index]),
+            {"limit": DBT_PAGE_LIMIT},
+            headers,
+            logger,
+            start_offset=start_offset,
+        ):
+            if page.has_more:
+                resumable_source_manager.save_state(DbtResumeConfig(offset=page.next_offset, parent_offset=index))
+            elif index + 1 < len(project_ids):
+                resumable_source_manager.save_state(DbtResumeConfig(parent_offset=index + 1))
+            yield page.rows
+        # Most projects have one repository at most, so many walks return no rows to yield.
+        resumable_source_manager.safe_point()
 
 
 def _deployment_environment_ids(
@@ -756,6 +818,19 @@ def get_rows(
         )
         return
 
+    if config.project_fanout is not None:
+        yield from _iter_project_fanout_rows(
+            session,
+            base_url,
+            account_id,
+            config,
+            headers,
+            logger,
+            resumable_source_manager,
+            resume,
+        )
+        return
+
     if config.run_fanout is not None:
         yield from _iter_run_fanout_rows(
             session,
@@ -792,6 +867,8 @@ def get_rows(
                 yield kept
             if len(kept) < len(page.rows):
                 break
+        elif config.keyed_row_field is not None:
+            yield _keyed_rows(page.rows, config.keyed_row_field)
         else:
             yield page.rows
 

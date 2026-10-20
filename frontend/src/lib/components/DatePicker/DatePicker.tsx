@@ -5,6 +5,7 @@ import { Button, cn, DatePicker as QuillDatePicker, Popover, PopoverContent, Pop
 
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
 /**
@@ -81,11 +82,6 @@ export interface DatePickerProps {
 const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
 const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
 
-const QUILL_TRIGGER_VARIANT: Record<NonNullable<DatePickerProps['type']>, 'primary' | 'outline' | 'default'> = {
-    primary: 'primary',
-    secondary: 'outline',
-    tertiary: 'default',
-}
 const QUILL_TRIGGER_SIZE: Record<NonNullable<DatePickerProps['size']>, 'default' | 'xs' | 'sm' | 'lg'> = {
     xsmall: 'xs',
     small: 'sm',
@@ -152,7 +148,7 @@ function DatePickerQuill({
                 <PopoverTrigger
                     render={
                         <Button
-                            variant={QUILL_TRIGGER_VARIANT[type]}
+                            variant={quillButtonVariant(type)}
                             size={QUILL_TRIGGER_SIZE[size]}
                             data-attr={dataAttr}
                             data-quill
