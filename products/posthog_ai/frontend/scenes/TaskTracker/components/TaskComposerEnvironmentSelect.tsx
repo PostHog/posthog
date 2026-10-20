@@ -129,11 +129,13 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
         }))
     )
     const imageOptions = favoriteFirst(
-        unattachedImages(customImages, sandboxEnvironments).map((image) => ({
-            key: cloudTargetKey('image', image.id),
-            name: image.name,
-            description: `v${image.version}, full network access`,
-        }))
+        unattachedImages(customImages, sandboxEnvironments, [selectedCloudTarget, favoriteCloudTarget]).map(
+            (image) => ({
+                key: cloudTargetKey('image', image.id),
+                name: image.name,
+                description: `v${image.version}, full network access`,
+            })
+        )
     )
     const selectedName = [...environmentOptions, ...imageOptions].find(
         (option) => option.key === selectedCloudTarget

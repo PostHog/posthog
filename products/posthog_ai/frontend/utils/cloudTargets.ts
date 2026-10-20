@@ -22,10 +22,11 @@ export function cloudTargetIds(key: string | null): CloudTargetIds {
 
 export function unattachedImages(
     images: SandboxCustomImageDTOApi[] | null,
-    environments: SandboxEnvironmentDTOApi[] | null
+    environments: SandboxEnvironmentDTOApi[] | null,
+    keep: (string | null)[]
 ): SandboxCustomImageDTOApi[] {
     const attached = new Set((environments ?? []).flatMap((environment) => environment.custom_image_id ?? []))
-    return (images ?? []).filter((image) => !attached.has(image.id))
+    return (images ?? []).filter((image) => !attached.has(image.id) || keep.includes(cloudTargetKey('image', image.id)))
 }
 
 export function isMissingCloudTarget(

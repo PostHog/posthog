@@ -482,6 +482,40 @@ describe('taskTrackerSceneLogic', () => {
         expect(targetOf(runBody)).toEqual(expected)
     })
 
+    it('applies a star saved after the config loaded before the composer mounted', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': {
+                    ...myConfigResponse(null),
+                    task_defaults: {
+                        start_in_plan_mode: null,
+                        auto_publish_cloud_runs: null,
+                        default_cloud_target: null,
+                    },
+                },
+            },
+            post: {
+                '/api/projects/:team/tasks/@me/config/task_defaults/': async ({ request }) => [
+                    200,
+                    { start_in_plan_mode: null, auto_publish_cloud_runs: null, ...((await request.json()) as object) },
+                ],
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        taskRunDefaultsLogic.mount()
+        await expectLogic(taskRunDefaultsLogic, () =>
+            taskRunDefaultsLogic.actions.loadMyConfig()
+        ).toFinishAllListeners()
+        logic.mount()
+        logic.actions.setCloudTargets([{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi], [])
+
+        logic.actions.toggleFavoriteCloudTarget('environment:env-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedCloudTarget).toBe('environment:env-1')
+    })
+
     // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps
     // the trailing whitespace never matches that echo, so the first message rendered twice.
     it('sends and echoes the first message without surrounding whitespace', async () => {

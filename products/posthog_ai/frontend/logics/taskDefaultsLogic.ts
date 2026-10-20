@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
@@ -152,4 +152,9 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (!values.lastTaskDefaults && values.myConfig?.task_defaults) {
+            actions.saveTaskDefaultsDone(values.myConfig.task_defaults)
+        }
+    }),
 ])
