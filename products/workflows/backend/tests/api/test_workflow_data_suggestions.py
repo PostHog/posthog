@@ -911,7 +911,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         # The sender was verified after the idea was built, so the save fills it in.
         assert draft.actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
         assert plan_steps.call_count == 0
-        events = {call.kwargs.get("event"): call.kwargs.get("properties") for call in capture.call_args_list}
+        events = {call.kwargs.get("event"): call.kwargs.get("properties", {}) for call in capture.call_args_list}
         assert events["workflows data suggestion built"]["source"] == EventSource.API.value
         assert events["hog_flow_created"]["workflow_id"] == str(draft.id)
 
