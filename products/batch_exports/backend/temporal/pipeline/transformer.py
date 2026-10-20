@@ -400,7 +400,11 @@ def get_parquet_column_paths(schema: pa.Schema, field_names: collections.abc.Ite
 
 
 class ParquetStreamTransformer:
-    """A transformer to convert record batches into Parquet."""
+    """A transformer to convert record batches into Parquet.
+
+    Record batches are held until `max_buffered_arrow_bytes` of them are pending, then written as one
+    row group. The limit counts Arrow bytes, so the row group in the file is usually smaller.
+    """
 
     # Close a file when less than this fraction of its max size is left. Otherwise, the last row
     # group ends up being very small and we're also more likely to go over the max file size.
@@ -413,18 +417,20 @@ class ParquetStreamTransformer:
         compression_level: int | None = None,
         include_inserted_at: bool = False,
         max_file_size_bytes: int = 0,
-        target_row_group_size_bytes: int | None = None,
+        max_buffered_arrow_bytes: int | None = None,
+        record_metrics: bool = True,
     ):
         self.include_inserted_at = include_inserted_at
         self.compression = compression
         self.compression_level = compression_level
         self.max_file_size_bytes = max_file_size_bytes
+        self.record_metrics = record_metrics
 
-        if target_row_group_size_bytes is None:
-            target_row_group_size_bytes = settings.BATCH_EXPORT_PARQUET_TARGET_ROW_GROUP_SIZE_BYTES
+        if max_buffered_arrow_bytes is None:
+            max_buffered_arrow_bytes = settings.BATCH_EXPORT_PARQUET_MAX_BUFFERED_ARROW_BYTES
         if max_file_size_bytes:
-            target_row_group_size_bytes = min(target_row_group_size_bytes, max_file_size_bytes)
-        self.target_row_group_size_bytes = target_row_group_size_bytes
+            max_buffered_arrow_bytes = min(max_buffered_arrow_bytes, max_file_size_bytes)
+        self.max_buffered_arrow_bytes = max_buffered_arrow_bytes
 
         self._parquet_writer: pq.ParquetWriter | None = None
         self._parquet_buffer = io.BytesIO()
@@ -451,18 +457,21 @@ class ParquetStreamTransformer:
             if not self._is_row_group_ready():
                 continue
 
-            with ExecutionTimeRecorder(
-                "parquet_stream_transformer_record_batch_transform_duration",
-                description="Duration to write pending record batches as a Parquet row group.",
-                log_message=(
-                    "Wrote row group with %(num_records)d records to parquet."
-                    " Record batches size: %(mb_processed).2f MB, process time:"
-                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
-                ),
-                log_attributes={"num_records": self._pending_record_batches_rows},
-            ) as recorder:
-                recorder.add_bytes_processed(self._pending_record_batches_bytes)
-                # Running write in a thread to yield control back to event loop.
+            if self.record_metrics:
+                with ExecutionTimeRecorder(
+                    "parquet_stream_transformer_record_batch_transform_duration",
+                    description="Duration to write pending record batches as a Parquet row group.",
+                    log_message=(
+                        "Wrote row group with %(num_records)d records to parquet."
+                        " Record batches size: %(mb_processed).2f MB, process time:"
+                        " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                    ),
+                    log_attributes={"num_records": self._pending_record_batches_rows},
+                ) as recorder:
+                    recorder.add_bytes_processed(self._pending_record_batches_bytes)
+                    # Running write in a thread to yield control back to event loop.
+                    chunk = await asyncio.to_thread(self._flush_row_group)
+            else:
                 chunk = await asyncio.to_thread(self._flush_row_group)
 
             yield Chunk(chunk, False)
@@ -535,12 +544,12 @@ class ParquetStreamTransformer:
     def _is_row_group_ready(self) -> bool:
         """Return whether enough record batches are pending to write a row group."""
         if not self.max_file_size_bytes:
-            return self._pending_record_batches_bytes >= self.target_row_group_size_bytes
+            return self._pending_record_batches_bytes >= self.max_buffered_arrow_bytes
 
         # Near the end of a file, the limit is the space left in the file converted to Arrow bytes
         # using our compression ratio estimate.
         remaining_bytes = self.max_file_size_bytes - self._current_file_size
-        limit_bytes = min(self.target_row_group_size_bytes, remaining_bytes / self._compression_ratio)
+        limit_bytes = min(self.max_buffered_arrow_bytes, remaining_bytes / self._compression_ratio)
         return self._pending_record_batches_bytes >= limit_bytes
 
     def _add_pending_record_batch(self, record_batch: pa.RecordBatch) -> None:
@@ -574,7 +583,7 @@ class ParquetStreamTransformer:
             return
 
         table = pa.Table.from_batches(self._pending_record_batches, schema=self.schema)
-        self._get_parquet_writer().write_table(table)
+        self._get_parquet_writer().write_table(table, row_group_size=table.num_rows)
 
         self._pending_record_batches = []
         self._pending_record_batches_bytes = 0

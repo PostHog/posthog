@@ -197,7 +197,7 @@ async def test_parquet_stream_transformer_writes_small_record_batches_as_large_r
     record_batches = pa.Table.from_pylist(records).to_batches(max_chunksize=10)
 
     transformer = ParquetStreamTransformer(
-        compression=compression, max_file_size_bytes=max_file_size_bytes, target_row_group_size_bytes=64 * 1024
+        compression=compression, max_file_size_bytes=max_file_size_bytes, max_buffered_arrow_bytes=64 * 1024
     )
     files = await collect_parquet_files(transformer, record_batches)
 
@@ -259,6 +259,18 @@ async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only
         "person.name": True,
         "properties": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_without_metrics_runs_outside_temporal(settings):
+    # get_metric_meter only raises outside Temporal when DEBUG and TEST are both off.
+    settings.DEBUG = False
+    settings.TEST = False
+
+    transformer = ParquetStreamTransformer(record_metrics=False, max_buffered_arrow_bytes=1)
+    (data,) = await collect_parquet_files(transformer, [pa.RecordBatch.from_pylist([{"uuid": "a"}])])
+
+    assert pq.ParquetFile(io.BytesIO(data)).metadata.num_rows == 1
 
 
 class FakeField(Field):

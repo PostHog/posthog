@@ -297,8 +297,7 @@ class ExecutionTimeRecorder:
     ) -> None:
         """Context manager to record execution time to a histogram metric.
 
-        This can be used from within a workflow or an activity. Outside of both, it
-        only logs the execution time, because there is no metric meter to record to.
+        This can be used from within a workflow or an activity.
 
         Attributes:
             histogram_name: A name for the histogram metric.
@@ -355,13 +354,12 @@ class ExecutionTimeRecorder:
             attributes["status"] = "COMPLETED"
             attributes["exception"] = ""
 
-        if activity.in_activity() or workflow.in_workflow():
-            meter = get_metric_meter(attributes)
-            hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
-            try:
-                hist.record(value=delta)
-            except Exception:
-                LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
+        meter = get_metric_meter(attributes)
+        hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
+        try:
+            hist.record(value=delta)
+        except Exception:
+            LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
 
         if self.log:
             log_execution_time(

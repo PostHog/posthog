@@ -116,7 +116,8 @@ async def _parquet_byte_stream(
     of Arrow data is in memory. A batch that later grows a column is projected back onto the
     first schema, because one parquet file has one schema.
     """
-    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True)
+    # Delivery runs outside a Temporal activity, where there is no metric meter to record to.
+    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True, record_metrics=False)
 
     async for chunk in transformer.iter(_count_rows(batches, stats)):
         stats.parquet_bytes += len(chunk.data)
