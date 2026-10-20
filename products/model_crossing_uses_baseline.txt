@@ -91,7 +91,6 @@ customer_analytics.FeatureRequestProductAreaLink products.customer_analytics.bac
 customer_analytics.Meeting products.customer_analytics.backend.facade.testing.create_meeting facade-returns 1
 customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql facade-logic 33
 customer_analytics:backend/hogql_queries/ posthog.api.test.test_sharing drives(AccountsQuery) 1
-dashboards.Dashboard ee.DashboardPrivilege.dashboard reverse-accessor(privileges) 1
 dashboards.Dashboard exports.ExportedAsset.dashboard reverse-accessor(exportedasset_set) 1
 dashboards.Dashboard feature_flags.FeatureFlag.analytics_dashboards reverse-accessor(analytics_dashboards) 1
 dashboards.Dashboard posthog.SharingConfiguration.dashboard reverse-accessor(sharingconfiguration_set) 1
