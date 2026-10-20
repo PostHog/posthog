@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+
 import { IconSearch, IconX } from '@posthog/icons'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from '@posthog/quill'
 
@@ -15,6 +17,12 @@ export function AnalyticsSearchInput({
     placeholder: string
     dataAttr: string
 }): JSX.Element {
+    const inputRef = useRef<HTMLInputElement>(null)
+    // The clear button unmounts once the field empties, which would drop focus to the page mid-search.
+    const clear = (): void => {
+        onChange('')
+        inputRef.current?.focus()
+    }
     return (
         <InputGroup className="h-8 w-56 max-w-full">
             <InputGroupAddon align="inline-start">
@@ -23,6 +31,7 @@ export function AnalyticsSearchInput({
                 </InputGroupText>
             </InputGroupAddon>
             <InputGroupInput
+                ref={inputRef}
                 type="search"
                 aria-label={label}
                 placeholder={placeholder}
@@ -32,7 +41,7 @@ export function AnalyticsSearchInput({
                     if (event.key === 'Escape' && value !== '') {
                         event.preventDefault()
                         event.stopPropagation()
-                        onChange('')
+                        clear()
                     }
                 }}
                 // The browser's own clear button would sit next to this one.
@@ -44,7 +53,7 @@ export function AnalyticsSearchInput({
                     <InputGroupButton
                         size="icon-xs"
                         aria-label="Clear search"
-                        onClick={() => onChange('')}
+                        onClick={clear}
                         data-attr={`${dataAttr}-clear`}
                     >
                         <IconX />
