@@ -167,5 +167,5 @@ class GumroadSource(ResumableSource[GumroadSourceConfig, GumroadResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

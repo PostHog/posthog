@@ -175,6 +175,35 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert taken is expected_taken
         assert (self.configuration.owner, alert.state, alert.firing_started_at is not None) == expected
 
+    def test_a_grouped_copy_taken_over_leaves_its_one_slot_to_the_first_group(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id,
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=1).to_stored(),
+            )
+        take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff - timedelta(minutes=1),
+                at=self.cutoff - timedelta(minutes=5),
+            )
+        )
+
+        self._record(
+            groups=(GroupOutcome(grouping_key="api", kind=AlertEventKind.FIRING, new_state="firing", notified=True),)
+        )
+
+        with team_scope(self.team.id):
+            instances = list(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", "state")
+            )
+        assert instances == [("api", "firing")]
+
     @parameterized.expand(
         [
             ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),

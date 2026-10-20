@@ -359,7 +359,7 @@ class BaseBatchExportInputs:
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     integration_id: int | None = None
 
     def __post_init__(self) -> None:
@@ -1121,7 +1121,7 @@ def start_file_download_batch_export(
     workflow_id: str,
     data_interval_start: dt.datetime | None,
     data_interval_end: dt.datetime | None,
-    batch_export_model: BatchExportModel,
+    batch_export_model: BatchExportModelInput,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
     format: str = "Parquet",
@@ -1576,7 +1576,7 @@ class BatchExportInsertInputs:
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
     # TODO - pass these in to all inherited classes

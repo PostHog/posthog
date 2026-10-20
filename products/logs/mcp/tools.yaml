@@ -48,6 +48,7 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -172,6 +173,8 @@ tools:
                 - threshold_operator
                 - window_minutes
                 - schedule_restriction
+                - grouping
+                - platform_owned
                 - created_at
                 - updated_at
     logs-alerts-partial-update:
@@ -215,6 +218,7 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -252,6 +256,7 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at

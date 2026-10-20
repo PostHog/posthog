@@ -2,9 +2,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronDown, IconTestTube } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -36,6 +37,8 @@ import {
     SNOOZE_DURATIONS,
     logsAlertDetailSceneLogic,
 } from './logsAlertDetailSceneLogic'
+import { openDeleteLogsAlertDialog } from './openDeleteLogsAlertDialog'
+import { QuillLogsAlertDetailActions } from './QuillLogsAlertDetailActions'
 
 export const scene: SceneExport<LogsAlertDetailSceneLogicProps> = {
     component: LogsAlertDetailScene,
@@ -151,6 +154,7 @@ function AlertHeader(): JSX.Element {
         useValues(logsAlertFormLogic)
     const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
     const { pendingNotifications } = useValues(logsAlertNotificationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isEnabled = alert?.enabled ?? true
     const isBroken = alert?.state === LogsAlertConfigurationStateEnumApi.Broken
@@ -166,7 +170,18 @@ function AlertHeader(): JSX.Element {
             onNameChange={(name) => setAlertFormValue('name', name)}
             renameDebounceMs={0}
             actions={
-                alert ? (
+                alert && todayRailNav ? (
+                    <QuillLogsAlertDetailActions
+                        alert={alert}
+                        primaryDisabledReason={primaryDisabledReason({
+                            isDraft,
+                            alertForm,
+                            alertFormChanged,
+                            nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                            hasPendingNotifications: pendingNotifications.length > 0,
+                        })}
+                    />
+                ) : alert ? (
                     <div className="flex items-center gap-2">
                         {(!isEnabled || alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring) && (
                             <LogsAlertStateIndicator
@@ -233,21 +248,8 @@ function AlertHeader(): JSX.Element {
                                             'data-attr': 'logs-alert-detail-delete',
                                             label: 'Delete',
                                             status: 'danger' as const,
-                                            onClick: () => {
-                                                LemonDialog.open({
-                                                    title: `Delete "${alert.name}"?`,
-                                                    description:
-                                                        'This alert will be permanently deleted. This action cannot be undone.',
-                                                    primaryButton: {
-                                                        children: 'Delete',
-                                                        type: 'primary',
-                                                        status: 'danger',
-                                                        onClick: deleteAlert,
-                                                        'data-attr': 'logs-alert-delete-confirm',
-                                                    },
-                                                    secondaryButton: { children: 'Cancel' },
-                                                })
-                                            },
+                                            onClick: () =>
+                                                openDeleteLogsAlertDialog({ alertName: alert.name, deleteAlert }),
                                         },
                                     ]}
                                 />

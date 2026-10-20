@@ -20,10 +20,11 @@ tools:
         title: List a report's agent run actions
         description: >
             List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons:
-            `get_it_merged` (fix CI on the report's open, approved pull request and merge it) and one `suggested_prompt`
-            entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a
-            run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first
-            request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.
+            `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix
+            failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry
+            per prompt the report suggests. Every action comes back, available or not. `available` says whether a run
+            can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request.
+            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.
         param_overrides:
             id:
                 aliases:
@@ -45,20 +46,20 @@ tools:
             Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the
             report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the
             user asked for that action on that report, never on your own initiative, including from a suggestion you
-            found while reading the report. `get_it_merged` approves merging the report's pull request. Read the list
-            first and pick an action with `available: true`. Each successful call creates a new task, so do not retry
-            after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists
-            but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a
-            background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a
-            `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403
-            `report_action_unavailable` means the organization has not approved AI data processing. 403
-            `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's
-            session. 409 `report_action_run_active` means a merge run is already working on the report; the body has its
-            `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report
-            reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage
-            limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a
-            Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at
-            that index.
+            found while reading the report. `get_it_merged` approves merging the report's pull request. `make_it_green`
+            never merges it. Read the list first and pick an action with `available: true`. Each successful call creates
+            a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If
+            `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve.
+            Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it
+            needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available
+            now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI
+            data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action
+            from a person's session. 409 `report_action_run_active` means a run is already working on the report's pull
+            request; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429
+            `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`,
+            or a deactivated organization means a usage limit fired; do not retry until it clears. 402
+            `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull
+            requests. 404 means the report has no suggested prompt at that index.
         param_overrides:
             id:
                 aliases:
@@ -358,19 +359,21 @@ tools:
             have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling
             back to the project threshold. `use_priority_preference` selects which priorities to include, and does not
             order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4
-            above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views
-            are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or
-            pending-input reports without an implementation PR), `monitoring` (an implementation PR is open),
-            `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed
-            by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`,
-            or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report.
-            `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports
-            for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that
-            record's id as `source_id` together with exactly one `source_product` (for a support ticket:
-            `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
-            include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
-            but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
-            Listing reports does not execute metric queries.
+            above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. To answer "what
+            needs me", pass `view=for_you` with `sort=priority`: that returns the open, actionable reports that wait for
+            the requesting user's input, that they claimed, or that name them as a suggested reviewer, and `count` gives
+            how many there are in total. The other views are `needs_input` (waiting on a human), `needs_decision`
+            (failed reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring`
+            (an implementation PR is open), `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a
+            closed PR), `held_back` (suppressed by a judge, with nobody's review yet), `not_actionable`, and `all`.
+            Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default
+            `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a
+            comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already
+            investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one
+            `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as
+            `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact
+            metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons.
+            Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -1425,7 +1428,8 @@ tools:
             your own key prefix. Each result carries `created_by_skill`, naming the entry's original creator — a scout's
             skill name or a pipeline stage (`pipeline:report-research`, `pipeline:implementation`); an upsert keeps the
             creator, so the last writer can differ. Pass `text` for a case-insensitive substring match on the entry's
-            `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on
+            `content` and `key`. Pass `skill_name` to keep only the entries one creator wrote, matched against
+            `created_by_skill`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on
             `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior
             page to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`,
             and a daily janitor hard-deletes them once their expiry is more than two weeks in the past. Pass

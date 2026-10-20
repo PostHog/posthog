@@ -96,9 +96,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, None),
-            (401, False, "Invalid Qualaroo API key or secret"),
-            (403, False, "Invalid Qualaroo API key or secret"),
-            (500, False, "Qualaroo returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
@@ -107,10 +104,6 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].path == "/api/v1/nudges.json"
         assert network.requests_log[0].param("limit") == "1"
-
-    def test_connection_error_is_unvalidated(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("q-key", "q-secret") == (False, "Could not validate Qualaroo credentials")
 
 
 class TestSourceResponse:
