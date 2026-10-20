@@ -60,6 +60,7 @@ import {
 } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -618,6 +619,7 @@ export interface sqlEditorLogicValues {
     databaseLoading: boolean // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    isAdminOrOwner: boolean | null // organizationLogic
     outputActiveTab: OutputTab // outputPaneLogic
     user: UserType | null // userLogic
     acceptText: string
@@ -1307,6 +1309,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryFolders', 'dataWarehouseSavedQueryMapById'],
             userLogic,
             ['user'],
+            organizationLogic,
+            ['isAdminOrOwner'],
             draftsLogic,
             ['drafts'],
             featureFlagLogic,
@@ -2203,7 +2207,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         query: values.queryInput ?? values.sourceQuery.source.query,
                         executionTarget,
                         connectionId: undefined,
-                        sendRawQuery: undefined,
+                        sendRawQuery: executionTarget === 'managed_trino' && values.isAdminOrOwner ? true : undefined,
                     },
                 })
                 actions.syncUrlWithQuery()

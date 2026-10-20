@@ -1,11 +1,11 @@
-import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -15,6 +15,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { defaultNotebookContent } from 'scenes/notebooks/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -2669,7 +2670,15 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.c).toEqual('conn-123')
         })
 
-        it('switches hosted execution without rewriting the query and persists the target in the URL', async () => {
+        it.each([
+            [OrganizationMembershipLevel.Member, false],
+            [OrganizationMembershipLevel.Admin, true],
+            [OrganizationMembershipLevel.Owner, true],
+        ])('switches hosted execution for role %s with raw mode %s', async (membershipLevel, rawMode) => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                membership_level: membershipLevel,
+            })
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT event FROM events', c: 'conn-123', raw: '1' })
@@ -2684,13 +2693,20 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.isSourceQueryLastRun).toEqual(false)
             expect(logic.values.sourceQuery.source).toMatchObject({ query, executionTarget: 'managed_trino' })
             expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
-            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(logic.values.sendRawQueryEnabled).toEqual(rawMode)
+            expect(String(router.values.hashParams.raw ?? '')).toEqual(rawMode ? '1' : '')
             expect(router.values.hashParams.engine).toEqual('managed_trino')
             expect(router.values.hashParams.c).toBeUndefined()
             await runDebouncedAction(() => logic.actions.setQueryInput('SELECT count() FROM events'))
             expect(router.values.hashParams.engine).toEqual('managed_trino')
+            expect(logic.values.sendRawQueryEnabled).toEqual(rawMode)
+            logic.actions.setSendRawQuery(false)
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 1'))
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(router.values.hashParams.raw).toBeUndefined()
             logic.actions.setExecutionTarget(undefined)
-            expect(logic.values.sourceQuery.source.query).toEqual('SELECT count() FROM events')
+            expect(logic.values.sourceQuery.source.query).toEqual('SELECT 1')
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
             expect(router.values.hashParams.engine).toBeUndefined()
         })
 
@@ -2700,6 +2716,7 @@ describe('sqlEditorLogic', () => {
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', engine: 'managed_trino' })
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
         })
 
         it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
