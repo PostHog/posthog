@@ -115,6 +115,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'query:read',
     'replay_scanner:read',
     'replay_scanner:write',
+    'research_desk:read',
+    'research_desk:write',
     'review_hog:read',
     'review_hog:write',
     'session_recording:read',

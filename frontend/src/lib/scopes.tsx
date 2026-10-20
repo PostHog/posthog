@@ -361,6 +361,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
+    research_desk: 'Behind a feature flag.',
     cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
     vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
@@ -555,6 +556,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'early_access_feature',
             'survey',
             'user_interview',
+            'research_desk',
             'product_tour',
         ],
     },

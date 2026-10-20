@@ -130,6 +130,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `query` - query
  * * `query_performance` - query_performance
  * * `replay_scanner` - replay_scanner
+ * * `research_desk` - research_desk
  * * `review_hog` - review_hog
  * * `revenue_analytics` - revenue_analytics
  * * `session_recording` - session_recording
@@ -251,6 +252,7 @@ export const ScopeObjectEnumApi = {
     Query: 'query',
     QueryPerformance: 'query_performance',
     ReplayScanner: 'replay_scanner',
+    ResearchDesk: 'research_desk',
     ReviewHog: 'review_hog',
     RevenueAnalytics: 'revenue_analytics',
     SessionRecording: 'session_recording',
@@ -395,6 +397,7 @@ export interface ProjectAccessSourceApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
+     * * `research_desk` - research_desk
      * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
@@ -559,6 +562,7 @@ export interface AccessControlObjectRuleApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
+     * * `research_desk` - research_desk
      * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
@@ -948,6 +952,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
+     * * `research_desk` - research_desk
      * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
@@ -1234,6 +1239,7 @@ export interface ResolvedAccessApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
+     * * `research_desk` - research_desk
      * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
