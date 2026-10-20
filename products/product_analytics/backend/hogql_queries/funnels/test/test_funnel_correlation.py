@@ -2587,7 +2587,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         runner = get_query_runner(query, self.team, user=self.user)
         native = source_choice if wrapper_choice is None else wrapper_choice
         self.assertEqual(runner.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
-        self.assertIs(runner.modifiers.useNewEventsSchema, bool(native))
+        self.assertIs(bool(runner.modifiers.useNewEventsSchema), bool(native))
         self.assertIs(runner.modifiers.useNewEventsCluster, native)
         if kind == "EventsQuery":
             self.assertIs(runner.modifiers.convertToProjectTimezone, False)

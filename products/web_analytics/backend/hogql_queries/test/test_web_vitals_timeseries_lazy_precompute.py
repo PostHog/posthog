@@ -32,8 +32,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
-from posthog.clickhouse.workload import Workload
-from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_or_none
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.instance_setting import override_instance_config
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -111,20 +110,20 @@ class TestVitalsTimeseriesGate(APIBaseTest):
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
-            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
         ):
             if path == "runner":
                 runner = WebVitalsQueryRunner(query=query, team=self.team)
-                self.assertIs(bool(runner.modifiers.useNewEventsCluster), outer)
-                return
-            with patch(
-                "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.is_vitals_precompute_enabled_for_team",
-                return_value=False,
-            ):
-                process_query_model(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        self.assertTrue(execute.called)
-        expected = Workload.NEW_EVENTS_CLUSTER if outer else Workload.DEFAULT
-        self.assertTrue(all(call.kwargs["workload"] == expected for call in execute.call_args_list))
+            else:
+                with (
+                    patch(
+                        "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.is_vitals_precompute_enabled_for_team",
+                        return_value=False,
+                    ),
+                    patch("posthog.api.services.query._run_query_runner", return_value={}) as run_source,
+                ):
+                    process_query_model(self.team, query)
+                runner = run_source.call_args.args[0]
+        self.assertIs(bool(runner.modifiers.useNewEventsCluster), outer)
 
     def test_canonical_tab_shape_is_servable(self) -> None:
         assert vitals_timeseries_percentile(_vitals_query()) == "p90"

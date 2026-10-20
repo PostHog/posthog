@@ -32,6 +32,7 @@ from posthog.hogql_queries.utils.timestamp_utils import (
     get_earliest_timestamp_from_series,
     get_earliest_timestamp_unfiltered,
 )
+from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import WeekStartDay
 
@@ -513,7 +514,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
         captured: dict[str, object] = {}
 
-        def capture(team, node, user=None, modifiers=None):
+        def capture(team, node, user=None):
             captured[node.table_name] = get_query_tags().product
             return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
 
@@ -587,13 +588,22 @@ class TestEarliestTimestampRouting(BaseTest):
         super().tearDown()
         cache.clear()
 
+    @parameterized.expand([("series",), ("unfiltered",)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_native_lookup_reads_the_native_cluster_and_skips_the_legacy_cache(self) -> None:
+    def test_native_route_reads_the_native_cluster_and_skips_the_legacy_cache(self, lookup: str) -> None:
         node = EventsNode(event="$pageview")
         legacy = datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
         native = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
-        cache.set(_get_earliest_timestamp_cache_key(self.team, node), legacy)
-        modifiers = HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True)
+        if lookup == "series":
+            cache.set(_get_earliest_timestamp_cache_key(self.team, node), legacy)
+        else:
+            cache.set(f"earliest_timestamp_unfiltered_{self.team.pk}", legacy)
+
+        def earliest() -> datetime.datetime:
+            if lookup == "series":
+                return get_earliest_timestamp_from_series(self.team, [node])
+            return get_earliest_timestamp_unfiltered(self.team)
+
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
@@ -601,9 +611,10 @@ class TestEarliestTimestampRouting(BaseTest):
                 "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
             ) as execute,
         ):
-            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node], modifiers=modifiers), native)
-            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node], modifiers=modifiers), native)
-            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), legacy)
+            with events_route_scope(HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True)):
+                self.assertEqual(earliest(), native)
+                self.assertEqual(earliest(), native)
+            self.assertEqual(earliest(), legacy)
         execute.assert_called_once()
         self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
         self.assertIn("events_json", execute.call_args.args[0])
