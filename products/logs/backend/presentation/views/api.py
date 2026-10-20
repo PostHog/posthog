@@ -920,6 +920,9 @@ class _LogsNextStepSerializer(serializers.Serializer):
     tool = serializers.CharField(help_text="MCP tool to call next.")
     why = serializers.CharField(help_text="What the call answers.")
     query = serializers.DictField(help_text="Prefilled `query` for that tool.")
+    baselineDateRange = serializers.DictField(
+        required=False, help_text="Prefilled sibling `baselineDateRange` argument, for tools that take one."
+    )
 
 
 class _LogsServicesResponseSerializer(serializers.Serializer):

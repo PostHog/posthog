@@ -12,4 +12,4 @@ Use `logs-group-by` for counts by pattern or attribute, `logs-patterns-diff` for
 
 `compare` is `none` (default), `previous_period`, `previous_day` or `previous_week`. `baselineDateRange`, next to `query`, sets an explicit baseline.
 `environment` matches the first set resource attribute of `deployment.environment.name`, `deployment.environment` and `env`.
-`window` gives the absolute UTC bounds. `next` holds prefilled follow-up calls.
+`window` gives the absolute UTC bounds. `next` holds prefilled follow-up calls. It is empty when `environment` is set, because those tools do not filter by environment.

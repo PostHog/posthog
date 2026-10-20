@@ -474,6 +474,16 @@ class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
         assert result["next"]
         for step in result["next"]:
             assert step["query"]["searchTerm"] == "log line"
+        diff = next(step for step in result["next"] if step["tool"] == "logs-patterns-diff")
+        assert diff["baselineDateRange"] == {"date_from": "2026-06-23T11:00:00Z", "date_to": "2026-06-23T12:00:00Z"}
+        assert self._services(compare="previous_period", environment="production")["next"] == []
+
+    def test_next_filters_on_the_stored_service_name(self) -> None:
+        window = (dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC), dt.datetime(2026, 6, 23, 13, tzinfo=dt.UTC))
+
+        steps = services_query_runner._next_steps([("", "degraded")], window, None, {})
+
+        assert {tuple(step["query"]["serviceNames"]) for step in steps} == {("",)}
 
     @time_machine.travel(_COMPARE_NOW, tick=False)
     def test_a_capped_scan_does_not_invent_silent_or_new_services(self) -> None:

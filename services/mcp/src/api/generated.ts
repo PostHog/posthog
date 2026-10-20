@@ -117860,6 +117860,11 @@ export namespace Schemas {
      */
     export type _LogsNextStepQuery = { [key: string]: unknown };
 
+    /**
+     * Prefilled sibling `baselineDateRange` argument, for tools that take one.
+     */
+    export type _LogsNextStepBaselineDateRange = { [key: string]: unknown };
+
     export interface _LogsNextStep {
       /** MCP tool to call next. */
       tool: string;
@@ -117867,6 +117872,8 @@ export namespace Schemas {
       why: string;
       /** Prefilled `query` for that tool. */
       query: _LogsNextStepQuery;
+      /** Prefilled sibling `baselineDateRange` argument, for tools that take one. */
+      baselineDateRange?: _LogsNextStepBaselineDateRange;
     }
 
     export interface _LogsPatternsBody {

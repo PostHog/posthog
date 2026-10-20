@@ -2963,6 +2963,11 @@ export const LogsServicesSourceEnumApi = {
  */
 export type _LogsNextStepApiQuery = { [key: string]: unknown }
 
+/**
+ * Prefilled sibling `baselineDateRange` argument, for tools that take one.
+ */
+export type _LogsNextStepApiBaselineDateRange = { [key: string]: unknown }
+
 export interface _LogsNextStepApi {
     /** MCP tool to call next. */
     tool: string
@@ -2970,6 +2975,8 @@ export interface _LogsNextStepApi {
     why: string
     /** Prefilled `query` for that tool. */
     query: _LogsNextStepApiQuery
+    /** Prefilled sibling `baselineDateRange` argument, for tools that take one. */
+    baselineDateRange?: _LogsNextStepApiBaselineDateRange
 }
 
 export interface _LogsServicesResponseApi {

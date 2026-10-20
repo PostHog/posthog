@@ -502,7 +502,14 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     },
                     "truncated": total_services > len(current),
                 },
-                "next": _next_steps(services, current_window, baseline_window, self._scope()),
+                "next": []
+                if self.environment
+                else _next_steps(
+                    [(name, s["status"]) for name, s in zip([*current, *silent_names], services)],
+                    current_window,
+                    baseline_window,
+                    self._scope(),
+                ),
             }
         )
 
@@ -664,18 +671,25 @@ def _time_range_expr(field: str, lower: dt.datetime, upper: dt.datetime) -> ast.
     )
 
 
-def _next_steps(services: list[dict], current: tuple, baseline: tuple | None, scope: dict) -> list[dict]:
+def _next_steps(statuses: list[tuple[str, str]], current: tuple, baseline: tuple | None, scope: dict) -> list[dict]:
     window = {"date_from": utc_iso(current[0]), "date_to": utc_iso(current[1])}
     steps: list[dict] = []
-    silent = next((s["service_name"] for s in services if s["status"] == "silent"), None)
-    if silent and baseline:
+    silent = next((name for name, status in statuses if status == "silent"), None)
+    if silent is not None and baseline:
         since_baseline = {"date_from": utc_iso(baseline[0]), "date_to": window["date_to"]}
         query = {**scope, "dateRange": since_baseline, "serviceNames": [silent], "targetBuckets": 24}
         steps.append({"tool": "logs-count-ranges", "why": f"when {silent} stopped logging", "query": query})
-    worse = next((s["service_name"] for s in services if s["status"] in ("regressed", "degraded")), None)
-    if worse:
+    worse = next((name for name, status in statuses if status in ("regressed", "degraded")), None)
+    if worse is not None:
         errors = {**scope, "dateRange": window, "serviceNames": [worse], "severityLevels": ["error", "fatal"]}
-        steps.append({"tool": "logs-patterns-diff", "why": f"error patterns behind {worse}", "query": errors})
+        diff: dict = {
+            "tool": "logs-patterns-diff",
+            "why": f"error patterns behind {worse or '(no service)'}",
+            "query": errors,
+        }
+        if baseline:
+            diff["baselineDateRange"] = {"date_from": utc_iso(baseline[0]), "date_to": utc_iso(baseline[1])}
+        steps.append(diff)
         spike = {**errors, "targetBuckets": 30}
         steps.append({"tool": "logs-count-ranges", "why": f"when errors in {worse} started", "query": spike})
     return steps[:3]
