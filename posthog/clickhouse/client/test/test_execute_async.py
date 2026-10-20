@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 
 from posthog.api_queries_budget import QueryCost, record_request_query_cost
 from posthog.clickhouse.client import (
@@ -37,6 +37,12 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
+
+
+def _exposed_from(cause: Exception, message: str) -> ExposedHogQLError:
+    error = ExposedHogQLError(message)
+    error.__cause__ = cause
+    return error
 
 
 def build_query(sql):
@@ -502,6 +508,22 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 ExposedCHQueryError("Expected an integer argument", code=43),
                 "illegal_type_of_argument",
                 "Expected an integer argument",
+                False,
+            ),
+            (
+                "wrapped_database_error",
+                False,
+                _exposed_from(ConnectionError("stored-secret"), "Warehouse connection failed"),
+                "unhandled_connection_error",
+                "Warehouse connection failed",
+                False,
+            ),
+            (
+                "wrapped_query_error",
+                False,
+                _exposed_from(QueryError("Unknown table `evnts`."), "Warehouse SQL is invalid"),
+                "hogql_query_error",
+                "Warehouse SQL is invalid",
                 False,
             ),
         ]

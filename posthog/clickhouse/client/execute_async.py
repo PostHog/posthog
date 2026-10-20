@@ -12,7 +12,7 @@ from rest_framework.exceptions import APIException, NotFound
 from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, unwrap_exposed_hogql_error
 
 from posthog import celery, redis
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
@@ -316,7 +316,10 @@ def execute_process_query(
         if isinstance(err, InternalCHQueryError) or not is_user_safe_error:
             query_status.error_code = error_code_from_type(err)
         elif isinstance(err, ExposedHogQLError):
-            query_status.error_code = err.code_name
+            cause = unwrap_exposed_hogql_error(err)
+            query_status.error_code = (
+                cause.code_name if isinstance(cause, ExposedHogQLError) else error_code_from_type(cause)
+            )
         # A stopped run's scan rides on the status so a dead tile can show the advice, with the cache key
         # for polling. Only for a real user: a shared link must not see the project's data volume.
         if user_id:

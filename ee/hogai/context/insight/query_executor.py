@@ -45,6 +45,7 @@ from posthog.hogql.errors import (
     ResolutionError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
+    unwrap_exposed_hogql_error,
 )
 
 from posthog.api.services.query import process_query_dict
@@ -171,12 +172,7 @@ def internal_error_code(error: BaseException) -> str:
 
 
 def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
-    cause: BaseException = error
-    seen: set[int] = set()
-    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
-        seen.add(id(cause))
-        cause = cause.__cause__
-
+    cause = unwrap_exposed_hogql_error(error)
     if isinstance(cause, TableAccessDeniedError):
         return MaxToolFatalError(str(error), error_type="permission")
     if isinstance(cause, (QueryError, HogQLSyntaxError)):
