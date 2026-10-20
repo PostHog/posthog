@@ -219,6 +219,12 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return f"{self.name} (Team: {self.team})"
 
     @property
+    def platform_owned(self) -> bool:
+        """The platform evaluates and delivers this alert. The insight stack may still evaluate it to
+        compare, but it sends nothing for it."""
+        return self.owner == PlatformAlertOwner.PLATFORM
+
+    @property
     def is_high_frequency_interval(self) -> bool:
         # Real-time counts as high frequency so its checks always run fresh ClickHouse
         # queries (CALCULATE_BLOCKING_ALWAYS) instead of reading a possibly stale cache.

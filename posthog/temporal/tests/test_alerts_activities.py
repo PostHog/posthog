@@ -85,6 +85,7 @@ from products.alerts.backend.facade.api import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -1020,11 +1021,12 @@ class TestEvaluateAlert:
         assert check.targets_notified == {}
 
     @pytest.mark.parametrize(
-        "investigated,previous_verdict,expect_investigation,expect_notify,expect_held",
+        "investigated,previous_verdict,owner,expect_investigation,expect_notify,expect_held",
         [
-            (1, "false_positive", True, True, False),
-            (MAX_INVESTIGATIONS_PER_EPISODE, "false_positive", False, False, True),
-            (MAX_INVESTIGATIONS_PER_EPISODE, "true_positive", False, True, False),
+            (1, "false_positive", PlatformAlertOwner.SOURCE, True, True, False),
+            (MAX_INVESTIGATIONS_PER_EPISODE, "false_positive", PlatformAlertOwner.SOURCE, False, False, True),
+            (MAX_INVESTIGATIONS_PER_EPISODE, "true_positive", PlatformAlertOwner.SOURCE, False, True, False),
+            (1, "false_positive", PlatformAlertOwner.PLATFORM, False, False, False),
         ],
     )
     async def test_gated_alert_holds_each_fire_on_a_verdict(
@@ -1032,6 +1034,7 @@ class TestEvaluateAlert:
         ateam,
         investigated: int,
         previous_verdict: str,
+        owner: PlatformAlertOwner,
         expect_investigation: bool,
         expect_notify: bool,
         expect_held: bool,
@@ -1041,7 +1044,10 @@ class TestEvaluateAlert:
         @sync_to_async
         def _seed_episode() -> None:
             AlertConfiguration.objects.filter(id=alert.id).update(
-                investigation_agent_enabled=True, investigation_gates_notifications=True
+                investigation_agent_enabled=True,
+                investigation_gates_notifications=True,
+                owner=owner,
+                owner_changed_at=datetime.now(UTC),
             )
             episode_start = datetime.now(UTC) - timedelta(days=5)
             AlertCheck.objects.create(alert_configuration=alert, state=AlertState.NOT_FIRING)
@@ -1070,6 +1076,10 @@ class TestEvaluateAlert:
         assert result.should_notify is expect_notify
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.notification_suppressed_by_agent is expect_held
+        if owner == PlatformAlertOwner.PLATFORM:
+            await alert.arefresh_from_db()
+            assert check.notification_sent_at is not None
+            assert alert.last_notified_at == check.notification_sent_at
 
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(
@@ -1318,7 +1328,7 @@ class TestEvaluateAlert:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestRecordFailedEvaluation:
-    @pytest.mark.parametrize("change", [None, "detector", "insight", "threshold"])
+    @pytest.mark.parametrize("change", [None, "detector", "insight", "threshold", "owner"])
     async def test_failure_only_records_against_the_prepared_inputs(self, alert, change) -> None:
         env = ActivityEnvironment()
         prepared = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
@@ -1333,6 +1343,10 @@ class TestRecordFailedEvaluation:
         elif change == "threshold":
             await sync_to_async(Threshold.objects.filter(id=alert.threshold_id).update)(
                 configuration={"type": "absolute", "bounds": {"upper": 200.0}}
+            )
+        elif change == "owner":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+                owner=PlatformAlertOwner.PLATFORM, owner_changed_at=datetime.now(UTC)
             )
         before = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
         due_before = before.next_check_at
@@ -1371,6 +1385,7 @@ class TestRecordFailedEvaluation:
                 ),
             )
             assert result_again.alert_check_id is not None
+            assert result_again.should_notify is (change != "owner")
 
     @pytest.mark.parametrize(
         "error_type,expected_outcomes",
@@ -1440,8 +1455,16 @@ class TestRecordFailedEvaluation:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestNotifyAlert:
-    async def test_noop_when_not_firing(self, alert_with_user) -> None:
-        check = await _create_alert_check(alert_with_user, state=AlertState.NOT_FIRING)
+    @pytest.mark.parametrize(
+        "state,owner",
+        [
+            (AlertState.NOT_FIRING, PlatformAlertOwner.SOURCE),
+            (AlertState.FIRING, PlatformAlertOwner.PLATFORM),
+        ],
+    )
+    async def test_noop_when_not_firing_or_platform_owned(self, alert_with_user, state, owner) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert_with_user.id).update)(owner=owner)
+        check = await _create_alert_check(alert_with_user, state=state)
 
         with (
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_breaches,
@@ -1450,7 +1473,9 @@ class TestNotifyAlert:
             env = ActivityEnvironment()
             await env.run(
                 notify_alert,
-                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id), alert_check_id=str(check.id), breaches=["value above threshold"]
+                ),
             )
 
         mock_breaches.assert_not_called()

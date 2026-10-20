@@ -24,6 +24,7 @@ from posthog.tasks.alerts.utils import (
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import ActiveAlertDestination
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -382,10 +383,22 @@ class TestDisableInvalidAlert(APIBaseTest):
         assert check.targets_notified == {}
         assert check.notification_sent_at is None
 
+    @parameterized.expand([(PlatformAlertOwner.SOURCE,), (PlatformAlertOwner.PLATFORM,)])
     @patch("posthog.tasks.alerts.utils.send_alert_email")
-    def test_disable_invalid_alert_records_receipts_after_send(self, mock_send: MagicMock) -> None:
+    def test_disable_invalid_alert_emails_only_for_an_alert_the_insight_stack_owns(
+        self, owner: PlatformAlertOwner, mock_send: MagicMock
+    ) -> None:
+        self.alert.owner = owner
+        self.alert.save(update_fields=["owner"])
+
         check = disable_invalid_alert(self.alert, reason="bad config")
 
         check.refresh_from_db()
-        assert check.targets_notified == {"users": [self.user.email], "destinations": []}
-        mock_send.assert_called_once()
+        self.alert.refresh_from_db()
+        assert self.alert.enabled is False
+        if owner == PlatformAlertOwner.SOURCE:
+            assert check.targets_notified == {"users": [self.user.email], "destinations": []}
+            mock_send.assert_called_once()
+        else:
+            assert check.targets_notified == {}
+            mock_send.assert_not_called()

@@ -46,6 +46,7 @@ from posthog.tasks.alerts.utils import (
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
+    evaluated_by_insight_stack_q,
     get_alert_error_notification_recipients,
     next_check_time,
     next_scheduled_check_time,
@@ -173,6 +174,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             )
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
+            .filter(evaluated_by_insight_stack_q(polled_at))
         )
         # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
         in_flight = inflight_alert_ids()
@@ -624,7 +626,25 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
     through here, so the errored-check write stays in one place.
     """
-    return add_alert_check(alert, None, error)
+    alert_check, should_notify = add_alert_check(alert, None, error)
+    return alert_check, _sends_from_insight_stack(alert, alert_check, should_notify)
+
+
+def _sends_from_insight_stack(alert: AlertConfiguration, alert_check: AlertCheck, should_notify: bool) -> bool:
+    """Whether the insight stack sends the check's notification. It sends nothing for a platform-owned alert.
+
+    A held send is still recorded as sent, so `last_notified_at` moves as it would have and the
+    shadow stays comparable with the platform. The stamp on the check also keeps the investigation
+    safety net from sending it later.
+    """
+    if not (should_notify and alert.platform_owned):
+        return should_notify
+    held_at = datetime.now(UTC)
+    alert_check.notification_sent_at = held_at
+    alert_check.save(update_fields=["notification_sent_at"])
+    alert.last_notified_at = held_at
+    alert.save(update_fields=["last_notified_at"])
+    return False
 
 
 @temporalio.activity.defn
@@ -756,7 +776,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
                 )
                 return EvaluateAlertResult(
-                    alert_check_id=str(alert_check.id), should_notify=True, new_state=AlertState.ERRORED
+                    alert_check_id=str(alert_check.id),
+                    should_notify=_sends_from_insight_stack(alert, alert_check, True),
+                    new_state=AlertState.ERRORED,
                 )
             if error is not None:
                 alert_check, should_notify = _write_errored_alert_check(alert, error)
@@ -768,6 +790,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             if alert_evaluation_result is not None and alert_evaluation_result.skipped_reason is not None:
                 return EvaluateAlertResult(
                     alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState(alert.state)
+                )
+            if alert.platform_owned:
+                # No investigation either: it exists to gate a notification, and each one costs a model call.
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id),
+                    should_notify=_sends_from_insight_stack(alert, alert_check, should_notify),
+                    new_state=AlertState(alert_check.state),
                 )
 
             investigation = decide_investigation(alert, alert_check)
@@ -910,6 +939,8 @@ def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
         "schedule_start_time",
         "schedule_restriction",
         "snoozed_until",
+        "owner",
+        "owner_changed_at",
     )
     values = [
         *(getattr(alert, field) for field in fields),
