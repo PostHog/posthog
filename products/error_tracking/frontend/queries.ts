@@ -191,6 +191,7 @@ export const errorTrackingIssueEventsQuery = ({
     searchQuery,
     dateRange,
     columns,
+    conditions = [],
 }: {
     issueId: string
     filterTestAccounts: boolean
@@ -198,6 +199,7 @@ export const errorTrackingIssueEventsQuery = ({
     searchQuery: string
     dateRange: DateRange
     columns: string[]
+    conditions?: string[]
 }): EventsQuery => {
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
@@ -215,7 +217,7 @@ export const errorTrackingIssueEventsQuery = ({
         where_string += ')'
     }
 
-    const where = [where_string]
+    const where = [where_string, ...conditions]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
@@ -427,4 +429,84 @@ export const errorTrackingReleasesQuery = ({
         resolution: RELEASE_TIMELINE_RESOLUTION,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
+}
+
+export const LINKED_DATA_LOOKUP_LIMIT = 1000
+
+// Session ID attribute keys the logs UI reads by convention. The logs query runner also matches
+// keys a team configured, which this frontend-side lookup cannot see.
+const LOG_SESSION_ID_ATTRIBUTE_KEYS = ['sessionId', 'session_id', 'session.id', '$session_id', 'posthogSessionId']
+
+export const errorTrackingIssueCorrelationIdsQuery = (issueId: string): HogQLQueryString => {
+    return hogql`SELECT $session_id, properties.$trace_id, count(), min(timestamp), max(timestamp)
+                FROM events
+                WHERE event = '$exception' AND issue_id = ${issueId} AND {filters}
+                GROUP BY $session_id, properties.$trace_id
+                LIMIT ${LINKED_DATA_LOOKUP_LIMIT}`
+}
+
+// The logs table lives on a different ClickHouse cluster from events, so a query cannot join the
+// two. The caller reads the IDs from events first and passes them here.
+export const errorTrackingLinkedLogsQuery = ({
+    sessionIds,
+    base64TraceIds,
+    dateFrom,
+    dateTo,
+}: {
+    sessionIds: string[]
+    base64TraceIds: string[]
+    dateFrom: string
+    dateTo: string
+}): HogQLQueryString => {
+    const sessionIdExpression = `coalesce(${LOG_SESSION_ID_ATTRIBUTE_KEYS.map(
+        (key) => `nullIf(attributes[${escapeHogQLString(key)}], '')`
+    ).join(', ')})`
+    const matches: string[] = []
+    if (base64TraceIds.length > 0) {
+        matches.push(hogql`has(${base64TraceIds}, trace_id)`)
+    }
+    if (sessionIds.length > 0) {
+        matches.push(hogql`has(${sessionIds}, session_id)`)
+    }
+    return `SELECT trace_id, ${sessionIdExpression} AS session_id
+                FROM logs
+                WHERE timestamp >= toDateTime(${escapeHogQLString(dateFrom)})
+                    AND timestamp <= toDateTime(${escapeHogQLString(dateTo)})
+                    AND (${matches.join(' OR ') || 'false'})
+                GROUP BY trace_id, session_id
+                LIMIT ${LINKED_DATA_LOOKUP_LIMIT}` as HogQLQueryString
+}
+
+export const errorTrackingLinkedRecordingsQuery = ({
+    sessionIds,
+    dateFrom,
+    dateTo,
+}: {
+    sessionIds: string[]
+    dateFrom: string
+    dateTo: string
+}): HogQLQueryString => {
+    // A recording can start up to a day before the exception it contains.
+    return hogql`SELECT DISTINCT session_id
+                FROM raw_session_replay_events
+                WHERE has(${sessionIds}, session_id)
+                    AND min_first_timestamp >= toDateTime(${dateFrom}) - INTERVAL 1 DAY
+                    AND min_first_timestamp <= toDateTime(${dateTo})`
+}
+
+export const errorTrackingLinkedDataWhere = ({
+    sessionIds,
+    traceIds = [],
+}: {
+    sessionIds: string[]
+    traceIds?: string[]
+}): string => {
+    const matches: string[] = []
+    if (traceIds.length > 0) {
+        matches.push(hogql`has(${traceIds}, properties.$trace_id)`)
+    }
+    if (sessionIds.length > 0) {
+        matches.push(hogql`has(${sessionIds}, $session_id)`)
+    }
+    return matches.length > 0 ? `(${matches.join(' OR ')})` : 'false'
 }

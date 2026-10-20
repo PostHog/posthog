@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -40,6 +40,7 @@ import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueB
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import type { ExceptionLinkedData, LinkedDataKind } from '../../components/ExceptionCard/exceptionCardLogic'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
@@ -58,6 +59,7 @@ import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from 
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { issueLinkedDataLogic } from './issueLinkedDataLogic'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -326,10 +328,23 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
+    const { linkedData, getEventLinkedData } = useValues(issueLinkedDataLogic({ issueId }))
+    const { setLinkRequired } = useActions(issueLinkedDataLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
+    const detailEventHasLogs = getEventLinkedData(detailEvent)?.logs ?? null
+    const exceptionLinkedData = useMemo<ExceptionLinkedData>(
+        () => ({
+            hasLogs: detailEventHasLogs,
+            exceptionCounts: linkedData
+                ? { logs: linkedData.logs.exceptionCount, recording: linkedData.recording.exceptionCount }
+                : null,
+            showOnlyExceptionsWith: (kind: LinkedDataKind) => setLinkRequired(kind, true),
+        }),
+        [detailEventHasLogs, linkedData, setLinkRequired]
+    )
 
     if (isMobile && !isOpen) {
         return null
@@ -357,6 +372,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    linkedData={exceptionLinkedData}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

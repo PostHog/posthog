@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconFilter } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { TabsContent } from 'lib/ui/quill'
+import { Button, TabsContent } from 'lib/ui/quill'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 import { EXCEPTION_LOGS_WINDOW_MINUTES, buildLogsSessionScope } from 'products/logs/frontend/utils'
 
 import { exceptionCardLogic, type ExceptionLogsScope } from '../../exceptionCardLogic'
+import { LinkedDataEmptyState } from '../LinkedDataEmptyState'
 import { SubHeader } from '../SubHeader'
 import { TabSpinner } from '../TabSpinner'
 import {
@@ -30,9 +32,11 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
-    const { loading, issueId, logsScope } = useValues(exceptionCardLogic)
-    const { setLogsScope } = useActions(exceptionCardLogic)
+    const { loading, issueId, logsScope, linkedData, showUnlinkedLogs } = useValues(exceptionCardLogic)
+    const { setLogsScope, setShowUnlinkedLogs } = useActions(exceptionCardLogic)
     const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
+    const hasNoLinkedLogs = linkedData?.hasLogs === false
+    const linkedLogsCount = linkedData?.exceptionCounts?.logs ?? 0
 
     // logsViewerFiltersLogic re-applies `initialFilters` whenever the object identity changes, which
     // resets the date range the user set, so the window depends on the occurrence and not the scope.
@@ -41,7 +45,8 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
         [timestamp]
     )
     const { availableScopes, effectiveScope, pinnedFilters } = useMemo(() => {
-        const correlationIds = { sessionId, spanId, traceId }
+        // A trace or session scope with no linked logs is always empty, so only the window is left.
+        const correlationIds = hasNoLinkedLogs ? {} : { sessionId, spanId, traceId }
         const nextAvailableScopes = getAvailableExceptionLogScopes(correlationIds)
         const nextEffectiveScope = getEffectiveExceptionLogScope(logsScope, nextAvailableScopes)
 
@@ -50,20 +55,46 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
             effectiveScope: nextEffectiveScope,
             pinnedFilters: buildExceptionLogPinnedFilters(nextEffectiveScope, correlationIds),
         }
-    }, [logsScope, sessionId, spanId, traceId])
+    }, [hasNoLinkedLogs, logsScope, sessionId, spanId, traceId])
     const scopedSessionId = effectiveScope === 'session' ? sessionId : undefined
     const hasCorrelationScope = availableScopes.length > 1
 
     useEffect(() => {
-        if (!loading && logsScope !== effectiveScope) {
+        // Keep the user's scope for the next exception that has linked logs.
+        if (!loading && !hasNoLinkedLogs && logsScope !== effectiveScope) {
             setLogsScope(effectiveScope)
         }
-    }, [effectiveScope, loading, logsScope, setLogsScope])
+    }, [effectiveScope, hasNoLinkedLogs, loading, logsScope, setLogsScope])
 
     return (
         <TabsContent value="logs" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {loading ? (
+            {loading || linkedData?.hasLogs === null ? (
                 <TabSpinner />
+            ) : hasNoLinkedLogs && !showUnlinkedLogs ? (
+                <LinkedDataEmptyState
+                    kind="logs"
+                    title="No logs linked to this exception"
+                    description={
+                        linkedLogsCount > 0 ? (
+                            'Logs link to an exception through its trace ID or session ID.'
+                        ) : (
+                            <>
+                                None of this issue's exceptions in the selected date range have linked logs.{' '}
+                                <Link to="https://posthog.com/docs/logs/link-session-replay" target="_blank">
+                                    Link your logs to sessions
+                                </Link>
+                            </>
+                        )
+                    }
+                >
+                    <Button
+                        variant="outline"
+                        onClick={() => setShowUnlinkedLogs(true)}
+                        data-attr="error-tracking-logs-show-unlinked"
+                    >
+                        Show all logs around this time
+                    </Button>
+                </LinkedDataEmptyState>
             ) : (
                 <>
                     {/* The caption wraps rather than truncates, because truncating it in a narrow
@@ -71,17 +102,35 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                     <SubHeader className="h-auto min-h-9 justify-between gap-2 py-1">
                         <span className="min-w-0 text-xs text-secondary">
                             Logs from {EXCEPTION_LOGS_WINDOW_MINUTES} minutes before and after this exception.{' '}
-                            {!hasCorrelationScope && (
+                            {hasNoLinkedLogs ? (
                                 <>
-                                    This exception has no trace or session ID, so these are all logs in that window.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/logs/link-session-replay"
-                                        target="_blank"
-                                        className="text-xs"
-                                    >
-                                        Link your logs to sessions
-                                    </Link>
+                                    No logs link to this exception, so these are all logs in that window.{' '}
+                                    {linkedLogsCount > 0 && linkedData && (
+                                        <Button
+                                            variant="link"
+                                            size="inline"
+                                            className="text-xs"
+                                            onClick={() => linkedData.showOnlyExceptionsWith('logs')}
+                                            data-attr="error-tracking-show-only-with-logs"
+                                        >
+                                            <IconFilter />
+                                            Show only exceptions with logs
+                                        </Button>
+                                    )}
                                 </>
+                            ) : (
+                                !hasCorrelationScope && (
+                                    <>
+                                        This exception has no trace or session ID, so these are all logs in that window.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/logs/link-session-replay"
+                                            target="_blank"
+                                            className="text-xs"
+                                        >
+                                            Link your logs to sessions
+                                        </Link>
+                                    </>
+                                )
                             )}
                         </span>
                         {hasCorrelationScope && (

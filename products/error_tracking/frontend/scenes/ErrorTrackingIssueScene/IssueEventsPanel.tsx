@@ -12,11 +12,14 @@ import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLog
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsEmptyState } from './IssueEventsEmptyState'
 import { IssueEventsToolbar } from './IssueEventsToolbar'
+import { issueLinkedDataLogic } from './issueLinkedDataLogic'
+import { LinkedDataBadges } from './LinkedDataBadges'
 
 export function IssueEventsPanel(): JSX.Element {
-    const { issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issueFingerprintsLoading, issueId } = useValues(errorTrackingIssueSceneLogic)
+    const { linkedDataPending } = useValues(issueLinkedDataLogic({ issueId }))
 
-    if (issueFingerprintsLoading) {
+    if (issueFingerprintsLoading || linkedDataPending) {
         return (
             <IssueEventsLayout loading>
                 <EventsTableLoading />
@@ -28,8 +31,10 @@ export function IssueEventsPanel(): JSX.Element {
 }
 
 function LoadedIssueEventsPanel(): JSX.Element {
-    const { eventsQuery, eventsQueryKey, selectedEvent, summary } = useValues(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent, summary, issueId } = useValues(errorTrackingIssueSceneLogic)
     const { selectEvent, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { requiredLinks } = useValues(issueLinkedDataLogic({ issueId }))
+    const { clearRequiredLinks } = useActions(issueLinkedDataLogic({ issueId }))
     const { dateRange } = useValues(issueFiltersLogic)
     const { hasActiveFilters } = useValues(issueFilterPreviewLogic)
     const { clearNonDateFilters } = useActions(issueFilterPreviewLogic)
@@ -69,14 +74,17 @@ function LoadedIssueEventsPanel(): JSX.Element {
             {!itemsLoading && items.length === 0 ? (
                 <IssueEventsEmptyState
                     nextDateRangeLabel={nextDateRange?.label ?? null}
-                    hasActiveFilters={hasActiveFilters}
+                    hasActiveFilters={hasActiveFilters || requiredLinks.length > 0}
                     loading={itemsLoading}
                     onIncreaseDateRange={() => {
                         if (nextDateRange) {
                             setDateRange(nextDateRange.dateRange)
                         }
                     }}
-                    onClearFilters={clearNonDateFilters}
+                    onClearFilters={() => {
+                        clearNonDateFilters()
+                        clearRequiredLinks()
+                    }}
                 />
             ) : (
                 <EventsTable
@@ -88,6 +96,7 @@ function LoadedIssueEventsPanel(): JSX.Element {
                     lastEventUuid={summary?.last_event_uuid}
                     onEventSelect={selectEvent}
                     onLoadMore={loadNextData}
+                    renderBadges={(record) => <LinkedDataBadges record={record} />}
                 />
             )}
         </IssueEventsLayout>

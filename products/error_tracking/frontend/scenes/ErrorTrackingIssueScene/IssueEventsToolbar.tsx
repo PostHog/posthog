@@ -3,6 +3,7 @@ import { IconRefresh } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { ErrorFilters } from '../../components/IssueFilters'
+import { LinkedDataFilters } from './LinkedDataFilters'
 
 interface IssueEventsToolbarProps {
     loading: boolean
@@ -44,6 +45,7 @@ export function IssueEventsToolbar({ loading, onReload }: IssueEventsToolbarProp
                                     <ErrorFilters.InternalAccounts />
                                 </div>
                             </div>
+                            <LinkedDataFilters />
                             {activeFilters}
                         </div>
                     )}
