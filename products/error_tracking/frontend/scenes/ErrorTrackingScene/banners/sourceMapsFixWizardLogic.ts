@@ -21,12 +21,6 @@ export const SOURCE_MAPS_PLATFORM_LABELS: Record<SourceMapsPlatform, { platform:
     native: { platform: 'iOS and native', symbols: 'debug symbols' },
 }
 
-// The wizard sets up JavaScript projects only. Rows computed before per-platform scoring have no
-// platform, and they counted JavaScript frames only.
-export function isWizardPlatform(platform: SourceMapsPlatform | null | undefined): boolean {
-    return !platform || platform === 'javascript'
-}
-
 // Delay before we ask "how did the wizard do?" — long enough that the user has
 // actually had a chance to copy the command and kick the wizard off.
 const FEEDBACK_REVEAL_DELAY_MS = 1000

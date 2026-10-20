@@ -8,18 +8,12 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
 import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
 
-import { BannerAction } from './BannerActionButton'
 import { BannerCallout } from './BannerCallout'
 import { errorTrackingBannersLogic } from './errorTrackingBannersLogic'
 import { sourceMapsExamplesLogic } from './sourceMapsExamplesLogic'
 import { SourceMapsExamplesModal } from './SourceMapsExamplesModal'
 import { SourceMapsFixModal } from './SourceMapsFixModal'
-import {
-    SOURCE_MAPS_DOCS_URL,
-    SOURCE_MAPS_PLATFORM_LABELS,
-    isWizardPlatform,
-    sourceMapsFixWizardLogic,
-} from './sourceMapsFixWizardLogic'
+import { SOURCE_MAPS_DOCS_URL, SOURCE_MAPS_PLATFORM_LABELS, sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
 import type { SourceMapsRecommendation } from './types'
 
 // Mounts only while the banner is visible, so the "shown" event fires exactly when it was seen.
@@ -35,7 +29,6 @@ export function SourceMapsBanner({
     const { dismissBanner } = useActions(errorTrackingBannersLogic)
     const platform = recommendation.meta.platform ?? 'javascript'
     const labels = SOURCE_MAPS_PLATFORM_LABELS[platform]
-    const offersWizard = isWizardPlatform(recommendation.meta.platform)
     const percent = Math.round((recommendation.meta.unresolved_pct ?? 0) * 100)
 
     useOnMountEffect(() => {
@@ -45,14 +38,6 @@ export function SourceMapsBanner({
             platform,
         })
     })
-
-    const docsAction: BannerAction = {
-        label: 'Read docs',
-        to: SOURCE_MAPS_DOCS_URL,
-        targetBlank: true,
-        onClick: () => posthog.capture('error_tracking_source_maps_docs_clicked', { ui_source: 'issues_list' }),
-        dataAttr: 'error-tracking-source-maps-banner-docs',
-    }
 
     return (
         <>
@@ -71,17 +56,20 @@ export function SourceMapsBanner({
                         </Link>
                     </>
                 }
-                primaryAction={
-                    offersWizard
-                        ? {
-                              label: 'Fix with Wizard',
-                              icon: <IconMagicWand />,
-                              onClick: () => openModal('issues_list'),
-                              dataAttr: 'error-tracking-source-maps-banner-wizard',
-                          }
-                        : docsAction
-                }
-                secondaryAction={offersWizard ? docsAction : undefined}
+                primaryAction={{
+                    label: 'Fix with Wizard',
+                    icon: <IconMagicWand />,
+                    onClick: () => openModal('issues_list'),
+                    dataAttr: 'error-tracking-source-maps-banner-wizard',
+                }}
+                secondaryAction={{
+                    label: 'Read docs',
+                    to: SOURCE_MAPS_DOCS_URL,
+                    targetBlank: true,
+                    onClick: () =>
+                        posthog.capture('error_tracking_source_maps_docs_clicked', { ui_source: 'issues_list' }),
+                    dataAttr: 'error-tracking-source-maps-banner-docs',
+                }}
                 navigation={navigation}
                 onDismiss={() => dismissBanner('source_maps')}
             />
