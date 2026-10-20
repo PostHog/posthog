@@ -333,6 +333,7 @@ export function classifyPromptFailure(
       "upstream_connection_error",
       "upstream_timeout",
       "upstream_provider_failure",
+      "upstream_rate_limited",
     ].includes(errorType ?? "") ||
       isTransientUpstreamError(message, errorDetails))
   ) {

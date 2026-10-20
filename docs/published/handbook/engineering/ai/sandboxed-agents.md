@@ -42,6 +42,19 @@ The chat history filters for PostHog AI, Slack, and Desktop show tasks created b
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.
 
+### Provider rate limits
+
+Initial and resumed agent turns retry provider rate limits and capacity refusals up to four times.
+Each retry uses a random delay between zero and an exponential ceiling of 15, 30, 60, then 120 seconds.
+A provider's `try again in` hint sets the minimum delay, even when it exceeds that ceiling.
+Other transient provider failures allow two retries with a five-second delay.
+Task spend limits and subscription usage limits do not trigger these retries.
+
+The turn retry log records the classification, attempt, and delay.
+The run's `state.upstream_turn_retry` stores the latest retry's `classification`, `attempt`, and `delay_ms`.
+This state remains available when a later retry succeeds.
+An exhausted rate-limit retry reports `upstream_rate_limited` as the error category.
+
 ### Stream recovery
 
 The shared agent thread reconnects automatically after temporary network failures.

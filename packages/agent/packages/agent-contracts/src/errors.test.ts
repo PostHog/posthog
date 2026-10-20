@@ -297,6 +297,7 @@ describe("classifyPromptFailure", () => {
     ["boom", "upstream_stream_terminated", "transient", true],
     ["boom", "upstream_connection_error", "transient", true],
     ["boom", "upstream_provider_failure", "transient", true],
+    ["boom", "upstream_rate_limited", "transient", true],
     ["boom", "upstream_unknown", "unknown", false],
     ["boom", "upstream_request_rejected", "request_rejected", false],
     [

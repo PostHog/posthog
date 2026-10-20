@@ -2956,66 +2956,85 @@ describe("CodexAppServerAgent", () => {
     );
   });
 
-  it("carries the app-server cause and its classification on a fatal error", async () => {
-    // The display carries the app-server's cause, and the error data carries its
-    // classification so the host can tell a transient upstream cut from a real
-    // agent error. Without the classification the host skips its bounded turn
-    // retry and the run dies.
-    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
-    const { client, extNotifications } = makeFakeClient();
-    const agent = new CodexAppServerAgent(client, {
-      processOptions: { binaryPath: "/x/codex" },
-      rpcFactory: stub.factory,
-    });
-
-    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
-    const done = agent.prompt({
-      sessionId: "t",
-      prompt: [{ type: "text", text: "go" }],
-    } as unknown as PromptRequest);
-    stub.emit("thread/tokenUsage/updated", {
-      tokenUsage: {
-        total: { inputTokens: 10, outputTokens: 5 },
-        last: { inputTokens: 10, outputTokens: 5 },
-      },
-    });
-    stub.emit("item/completed", {
-      item: { type: "fileChange", id: "edit-1", changes: [] },
-    });
-    stub.emit("error", {
-      willRetry: false,
-      error: { message: "unexpected status 503 Service Unavailable: retry" },
-    });
-
-    const err = await done.then(
-      () => {
-        throw new Error("prompt resolved instead of rejecting");
-      },
-      (e: unknown) => e,
-    );
-    expect(err).toBeInstanceOf(RequestError);
-    // Exact match: the client renders this sentence, so a stray "Internal
-    // error: " prefix from RequestError.internalError() would be a regression a
-    // substring assertion could not catch.
-    expect((err as RequestError).message).toBe(
-      "The agent stopped before completing this request: unexpected status 503 Service Unavailable: retry",
-    );
-    expect((err as RequestError).data).toMatchObject({
+  it.each([
+    {
+      cause: "unexpected status 503 Service Unavailable: retry",
       classification: "upstream_provider_failure",
-      result: "unexpected status 503",
-      madeProgress: true,
-      usage: {
-        inputTokens: 10,
-        outputTokens: 5,
-        totalTokens: 15,
-      },
-    });
-    expect(
-      extNotifications.filter(
-        (notification) => notification.method === "_posthog/turn_complete",
-      ),
-    ).toHaveLength(0);
-  });
+      sanitized: "unexpected status 503",
+      retryAfterMs: undefined,
+    },
+    {
+      cause: `Rate limit exceeded: ${"x".repeat(400)} Please try again in 12.3s.`,
+      classification: "upstream_rate_limited",
+      sanitized: "upstream_rate_limited",
+      retryAfterMs: 12_300,
+    },
+  ])(
+    "carries the app-server cause and $classification on a fatal error",
+    async ({ cause, classification, sanitized, retryAfterMs }) => {
+      // The display carries the app-server's cause, and the error data carries its
+      // classification so the host can tell a transient upstream cut from a real
+      // agent error. Without the classification the host skips its bounded turn
+      // retry and the run dies.
+      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+      const { client, extNotifications } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
+
+      await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+      const done = agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "go" }],
+      } as unknown as PromptRequest);
+      stub.emit("thread/tokenUsage/updated", {
+        tokenUsage: {
+          total: { inputTokens: 10, outputTokens: 5 },
+          last: { inputTokens: 10, outputTokens: 5 },
+        },
+      });
+      stub.emit("item/completed", {
+        item: { type: "fileChange", id: "edit-1", changes: [] },
+      });
+      stub.emit("error", {
+        willRetry: false,
+        error: { message: cause },
+      });
+
+      const err = await done.then(
+        () => {
+          throw new Error("prompt resolved instead of rejecting");
+        },
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(RequestError);
+      // Exact match: the client renders this sentence, so a stray "Internal
+      // error: " prefix from RequestError.internalError() would be a regression a
+      // substring assertion could not catch.
+      expect((err as RequestError).message).toBe(
+        `The agent stopped before completing this request: ${cause.length > 400 ? `${cause.slice(0, 400)}...` : cause}`,
+      );
+      expect((err as RequestError).data).toMatchObject({
+        classification,
+        result: sanitized,
+        madeProgress: true,
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        },
+      });
+      expect(
+        ((err as RequestError).data as { retryAfterMs?: number }).retryAfterMs,
+      ).toBe(retryAfterMs);
+      expect(
+        extNotifications.filter(
+          (notification) => notification.method === "_posthog/turn_complete",
+        ),
+      ).toHaveLength(0);
+    },
+  );
 
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {
     // A silent refusal would hide the free-tier gate: the host only shows the
