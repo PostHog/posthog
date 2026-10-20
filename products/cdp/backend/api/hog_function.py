@@ -584,12 +584,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if template is None:
             return
 
-        def schema_shape(schemas: list[dict] | None) -> set[tuple[str, str]]:
-            return {
-                (str(schema.get("key")), str(schema.get("type")))
-                for schema in schemas or []
-                if isinstance(schema, dict)
-            }
+        def schema_shape(schemas: list[dict] | None) -> set[str]:
+            return {f"{schema.get('key')}:{schema.get('type')}" for schema in schemas or [] if isinstance(schema, dict)}
 
         proposed = attrs.get("inputs_schema", instance.inputs_schema if instance else None)
         if schema_shape(proposed) != schema_shape(template.inputs_schema):
@@ -597,15 +593,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 {"inputs_schema": "The inputs of this template are fixed. Remove the inputs that you added or changed."}
             )
 
+        stored_hog = instance.hog if instance else None
         proposed_hog = attrs.get("hog")
-        if instance is not None and instance.deleted and attrs.get("deleted") is False:
-            # A restore must not bring back custom code, even when the saved `hog` is unchanged.
-            proposed_hog = proposed_hog if proposed_hog is not None else instance.hog
-            allowed_hog: tuple = (template.code,)
-        else:
-            allowed_hog = (template.code, instance.hog if instance else None)
-        if proposed_hog is not None and proposed_hog not in allowed_hog:
+        if proposed_hog is not None and proposed_hog not in (template.code, stored_hog):
             raise serializers.ValidationError({"hog": "The code of this template is fixed and cannot be edited."})
+        # Every save that leaves the function live writes the template's code. Stored code that differs,
+        # from an older template version or saved before this check, cannot be enabled or restored as is.
+        if (proposed_hog if proposed_hog is not None else stored_hog) != template.code:
+            attrs["hog"] = template.code
 
     def _validate_no_reserved_functions(self, attrs: dict) -> None:
         # The worker's async function registry is global, so `sendEmail` and its peers run from any

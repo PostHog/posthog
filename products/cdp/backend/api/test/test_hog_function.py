@@ -27,6 +27,7 @@ from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cdp.backend.validation import compile_hog
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
@@ -717,11 +718,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             expected == status.HTTP_201_CREATED
         )
 
-    def test_system_email_template_custom_code_cannot_be_restored_or_created_as_deleted(self) -> None:
+    def test_system_email_template_custom_code_cannot_be_created_as_deleted(self) -> None:
         self._create_system_email_template()
         custom_hog = "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"
-        subject = {"key": "subject", "type": "string", "label": "Subject", "required": True}
-        body = {"key": "body", "type": "string", "label": "Body", "required": True}
 
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -738,32 +737,43 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert create_response.status_code == status.HTTP_400_BAD_REQUEST, create_response.json()
         assert create_response.json()["attr"] == "hog"
 
+    @parameterized.expand(
+        [
+            ("restore", {"enabled": False, "deleted": True}, {"deleted": False}),
+            ("enable", {"enabled": False, "deleted": False}, {"enabled": True}),
+            ("rename_while_enabled", {"enabled": True, "deleted": False}, {"name": "Renamed"}),
+            ("restore_resubmitting_stored_code", {"enabled": False, "deleted": True}, {"deleted": False, "hog": None}),
+        ]
+    )
+    def test_system_email_template_stored_custom_code_is_replaced_on_a_live_save(
+        self, _name: str, state: dict, patch: dict
+    ) -> None:
+        self._create_system_email_template()
+        custom_hog = "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"
+        template_hog = HogFunctionTemplate.objects.get(template_id="template-posthog-email").code
         fn = HogFunction.objects.create(
             team=self.team,
             name="Sync alert",
             type="internal_destination",
             template_id="template-posthog-email",
-            enabled=False,
-            deleted=True,
-            inputs_schema=[subject, body],
+            inputs_schema=[
+                {"key": "subject", "type": "string", "label": "Subject", "required": True},
+                {"key": "body", "type": "string", "label": "Body", "required": True},
+            ],
             inputs={"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
             filters={"events": [{"id": "$data_warehouse_sync_failure_digest", "type": "events"}]},
             hog=custom_hog,
+            **state,
         )
-        restore_response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/", data={"deleted": False}
-        )
-        assert restore_response.status_code == status.HTTP_400_BAD_REQUEST, restore_response.json()
-        assert restore_response.json()["attr"] == "hog"
-        fn.refresh_from_db()
-        assert fn.deleted
+        if "hog" in patch:
+            patch = {**patch, "hog": custom_hog}
 
-        template_hog = HogFunctionTemplate.objects.get(template_id="template-posthog-email").code
-        HogFunction.objects.filter(id=fn.id).update(hog=template_hog)
-        allowed_response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/", data={"deleted": False}
-        )
-        assert allowed_response.status_code == status.HTTP_200_OK, allowed_response.json()
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{fn.id}/", data=patch)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        fn.refresh_from_db()
+        assert fn.hog == template_hog
+        assert fn.bytecode == compile_hog(template_hog, "internal_destination")
 
     @parameterized.expand(
         [
