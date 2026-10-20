@@ -1486,6 +1486,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     if (branded) {
                         actions.brandApplied(branded)
                         cache.prefilledEmail = { ...cache.prefilledEmail, ...branded }
+                    } else if (cache.brandAwaitsAiDraft) {
+                        cache.brandAwaitsAiDraft = false
+                        actions.loadEmailBrand()
                     }
                 }
             }
@@ -2300,8 +2303,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         if (draftSource && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]) {
             actions.loadAiEmailDraft(draftSource)
             if (!email) {
-                // A link without a template email still gets the brand once the draft fills it.
-                actions.loadEmailBrand()
+                // The lookup checks each brand against the draft's text, so it waits until the draft exists.
+                cache.brandAwaitsAiDraft = true
             }
         }
     }),

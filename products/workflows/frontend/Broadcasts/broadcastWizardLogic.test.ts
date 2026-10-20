@@ -265,7 +265,10 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
-    it('keeps the project brand on an AI draft that lands after the template was branded', async () => {
+    it.each([
+        { case: 'lands after the template was branded', withLinkEmail: true },
+        { case: 'comes from a link without a template email', withLinkEmail: false },
+    ])('keeps the project brand on an AI draft that $case', async ({ withLinkEmail }) => {
         const cell = (inner: string): string =>
             `<table role="presentation"><tbody><tr><td style="padding:10px;"><div>${inner}</div></td></tr></tbody></table>`
         const brandEmail = {
@@ -295,6 +298,10 @@ describe('broadcastWizardLogic', () => {
             ].join('')}</div></div></div></div></div></body></html>`,
         }
         let respond: (value: unknown) => void = () => {}
+        let markRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => {
+            markRequested = resolve
+        })
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': () => [
@@ -306,6 +313,7 @@ describe('broadcastWizardLogic', () => {
                 '/api/projects/:team_id/workflow_email_drafts/': () =>
                     new Promise((resolve) => {
                         respond = resolve
+                        markRequested()
                     }).then((body) => [200, body]),
             },
         })
@@ -316,14 +324,15 @@ describe('broadcastWizardLogic', () => {
             urlForNewBroadcastWithAudience({
                 properties: LOCAL_AUDIENCE,
                 source: 'error_tracking',
-                email: draftMessage({ kind: 'issue_fixed' }),
+                ...(withLinkEmail ? { email: draftMessage({ kind: 'issue_fixed' }) } : {}),
                 draftSource: { source: 'error_tracking', source_id: 'issue-1' },
             })
         )
         logic = broadcastWizardLogic({ id: 'new' })
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['brandApplied'])
+        await expectLogic(logic).toDispatchActions([withLinkEmail ? 'brandApplied' : 'loadAiEmailDraft'])
+        await requested
         respond({
             subject: 'Written by the model',
             preheader: '',
@@ -332,7 +341,11 @@ describe('broadcastWizardLogic', () => {
             generated_by: 'ai',
             template_reason: null,
         })
-        await expectLogic(logic).toDispatchActions(['loadAiEmailDraftSuccess'])
+        await expectLogic(logic).toDispatchActions(
+            withLinkEmail
+                ? ['loadAiEmailDraftSuccess']
+                : ['loadAiEmailDraftSuccess', 'loadEmailBrandSuccess', 'brandApplied']
+        )
 
         expect(logic.values.email.subject).toEqual('Written by the model')
         expect(logic.values.email.html).toContain('Model paragraph.')
