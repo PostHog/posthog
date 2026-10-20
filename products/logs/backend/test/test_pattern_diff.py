@@ -461,8 +461,12 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
         with (
             patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(PatternsQueryRunner, "_calculate_stored_patterns", side_effect=AssertionError),
+            patch.object(PatternsQueryRunner, "_count", side_effect=AssertionError),
+            patch("products.logs.backend.patterns_query_runner.app_org_concurrency_slot") as slot,
         ):
             results = run_patterns_diff(self.team, self._query(), None)
+
+        assert slot.call_count == 2
 
         assert results["source"] == "body_mining"
         assert results["sampled"] is True

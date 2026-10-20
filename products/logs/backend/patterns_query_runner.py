@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -131,7 +132,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 return self._calculate_stored_patterns(total, version, covered)
             reason = "insufficient_version_coverage" if total else "empty_window"
         else:
-            total = self._count()
+            cached = self.__dict__.get("_version_coverage")
+            total = cached.total if cached is not None else self._count()
         return self._calculate_body_patterns(total, reason)
 
     @cached_property
@@ -149,7 +151,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def stored_version(self) -> int | None:
         if not (self.use_stored_patterns and self._stored_patterns_enabled):
             return None
-        coverage = self._version_coverage
+        with app_org_concurrency_slot(self.team, task_id=self.query_id):
+            coverage = self._version_coverage
         return coverage.version if coverage.total and coverage.covered * 100 >= coverage.total * 99 else None
 
     @cached_property
