@@ -70,13 +70,13 @@ def depot(*args: str) -> Any:
     result = subprocess.run(
         ["depot", "ci", *args], check=True, stdout=subprocess.PIPE, text=True, timeout=CLI_TIMEOUT_SECONDS
     )
-    # `depot ci run list` prints `null` when nothing matches.
-    return json.loads(result.stdout) or []
+    return json.loads(result.stdout)
 
 
 def list_pr(noun: str, repo: str, pr_number: str, statuses: Sequence[str]) -> list[dict[str, str]]:
     scope = ["--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", "-o", "json"]
-    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status)))
+    # `depot ci run list` prints `null` when nothing matches.
+    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status))) or []
 
 
 def main() -> int:

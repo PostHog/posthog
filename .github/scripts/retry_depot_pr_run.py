@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Retry the failed and cancelled jobs of a pull request's newest Depot CI run.
 
-.depot/workflows/retry-on-comment.yml runs this for a `/depot retry` comment. `depot ci retry --failed`
-works while the rest of the run is still going, and it also reruns the jobs downstream of each
-retried job, so the gate reports the new result. GitHub's Re-run button on a Depot check sends its
-request only to Depot's own GitHub App, which does not act on it.
+.depot/workflows/retry-on-comment.yml runs this for a `/depot retry` comment.
+See "Reruns" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
 Standard library only: the job runs this with the runner's python3 before any install.
 """
@@ -38,8 +36,11 @@ def retryable_workflow_ids(status: dict[str, Any]) -> list[str]:
 def main() -> None:
     repo, pr_number = os.environ["REPO"], os.environ["PR_NUMBER"]
     run_id = newest_run_id(list_pr("run", repo, pr_number, ALL))
-    # `depot()` turns a `null` status into `[]`, as for a run that has no workflow yet.
-    workflow_ids = retryable_workflow_ids(depot("status", run_id, "-o", "json") or {}) if run_id else []
+    if not run_id:
+        sys.stdout.write(f"::notice::PR {pr_number} has no Depot run to retry.\n")
+        return
+    # A run that has no workflow yet has a `null` status.
+    workflow_ids = retryable_workflow_ids(depot("status", run_id, "-o", "json") or {})
     for workflow_id in workflow_ids:
         sys.stdout.write(f"Retrying the failed and cancelled jobs of run {run_id} (workflow {workflow_id})\n")
         depot("retry", run_id, "--failed", "--workflow", workflow_id, "-o", "json")
