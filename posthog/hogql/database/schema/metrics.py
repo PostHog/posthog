@@ -362,8 +362,9 @@ class MetricAttributesTable(Table):
 
 
 # `last_seen` is the ReplacingMergeTree version column, so `max` picks the row FINAL would keep.
-# `original_expiry_timestamp` is the series TTL, which also moves between versions.
-_MAX_FIELDS = frozenset({"last_seen", "original_expiry_timestamp"})
+# `time_bucket` is the hour of `last_seen`, and `original_expiry_timestamp` is the series TTL. Both
+# also move forward between versions.
+_MAX_FIELDS = frozenset({"last_seen", "time_bucket", "original_expiry_timestamp"})
 
 # Not inputs to the series fingerprint, so a re-ingested series can change them between duplicate
 # rows; `any()` could return the stale version. `argMax(field, last_seen)` takes them from the newest.
@@ -377,29 +378,50 @@ _SERIES_LAST_SEEN_BUFFER = dt.timedelta(hours=1)
 
 _TIME_LOWER_BOUND_OPS = frozenset({ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq})
 
+# Alias of metric_series inside the join subquery. Each aggregate there is aliased with its source
+# field's name, and HogQL resolves SELECT aliases before columns, so every source field reference
+# must carry this qualifier or it would resolve to the aggregate.
+_SERIES_SOURCE_ALIAS = "metric_series_source"
 
-def _outer_table_field_chain(expr: ast.Expr, from_table: str, context: HogQLContext) -> list[str | int] | None:
-    """Resolve an expression to a plain field chain on the outer (metrics) table.
+
+def _outer_metrics_column(expr: ast.Expr, from_table: str, context: HogQLContext) -> str | None:
+    """Resolve an expression to a column name on the outer (metrics) table.
 
     Accepts an optional leading table qualifier (`metrics.timestamp` or bare `timestamp`) and
-    verifies via the resolved FieldType that the field belongs to a MetricsTable, so a same-named
-    field on another joined table is never captured.
+    verifies via the resolved FieldType that the field is that column of a MetricsTable. A field on
+    another joined table, or a SELECT alias that shadows a column name, is never captured.
     """
     field = expr.expr if isinstance(expr, ast.Alias) else expr
     if not isinstance(field, ast.Field):
         return None
-    chain: list[str | int] = list(field.chain)
+    chain = list(field.chain)
     if chain and chain[0] == from_table:
         chain = chain[1:]
-    if not chain or not isinstance(chain[0], str):
+    if len(chain) != 1 or not isinstance(chain[0], str):
         return None
-    if isinstance(field.type, ast.FieldType):
-        table_type = field.type.table_type
-        if isinstance(table_type, ast.BaseTableType):
-            table = table_type.resolve_database_table(context)
-            if table is not None and not isinstance(table, MetricsTable):
-                return None
-    return chain
+    field_type = field.type
+    if not isinstance(field_type, ast.FieldType) or field_type.name != chain[0]:
+        return None
+    if not isinstance(field_type.table_type, ast.BaseTableType):
+        return None
+    if not isinstance(field_type.table_type.resolve_database_table(context), MetricsTable):
+        return None
+    return chain[0]
+
+
+def _is_column_free(expr: ast.Expr) -> bool:
+    """True when the expression reads no column, so its value is the same for every row."""
+    if isinstance(expr, ast.Constant):
+        return True
+    if isinstance(expr, ast.ArithmeticOperation):
+        return _is_column_free(expr.left) and _is_column_free(expr.right)
+    if isinstance(expr, ast.Call):
+        return all(_is_column_free(arg) for arg in [*expr.args, *(expr.params or [])])
+    return False
+
+
+def _series_source_field(name: str) -> ast.Field:
+    return ast.Field(chain=[_SERIES_SOURCE_ALIAS, name])
 
 
 def _series_pushdown_where(node: SelectQuery, from_table: str, context: HogQLContext) -> ast.Expr | None:
@@ -410,13 +432,14 @@ def _series_pushdown_where(node: SelectQuery, from_table: str, context: HogQLCon
     - `metric_name = <constant>` / `IN (<constants>)`: metric_name is an input to the series
       fingerprint, so every series row for a fingerprint carries the same metric_name, and it is
       the sort-key prefix of metric_series — the bound becomes a primary-key range read.
-    - `timestamp > / >= <constant>`: a series last seen before the window (minus the one-hour
-      buffer the Viewer's own series reads use for delayed updates) can have no points in it.
-      Rewritten to `last_seen >= bound - buffer`.
+    - `timestamp > / >= <column-free expression>` (a constant, or a rolling window such as
+      `now() - INTERVAL 1 HOUR`): a series last seen before the window (minus the one-hour buffer
+      the Viewer's own series reads use for delayed updates) can have no points in it. Rewritten
+      to `last_seen >= bound - buffer`.
 
-    Fails open: OR terms, non-constant comparisons, and fields on other tables are ignored, and
-    the outer WHERE is left untouched (the join is LEFT, so over-selecting in the subquery is
-    always safe; under-selecting is not).
+    Fails open: OR terms, comparisons that read a column, aliases, and fields on other tables are
+    ignored, and the outer WHERE is left untouched (the join is LEFT, so over-selecting in the
+    subquery is always safe; under-selecting is not).
     """
     if node.where is None:
         return None
@@ -433,10 +456,8 @@ def _series_pushdown_where(node: SelectQuery, from_table: str, context: HogQLCon
     for term in flatten_and(node.where):
         if not isinstance(term, ast.CompareOperation):
             continue
-        left_chain = _outer_table_field_chain(term.left, from_table, context)
-        if left_chain is None:
-            continue
-        if left_chain[0] == "metric_name" and len(left_chain) == 1:
+        column = _outer_metrics_column(term.left, from_table, context)
+        if column == "metric_name":
             if term.op == ast.CompareOperationOp.Eq and isinstance(term.right, ast.Constant):
                 push = True
             elif term.op == ast.CompareOperationOp.In and isinstance(term.right, ast.Array | ast.Tuple):
@@ -447,27 +468,23 @@ def _series_pushdown_where(node: SelectQuery, from_table: str, context: HogQLCon
                 pushed.append(
                     ast.CompareOperation(
                         op=term.op,
-                        left=ast.Field(chain=["metric_name"]),
+                        left=_series_source_field("metric_name"),
                         right=clone_expr(term.right, clear_types=True, clear_locations=True),
                     )
                 )
-        elif left_chain[0] == "timestamp" and len(left_chain) == 1 and term.op in _TIME_LOWER_BOUND_OPS:
-            bound = term.right
-            if not (
-                isinstance(bound, ast.Constant)
-                or (isinstance(bound, ast.Call) and all(isinstance(a, ast.Constant) for a in bound.args))
-            ):
+        elif column == "timestamp" and term.op in _TIME_LOWER_BOUND_OPS:
+            if not _is_column_free(term.right):
                 continue
+            bound = ast.Call(name="toDateTime", args=[clone_expr(term.right, clear_types=True, clear_locations=True)])
             pushed.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["last_seen"]),
+                    left=_series_source_field("last_seen"),
                     right=ast.Call(
                         name="minus",
                         args=[
-                            ast.Call(
-                                name="toDateTime", args=[clone_expr(bound, clear_types=True, clear_locations=True)]
-                            ),
+                            # DateTime is unsigned, so the buffer would wrap a bound near the epoch to 2106.
+                            ast.Call(name="toDateTime64", args=[bound, ast.Constant(value=6)]),
                             ast.Call(
                                 name="toIntervalHour",
                                 args=[ast.Constant(value=int(_SERIES_LAST_SEEN_BUFFER.total_seconds() // 3600))],
@@ -495,11 +512,11 @@ def join_metrics_with_metric_series_table(
     # team has before the outer filters apply.
     inner_select = ast.SelectQuery(
         select=[
-            ast.Alias(alias="series_fingerprint", expr=ast.Field(chain=["series_fingerprint"])),
+            ast.Alias(alias="series_fingerprint", expr=_series_source_field("series_fingerprint")),
         ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "metric_series"])),
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "metric_series"]), alias=_SERIES_SOURCE_ALIAS),
         where=_series_pushdown_where(node, join_to_add.from_table, context),
-        group_by=[ast.Field(chain=["series_fingerprint"])],
+        group_by=[_series_source_field("series_fingerprint")],
     )
     for field_name, field_chain in join_to_add.fields_accessed.items():
         # series_fingerprint is already selected as the join key.
@@ -507,11 +524,11 @@ def join_metrics_with_metric_series_table(
             continue
         # Everything else (labels, metric_type, service_name) is an input to the fingerprint, so every
         # duplicate of one series agrees on it and `any()` cannot return a stale value.
-        field = ast.Field(chain=list(field_chain))
+        field = ast.Field(chain=[_SERIES_SOURCE_ALIAS, *field_chain])
         if field_name in _MAX_FIELDS:
             aggregate = ast.Call(name="max", args=[field])
         elif field_name in _ARGMAX_FIELDS:
-            aggregate = ast.Call(name="argMax", args=[field, ast.Field(chain=["last_seen"])])
+            aggregate = ast.Call(name="argMax", args=[field, _series_source_field("last_seen")])
         else:
             aggregate = ast.Call(name="any", args=[field])
         inner_select.select.append(ast.Alias(alias=field_name, expr=aggregate))

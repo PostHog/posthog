@@ -88,53 +88,81 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         subquery = sql.split("LEFT JOIN (", 1)[1]
         assert "metric_name" in subquery, f"expected metric_name bound inside the join subquery, got:\n{sql}"
 
-    def test_time_lower_bound_is_pushed_into_the_series_subquery_as_last_seen(self):
+    @parameterized.expand(
+        [
+            ("constant", "'2026-09-16 00:00:00'"),
+            ("rolling_window", "now() - INTERVAL 1 HOUR"),
+            ("nested_rolling_window", "toStartOfDay(now()) - INTERVAL 7 DAY"),
+        ]
+    )
+    def test_time_lower_bound_is_pushed_into_the_series_subquery_as_last_seen(self, _name: str, bound: str):
         # A series last seen before the window cannot have points in it. The pushed bound is
         # last_seen >= timestamp - buffer (the Viewer's `_active_since_expr` shape).
         sql = self._print_clickhouse(
             f"SELECT series.attributes FROM {METRICS_TABLE} "
-            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-09-16 00:00:00' LIMIT 10"
+            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > {bound} LIMIT 10"
         )
         subquery = sql.split("LEFT JOIN (", 1)[1].split("GROUP BY", 1)[0]
         assert "greaterOrEquals(" in subquery and "timestamp" in subquery and "toIntervalHour(1)" in subquery, (
             f"expected last_seen >= <bound - 1h> inside the subquery, got:\n{sql}"
         )
 
-    def test_or_filter_is_not_pushed_into_the_series_subquery(self):
-        # Failing open: an OR term mixing a metric filter with something else must leave the
-        # subquery unbounded, or series rows the outer query still needs would be dropped.
-        sql = self._print_clickhouse(
-            f"SELECT series.attributes FROM {METRICS_TABLE} "
-            f"WHERE metric_name = 'cpu_seconds_total' OR metric_name = 'disk_bytes' LIMIT 10"
-        )
+    @parameterized.expand(
+        [
+            # An OR term mixing a metric filter with something else must leave the subquery unbounded.
+            (
+                "or_term",
+                f"SELECT series.attributes FROM {METRICS_TABLE} "
+                f"WHERE metric_name = 'cpu_seconds_total' OR metric_name = 'disk_bytes' LIMIT 10",
+            ),
+            # A select alias that shadows `metric_name` filters a different column.
+            (
+                "shadowing_alias",
+                f"SELECT service_name AS metric_name, series.attributes FROM {METRICS_TABLE} "
+                f"WHERE metric_name = 'web' LIMIT 10",
+            ),
+        ]
+    )
+    def test_unsafe_filter_is_not_pushed_into_the_series_subquery(self, _name: str, query: str):
+        # Failing open: pushing these would drop series rows the outer query still needs.
+        sql = self._print_clickhouse(query)
         subquery = sql.split("LEFT JOIN (", 1)[1].split("GROUP BY", 1)[0]
-        assert "metric_name" not in subquery, f"OR-ed metric filter must not be pushed down, got:\n{sql}"
+        assert "metric_name" not in subquery, f"filter must not be pushed down, got:\n{sql}"
 
-    def test_pushdown_preserves_results_end_to_end(self):
-        # Same query, with and without a pushdown-eligible filter shape, must return the same
-        # label rows for the series that have points in the window.
+    @parameterized.expand(
+        [
+            ("constant", "timestamp > '2026-09-16 00:00:00'"),
+            # ClickHouse DateTime is unsigned, so subtracting the buffer from the epoch must not wrap.
+            ("epoch", "timestamp >= toDateTime(0)"),
+            ("rolling_window", "timestamp >= now() - INTERVAL 1 HOUR"),
+        ]
+    )
+    def test_pushdown_preserves_results_end_to_end(self, _name: str, time_filter: str):
+        # A pushed-down bound must keep the labels of every series that has points in the window.
         truncate_metrics_tables()
         seed_metric(
             team_id=self.team.pk,
             metric_name="cpu_seconds_total",
             metric_type="sum",
             service_name="web",
-            points=[(dt.datetime(2026, 9, 16, 1, 0, 0, tzinfo=dt.UTC), 1.0)],
+            # Relative to the real clock: ClickHouse evaluates now() itself.
+            points=[(dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=10), 1.0)],
             labels={"route": "/checkout"},
         )
         response = execute_hogql_query(
             f"SELECT series.attributes['route'] AS route, count() AS c FROM {METRICS_TABLE} "
-            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-09-16 00:00:00' GROUP BY route",
+            f"WHERE metric_name = 'cpu_seconds_total' AND {time_filter} GROUP BY route",
             self.team,
         )
         assert response.results == [("/checkout", 1)], f"unexpected results: {response.results}"
 
-    def test_last_seen_uses_max_not_any_across_duplicate_versions(self):
-        # `last_seen` is the ReplacingMergeTree version column, the one field that differs across a
-        # series' duplicate rows. `any()` could return a stale duplicate, so it must be `max`.
-        sql = self._print_clickhouse(f"SELECT series.last_seen FROM {METRICS_TABLE} LIMIT 10")
-        assert "max(" in sql, f"expected max() for last_seen, got:\n{sql}"
-        assert "any(" not in sql.split("last_seen")[0], f"last_seen must not use any(), got:\n{sql}"
+    @parameterized.expand(["last_seen", "time_bucket", "original_expiry_timestamp"])
+    def test_version_varying_fields_use_max_not_any_across_duplicate_versions(self, field: str):
+        # These fields move forward with each new version of a series. `any()` could return a stale
+        # duplicate, so they must be `max`.
+        sql = self._print_clickhouse(f"SELECT series.{field} FROM {METRICS_TABLE} LIMIT 10")
+        assert "max(" in sql, f"expected max() for {field}, got:\n{sql}"
+        assert "any(" not in sql, f"{field} must not use any(), got:\n{sql}"
 
     def test_label_fields_use_any_since_labels_are_constant_within_a_series(self):
         # Labels are inputs to the fingerprint, so every duplicate of one series agrees on them; `any()`
@@ -173,6 +201,48 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         assert latest.replace(tzinfo=dt.UTC) >= dt.datetime(2026, 9, 16, tzinfo=dt.UTC), (
             f"expected the latest duplicate's last_seen, got {latest}"
         )
+
+    @parameterized.expand(
+        [
+            (
+                "last_seen_with_time_filter",
+                "SELECT series.last_seen FROM {table} "
+                "WHERE metric_name = 'cpu_seconds_total' AND timestamp >= '2026-09-16 00:00:00'",
+                [(dt.datetime(2026, 9, 16, 1, 0, 0, tzinfo=dt.UTC),)],
+            ),
+            (
+                "metric_name_with_metric_name_filter",
+                "SELECT series.metric_name FROM {table} WHERE metric_name = 'cpu_seconds_total'",
+                [("cpu_seconds_total",)],
+            ),
+            (
+                "last_seen_before_unit",
+                "SELECT series.last_seen, series.unit FROM {table} WHERE metric_name = 'cpu_seconds_total'",
+                [(dt.datetime(2026, 9, 16, 1, 0, 0, tzinfo=dt.UTC), "s")],
+            ),
+        ]
+    )
+    def test_end_to_end_series_fields_do_not_collide_with_aggregate_aliases(
+        self, _name: str, query: str, expected: list[tuple]
+    ):
+        # The join subquery aliases each aggregate with its source field's name. A pushed predicate or
+        # an argMax argument that resolves to one of those aliases nests an aggregate in an aggregate.
+        truncate_metrics_tables()
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="cpu_seconds_total",
+            metric_type="sum",
+            service_name="web",
+            unit="s",
+            points=[(dt.datetime(2026, 9, 16, 1, 0, 0, tzinfo=dt.UTC), 1.0)],
+            labels={"route": "/checkout"},
+        )
+        response = execute_hogql_query(query.format(table=METRICS_TABLE), self.team)
+        results = [
+            tuple(v.replace(tzinfo=dt.UTC) if isinstance(v, dt.datetime) else v for v in row)
+            for row in response.results
+        ]
+        assert results == expected
 
     def test_end_to_end_mutable_metadata_reflects_latest_series_version(self):
         # Same labels (same fingerprint) re-ingested with a new unit produce two duplicate series rows.
