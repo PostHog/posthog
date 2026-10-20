@@ -43,7 +43,15 @@ const meta: Meta<StoryArgs> = {
         } = args
         const [modalOpen, setModalOpen] = useState(false)
 
-        useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ACCESS_CONTROL] : [])
+        useAvailableFeatures(
+            licensed
+                ? [
+                      AvailableFeature.WHITE_LABELLING,
+                      AvailableFeature.ACCESS_CONTROL,
+                      AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                  ]
+                : []
+        )
 
         useStorybookMocks({
             get: {

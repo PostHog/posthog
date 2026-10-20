@@ -6,6 +6,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -93,22 +94,31 @@ describe('SharingModal (dashboard)', () => {
         hasRelevantAccessControls = false,
         enabled = true,
         passwordRequired = false,
+        securitySettingsAvailable = false,
+        membershipLevel = OrganizationMembershipLevel.Admin,
+        sharingAllowed = true,
     }: {
         extraProps?: Partial<SharingModalProps>
         accessControlAvailable?: boolean
         hasRelevantAccessControls?: boolean
         enabled?: boolean
         passwordRequired?: boolean
+        securitySettingsAvailable?: boolean
+        membershipLevel?: OrganizationMembershipLevel
+        sharingAllowed?: boolean
     }): JSX.Element {
         // Render the dashboard sharing modal with `WHITE_LABELLING` so the UI shows
         // the branding option in the form.
         useAvailableFeatures([
             AvailableFeature.WHITE_LABELLING,
             ...(accessControlAvailable ? [AvailableFeature.ACCESS_CONTROL] : []),
+            ...(securitySettingsAvailable ? [AvailableFeature.ORGANIZATION_SECURITY_SETTINGS] : []),
         ])
         initKeaTests(true, undefined, undefined, {
             ...MOCK_DEFAULT_ORGANIZATION,
             available_product_features: getAvailableProductFeatures(),
+            membership_level: membershipLevel,
+            allow_publicly_shared_resources: sharingAllowed,
         })
         themeLogic.mount()
         useMocks({
@@ -150,20 +160,70 @@ describe('SharingModal (dashboard)', () => {
     })
 
     it.each([
-        { resource: 'dashboard', available: true, configured: true, enabled: false, password: false, warning: true },
-        { resource: 'dashboard', available: true, configured: true, enabled: true, password: true, warning: true },
-        { resource: 'notebook', available: true, configured: true, enabled: false, password: false, warning: true },
-        { resource: 'dashboard', available: false, configured: true, enabled: true, password: false, warning: false },
-        { resource: 'dashboard', available: true, configured: false, enabled: true, password: false, warning: false },
+        {
+            resource: 'dashboard',
+            available: true,
+            configured: true,
+            enabled: false,
+            password: false,
+            allowed: true,
+            warning: true,
+        },
+        {
+            resource: 'dashboard',
+            available: true,
+            configured: true,
+            enabled: true,
+            password: true,
+            allowed: true,
+            warning: true,
+        },
+        {
+            resource: 'notebook',
+            available: true,
+            configured: true,
+            enabled: false,
+            password: false,
+            allowed: true,
+            warning: true,
+        },
+        {
+            resource: 'dashboard',
+            available: false,
+            configured: true,
+            enabled: true,
+            password: false,
+            allowed: true,
+            warning: false,
+        },
+        {
+            resource: 'dashboard',
+            available: true,
+            configured: false,
+            enabled: true,
+            password: false,
+            allowed: true,
+            warning: false,
+        },
+        {
+            resource: 'dashboard',
+            available: true,
+            configured: true,
+            enabled: true,
+            password: false,
+            allowed: false,
+            warning: false,
+        },
     ])(
         'warns about public $resource access with $available/$configured/$enabled/$password',
-        async ({ resource, available, configured, enabled, password, warning }) => {
+        async ({ resource, available, configured, enabled, password, allowed, warning }) => {
             render(
                 <DashboardSharingModalWrapper
                     accessControlAvailable={available}
                     hasRelevantAccessControls={configured}
                     enabled={enabled}
                     passwordRequired={password}
+                    sharingAllowed={allowed}
                     extraProps={
                         resource === 'notebook' ? { dashboardId: undefined, notebookShortId: 'example-notebook' } : {}
                     }
@@ -171,16 +231,43 @@ describe('SharingModal (dashboard)', () => {
             )
 
             await screen.findByText(`Share ${resource} publicly`)
-            const banner = screen.queryByText(
-                /Access controls on this .* and its underlying data do not apply to public sharing/
+            const banner = screen.queryByText(/Access controls do not apply to public/)
+            expect(banner?.textContent).toBe(
+                warning
+                    ? `Anyone with the public link can view this ${resource} and its data, including people outside your organization. Access controls do not apply to public ${resource}s.`
+                    : undefined
             )
-            if (warning) {
-                expect(banner).toHaveTextContent(
-                    `Anyone with the public link${password ? ' and a sharing password' : ''} can view this ${resource}`
-                )
-            } else {
-                expect(banner).not.toBeInTheDocument()
-            }
+            const toggle = screen.getByTestId('sharing-switch')
+            expect(toggle.hasAttribute('disabled')).toBe(!allowed)
+            expect(toggle).toHaveAttribute('aria-checked', String(allowed && enabled))
+            expect(screen.queryByText('Public sharing is disabled for this organization.')).not.toBeInTheDocument()
+        }
+    )
+
+    it.each([
+        { membershipLevel: OrganizationMembershipLevel.Admin, securitySettingsAvailable: true, showsLink: true },
+        { membershipLevel: OrganizationMembershipLevel.Owner, securitySettingsAvailable: true, showsLink: true },
+        { membershipLevel: OrganizationMembershipLevel.Member, securitySettingsAvailable: true, showsLink: false },
+        { membershipLevel: OrganizationMembershipLevel.Admin, securitySettingsAvailable: false, showsLink: false },
+    ])(
+        'gates the settings link for role $membershipLevel with security settings $securitySettingsAvailable',
+        async ({ membershipLevel, securitySettingsAvailable, showsLink }) => {
+            render(
+                <DashboardSharingModalWrapper
+                    accessControlAvailable
+                    hasRelevantAccessControls
+                    enabled={false}
+                    membershipLevel={membershipLevel}
+                    securitySettingsAvailable={securitySettingsAvailable}
+                />
+            )
+
+            await screen.findByText('Share dashboard publicly')
+            const link = screen.queryByText('Disable public sharing for your organization')
+            expect(!!link).toBe(showsLink)
+            expect(link?.getAttribute('href')).toEqual(
+                showsLink ? expect.stringMatching(/\/settings\/organization-security$/) : undefined
+            )
         }
     )
 
