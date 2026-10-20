@@ -432,8 +432,9 @@ def _make_paginated_shopify_request(
             vars["pageSize"] = starting_page_size
             continue
         if size_page_from_cost:
-            # The starting size already works, so the cost only ever grows the page from it.
-            next_page_size = max(starting_page_size, _page_size_for_cost(vars["pageSize"], payload))
+            # A size Shopify answered is known to fit, so the cost only ever grows the page. The
+            # requested cost is not linear in the page size, and shrinking on it made the size swing.
+            next_page_size = max(vars["pageSize"], _page_size_for_cost(vars["pageSize"], payload))
             if next_page_size != vars["pageSize"]:
                 logger.debug(
                     f"Changing page size for {graphql_object.name} from {vars['pageSize']} to {next_page_size}. "
