@@ -76,7 +76,7 @@ def prepare_task_trial(*, team: "Team", origin: str, report_id: UUID | None = No
     parent = context_funding(team) or (active_report_pass(team, report_id) if report_id else None)
     if parent is not None:
         return TaskTrialAdmission(team=team, paid_authorized=parent.funding == "paid", parent=parent)
-    grant = policy.grant()
+    grant = policy.active_grant()
     if grant is None:
         return None
     paid_authorized = False
@@ -94,6 +94,8 @@ def start_task_trial(*, team: "Team", run_id: UUID) -> bool:
     )
 
     policy = TrialPolicy(team)
+    if not policy.enabled():
+        return False
     funding = task_funding(team.id, run_id)
     if funding is None or funding.grant_id is None:
         return False
@@ -121,6 +123,9 @@ def start_task_trial(*, team: "Team", run_id: UUID) -> bool:
 def check_trial_run_quota(*, team: "Team", run_id: UUID) -> str | None:
     from products.signals.backend.trial.tasks import cancel_trial_run  # noqa: PLC0415 -- task workflow imports
 
+    policy = TrialPolicy(team)
+    if not policy.enabled():
+        return None
     funding = task_funding(team.id, run_id)
     if funding is None or funding.grant_id is None:
         return None
@@ -128,7 +133,7 @@ def check_trial_run_quota(*, team: "Team", run_id: UUID) -> str | None:
     if run is None or run.is_terminal:
         return "stop_checking"
     refresh_task_spend(team_id=team.id, run_id=str(run_id), strict=True)
-    grant = TrialPolicy(team).grant()
+    grant = policy.grant()
     if grant is not None and grant.exhaustion_reason == "cost_limit" and cancel_trial_run(run):
         return "cancelled"
     return "proceed"

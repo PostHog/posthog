@@ -1,8 +1,8 @@
 """Legacy reports-only trial gate, shared by automatic and explicit implementation.
 
-Claimed projects use the one-time policy instead, so this gate must not prevent
-their opt-in implementation or subsequent paid continuation. Unclaimed projects retain
-the legacy reports-only restriction and its fail-open flag behavior.
+Claimed projects use the one-time policy while its rollout is enabled, so this gate
+must not prevent their opt-in implementation or subsequent paid continuation.
+Other projects retain the legacy reports-only restriction and its fail-open flag behavior.
 """
 
 from typing import TYPE_CHECKING
@@ -47,7 +47,7 @@ def self_driving_free_trial_enabled(team: "Team") -> bool:
     flag-read error: a flag outage must not stop every org's pull requests. Blocking network
     I/O; wrap in `sync_to_async` from async code.
     """
-    if TrialPolicy(team).grant() is not None:
+    if TrialPolicy(team).active_grant() is not None:
         return False
     try:
         org_id = str(team.organization_id)

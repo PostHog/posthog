@@ -13,7 +13,12 @@ from products.signals.backend.spend import record_llm_spend, record_task_spend
 from products.signals.backend.spend_billing import usage_billing_enabled
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.signals.backend.trial.reports import requires_trial_accounting
+from products.signals.backend.trial.reports import (
+    implementation_requires_trial_opt_in,
+    prepare_report_pass,
+    requires_trial_accounting,
+)
+from products.signals.backend.trial.scouts import trial_scout_limit
 from products.signals.backend.trial.tasks import cancel_trial_grant
 from products.tasks.backend.facade.billing import get_task_run_actual_cost
 from products.tasks.backend.facade.contracts import TaskRunActualCost
@@ -129,7 +134,8 @@ class TestTrialExecution(BaseTest):
         assert {key: run.state[key] for key in profile} == profile
         assert run.state["self_driving_funding"]["funding"] == "trial"
 
-    def test_cost_exhaustion_cancels_implementation_with_existing_pr(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_cost_exhaustion_cancels_implementation_with_existing_pr(self, enabled: bool) -> None:
         grant = self.claim()
         task = Task.objects.create(team=self.team, title="Implementation", origin_product="signal_report")
         run = task.create_run()
@@ -143,23 +149,50 @@ class TestTrialExecution(BaseTest):
             token_cost_microusd=10_000_000,
             trial_grant_id=str(grant.id),
         )
+        self.flag_mock.return_value = enabled
         with patch("products.signals.backend.trial.tasks.cancel_task_run", return_value=("accepted", None)) as cancel:
             cancel_trial_grant(self.team.id, str(grant.id))
-        assert cancel.call_args.args[:3] == (run.id, task.id, self.team.id)
+        if enabled:
+            assert cancel.call_args.args[:3] == (run.id, task.id, self.team.id)
+        else:
+            cancel.assert_not_called()
+            assert not start_task_trial(team=self.team, run_id=run.id)
+            assert check_trial_run_quota(team=self.team, run_id=run.id) is None
         run.refresh_from_db()
         assert run.output["pr_url"] == "https://github.com/example/repository/pull/1"
 
-    def test_claimed_one_time_trial_uses_new_pricing_without_changing_legacy_flag(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_claimed_one_time_trial_requires_rollout_for_new_work(self, enabled: bool) -> None:
         assert usage_billing_enabled(self.team.id) is False
         grant = self.claim()
-        self.flag_mock.return_value = False
-        self.policy.flag_decision()
-        assert usage_billing_enabled(self.team.id) is True
-        assert requires_trial_accounting(self.team.id)
-        assert not self_driving_free_trial_enabled(self.team)
+        self.flag_mock.side_effect = lambda key, *args, **kwargs: {
+            "self-driving-ubp": enabled,
+            "self-driving-free-trial": True,
+        }.get(key, False)
+        assert usage_billing_enabled(self.team.id) is enabled
+        assert requires_trial_accounting(self.team.id) is enabled
+        assert self_driving_free_trial_enabled(self.team) is (not enabled)
+        assert trial_scout_limit(self.team.id) == (3 if enabled else None)
         quota = trial_quota_gate(self.team)
-        assert quota is not None and not quota.enforced
+        if enabled:
+            assert quota is not None and not quota.enforced
+        else:
+            assert quota is None
         admission = prepare_task_trial(team=self.team, origin="signals_scout")
+        if not enabled:
+            assert admission is None
+            task = Task.objects.create(team=self.team, title="Scout outside rollout", origin_product="signals_scout")
+            run = task.create_run()
+            assert "self_driving_funding" not in run.state
+            assert not start_task_trial(team=self.team, run_id=run.id)
+            assert check_trial_run_quota(team=self.team, run_id=run.id) is None
+            report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="outside-rollout")
+            report.refresh_from_db()
+            assert report.self_driving_funding is None
+            assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
+            assert not SignalTrialReportReservation.objects.for_team(self.team.id).exists()
+            return
         assert admission is not None
         funding = admission.bind(
             origin="signals_scout",

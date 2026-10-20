@@ -97,7 +97,7 @@ def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
     from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
 
     policy = TrialPolicy(team)
-    grant = policy.grant()
+    grant = policy.active_grant()
     if grant is not None:
         if grant.exhausted_at is None:
             return SelfDrivingQuotaGate(limited=False, enforced=False)

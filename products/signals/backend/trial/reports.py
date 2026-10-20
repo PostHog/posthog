@@ -87,7 +87,7 @@ def requires_trial_accounting(team_id: int) -> bool:
     parent = context_funding(team)
     if parent is not None:
         return parent.grant_id is not None
-    grant = TrialPolicy(team).grant()
+    grant = TrialPolicy(team).active_grant()
     if grant is not None and grant.exhausted_at is None:
         return True
     if grant is not None:
@@ -96,6 +96,8 @@ def requires_trial_accounting(team_id: int) -> bool:
 
 
 def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
+    if not TrialPolicy(Team.objects.get(id=team_id)).enabled():
+        return False
     return SignalTrialReportReservation.objects.for_team(team_id).filter(
         report_id=report_id, status=SignalTrialReportReservation.Status.CONSUMED
     ).exists() or requires_trial_accounting(team_id)
@@ -105,7 +107,7 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
     policy = TrialPolicy(team)
-    grant = policy.grant()
+    grant = policy.active_grant()
     if grant is None:
         return
     snapshot = (
