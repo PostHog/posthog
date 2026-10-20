@@ -2556,6 +2556,14 @@ class TestIsConnectionDroppedError:
                 'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
                 "failed: server closed the connection unexpectedly"
             ),
+            # A TCP proxy fronting the actual backend (a public endpoint over a private-network
+            # database) reports a failed connect to its own upstream as a bare FATAL error. The
+            # proxy itself answered; the backend behind it was momentarily unreachable. Transient —
+            # the reconnect must catch it rather than letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  failed to connect to upstream 10.0.0.2:5432"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
