@@ -39,8 +39,6 @@ def _stats(
     errors: int = 0,
     p95_ms: float = 10.0,
     last_seen: dt.datetime | None = None,
-    environment_key: str = "",
-    environment_value: str = "",
 ) -> ServiceWindowStats:
     return ServiceWindowStats(
         requests=requests,
@@ -49,8 +47,6 @@ def _stats(
         p95_ms=p95_ms,
         p99_ms=p95_ms,
         last_seen=last_seen or CURRENT_TO - dt.timedelta(seconds=20),
-        environment_key=environment_key,
-        environment_value=environment_value,
     )
 
 
@@ -393,57 +389,21 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
         self.assertEqual(result["summary"]["new"], 1)
 
     def test_next_points_at_the_drill_down(self):
-        result = self._run()
+        result = self._run(environment=None)
         calls = {call["tool"]: call for call in result["next"]}
+        self.assertEqual(set(calls), {"apm-spans-aggregate", "query-apm-spans"})
         aggregate = calls["apm-spans-aggregate"]
         self.assertEqual(aggregate["query"]["serviceNames"], ["search", "worker", "mailer"])
         self.assertEqual(
             aggregate["query"]["dateRange"], {"date_from": "2026-06-02T08:00:00Z", "date_to": "2026-06-02T09:00:00Z"}
         )
         self.assertEqual(aggregate["query"]["compareFilter"], {"compare": True})
-        sparkline = calls["apm-spans-sparkline"]
-        self.assertEqual(sparkline["query"]["serviceNames"], ["cron", "dispatch"])
-        self.assertEqual(sparkline["query"]["dateRange"]["date_from"], "2026-06-02T07:00:00Z")
-        error_spans = calls["query-apm-spans"]
-        self.assertEqual(error_spans["query"]["serviceNames"], ["worker"])
-        self.assertEqual(error_spans["query"]["statusCodes"], [2])
+        error_spans = calls["query-apm-spans"]["query"]
+        self.assertEqual((error_spans["serviceNames"], error_spans["statusCodes"]), (["worker"], [2]))
+        self.assertEqual((error_spans["flatSpans"], error_spans["rootSpans"]), (True, False))
         for call in result["next"]:
             self.assertLessEqual(len(call["why"]), MAX_REASON_LENGTH)
-
-    def test_next_keeps_the_environment_and_reads_child_error_spans(self):
-        calls = {call["tool"]: call for call in self._run()["next"]}
-        environment = {
-            "key": "deployment.environment.name",
-            "value": "production",
-            "operator": "exact",
-            "type": "span_resource_attribute",
-        }
-        for call in calls.values():
-            self.assertEqual(call["query"]["filterGroup"], [environment])
-        self.assertEqual(
-            (calls["query-apm-spans"]["query"]["flatSpans"], calls["query-apm-spans"]["query"]["rootSpans"]),
-            (True, False),
-        )
-        self.assertNotIn("filterGroup", self._run(environment=None)["next"][0]["query"])
-
-    def test_next_splits_services_by_environment_selector(self):
-        runner = ServiceHealthQueryRunner(
-            team=self.team, params=ServiceHealthParams(date_from="-1h", environment="production")
-        )
-        runner._current_stats = {
-            "api": _stats(
-                200, errors=20, environment_key="deployment.environment.name", environment_value="production"
-            ),
-            "worker": _stats(200, errors=20, environment_key="env", environment_value="prod"),
-        }
-        rows = [
-            {"service": name, "status": ServiceHealthStatus.DEGRADED, "error_count": 20} for name in ("api", "worker")
-        ]
-        aggregates = [call for call in runner._next_calls(rows) if call["tool"] == "apm-spans-aggregate"]
-        selectors = {
-            (tuple(call["query"]["serviceNames"]), call["query"]["filterGroup"][0]["key"]) for call in aggregates
-        }
-        self.assertEqual(selectors, {(("api",), "deployment.environment.name"), (("worker",), "env")})
+        self.assertEqual(self._run()["next"], [])
 
     def test_a_truncated_scan_does_not_invent_silent_or_new_services(self):
         with patch("products.tracing.backend.service_health_query_runner.SERVICE_SCAN_LIMIT", 3):

@@ -13,6 +13,6 @@ Each row has a `status`: `silent` (spans stopped), `regressed` (error rate or p9
 Rows come worst first.
 
 `window` gives the absolute UTC times the server used. Reuse `window.current` as `dateRange` in follow-up calls.
-`next` holds prefilled follow-up calls. Run them instead of building your own.
+`next` holds prefilled follow-up calls for regressed and degraded services. It is empty when `environment` is set, because those tools cannot repeat the environment fallback.
 `spanScope: "entry"` (default) counts one span per request. Use `"all"` to count every span.
 A 400 that names the 10 GB cap means the window is too wide. Use the window it suggests, or add `serviceNames`.

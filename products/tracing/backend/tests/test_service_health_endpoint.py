@@ -37,6 +37,10 @@ class TestServiceHealthValidation(APIBaseTest):
             ("date_range_not_object", {"query": {"dateRange": "-1h"}}),
             ("numeric_date", {"query": {"dateRange": {"date_from": 5}}}),
             ("huge_window", {"query": {"dateRange": {"date_from": "-999999999d"}}}),
+            (
+                "year_one",
+                {"query": {"dateRange": {"date_from": "0001-01-03T00:00:00Z", "date_to": "0001-01-10T00:00:00Z"}}},
+            ),
         ]
     )
     def test_rejects_bad_input(self, _name, body):

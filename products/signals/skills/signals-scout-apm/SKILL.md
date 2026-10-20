@@ -81,7 +81,7 @@ Each `services` row has `requests` and `baseline_requests` (the denominator guar
 
 The server does not apply the volume guard. For each `regressed` row, check that `requests` stayed within ~2× of `baseline_requests` before you treat it as a regression.
 
-Then drill into the operations of the regressed services only: run the `apm-spans-aggregate` call in the response's `next` (it is already scoped to those services, with `compareFilter` on the same baseline). Do not pull the whole project per operation and join the arrays — a busy project returns 100KB+ that you must then process by hand.
+Then drill into the operations of the regressed services only: run the `apm-spans-aggregate` call in the response's `next` (it is already scoped to those services, with `compareFilter` on the same baseline). With `environment` set, `next` is empty, so build that call yourself. Do not pull the whole project per operation and join the arrays — a busy project returns 100KB+ that you must then process by hand.
 
 ### Profile shape
 
@@ -116,7 +116,7 @@ An operation (or a downstream `Client`-kind span calling another service) newly 
 
 #### Service traffic cliff
 
-A `silent` row in `apm-service-health` is a service that had a steady span volume and stopped: an instrumentation break or an outage (the trace-side analog of a capture cliff — spans are not retroactive). Its `reason` names the last span. The server calls a service silent only when its spans stopped for at least 10 minutes (two 5-minute buckets) where its own rate predicted more, so one quiet partial bucket does not count. Run the `apm-spans-sparkline` call in `next` to date the drop. Also check baseline memory for services absent from both windows.
+A `silent` row in `apm-service-health` is a service that had a steady span volume and stopped: an instrumentation break or an outage (the trace-side analog of a capture cliff — spans are not retroactive). Its `reason` names the last span. The server calls a service silent only when its spans stopped for at least 10 minutes (two 5-minute buckets) where its own rate predicted more, so one quiet partial bucket does not count. Date the drop with `apm-spans-sparkline` on that service. Also check baseline memory for services absent from both windows.
 
 ### Save memory as you go
 

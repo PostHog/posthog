@@ -48,11 +48,6 @@ _ENVIRONMENT = (
     "nullIf(resource_attributes['deployment.environment'], ''), resource_attributes['env'], '')"
 )
 _ENVIRONMENT_WHERE = "lower(" + _ENVIRONMENT + ") = {env}"
-_ENVIRONMENT_VALUE = "any(" + _ENVIRONMENT + ")"
-_ENVIRONMENT_KEY = (
-    "any(multiIf(resource_attributes['deployment.environment.name'] != '', 'deployment.environment.name', "
-    "resource_attributes['deployment.environment'] != '', 'deployment.environment', 'env'))"
-)
 _STATUS_ORDER = list(Status)
 _UNHEALTHY = (Status.REGRESSED, Status.DEGRADED)
 _SHIFT = {Compare.PREVIOUS_DAY: dt.timedelta(days=1), Compare.PREVIOUS_WEEK: dt.timedelta(days=7)}
@@ -80,8 +75,6 @@ class ServiceWindowStats:
     p95_ms: float
     p99_ms: float
     last_seen: dt.datetime
-    environment_key: str = ""
-    environment_value: str = ""
 
     @property
     def error_rate_pct(self) -> float:
@@ -237,7 +230,7 @@ class ServiceHealthQueryRunner:
         rows = self._execute(
             """
             SELECT service_name, count() AS requests, countIf(status_code = 2),
-                quantiles(0.5, 0.95, 0.99)(duration_nano), max(timestamp), {environment_key}, {environment_value}
+                quantiles(0.5, 0.95, 0.99)(duration_nano), max(timestamp)
             FROM posthog.trace_spans
             WHERE {where}
             GROUP BY service_name
@@ -247,8 +240,6 @@ class ServiceHealthQueryRunner:
             window,
             list(self.params.service_names),
             limit=ast.Constant(value=SERVICE_SCAN_LIMIT + 1),
-            environment_key=parse_expr(_ENVIRONMENT_KEY) if self.params.environment else ast.Constant(value=""),
-            environment_value=parse_expr(_ENVIRONMENT_VALUE) if self.params.environment else ast.Constant(value=""),
         )
         return {
             service: ServiceWindowStats(
@@ -258,10 +249,8 @@ class ServiceHealthQueryRunner:
                 p95_ms=(quantiles[1] or 0) / 1e6,
                 p99_ms=(quantiles[2] or 0) / 1e6,
                 last_seen=last_seen.replace(tzinfo=UTC) if last_seen.tzinfo is None else last_seen,
-                environment_key=environment_key,
-                environment_value=environment_value,
             )
-            for service, requests, errors, quantiles, last_seen, environment_key, environment_value in rows
+            for service, requests, errors, quantiles, last_seen in rows
         }
 
     def _row(
@@ -298,44 +287,22 @@ class ServiceHealthQueryRunner:
             "last_seen": _iso(last_seen) if last_seen else None,
         }
 
-    def _scoped(self, query: dict[str, Any], service: str) -> dict[str, Any]:
-        stats = self._current_stats.get(service)
-        if not self.params.environment or stats is None or not stats.environment_key:
-            return query
-        environment = {"key": stats.environment_key, "value": stats.environment_value, "operator": "exact"}
-        return {**query, "filterGroup": [{**environment, "type": "span_resource_attribute"}]}
-
-    def _by_selector(self, names: list[str]) -> list[list[str]]:
-        groups: dict[tuple[str, str], list[str]] = {}
-        for name in names:
-            stats = self._current_stats.get(name)
-            selector = (
-                (stats.environment_key, stats.environment_value) if stats and self.params.environment else ("", "")
-            )
-            groups.setdefault(selector, []).append(name)
-        return list(groups.values())
-
     def _next_calls(self, rows: list[dict]) -> list[dict[str, Any]]:
-        calls: list[dict[str, Any]] = []
         unhealthy = [row for row in rows if row["status"] in _UNHEALTHY]
-        for names in self._by_selector([row["service"] for row in unhealthy[:NEXT_SERVICES_LIMIT]]):
-            query: dict[str, Any] = {"dateRange": _range(self.current), "serviceNames": names, "limit": 20}
-            if compare_filter := aggregate_compare_filter(self.params.compare):
-                query["compareFilter"] = compare_filter
-            why = _clip(f"operations behind {', '.join(names)}")
-            calls.append({"tool": "apm-spans-aggregate", "why": why, "query": self._scoped(query, names[0])})
-        silent = [row["service"] for row in rows if row["status"] == Status.SILENT][:NEXT_SERVICES_LIMIT]
-        for names in self._by_selector(silent):
-            start = min(self.current[0], self.baseline[0]) if self.baseline else self.current[0]
-            query = {"dateRange": _range((start, self.current[1])), "serviceNames": names}
-            why = _clip(f"when {', '.join(names)} stopped sending spans")
-            calls.append({"tool": "apm-spans-sparkline", "why": why, "query": self._scoped(query, names[0])})
+        if self.params.environment or not unhealthy:
+            return []
+        names = [row["service"] for row in unhealthy[:NEXT_SERVICES_LIMIT]]
+        query: dict[str, Any] = {"dateRange": _range(self.current), "serviceNames": names, "limit": 20}
+        if compare_filter := aggregate_compare_filter(self.params.compare):
+            query["compareFilter"] = compare_filter
+        calls = [{"tool": "apm-spans-aggregate", "why": _clip(f"operations behind {', '.join(names)}"), "query": query}]
         worst = next((row for row in unhealthy if row["error_count"]), None)
         if worst:
             query = {"dateRange": _range(self.current), "serviceNames": [worst["service"]], "statusCodes": [2]}
-            why = _clip(f"recent error spans in {worst['service']}")
             query = {**query, "flatSpans": True, "rootSpans": False, "limit": 10, "excludeAttributes": True}
-            calls.append({"tool": "query-apm-spans", "why": why, "query": self._scoped(query, worst["service"])})
+            calls.append(
+                {"tool": "query-apm-spans", "why": _clip(f"recent error spans in {worst['service']}"), "query": query}
+            )
         return calls
 
     def _notes(self, rows: list[dict], scan_truncated: bool) -> list[str]:
@@ -351,7 +318,6 @@ class ServiceHealthQueryRunner:
         windows = [self.current] if self.baseline is None else [self.current, self.baseline]
         stats = map_in_caller_context(self._service_stats, windows, thread_name_prefix="tracing_service_health")
         current, baseline = stats[0], stats[1] if len(stats) > 1 else {}
-        self._current_stats = {**baseline, **current}
         current_cut, baseline_cut = len(current) > SERVICE_SCAN_LIMIT, len(baseline) > SERVICE_SCAN_LIMIT
         names = [*current, *([] if current_cut else sorted(set(baseline) - set(current)))]
         rows = [

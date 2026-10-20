@@ -70,10 +70,13 @@ def normalize_tracing_window(value: str | None) -> str | None:
 
     # Absolute ISO 8601 timestamps pass through untouched.
     try:
-        dateutil_parser.isoparse(stripped)
-        return stripped
+        parsed = dateutil_parser.isoparse(stripped)
     except ValueError:
-        pass
+        parsed = None
+    if parsed is not None:
+        if not 1970 <= parsed.year <= 9998:
+            raise serializers.ValidationError(f"Date range value {value!r} is out of range.")
+        return stripped
 
     # Preserve the broader global relative grammar (e.g. "-1dStart", "wStart", "-3q", "-1y")
     # so anything that already worked keeps working.
