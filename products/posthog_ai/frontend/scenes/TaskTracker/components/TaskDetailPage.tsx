@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -9,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { nextTaskTitle } from '../../../lib/task-title'
+import { retainMountedLogic } from '../../../logics/retainedLogics'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
@@ -17,6 +19,8 @@ import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
 import { TaskRunTabs } from './TaskRunArtifacts'
 import { TaskRunLog } from './TaskRunLog'
 import { TaskRunSceneShell } from './TaskRunSceneShell'
+
+const MAX_RETAINED_TASK_PAGES = 3
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -28,7 +32,13 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
-    const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
+    const { runTask, deleteTask, loadTask, loadTaskRuns, updateTask } = useActions(sceneLogic)
+    useEffect(() => {
+        if (retainMountedLogic('task-detail', taskId, taskDetailSceneLogic({ taskId }), MAX_RETAINED_TASK_PAGES)) {
+            loadTask()
+            loadTaskRuns()
+        }
+    }, [taskId, loadTask, loadTaskRuns])
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
