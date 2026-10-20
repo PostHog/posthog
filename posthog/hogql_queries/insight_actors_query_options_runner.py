@@ -1,20 +1,15 @@
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import cast
 
 from posthog.schema import (
     CachedInsightActorsQueryOptionsResponse,
-    HogQLQueryModifiers,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.models import Team
-from posthog.models.user import User
 
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
@@ -26,26 +21,6 @@ from products.product_analytics.backend.facade.queries import (
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     cached_response: CachedInsightActorsQueryOptionsResponse
-
-    def __init__(
-        self,
-        query: InsightActorsQueryOptions | dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        query_id: Optional[str] = None,
-        user: Optional[User] = None,
-    ):
-        super().__init__(
-            query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            query_id=query_id,
-            user=user,
-        )
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
