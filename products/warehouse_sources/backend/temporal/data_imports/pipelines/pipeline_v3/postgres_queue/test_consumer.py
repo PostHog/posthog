@@ -4311,7 +4311,11 @@ class TestShutdown:
             ) as mock_mark,
             patch.object(batch_consumer_module, "SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 0.01),
         ):
-            consumer._in_flight[(1, "schema-1")] = asyncio.create_task(consumer._process_single(batch))
+
+            async def process_single() -> None:
+                await consumer._process_single(batch)
+
+            consumer._in_flight[(1, "schema-1")] = asyncio.create_task(process_single())
             consumer._metrics.active_groups.inc()
             await asyncio.wait_for(loading.wait(), timeout=5.0)
             await consumer._close()
