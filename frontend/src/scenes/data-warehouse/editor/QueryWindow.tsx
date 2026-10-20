@@ -8,6 +8,7 @@ import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/ico
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,6 +17,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
@@ -119,12 +121,15 @@ export function QueryWindow({
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
+    const { currentOrganization } = useValues(organizationLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
-    const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
+    const canSendRawQuery =
+        sourceQuery.source.executionTarget === 'managed_trino' ||
+        (!!selectedConnectionId && selectedConnectionSupportsHogQL)
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -205,7 +210,7 @@ export function QueryWindow({
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
-            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
+            <Tooltip title="Send the query directly to the selected connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
                 <span
                     className="inline-flex cursor-help"
                     onClick={(event) => {
@@ -255,6 +260,13 @@ export function QueryWindow({
                           <LemonSwitch
                               checked={sendRawQueryEnabled}
                               onChange={setSendRawQuery}
+                              disabledReason={
+                                  sourceQuery.source.executionTarget === 'managed_trino' &&
+                                  !sendRawQueryEnabled &&
+                                  (currentOrganization?.membership_level ?? 0) < OrganizationMembershipLevel.Admin
+                                      ? 'Raw Trino queries require organization admin access'
+                                      : undefined
+                              }
                               label={sendRawQueryLabel}
                               size="small"
                               fullWidth
@@ -362,6 +374,9 @@ export function QueryWindow({
                     editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
+                        ...(sourceQuery.source.executionTarget === 'managed_trino' && sendRawQueryEnabled
+                            ? { language: 'sql' }
+                            : {}),
                         queryKey: codeEditorKey,
                         autoFocus: autoFocusQueryPane ?? true,
                         // Bind the editor to the tab's persistent Monaco model and keep it

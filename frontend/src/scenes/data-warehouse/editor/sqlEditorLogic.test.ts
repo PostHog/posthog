@@ -2702,28 +2702,32 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
         })
 
-        it('reads send raw query from hash and keeps it in URL sync', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+        it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
+            'reads raw mode from $c $engine and keeps it in URL sync',
+            async (target) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
+                router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', ...target, raw: '1' })
 
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+                await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
 
-            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(logic.values.sendRawQueryEnabled).toEqual(true)
-            expect(String(router.values.hashParams.raw)).toEqual('1')
+                expect(logic.values.sourceQuery.source.connectionId).toEqual(target.c)
+                expect(logic.values.sendRawQueryEnabled).toEqual(true)
+                expect(String(router.values.hashParams.raw)).toEqual('1')
 
-            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
+                await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
-            expect(router.values.hashParams.q).toEqual('SELECT 2')
-            expect(router.values.hashParams.c).toEqual('conn-123')
-            expect(String(router.values.hashParams.raw)).toEqual('1')
-        })
+                expect(router.values.hashParams.q).toEqual('SELECT 2')
+                expect(router.values.hashParams.c).toEqual(target.c)
+                expect(router.values.hashParams.engine).toEqual(target.engine)
+                expect(String(router.values.hashParams.raw)).toEqual('1')
+            }
+        )
 
         it('ignores send raw query from hash for PostHog warehouse', async () => {
             logic = sqlEditorLogic({
@@ -2742,25 +2746,28 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
         })
 
-        it('keeps send raw query enabled after the first toggle', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+        it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
+            'keeps raw mode enabled after toggling for $c $engine',
+            async (target) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+                router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', ...target })
 
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+                await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
 
-            logic.actions.setSendRawQuery(true)
-            await new Promise((resolve) => setTimeout(resolve, 0))
+                logic.actions.setSendRawQuery(true)
+                await new Promise((resolve) => setTimeout(resolve, 0))
 
-            expect(logic.values.sendRawQueryEnabled).toEqual(true)
-            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(String(router.values.hashParams.raw)).toEqual('1')
-        })
+                expect(logic.values.sendRawQueryEnabled).toEqual(true)
+                expect(logic.values.sourceQuery.source.connectionId).toEqual(target.c)
+                expect(String(router.values.hashParams.raw)).toEqual('1')
+            }
+        )
 
         it.each([
             {
@@ -3123,48 +3130,52 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
 
-        it('passes sendRawQuery when running a direct query', async () => {
-            const performQuerySpy = jest
-                .spyOn(queryRunner, 'performQuery')
-                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+        it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
+            'passes raw mode when running against $c $engine',
+            async (target) => {
+                const performQuerySpy = jest
+                    .spyOn(queryRunner, 'performQuery')
+                    .mockResolvedValue({ results: [], columns: [], types: [] } as never)
 
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+                router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', ...target })
 
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
-            await new Promise((resolve) => setTimeout(resolve, 0))
+                await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+                await new Promise((resolve) => setTimeout(resolve, 0))
 
-            performQuerySpy.mockClear()
+                performQuerySpy.mockClear()
 
-            logic.actions.setSourceQuery({
-                ...logic.values.sourceQuery,
-                source: {
-                    ...logic.values.sourceQuery.source,
+                logic.actions.setSourceQuery({
+                    ...logic.values.sourceQuery,
+                    source: {
+                        ...logic.values.sourceQuery.source,
+                        sendRawQuery: true,
+                    },
+                })
+
+                expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+
+                logic.actions.runQuery()
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(performQuerySpy).toHaveBeenCalled()
+                expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT 1',
+                    connectionId: target.c,
+                    executionTarget: target.engine,
                     sendRawQuery: true,
-                },
-            })
+                })
 
-            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
-
-            logic.actions.runQuery()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            expect(performQuerySpy).toHaveBeenCalled()
-            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
-                kind: NodeKind.HogQLQuery,
-                query: 'SELECT 1',
-                connectionId: 'conn-123',
-                sendRawQuery: true,
-            })
-
-            performQuerySpy.mockRestore()
-        })
+                performQuerySpy.mockRestore()
+            }
+        )
 
         it("doesn't pass sendRawQuery when running against PostHog warehouse", async () => {
             const performQuerySpy = jest

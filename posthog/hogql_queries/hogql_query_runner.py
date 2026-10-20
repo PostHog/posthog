@@ -266,7 +266,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._validate_direct_connection()
 
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
-            if self.is_query_service:
+            if self.is_query_service and not self.query.sendRawQuery:
                 validate_user_query(self._parse_query()[0], team=self.team)
             return execute_managed_trino_query(
                 self.query.model_copy(update={"modifiers": self.modifiers}),
