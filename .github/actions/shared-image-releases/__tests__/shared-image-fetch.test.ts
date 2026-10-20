@@ -24,7 +24,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     const origin = path.join(scratch, 'origin.git')
     mkdirSync(source)
     git(source, 'init', '-b', 'main'); git(source, 'config', 'user.name', 'Fixture'); git(source, 'config', 'user.email', 'fixture@example.invalid')
-    git(scratch, 'init', '--bare', origin)
+    git(scratch, 'init', '--bare', '-b', 'main', origin)
     git(scratch, '--git-dir', origin, 'config', 'uploadpack.allowFilter', 'true')
     git(scratch, '--git-dir', origin, 'config', 'uploadpack.allowAnySHA1InWant', 'true')
     git(source, 'remote', 'add', 'origin', `file://${origin}`)
@@ -40,11 +40,12 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     put(POLICY_PATH, JSON.stringify({version: 1, filters: {worker: ['new-worker/**']}, images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker'}}}}})); commit()
     put('unrelated.txt', 'later successful build'); const revision = commit()
     git(source, 'push', 'origin', 'main')
-    git(scratch, 'clone', '--depth', '1', `file://${origin}`, cwd)
+    git(scratch, 'clone', '--no-local', '--depth', '1', `file://${origin}`, cwd)
     expect(git(cwd, 'rev-parse', '--is-shallow-repository')).toBe('true')
     git(cwd, 'fetch', '--unshallow', '--filter=tree:0', 'origin')
     expect(git(cwd, 'rev-parse', '--is-shallow-repository')).toBe('false')
     expect(git(cwd, 'config', 'remote.origin.promisor')).toBe('true')
+    expect(git(cwd, 'config', 'remote.origin.partialclonefilter')).toBe('tree:0')
     const tree = git(source, 'rev-parse', `${relevant}^{tree}`)
     const policyBlob = git(source, 'rev-parse', `${base}:${POLICY_PATH}`)
     expect(() => git(cwd, 'cat-file', '-e', tree)).toThrow()
@@ -60,7 +61,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     }
     if (!available) {
       const incomplete = path.join(scratch, 'incomplete.git')
-      git(scratch, 'init', '--bare', incomplete)
+      git(scratch, 'init', '--bare', '-b', 'main', incomplete)
       git(source, 'push', incomplete, `${base}:refs/heads/main`)
       git(cwd, 'remote', 'set-url', 'origin', `file://${incomplete}`)
     }
@@ -105,6 +106,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     if (mode === 'available' || mode === 'missing subtrees') {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
       expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
+      expect(() => git(cwd, 'cat-file', '-e', policyBlob)).not.toThrow()
       expect(published.has(options.alias)).toBe(true)
       if (mode === 'available') {
         const missingRoot = probes.findIndex(probe => probe.args[0] === 'cat-file' && probe.output.split('\n').some(line => line.endsWith(' missing')))

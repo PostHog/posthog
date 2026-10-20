@@ -9,6 +9,7 @@ export interface CommandOptions {
   maxBuffer: number
   env?: NodeJS.ProcessEnv
   input?: string
+  onStderr?: (output: string) => void
 }
 
 const clients = new Map<string, string>()
@@ -63,7 +64,10 @@ export function command(executable: CommandExecutable, args: string[], options: 
       clearTimeout(timer)
       if (failure) reject(failure)
       else if (code !== 0) reject(new Error(`${executable}: exited ${code}: ${Buffer.concat(stderr).toString('utf8')}`))
-      else resolve(Buffer.concat(stdout).toString('utf8'))
+      else {
+        options.onStderr?.(Buffer.concat(stderr).toString('utf8'))
+        resolve(Buffer.concat(stdout).toString('utf8'))
+      }
     })
     child.stdin.on('error', () => undefined)
     child.stdin.end(options.input)

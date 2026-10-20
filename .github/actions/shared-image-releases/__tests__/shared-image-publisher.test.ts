@@ -1,5 +1,5 @@
 import {execFileSync} from 'child_process'
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'fs'
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {createHash} from 'crypto'
@@ -170,15 +170,39 @@ describe('shared-image publication', () => {
     expect(() => validateRequests(loadPolicy(policy()), '*', undefined)).toThrow()
   })
 
-  test.each(['same digest', 'different digest'])('equal-revision rerun with %s preserves exact publication identity', async mode => {
+  test.each(['same digest', 'different digest', 'slow read'])('equal-revision rerun with %s preserves exact publication identity', async mode => {
     put('worker/run.py', 'relevant'); commit(); build(); seed(options.revision)
     const existing = options.digest
+    let elapsedMs = 0
+    if (mode === 'slow read') {
+      options.budgets.registryMs = 1
+      options.helper = path.resolve(__dirname, '../../../scripts/ordered-image-release.sh')
+      put('shims/aws', '#!/usr/bin/env bash\nfor ((i=0; i<5000; i++)); do :; done\nprintf "%s\\n" "$EXPECTED_DIGEST"\n')
+      put('shims/timeout', '#!/usr/bin/env bash\n[[ "$2" = "${READBACK_TIMEOUT_SECONDS}s" ]] || exit 64\nshift 2\nexec "$@"\n')
+      for (const name of ['aws', 'timeout']) chmodSync(path.join(repo, 'shims', name), 0o755)
+      external.mockImplementation(async (exe, args, config) => {
+        if (exe === 'helper' && args[1] === 'read' && config.env?.ECR_REPO === 'workers/worker') {
+          expect(config.timeoutMs).toBe((options.budgets.readbackSeconds + 15) * 1000)
+          const started = performance.now()
+          const result = await jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command(exe, args, {
+            ...config, env: {...config.env, PATH: `${path.join(repo, 'shims')}:${process.env.PATH}`}
+          })
+          elapsedMs = performance.now() - started
+          return result
+        }
+        return invoke(exe, args, config)
+      })
+    }
     if (mode === 'different digest') options.digest = image(options.revision, `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`, 'different build')
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toEqual({
-      channel: 'posthog-cloud/worker', decision: mode === 'same digest' ? 'present' : 'blocked',
-      outcome: mode === 'same digest' ? 'present-at-expected-digest' : 'integrity-mismatch', tag: options.alias, digest: options.digest
+      channel: 'posthog-cloud/worker', decision: mode === 'different digest' ? 'blocked' : 'present',
+      outcome: mode === 'different digest' ? 'integrity-mismatch' : 'present-at-expected-digest', tag: options.alias, digest: options.digest
     })
     expect(tags.get('workers/worker')!.get(options.alias)).toBe(existing)
+    if (mode === 'slow read') {
+      expect(elapsedMs).toBeGreaterThan(options.budgets.registryMs)
+      expect(elapsedMs).toBeLessThan(options.budgets.readbackSeconds * 1000)
+    }
   })
 
   test.each(['invalid revision', 'ordinal mismatch', 'second parent', 'higher second parent', 'missing history', 'older build'])('frontier handles %s explicitly', async mode => {
@@ -233,19 +257,27 @@ describe('shared-image publication', () => {
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
   })
 
-  test.each(['rejected', 'missing outcome', 'invalid outcome'])('helper failure is unknown with its reason: %s', async mode => {
+  test.each(['rejected', 'missing outcome', 'invalid outcome', 'reported unknown', 'reported absent', 'reported integrity-mismatch'])('helper failure preserves its outcome and reason: %s', async mode => {
     put('worker/run.py', 'relevant'); commit(); build()
     external.mockImplementation(async (executable, args, config) => {
       if (executable === 'helper' && args[1] === 'publish' && config.env?.ECR_REPO === 'workers/worker') {
         if (mode === 'rejected') throw new Error('copy helper crashed')
+        if (mode.startsWith('reported ')) return jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command('helper', [
+          '-c', 'printf "outcome=%s\\n" "$1" >> "$GITHUB_OUTPUT"; printf "fixture primary diagnostic\\n" >&2', 'fixture', mode.slice(9)
+        ], config)
         if (mode === 'invalid outcome') writeFileSync(config.env.GITHUB_OUTPUT!, 'outcome=invalid\n')
         return ''
       }
       return invoke(executable, args, config)
     })
-    const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))
-    expect(result).toMatchObject({decision: 'blocked', outcome: 'unknown', reason: expect.stringContaining(mode === 'rejected' ? 'copy helper crashed' : 'no recognized outcome')})
-    expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
+    const diagnostic = jest.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))
+      expect(result).toMatchObject({decision: 'blocked', outcome: mode.startsWith('reported ') ? mode.slice(9) : 'unknown', reason: expect.stringContaining(mode.startsWith('reported ') ? 'fixture primary diagnostic' : mode === 'rejected' ? 'copy helper crashed' : 'no recognized outcome')})
+      if (mode.startsWith('reported ')) expect(diagnostic).toHaveBeenCalledWith('fixture primary diagnostic\n')
+      expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
+      expect(JSON.parse(readFileSync(path.join(options.evidence, 'results.json'), 'utf8'))).toContainEqual(result)
+    } finally { diagnostic.mockRestore() }
   })
 
   test.each(['ordinary', 'seed', 'retry after advancement', 'retry without source', 'unavailable seed', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'wrong fingerprint', 'newer seed', 'seed digest from another revision'])('bootstrap: %s', async mode => {

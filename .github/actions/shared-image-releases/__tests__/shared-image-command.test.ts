@@ -25,8 +25,16 @@ describe('bounded shared-image processes', () => {
     }
   })
 
-  test('output beyond maxBuffer rejects even if the child exits successfully', async () => {
-    await expect(command('helper', ['-c', 'printf 1234567890'], {cwd, timeoutMs: 10000, maxBuffer: 4})).rejects.toThrow('output budget exhausted')
+  test.each(['stdout', 'stderr'])('output on %s beyond maxBuffer rejects even if the child exits successfully', async stream => {
+    const diagnostic = jest.fn()
+    await expect(command('helper', ['-c', `printf 1234567890 ${stream === 'stderr' ? '>&2' : ''}`], {cwd, timeoutMs: 10000, maxBuffer: 4, onStderr: diagnostic})).rejects.toThrow('output budget exhausted')
+    expect(diagnostic).not.toHaveBeenCalled()
+  })
+
+  test('successful command stderr is retained independently of stdout', async () => {
+    const diagnostic = jest.fn()
+    expect(await command('helper', ['-c', 'printf result; printf diagnostic >&2'], {cwd, timeoutMs: 10000, maxBuffer: 1024, onStderr: diagnostic})).toBe('result')
+    expect(diagnostic).toHaveBeenCalledWith('diagnostic')
   })
 
   test('the configured client preserves literal arguments through the fixed executable dispatch', async () => {

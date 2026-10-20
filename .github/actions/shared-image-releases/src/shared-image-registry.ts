@@ -75,7 +75,7 @@ export class ReleaseRegistry {
     return this.runHelper('read', {
       ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository, ORDERED_ALIAS: tag,
       EXPECTED_DIGEST: expected, READBACK_TIMEOUT_SECONDS: String(this.budgets.readbackSeconds)
-    }, this.budgets.registryMs)
+    }, (this.budgets.readbackSeconds + 15) * 1000)
   }
 
   async identity(registry: string, repository: string, digest: string): Promise<ImageIdentity> {
@@ -106,14 +106,20 @@ export class ReleaseRegistry {
     const scratch = mkdtempSync(path.join(tmpdir(), 'ordered-image-'))
     const output = path.join(scratch, 'output')
     try {
+      let diagnostics = ''
       const logs = await command('helper', [this.helper, operation], {
-        ...this.options(timeoutMs), env: {...env, GITHUB_OUTPUT: output}
+        ...this.options(timeoutMs), env: {...env, GITHUB_OUTPUT: output},
+        onStderr: stderr => { diagnostics = stderr.trim(); process.stderr.write(stderr) }
       })
       if (operation === 'publish') process.stdout.write(logs)
       const match = existsSync(output) ? /^outcome=(present-at-expected-digest|absent|integrity-mismatch|unknown)$/m.exec(readFileSync(output, 'utf8')) : undefined
-      return match ? {
+      const result: Readback = match ? {
         outcome: match[1] as Outcome, ...(operation === 'read' && DIGEST.test(logs.trim()) ? {digest: logs.trim()} : {})
       } : {outcome: 'unknown', reason: 'Publication helper produced no recognized outcome'}
+      if (result.outcome !== 'present-at-expected-digest' && diagnostics) {
+        result.reason = [result.reason, diagnostics].filter(Boolean).join('\n')
+      }
+      return result
     } catch (error) {
       process.stderr.write(`${String(error)}\n`)
       return {outcome: 'unknown', reason: String(error)}
