@@ -310,6 +310,28 @@ class TestSizeUpsert:
             # Unknown shapes assume target-sized files of 64 columns in every worker.
             ("unknown_shape_is_conservative", None, 4, 1.4, _SLOT, 3, 5, True),
             ("unknown_shape_does_not_fit_a_small_slot", None, 4, 1.4, _SLOT_14GI, 1, 1, False),
+            # The same partitions of wide rows in default-size files and in 32 MB files: the smaller row
+            # groups and write buffers leave room for more workers and readers in the same slice.
+            (
+                "wide_rows_in_default_files",
+                _profile(*([[100.0] * 2] * 4), columns=30),
+                None,
+                1.4,
+                _SLOT_14GI,
+                1,
+                1,
+                True,
+            ),
+            (
+                "wide_rows_in_smaller_files",
+                _profile(*([[32.0] * 6] * 4), columns=30, target_mb=32.0),
+                None,
+                1.4,
+                _SLOT_14GI,
+                2,
+                8,
+                True,
+            ),
         ]
     )
     def test_sizing(self, _name, profile, n_partitions, retention, slot, exp_mpp, exp_files, exp_fits):

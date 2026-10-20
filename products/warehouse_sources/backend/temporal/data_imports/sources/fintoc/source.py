@@ -76,7 +76,7 @@ class FintocSource(ResumableSource[FintocSourceConfig, FintocResumeState], Webho
             docsUrl="https://posthog.com/docs/cdp/sources/fintoc",
             keywords=["payments", "open banking", "fintech", "latam"],
             caption="Enter your Fintoc secret API key. Test keys import test data; live keys import live data. "
-            "Accounts and movements need link tokens saved when exchanging links. "
+            "Open banking accounts and movements need link tokens saved when exchanging links. "
             "Full refresh includes all available records. Optional webhook sync imports only event-delivered changes after the initial backfill.",
             fields=cast(
                 list[FieldType],

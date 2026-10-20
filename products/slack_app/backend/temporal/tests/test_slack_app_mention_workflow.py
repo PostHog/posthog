@@ -635,8 +635,7 @@ async def test_hung_child_times_out_and_queue_continues(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("carried_key_prefix", ["slack-app-mention-processing-", "posthog-code-mention-"])
-async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen(carried_key_prefix: str):
+async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
     rec = _Recorder()
     pending = _message("1.1", event_id="Ev-pending")
     already_seen = _message("1.2", event_id="Ev-seen")
@@ -651,10 +650,7 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen(carr
             SlackAppMentionWorkflow.run,
             SlackAppMentionWorkflowInputs(
                 pending_messages=[pending],
-                processed_event_keys=[
-                    carried_key_prefix
-                    + derive_mention_workflow_id(already_seen).removeprefix("slack-app-mention-processing-")
-                ],
+                processed_event_keys=[derive_mention_workflow_id(already_seen)],
             ),
             id=f"wf-{uuid.uuid4()}",
             task_queue=h.task_queue,

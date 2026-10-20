@@ -154,6 +154,9 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
         # At source-create only the token is probed (a 403 there can just mean the token's role
         # doesn't cover the probe resource); with a schema_name we probe that endpoint's own path.
         endpoint = SOLARWINDS_SERVICE_DESK_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None and endpoint.fanout is not None:
+            # A child path needs a parent id, so probe the parent list the fan-out reads.
+            endpoint = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint.fanout.parent_name]
         return validate_credentials(config.region, config.api_token, endpoint.path if endpoint else None)
 
     def get_resumable_source_manager(
