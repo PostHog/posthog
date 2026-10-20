@@ -45,7 +45,6 @@ function DashboardTextItemInternal(
         dashboardWidgetMenusLogic({
             instanceKey: textId != null ? `text-${textId}` : `text-tile-${tile.id}`,
             dashboardId,
-            dashboards: undefined,
             dashboard_tiles: tile.text?.dashboard_tiles,
         })
     )

@@ -1,6 +1,8 @@
 from typing import cast
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -9,7 +11,7 @@ from posthog.models.element import Element, chain_to_elements, elements_to_strin
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
 
 
-class TestElement(ClickhouseTestMixin, BaseTest):
+class TestElement(ClickhouseTestMixin, SimpleTestCase):
     def test_elements_to_string(self) -> None:
         self.maxDiff = None
         elements_string = elements_to_string(

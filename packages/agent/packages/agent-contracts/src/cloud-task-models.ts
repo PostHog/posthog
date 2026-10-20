@@ -1,7 +1,13 @@
 import type { Adapter } from "./adapter";
 import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { isOfferedModel, labelForModel } from "./model-catalog";
+import {
+  catalogModelFor,
+  isOfferedModel,
+  labelForModel,
+  normalizeModelId,
+} from "./model-catalog";
+import { MODELS, type RuntimeAdapter } from "./model-catalog.generated";
 import {
   customModelMeta,
   modelHarnessMeta,
@@ -17,7 +23,11 @@ export interface GatewayModel {
   supports_vision: boolean;
   allowed: boolean;
   restriction_reason?: string | null;
+  api_shapes?: string[];
 }
+
+export const ANTHROPIC_MESSAGES_SHAPE = "anthropic-messages";
+export const OPENAI_RESPONSES_SHAPE = "openai-responses";
 
 interface GatewayModelsResponse {
   data?: unknown[];
@@ -141,6 +151,13 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
       supports_vision: model.supports_vision ?? false,
       allowed: model.allowed !== false,
       restriction_reason: model.restriction_reason ?? null,
+      ...(Array.isArray(model.api_shapes)
+        ? {
+            api_shapes: model.api_shapes.filter(
+              (shape): shape is string => typeof shape === "string",
+            ),
+          }
+        : {}),
     }));
 }
 
@@ -184,6 +201,64 @@ export function isDeepseekModelId(modelId: string): boolean {
 
 export function isBasetenModel(model: GatewayModel): boolean {
   return isDeepseekModelId(model.id) || model.owned_by === "baseten";
+}
+
+export function isServedModelId(modelId: string): boolean {
+  return (
+    isModalModelId(modelId) ||
+    isDeepseekModelId(modelId) ||
+    (modelId.includes("/") &&
+      !isAnthropicModelId(modelId) &&
+      !isCloudflareModelId(modelId) &&
+      catalogModelFor(modelId)?.runtimeAdapter === "claude")
+  );
+}
+
+function catalogAllowsAdapter(
+  modelId: string,
+  adapter: RuntimeAdapter,
+): boolean {
+  const normalized = normalizeModelId(modelId);
+  const adapters = MODELS.filter((entry) => entry.id === normalized).map(
+    (entry) => entry.runtimeAdapter,
+  );
+  return adapters.length === 0 || adapters.includes(adapter);
+}
+
+export function isClaudeAdapterModel(model: GatewayModel): boolean {
+  if (!catalogAllowsAdapter(model.id, "claude")) {
+    return false;
+  }
+  if (model.api_shapes) {
+    return model.api_shapes.includes(ANTHROPIC_MESSAGES_SHAPE);
+  }
+  return (
+    isAnthropicModel(model) ||
+    isCloudflareModel(model) ||
+    isModalModel(model) ||
+    isBasetenModel(model) ||
+    catalogModelFor(model.id)?.runtimeAdapter === "claude"
+  );
+}
+
+export function isCodexAdapterModel(model: GatewayModel): boolean {
+  if (!catalogAllowsAdapter(model.id, "codex")) {
+    return false;
+  }
+  if (model.api_shapes) {
+    return model.api_shapes.includes(OPENAI_RESPONSES_SHAPE);
+  }
+  return isOpenAIModel(model);
+}
+
+export function isClaudeAdapterModelId(modelId: string): boolean {
+  return (
+    isAnthropicModelId(modelId) ||
+    isCloudflareModelId(modelId) ||
+    isModalModelId(modelId) ||
+    isDeepseekModelId(modelId) ||
+    catalogModelFor(modelId)?.runtimeAdapter === "claude"
+  );
 }
 
 export function pickAllowedModel(
@@ -291,11 +366,8 @@ function getAdapterModels(
 ): GatewayModel[] {
   return models.filter((model) =>
     adapter === "codex"
-      ? isOpenAIModel(model)
-      : isAnthropicModel(model) ||
-        isCloudflareModel(model) ||
-        isModalModel(model) ||
-        isBasetenModel(model),
+      ? isCodexAdapterModel(model)
+      : isClaudeAdapterModel(model),
   );
 }
 

@@ -12,11 +12,6 @@ class TestCloseSource:
         self.team_id = 123
         self.config = CloseSourceConfig(api_key="api_test")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Leads"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Leads"
-
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),
         [

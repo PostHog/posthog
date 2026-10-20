@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavingsPlansResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_SAVINGS_PLANS|AWSSAVINGSPLANS)_",),
+        npm=("@aws-sdk/client-savingsplans",),
+        cargo=("aws-sdk-savingsplans",),
+        go=("github.com/aws/aws-sdk-go-v2/service/savingsplans",),
+        maven=("software.amazon.awssdk:savingsplans", "com.amazonaws:aws-java-sdk-savingsplans"),
+        rubygems=("aws-sdk-savingsplans",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (SAVINGS_PLANS_API_VERSION,)
     default_version = SAVINGS_PLANS_API_VERSION
@@ -103,13 +113,19 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="AWS Savings Plans",
             caption=(
-                "Sync Savings Plans, commitment use, and coverage into the PostHog Data warehouse. "
+                "Sync Savings Plans, rates, commitment use, coverage, and purchase recommendations into the PostHog Data warehouse. "
                 "Grant `savingsplans:DescribeSavingsPlans` for plan inventory. "
                 "Grant `ce:GetSavingsPlansUtilization` for daily utilization. "
                 "Grant `ce:GetSavingsPlansUtilizationDetails` for utilization details. "
                 "Grant `ce:GetSavingsPlansCoverage` for daily coverage. "
+                "Grant `savingsplans:DescribeSavingsPlansOfferings` for offerings. "
+                "Grant `savingsplans:DescribeSavingsPlanRates` for plan rates. "
+                "Grant `ce:GetSavingsPlansPurchaseRecommendation` for purchase recommendations. "
+                "Grant `ce:GetSavingsPlanPurchaseRecommendationDetails` for recommendation details. "
                 "Enable Cost Explorer for the metric tables. AWS charges for Cost Explorer requests. "
                 "Daily utilization details require at least one request per day. "
+                "Purchase recommendations need one request for each of 57 plan type, term, payment, and lookback combinations. "
+                "Recommendation details also need one request for each recommendation. "
                 "This source uses the global endpoints in the standard AWS partition. "
                 "Metric imports cover up to 365 days and read the previous seven days again during incremental syncs."
             ),

@@ -18,8 +18,10 @@ import {
     buildBITopMembership,
     fieldExpression,
     getBIResultDimensions,
+    isDateTimeBIField,
 } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
+import { getBIMemberLabel } from './biMemberAliases'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -112,7 +114,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (other && typeof value === 'string' && value.startsWith('Other') && value.endsWith(' (category)')) {
                 value = value.slice(0, -11)
             }
-            const shiftedDate = previous && ['date', 'datetime'].includes(field.type)
+            const shiftedDate = previous && isDateTimeBIField(field)
             const expression = fieldExpression(
                 shiftedDate ? { ...field, expression: getBIComparisonDateExpression(field) } : field
             )
@@ -125,7 +127,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (typeof value === 'number' && !Number.isFinite(value)) {
                 continue
             }
-            if (typeof value === 'number' && field.type === 'date') {
+            if (typeof value === 'number' && field.type === 'date' && isDateTimeBIField(field)) {
                 const date = dayjs.unix(value).utc()
                 if (!date.isValid()) {
                     continue
@@ -151,7 +153,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             }
         }
         filters.push(filter)
-        labels.push({ name: field.name, value: String(displayValue ?? '(empty)') })
+        labels.push({ name: field.name, value: getBIMemberLabel(config, field, displayValue) })
     }
     return { filters, previous, labels }
 }
@@ -198,12 +200,22 @@ export function getBIDrillQueries(
     if (!saved) {
         return null
     }
-    const selectionFilters = saved.rowFilterGroup
-        ? selection.filters.map((filter, index) => ({
-              ...filter,
-              field: { ...filter.field, id: `drill:${saved.filters.length + index}:${filter.field.id}` },
-          }))
-        : selection.filters
+    const usedIds = new Set(saved.filters.map((filter) => filter.field.id))
+    const selectionFilters = selection.filters.map((filter) => {
+        let id = `drill:${filter.field.id}`
+        while (usedIds.has(id)) {
+            id += ':'
+        }
+        usedIds.add(id)
+        return {
+            ...filter,
+            field: {
+                ...filter.field,
+                id,
+                localFieldId: filter.field.localFieldId ?? (filter.field.localDefinition ? filter.field.id : undefined),
+            },
+        }
+    })
     const existingGroup = saved.rowFilterGroup
         ? normalizeBIConditionGroup(
               saved.rowFilterGroup,

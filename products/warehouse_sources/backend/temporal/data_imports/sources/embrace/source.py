@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,70 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EmbraceSource(ResumableSource[EmbraceSourceConfig, EmbraceResumeConfig]):
+    codebase_detection = detect(
+        env=("^EMBRACE_ID$", "^EMBRACE_TOKEN$"),
+        npm=("@embrace-io/react-native", "@embrace-io/web-sdk", "@embrace-io/react-native-navigation"),
+        cocoapods=("EmbraceIO", "EmbraceIO-DEV", "EmbraceIOEAP"),
+        maven=(
+            "io.embrace:embrace-android-sdk",
+            "io.embrace:embrace-android-api",
+            "io.embrace:embrace-android-bug-shake",
+            "io.embrace:embrace-android-compose",
+            "io.embrace:embrace-android-core",
+            "io.embrace:embrace-android-delivery",
+            "io.embrace:embrace-android-envelope",
+            "io.embrace:embrace-android-fcm",
+            "io.embrace:embrace-android-features",
+            "io.embrace:embrace-android-infra",
+            "io.embrace:embrace-android-instrumentation-androidx-navigation",
+            "io.embrace:embrace-android-instrumentation-anr",
+            "io.embrace:embrace-android-instrumentation-api",
+            "io.embrace:embrace-android-instrumentation-app-exit-info",
+            "io.embrace:embrace-android-instrumentation-compose-navigation",
+            "io.embrace:embrace-android-instrumentation-compose-tap",
+            "io.embrace:embrace-android-instrumentation-crash-jvm",
+            "io.embrace:embrace-android-instrumentation-crash-ndk",
+            "io.embrace:embrace-android-instrumentation-fcm",
+            "io.embrace:embrace-android-instrumentation-huc",
+            "io.embrace:embrace-android-instrumentation-huc-lite",
+            "io.embrace:embrace-android-instrumentation-leaks",
+            "io.embrace:embrace-android-instrumentation-navigation",
+            "io.embrace:embrace-android-instrumentation-network-common",
+            "io.embrace:embrace-android-instrumentation-network-status",
+            "io.embrace:embrace-android-instrumentation-okhttp",
+            "io.embrace:embrace-android-instrumentation-power-save",
+            "io.embrace:embrace-android-instrumentation-profiler",
+            "io.embrace:embrace-android-instrumentation-schema",
+            "io.embrace:embrace-android-instrumentation-startup-trace",
+            "io.embrace:embrace-android-instrumentation-taps",
+            "io.embrace:embrace-android-instrumentation-thermal-state",
+            "io.embrace:embrace-android-instrumentation-view",
+            "io.embrace:embrace-android-instrumentation-vitals",
+            "io.embrace:embrace-android-instrumentation-webview",
+            "io.embrace:embrace-android-okhttp3",
+            "io.embrace:embrace-android-otel",
+            "io.embrace:embrace-android-otel-java",
+            "io.embrace:embrace-android-payload",
+            "io.embrace:embrace-android-semconv",
+            "io.embrace:embrace-android-session",
+            "io.embrace:embrace-android-telemetry-persistence",
+            "io.embrace:embrace-android-utils",
+            "io.embrace:embrace-android-volley",
+            "io.embrace:embrace-bug-shake-gradle-plugin",
+            "io.embrace:embrace-gradle-plugin",
+            "io.embrace:embrace-swazzler",
+        ),
+        pub=(
+            "embrace",
+            "embrace_android",
+            "embrace_dio",
+            "embrace_go_router",
+            "embrace_ios",
+            "embrace_platform_interface",
+        ),
+        swiftpm=("github.com/embrace-io/embrace-apple-sdk",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"

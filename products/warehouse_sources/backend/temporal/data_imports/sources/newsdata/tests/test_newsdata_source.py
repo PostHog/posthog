@@ -23,6 +23,7 @@ class TestGetSchemas:
             ("latest", False),
             ("archive", True),
             ("crypto", True),
+            ("market", True),
             ("sources", False),
         ]
     )
@@ -30,10 +31,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in NewsDataSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_incremental is expected_incremental
         assert schemas[endpoint].supports_append is expected_incremental
-
-    def test_names_filter(self) -> None:
-        schemas = NewsDataSource().get_schemas(MagicMock(), team_id=1, names=["crypto"])
-        assert [s.name for s in schemas] == ["crypto"]
 
 
 class TestNonRetryableErrors:

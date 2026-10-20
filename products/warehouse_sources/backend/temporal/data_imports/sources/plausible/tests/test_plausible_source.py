@@ -37,12 +37,6 @@ class TestSourceConfig:
         assert PlausibleSource().connection_host_fields == ["host"]
 
 
-class TestGetSchemas:
-    def test_names_filter(self):
-        schemas = PlausibleSource().get_schemas(_config(), team_id=1, names=["sources", "pages"])
-        assert {s.name for s in schemas} == {"sources", "pages"}
-
-
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.validate_plausible_credentials")
     def test_invalid_credentials_surface_message(self, mock_validate):

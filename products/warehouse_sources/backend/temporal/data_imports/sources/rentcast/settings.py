@@ -16,15 +16,20 @@ class RentCastEndpointConfig:
 # updated-since cursor (listing search only filters by `daysOld`, days since first listed, which
 # isn't a last-modified timestamp), so there is no incremental cursor to advance safely.
 #
-# Only endpoints that return a record list via limit/offset pagination without a mandatory parent
-# id are included. RentCast is a property-lookup API, so these search endpoints accept optional
-# geographic filters (city/state/zipCode/lat-long) and fall back to a broad default area when none
-# is supplied. The single-object market-statistics endpoint (`/markets`) requires a `zipCode` and
-# is intentionally omitted.
+# The search endpoints return a record list via limit/offset pagination. RentCast is a
+# property-lookup API, so they accept optional geographic filters (city/state/zipCode/lat-long) and
+# fall back to a broad default area when none is supplied.
+#
+# `/markets` returns one aggregate object per call and requires a `zipCode`, so the `markets` table
+# makes one request per ZIP code the user lists in the source settings. The response `id` is the ZIP
+# code itself.
+MARKETS_ENDPOINT = "markets"
+
 RENTCAST_ENDPOINTS: dict[str, RentCastEndpointConfig] = {
     "properties": RentCastEndpointConfig(name="properties", path="/properties"),
     "sale_listings": RentCastEndpointConfig(name="sale_listings", path="/listings/sale"),
     "rental_listings": RentCastEndpointConfig(name="rental_listings", path="/listings/rental/long-term"),
+    MARKETS_ENDPOINT: RentCastEndpointConfig(name=MARKETS_ENDPOINT, path="/markets"),
 }
 
 ENDPOINTS = tuple(RENTCAST_ENDPOINTS.keys())

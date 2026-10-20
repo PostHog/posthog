@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpotlerCRMSource(ResumableSource[SpotlerCRMSourceConfig, SpotlerCRMResumeConfig]):
+    codebase_detection = detect(env=("^(SPOTLER_CRM|SPOTLERCRM)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v4",)
     default_version = "v4"
@@ -118,7 +121,7 @@ class SpotlerCRMSource(ResumableSource[SpotlerCRMSourceConfig, SpotlerCRMResumeC
 
 Generate a token in Spotler CRM under **Settings / Integrations / API V4** — it's shown only once, so copy it when you create it.
 
-Some record types need paid add-ons: Campaigns requires the Marketing tool, and Cases requires the Service & Support tool.""",
+Some record types need paid add-ons: Campaigns, Campaign details and Campaign stages require the Marketing tool, and Cases requires the Service & Support tool.""",
             docsUrl="https://posthog.com/docs/cdp/sources/spotlercrm",
             iconPath="/static/services/spotlercrm.png",
             keywords=["really simple systems", "spotler", "rss crm"],

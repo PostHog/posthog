@@ -35,6 +35,7 @@ from pymysql.charset import charset_by_id
 from pymysql.connections import MySQLResult
 from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
+from pymysql.protocol import MysqlPacket
 from structlog.types import FilteringBoundLogger
 
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
@@ -62,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     check_resolved_addresses,
     host_lookup_is_skipped,
+    note_oob_domain,
     open_ssh_tunnel,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -624,6 +626,23 @@ def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
     return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
 
 
+# Vitess/PlanetScale vtgate surfaces this 1105 error (gRPC `Unavailable`, the same status as
+# `_is_transient_tablet_unavailable`'s `code = Unavailable` wrapping) when its tablet discovery
+# has zero serving tablets for the target keyspace/shard/tablet-type at the moment the connection
+# is opened — a failover, a restart, or a rollout that briefly leaves no tablet registered as
+# healthy. A fresh attempt after a short backoff usually lands once a tablet comes back online.
+# Match the stable `vtgate connection error: no endpoints` phrase, excluding the volatile attempt
+# count and reqid that follow it.
+_VITESS_NO_ENDPOINTS_TOKEN = "vtgate connection error: no endpoints"
+
+
+def _is_transient_vitess_no_endpoints(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate found no serving tablet endpoints — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _VITESS_NO_ENDPOINTS_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # MySQL/MariaDB error 1040 (ER_CON_COUNT_ERROR): the server refuses a *new* connection because
 # `max_connections` is already reached. A transient capacity condition on the customer's database,
 # not a misconfiguration — a slot frees the moment another connection closes — so a fresh attempt
@@ -674,6 +693,8 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     or a resolver "try again" answer raises the error pymysql raises for its own failed lookup,
     so the transient-connect retry runs a fresh lookup on the next attempt.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return ()
 
@@ -787,6 +808,9 @@ class _FieldCharsetResult(MySQLResult):
     pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
     servers send ENUM and SET values under their own type codes, and newer servers add types
     pymysql predates, so one non-ASCII value in such a column fails the whole read.
+
+    The server does not check that stored bytes are valid in the charset it reports, so rows are
+    decoded with invalid bytes replaced by U+FFFD rather than failing every sync on one bad value.
     """
 
     def _get_descriptions(self) -> None:
@@ -796,6 +820,21 @@ class _FieldCharsetResult(MySQLResult):
             encoding, converter = self.converters[index]  # type: ignore[attr-defined]
             if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
                 self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
+
+    def _read_row_from_packet(self, packet: MysqlPacket) -> tuple[Any, ...]:
+        row: list[Any] = []
+        for encoding, converter in self.converters:  # type: ignore[attr-defined]
+            try:
+                data = packet.read_length_coded_string()
+            except IndexError:
+                break
+            if data is not None:
+                if encoding is not None:
+                    data = data.decode(encoding, errors="replace")
+                if converter is not None:
+                    data = converter(data)
+            row.append(data)
+        return tuple(row)
 
 
 def _set_tcp_liveness(sock: socket.socket) -> None:
@@ -935,6 +974,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
@@ -1057,7 +1097,8 @@ def _retry_on_transient_tablet_unavailable(
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
     `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
-    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
+    a vtgate with no serving tablet endpoints, a TiProxy failover, or a plain peer-reset
+    connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -1069,6 +1110,7 @@ def _retry_on_transient_tablet_unavailable(
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
@@ -2036,6 +2078,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        worker_deaths=inputs.worker_deaths,
                     )
 
                 # Only reached when the walk exhausted the table. An abandoned generator (draining

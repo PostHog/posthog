@@ -433,17 +433,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "Wizard" in mocked_email_messages[0].html_body
 
-    def test_send_provisioning_welcome_with_repository(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = password_reset_token_generator.make_token(self.user)
-
-        send_provisioning_welcome(user.id, token, "posthog.com", repository="octocat/hello-world")
-
-        assert len(mocked_email_messages) == 1
-        assert "octocat/hello-world" in mocked_email_messages[0].html_body
-        assert "pull request" in mocked_email_messages[0].html_body
-
     def test_send_provisioning_welcome_without_partner(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
@@ -1468,6 +1457,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("inactive@example.com", is_active=False)
 
         digest_data = {
             "team_id": self.team.id,
@@ -1502,6 +1492,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == self.user.email
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 

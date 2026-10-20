@@ -6,7 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -454,7 +454,7 @@ def _stats(
     )
 
 
-class TestComputeFiltersEligibilityHash(BaseTest):
+class TestComputeFiltersEligibilityHash(SimpleTestCase):
     def test_stable_across_calls_with_identical_query(self) -> None:
         q = _overview()
         assert compute_filters_eligibility_hash(q, "UTC") == compute_filters_eligibility_hash(q, "UTC")
@@ -533,7 +533,7 @@ class TestComputeFiltersEligibilityHash(BaseTest):
         int(h, 16)
 
 
-class TestComputeShapeCapKey(BaseTest):
+class TestComputeShapeCapKey(SimpleTestCase):
     def test_date_range_variants_share_one_slot(self) -> None:
         # Buckets are reused across requested ranges (the namespace sentinelizes time
         # windows), so date-range variants of one shape must map to one cap key —

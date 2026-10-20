@@ -751,8 +751,11 @@ const metricList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
             query: {
+                definition_kind: params.definition_kind,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
+                status: params.status,
             },
         })
         const filtered = {

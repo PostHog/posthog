@@ -255,6 +255,7 @@ const insightActionsMapping: Record<
     dashboard_tiles: () => null,
     query_status: () => null,
     query_scan: () => null,
+    warnings: () => null,
     user_access_level: () => null,
     _create_in_folder: () => null,
     last_viewed_at: () => null,

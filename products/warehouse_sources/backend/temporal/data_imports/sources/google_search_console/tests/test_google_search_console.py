@@ -367,20 +367,6 @@ def test_list_sitemaps_percent_encodes_the_property(monkeypatch):
     session.get.assert_called_once_with(f"{gsc.GSC_API_BASE}/sites/sc-domain%3Aexample.com/sitemaps")
 
 
-def test_unknown_resource_name_raises():
-    config = GoogleSearchConsoleSourceConfig(
-        site_url="https://example.com/",
-        google_search_console_integration_id=1,
-    )
-    with pytest.raises(ValueError, match="Unknown Google Search Console schema"):
-        google_search_console_source(
-            config=config,
-            resource_name="not_a_real_schema",
-            team_id=1,
-            resumable_source_manager=mock.MagicMock(),
-        )
-
-
 def _fake_response(status_code: int, json_body: dict | None = None, headers: dict | None = None):
     resp = mock.MagicMock(spec=requests.Response)
     resp.status_code = status_code
@@ -717,6 +703,10 @@ def test_normalize_site_url(raw, expected):
         ("https://example.com/blog/", ["sc-domain:example.com"], None),
         ("https://plotlens.ai/", ["https://other.com/"], None),
         ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
+        # A domain property whose site is registered only as a root URL-prefix property.
+        ("sc-domain:example.com", ["https://example.com/"], "https://example.com/"),
+        ("sc-domain:example.com", ["http://www.example.com/"], "http://www.example.com/"),
+        ("sc-domain:example.com", ["https://example.com/blog/"], None),
     ],
 )
 def test_suggest_registered_site(site_url, registered, expected):

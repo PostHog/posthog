@@ -16,6 +16,10 @@
             border-color 0.15s ease;
     }
 
+    .quill-input--size-sm {
+        height: 1.75rem;
+    }
+
     :is(.dark, [theme='dark']) .quill-input {
         background-color: color-mix(in oklab, var(--input) 30%, transparent);
     }

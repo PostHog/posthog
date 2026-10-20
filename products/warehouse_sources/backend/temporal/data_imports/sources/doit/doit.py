@@ -16,7 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.doit.settings import DOIT_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -40,7 +45,8 @@ REPORT_TIMEOUT_SECONDS = (DOIT_CONNECT_TIMEOUT_SECONDS, 300)
 # Key under a schema's persisted `schema_metadata` holding the DoIt report id.
 REPORT_ID_METADATA_KEY = "report_id"
 
-DOIT_REPORTS_URL = "https://api.doit.com/analytics/v1/reports"
+DOIT_BASE_URL = "https://api.doit.com"
+DOIT_REPORTS_URL = f"{DOIT_BASE_URL}/analytics/v1/reports"
 
 # The listing endpoint paginates at 50 reports per page by default, signalling more pages via a
 # `pageToken` in the response body. The cap is a safety valve against a server that keeps returning
@@ -245,3 +251,42 @@ def doit_source(
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
     return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])
+
+
+def doit_endpoint_source(config: DoItSourceConfig, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+    settings = DOIT_ENDPOINTS[endpoint]
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": DOIT_BASE_URL,
+            "auth": {"type": "bearer", "token": config.api_key},
+        },
+        "resource_defaults": {"write_disposition": "replace"},
+        "resources": [
+            {
+                "name": endpoint,
+                "table_name": endpoint.lower(),
+                "endpoint": {
+                    "path": settings.path,
+                    "params": dict(settings.params),
+                    "data_selector": settings.data_selector,
+                    "data_selector_required": True,
+                    "paginator": {
+                        "type": "cursor",
+                        "cursor_path": settings.cursor_path,
+                        "cursor_param": "pageToken",
+                        "param_location": "query",
+                        "raise_on_repeated_cursor": True,
+                    },
+                },
+                "table_format": "delta",
+            }
+        ],
+    }
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=settings.primary_keys,
+        column_hints=resource.column_hints,
+    )

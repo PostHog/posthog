@@ -4,21 +4,29 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink, TaskRunArtefact
+from products.signals.backend.artefact_schemas import (
+    PullRequestLink,
+    ReportLink,
+    SignalFinding,
+    SuggestedReviewers,
+    TaskRunArtefact,
+)
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
@@ -30,6 +38,7 @@ from products.signals.backend.auto_start import (
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
     _has_unimplemented_work,
+    _latest_reviewers_content,
     _live_skill_owner_identities,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
@@ -96,6 +105,7 @@ def _reviewer(
     *,
     user_uuid: str | None = None,
     is_skill_owner: bool = False,
+    is_research_selected: bool = False,
     source_skill: str | None = None,
 ) -> ReviewerContent:
     return ReviewerContent(
@@ -105,6 +115,7 @@ def _reviewer(
         relevant_commits=[],
         reason=None,
         is_skill_owner=is_skill_owner,
+        is_research_selected=is_research_selected,
         source_skill=source_skill,
     )
 
@@ -190,6 +201,166 @@ def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, te
         )
         is None
     )
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_assignee_skips_research_selected_reviewer(organization, team):
+    _create_org_member_with_github("research@example.com", organization, "researcher")
+    author = _create_org_member_with_github("author@example.com", organization, "author")
+
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        reviewers_content=[_reviewer("researcher", is_research_selected=True), _reviewer("author")],
+        team_default_priority=Priority.P4,
+    )
+
+    assert assignee is not None
+    assert assignee.id == author.id
+    assert (
+        _resolve_autostart_assignee(
+            team_id=team.id,
+            report_priority=Priority.P0,
+            reviewers_content=[_reviewer("researcher", is_research_selected=True)],
+            team_default_priority=Priority.P4,
+        )
+        is None
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("case", "team_threshold", "expected_runner"),
+    [
+        ("confirmed", Priority.P0, "first"),
+        ("personal_threshold", Priority.P0, "second"),
+        ("unconfirmed", Priority.P0, None),
+        ("unconfirmed", Priority.P4, "fallback"),
+        ("lookup_failure", Priority.P0, None),
+        ("lookup_failure", Priority.P4, "fallback"),
+        ("skill_owner", Priority.P0, "second"),
+        ("inactive", Priority.P0, "second"),
+        ("private_project", Priority.P0, None),
+        ("stale_login", Priority.P0, None),
+    ],
+)
+def test_persisted_research_reviewers_require_confirmation(organization, team, case, team_threshold, expected_runner):
+    first = _create_org_member_with_github("first@example.com", organization, "first")
+    second = _create_org_member_with_github("second@example.com", organization, "second")
+    fallback = _create_org_member_with_github("fallback@example.com", organization, "fallback")
+    SignalSourceConfig.objects.create(
+        team=team, source_product="error_tracking", source_type="issue_created", created_by=fallback
+    )
+    SignalTeamConfig.objects.create(team=team, default_autostart_priority=team_threshold)
+    SignalUserAutonomyConfig.objects.create(
+        user=first, autostart_priority=Priority.P0 if case == "personal_threshold" else Priority.P4
+    )
+    SignalUserAutonomyConfig.objects.create(user=second, autostart_priority=Priority.P4)
+    if case == "inactive":
+        first.is_active = False
+        first.save()
+    if case == "private_project":
+        organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
+        organization.save()
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="Report", summary="Summary")
+    SignalReportArtefact.append_finding(
+        team_id=team.id,
+        report_id=str(report.id),
+        content=SignalFinding(
+            signal_id="signal-1", relevant_code_paths=["src/second.py", "src/first.py"], data_queried="", verified=True
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+    selected = [
+        _reviewer(
+            "second" if case == "stale_login" else "first",
+            user_uuid=str(first.uuid),
+            is_research_selected=True,
+            is_skill_owner=case == "skill_owner",
+        ),
+        _reviewer("second", user_uuid=str(second.uuid), is_research_selected=True),
+    ]
+    if case == "stale_login":
+        selected.pop()
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=str(report.id),
+        content=SuggestedReviewers.model_validate(selected),
+        attribution=ArtefactAttribution.system(),
+        reevaluate_autostart=False,
+    )
+    reviewers, editor_user_id = async_to_sync(_latest_reviewers_content)(str(report.id))
+    assert editor_user_id is None
+    github = MagicMock()
+    owners = "/src/ @first\n"
+    github.list_team_members.return_value = {"success": True, "logins": ["second"]}
+    if case == "unconfirmed":
+        owners = "/src/ @unrelated\n"
+    elif case == "stale_login":
+        owners = "/src/ @second\n"
+    github.get_file_contents.return_value = {"content": owners}
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def create_task(**kwargs):
+        task = Task.objects.create(team=team, title=kwargs["title"], created_by_id=kwargs["user_id"])
+        run = TaskRun.objects.create(team=team, task=task)
+        return SimpleNamespace(task_id=task.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch(
+            "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+            side_effect=RuntimeError("GitHub unavailable") if case == "lookup_failure" else None,
+        ),
+        patch(
+            "products.signals.backend.report_generation.ownership_reviewers.AuthenticatedRepoFiles.read",
+            side_effect=lambda path: (
+                "version: 1\nowners: [backend]\n"
+                if path == "owners.yaml" and case not in {"unconfirmed", "stale_login"}
+                else None
+            ),
+        ),
+        patch("products.signals.backend.report_generation.ownership_reviewers.AuthenticatedRepoFiles.read_all"),
+        patch.object(tasks_facade, "create_and_run_task", side_effect=create_task) as create,
+        patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture,
+    ):
+        outcome = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/app",
+            title="Report",
+            summary="Summary",
+            actionability=ActionabilityAssessment(
+                explanation="A code fix is available.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects the component.", priority=Priority.P2),
+            reviewers_content=reviewers,
+        )
+
+    if expected_runner is None:
+        assert outcome.status == "blocked"
+        create.assert_not_called()
+        assert any(c.kwargs.get("properties", {}).get("skip_reason") == "no_runner" for c in capture.call_args_list)
+    else:
+        assert outcome.status == "started"
+        assert (
+            create.call_args.kwargs["user_id"]
+            == {"first": first, "second": second, "fallback": fallback}[expected_runner].id
+        )
+        started = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs.get("event") == "signals_autostart_steering_attached"
+        ]
+        assert started[0]["runner_source"] == ("team_fallback" if expected_runner == "fallback" else "reviewer")
 
 
 @pytest.mark.django_db

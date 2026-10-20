@@ -579,12 +579,13 @@ class GitHubIntegrationBase:
 
     def mint_scoped_installation_token(
         self,
-        permissions: Mapping[str, str],
+        permissions: Mapping[str, str] | None,
         repositories: list[str] | None = None,
     ) -> str:
         """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
         ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
-        (bare repo names, no owner prefix).
+        (bare repo names, no owner prefix). ``None`` permissions keep every permission the
+        installation holds.
 
         The token is returned to the caller and deliberately NOT persisted: the cached
         ``sensitive_config`` token is the shared full-permission credential every other
@@ -597,11 +598,14 @@ class GitHubIntegrationBase:
         if not installation_id:
             raise GitHubIntegrationError("No GitHub App installation id on this integration")
 
-        body: dict[str, Any] = {"permissions": dict(permissions)}
+        body: dict[str, Any] = {}
+        if permissions is not None:
+            body["permissions"] = dict(permissions)
         if repositories:
             body["repositories"] = repositories
 
         response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        raise_if_github_rate_limited(response)
         try:
             data = response.json()
         except ValueError:
@@ -692,15 +696,17 @@ class GitHubIntegrationBase:
         name = account.get("name") if isinstance(account, dict) else None
         return not name or str(name) == str(installation_id)
 
-    def ensure_account_name(self) -> bool:
-        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+    def ensure_account_name(self, *, force_refresh: bool = False) -> bool:
+        """Refresh a placeholder (or suspected stale) login, at most once per cooldown.
 
         Skips installations already marked unavailable, since the lookup would fail the same way.
         Returns True when the name was healed. Persists the attempt timestamp either way so a broken
         installation costs one GitHub call per cooldown window, not one per list request.
         """
         installation_id = self.github_installation_id
-        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+        if not installation_id or self.installation_unavailable():
+            return False
+        if not force_refresh and not self.account_name_needs_heal():
             return False
         now = int(time.time())
         last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)
@@ -871,11 +877,20 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
             return None
 
-    def installation_can_access_repository(self, repository: str) -> bool:
+    def installation_can_access_repository(self, repository: str, *, raise_on_transient: bool = False) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
-        )
+        url = f"https://api.github.com/repos/{repository}"
+        response: requests.Response | None
+        if raise_on_transient:
+            response = self.api_request(
+                "GET", url.removeprefix("https://api.github.com"), endpoint="/repos/{owner}/{repo}"
+            )
+            if response.status_code >= 500:
+                raise GitHubIntegrationError(
+                    "GitHub repository access probe failed transiently", status_code=response.status_code
+                )
+        else:
+            response = self._installation_authenticated_get(url, endpoint="/repos/{owner}/{repo}")
         if response is None:
             return False
         return response.status_code == 200
@@ -1233,6 +1248,7 @@ class GitHubIntegrationBase:
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
+            "merged_by": pr.get("merged_by"),
             "closed_at": pr.get("closed_at"),
             "comments": pr.get("comments", 0),
             "review_comments": pr.get("review_comments", 0),
@@ -1241,6 +1257,27 @@ class GitHubIntegrationBase:
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
         }
+
+    def get_pull_request_reviews(self, repository: str, pr_number: int) -> list[dict[str, Any]]:
+        if not _is_safe_github_repo_path(repository) or type(pr_number) is not int or pr_number <= 0:
+            raise GitHubIntegrationError("Invalid pull request identity")
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repository}/pulls/{pr_number}/reviews",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            params={"per_page": 100},
+        )
+        if not complete:
+            raise GitHubIntegrationError("Could not fetch all pull request reviews")
+        reviews: list[dict[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json()
+            except ValueError as error:
+                raise GitHubIntegrationError("Could not parse pull request reviews") from error
+            if not isinstance(page, list) or any(not isinstance(review, dict) for review in page):
+                raise GitHubIntegrationError("Invalid pull request reviews")
+            reviews.extend(page)
+        return reviews
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
         """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
@@ -2605,7 +2642,9 @@ class GitHubIntegrationBase:
                 integration_id=self.integration.id,
                 status_code=response.status_code,
             )
-            raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
+            raise GitHubIntegrationError(
+                "GitHubIntegration: list_repositories non-JSON response", status_code=response.status_code
+            )
         if response.status_code == 200 and isinstance(body, dict):
             page_repos = extract_repos(body)
             has_more = len(page_repos) == per_page
@@ -2616,7 +2655,7 @@ class GitHubIntegrationBase:
             status_code=response.status_code,
             error=body if isinstance(body, dict) else None,
         )
-        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories", status_code=response.status_code)
 
     def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API. ``priority`` overrides the client's lane."""

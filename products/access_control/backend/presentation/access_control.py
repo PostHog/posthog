@@ -11,7 +11,9 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -254,6 +256,15 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 
 TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Terraform."
+
+
+def is_terraform_request(request: Request) -> bool:
+    """True for a request from the Terraform provider with personal API key authentication. A session
+    request is never a Terraform request, so a browser cannot mark a project."""
+    return (
+        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        and get_event_source(request) == EventSource.TERRAFORM
+    )
 
 
 def apply_access_control_rule(
@@ -549,9 +560,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             data["resource"] = resource
             data["resource_id"] = resource_id
 
+        user = cast(User, request.user)
+        # Terraform writes rules only through this method. A Terraform write enables the lock and
+        # sets the Terraform account before the rule is written, so the guard lets the write through.
+        if is_terraform_request(request):
+            access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
+
         return upsert_access_control(
             team=team,
-            user=cast(User, request.user),
+            user=user,
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
         )

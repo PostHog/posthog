@@ -188,20 +188,30 @@ export async function instrumentFn<T>(
     })
     const startTime = performance.now()
     const end = measureTime ? instrumentedFunctionDuration.startTimer({ function: key }) : undefined
+    const funcReportingErrorsInSpan = sendException
+        ? async (): Promise<T> => {
+              try {
+                  return await func()
+              } catch (error) {
+                  captureException(error)
+                  throw error
+              }
+          }
+        : func
 
     try {
         // Skip expensive span creation when tracing is disabled
         const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
-            ? await func()
+            ? await funcReportingErrorsInSpan()
             : span
               ? await withSpan(
                     'instrumented_function',
                     key,
                     tag ? { ...attributes, tag } : attributes,
-                    func,
+                    funcReportingErrorsInSpan,
                     parentContext
                 )
-              : await withSummary(key, tag, func)
+              : await withSummary(key, tag, funcReportingErrorsInSpan)
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)
@@ -212,9 +222,6 @@ export async function instrumentFn<T>(
         logger.info('🔔', error)
         if (logExecutionTime) {
             logTime(startTime, key, error)
-        }
-        if (sendException) {
-            captureException(error)
         }
         throw error
     } finally {
