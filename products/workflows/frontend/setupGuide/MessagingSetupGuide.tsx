@@ -27,7 +27,7 @@ export function MessagingSetupGuide({ linkFor }: { linkFor: (tab: MessagingNavTa
                     <LemonButton
                         size="small"
                         type="primary"
-                        to={onboardingWizardUrl('messaging')}
+                        to={onboardingWizardUrl('messaging', { entry: 'messaging_setup_guide' })}
                         data-attr="messaging-setup-guide-open-wizard"
                     >
                         Guided setup
