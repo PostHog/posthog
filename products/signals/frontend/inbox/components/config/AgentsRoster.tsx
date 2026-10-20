@@ -1056,6 +1056,7 @@ export function AgentsRoster(): JSX.Element {
                                 aria-label="Search external sources"
                                 data-attr="signal-sources-search"
                                 className="min-w-40 flex-1"
+                                fullWidth
                             />
                             <LemonSelect
                                 value={sourceCategory}
