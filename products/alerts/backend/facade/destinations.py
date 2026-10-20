@@ -348,6 +348,8 @@ def create_flow_drafts(
     transition_by_event_id: Mapping[str, AlertEventKind],
 ) -> FlowDrafts:
     """A draft workflow for each customized destination of one alert, or why none was made. HogFunctions stay as they are."""
+    from ..logic import flow_port  # noqa: PLC0415 — keeps temporalio off the django.setup() path
+
     return flow_port.create_flow_drafts(
         team_id=team_id,
         alert=alert,
