@@ -28,10 +28,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcore.gcor
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcore.settings import (
+    APPEND_ONLY_ENDPOINTS,
     AUTH_ERRORS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
-    STATISTICS_METRICS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+    MERGE_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcore import GcoreSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -108,11 +110,16 @@ class GcoreSource(ResumableSource[GcoreSourceConfig, GcoreCheckpoint]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=STATISTICS_METRICS)
-        for schema in schemas:
-            if schema.name in STATISTICS_METRICS:
-                schema.default_incremental_lookback_seconds = 2 * 24 * 60 * 60
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            append_only=APPEND_ONLY_ENDPOINTS,
+            merge_only=MERGE_ONLY_ENDPOINTS,
+            # Request logs can hold one row per CDN request, so syncing them is opt-in.
+            should_sync_default={"cdn_logs": False},
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,
