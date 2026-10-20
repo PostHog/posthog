@@ -235,8 +235,6 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
-    elif name == "UNKNOWN_TYPE":
-        return CHQueryErrorUnknownType(err.message, code=err.code, code_name="unknown_type")
 
     # all other errors
     else:
