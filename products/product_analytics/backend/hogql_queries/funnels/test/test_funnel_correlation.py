@@ -1,3 +1,5 @@
+from typing import cast
+
 import unittest
 import time_machine
 from posthog.test.base import (
@@ -26,6 +28,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    EventsQuery,
     FunnelConversionWindowTimeUnit,
     FunnelCorrelationQuery,
     FunnelCorrelationResultsType,
@@ -42,7 +45,12 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql.context import HogQLContext
+
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner, get_query_runner_or_none
 from posthog.models import Organization, Team, User
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
@@ -55,6 +63,7 @@ from products.product_analytics.backend.hogql_queries.funnels.funnel_correlation
     EventStats,
     FunnelCorrelationQueryRunner,
 )
+from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.funnels.test.test_funnel_correlation_actors import get_actors
 
 
@@ -2555,8 +2564,6 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         elif kind == "InsightActorsQueryOptions":
             query = InsightActorsQueryOptions(source=actors)
         elif kind == "EventsQuery":
-            from posthog.schema import EventsQuery
-
             source.modifiers = (
                 modifiers.model_copy(update={"convertToProjectTimezone": True}) if source_choice is not None else None
             )
@@ -2589,27 +2596,6 @@ class TestActorExecutionUserContext(APIBaseTest):
         [("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("FunnelCorrelationQuery",)]
     )
     def test_nested_query_context_follows_execution_user(self, kind: str) -> None:
-        from typing import cast
-
-        from posthog.schema import (
-            ActorsQuery,
-            FunnelCorrelationQuery,
-            FunnelCorrelationResultsType,
-            FunnelsActorsQuery,
-            FunnelsQuery,
-            InsightActorsQuery,
-            InsightActorsQueryOptions,
-        )
-
-        from posthog.hogql.context import HogQLContext
-
-        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-        from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
-        from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
-        from posthog.hogql_queries.query_runner import get_query_runner_or_none
-
-        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner, FunnelsQueryRunner
-
         source = FunnelsQuery(series=[EventsNode(event="started"), EventsNode(event="finished")])
         actors = FunnelsActorsQuery(source=source, funnelStep=1)
         queries = {
