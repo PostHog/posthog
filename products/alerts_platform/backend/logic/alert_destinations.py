@@ -7,7 +7,7 @@ through the facade, so a destination is valid or refused the same way wherever i
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from typing import cast
+from typing import Final, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -24,6 +24,20 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import AlertDestinationDelivery
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+
+# What each type needs before a transport can send to it.
+_REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
+    DestinationType.WEBHOOK: ("webhook_url",),
+    DestinationType.TEAMS: ("webhook_url",),
+    DestinationType.DISCORD: ("webhook_url",),
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+    DestinationType.EMAIL: ("email_addresses",),
+    DestinationType.IN_APP: ("in_app_user_ids",),
+}
+
+# A label a person sees. Two destinations that differ only here send to the same place.
+_DISPLAY_ONLY_FIELDS: Final = frozenset({"slack_channel_name"})
 
 
 def create_alert_destinations(
@@ -79,16 +93,28 @@ def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destinati
 
 def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:
     """A second destination with the same address would send every message twice."""
-    seen = [stored.data for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)]
+    seen = [
+        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+    ]
     for destination in destinations:
-        if destination.data in seen:
+        receiver = _receiver(destination.data)
+        if receiver in seen:
             raise AlertDestinationValidationError("This alert already sends to this destination.", field="config")
-        seen.append(destination.data)
+        seen.append(receiver)
+
+
+def _receiver(data: AlertDestinationData) -> dict[str, object]:
+    """What decides where and how a destination sends, without the fields that only label it."""
+    return {key: value for key, value in data.items() if key not in _DISPLAY_ONLY_FIELDS}
 
 
 def _validate(destination: NewAlertDestination) -> None:
-    if destination.data.get("type") not in DestinationType.values:
+    destination_type = destination.data.get("type")
+    if destination_type not in DestinationType.values:
         raise AlertDestinationValidationError("This destination type is not supported.", field="type")
+    missing = [key for key in _REQUIRED_FIELDS[DestinationType(destination_type)] if not destination.data.get(key)]
+    if missing:
+        raise AlertDestinationValidationError(f"This destination needs {', '.join(missing)}.", field="config")
     if not destination.event_kinds:
         raise AlertDestinationValidationError("Choose at least one event to send.", field="event_kinds")
     if not set(destination.event_kinds) <= DESTINATION_EVENT_KINDS:

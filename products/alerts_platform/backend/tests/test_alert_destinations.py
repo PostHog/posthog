@@ -81,6 +81,7 @@ class TestAlertDestinations(BaseTest):
                 "config",
             ),
             ("unknown_type", {"data": {"type": "opsgenie"}}, "type"),
+            ("webhook_without_its_url", {"data": {"type": DestinationType.WEBHOOK}}, "config"),
         ]
     )
     def test_a_refused_destination_writes_nothing_of_its_batch(
@@ -95,11 +96,37 @@ class TestAlertDestinations(BaseTest):
         assert error.value.field == field
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
-    def test_a_destination_the_alert_already_sends_to_is_refused(self) -> None:
-        self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING))
+    @parameterized.expand(
+        [
+            ("same_webhook", WEBHOOK, dict(WEBHOOK)),
+            # The stored workspace id must read back as the integer it was written as, and the channel
+            # name only labels the destination, so both of these name the same receiver.
+            (
+                "same_slack_channel_with_another_label",
+                {
+                    "type": DestinationType.SLACK,
+                    "slack_workspace_id": 7,
+                    "slack_channel_id": "C1",
+                    "slack_channel_name": "a",
+                },
+                {
+                    "type": DestinationType.SLACK,
+                    "slack_workspace_id": 7,
+                    "slack_channel_id": "C1",
+                    "slack_channel_name": "b",
+                },
+            ),
+        ]
+    )
+    def test_a_destination_the_alert_already_sends_to_is_refused(
+        self, _name: str, first: dict[str, Any], second: dict[str, Any]
+    ) -> None:
+        self._create(NewAlertDestination(data=cast(AlertDestinationData, first), event_kinds=FIRING))
 
         with pytest.raises(AlertDestinationValidationError) as error:
-            self._create(NewAlertDestination(data=dict(WEBHOOK), event_kinds=(AlertEventKind.RESOLVED,)))
+            self._create(
+                NewAlertDestination(data=cast(AlertDestinationData, second), event_kinds=(AlertEventKind.RESOLVED,))
+            )
 
         assert error.value.field == "config"
         assert len(list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)) == 1

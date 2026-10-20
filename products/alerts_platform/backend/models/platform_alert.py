@@ -11,7 +11,7 @@ source configures on the shared platform, rather than one product's own table.
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
-from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
@@ -278,8 +278,9 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     type = models.CharField(max_length=32, choices=destination_type_choices)
     delivery = models.CharField(max_length=16, choices=Delivery.choices)
-    # The whole `AlertDestinationData`, encrypted: a webhook URL or a routing key is a credential.
-    config = EncryptedJSONField(default=dict)
+    # The whole `AlertDestinationData`, encrypted as one document so its value types survive a read.
+    # A webhook URL or a routing key is a credential.
+    config = EncryptedJSONStringField(default=dict)
     # The transitions it sends about, as `AlertEventKind` values.
     event_kinds = ArrayField(models.CharField(max_length=16), default=list)
     # Set only for a workflow row. A plain id, because the platform does not import the workflows product.
