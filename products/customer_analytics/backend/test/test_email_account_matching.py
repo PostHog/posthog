@@ -1,5 +1,9 @@
+from itertools import count
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
+
+from django.core.cache import cache
 
 from parameterized import parameterized
 
@@ -264,6 +268,89 @@ class TestEmailAccountMatching(BaseTest):
         assert [(link.account_id, link.match_source) for link in links_by_thread["thread-2"]] == [
             (str(second.id), "known_email")
         ]
+
+    @parameterized.expand(
+        [
+            ("domain_removed", False),
+            ("domain_added", False),
+            ("known_email_ambiguous", False),
+            ("domain_removed", True),
+        ]
+    )
+    @patch("products.customer_analytics.backend.facade.email_matching.current_app.send_task")
+    @patch("products.customer_analytics.backend.facade.email_matching.randbits", side_effect=count(1))
+    @patch("products.customer_analytics.backend.facade.email_matching.conversations.replace_email_thread_account_links")
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.conversations.list_email_threads_for_account_matching"
+    )
+    @patch("products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email")
+    def test_full_recalculation_refreshes_properties_after_a_targeted_rematch(
+        self,
+        change: str,
+        evict_revision: bool,
+        mock_group_keys: MagicMock,
+        mock_list_threads: MagicMock,
+        mock_replace: MagicMock,
+        _mock_randbits: MagicMock,
+        _mock_send_task: MagicMock,
+    ) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
+        previous_domains = ["old.example.com"] if change == "domain_removed" else []
+        property_account = self._create_account(
+            name="Property match", external_id="property-account", email_domains=previous_domains
+        )
+        identity_account = self._create_account(name="Identity match", external_id="identity-account")
+        competing_account = (
+            self._create_account(name="Competing match", external_id="competing-account")
+            if change == "known_email_ambiguous"
+            else None
+        )
+        mock_list_threads.return_value = [
+            EmailThreadForAccountMatching(
+                id="affected-thread",
+                participant_emails=["contact@old.example.com", "person@identity.example.com"],
+                gmail_owner_id=None,
+            )
+        ]
+
+        def resolve_groups_during_property_edit(_team_id: int, _emails: list[str], _index: int) -> dict[str, str]:
+            with self.captureOnCommitCallbacks(execute=True):
+                if change == "known_email_ambiguous":
+                    assert competing_account is not None
+                    api.update_account(
+                        competing_account,
+                        properties={"known_emails": ["person@identity.example.com"]},
+                        allow_matching_updates=True,
+                    )
+                    properties = {"known_emails": ["person@identity.example.com"]}
+                else:
+                    properties = {"email_domains": ["identity.example.com"] if change == "domain_added" else []}
+                api.update_account(property_account, properties=properties, allow_matching_updates=True)
+
+            recalculate_email_thread_links_for_account_properties(
+                self.team.id,
+                str(property_account.id),
+                previous_known_emails=[],
+                previous_email_domains=previous_domains,
+            )
+            if evict_revision:
+                cache.clear()
+            return {"person@identity.example.com": "identity-account"}
+
+        mock_group_keys.side_effect = resolve_groups_during_property_edit
+
+        processed = recalculate_email_thread_links(self.team.id)
+
+        assert processed == 1
+        mock_group_keys.assert_called_once()
+        final_links = {(link.account_id, link.match_source) for link in mock_replace.call_args.args[2]}
+        if change == "domain_removed":
+            assert final_links == {(str(identity_account.id), "person_group")}
+        elif change == "domain_added":
+            assert final_links == {(str(property_account.id), "email_domain")}
+        else:
+            assert final_links == set()
 
     @patch("products.customer_analytics.backend.facade.email_matching.conversations.replace_email_thread_account_links")
     @patch(

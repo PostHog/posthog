@@ -1,9 +1,14 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from secrets import randbits
+
 from django.core.cache import cache
-from django.db import transaction
+from django.db import connections, router, transaction
 
 import structlog
 from celery import current_app
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -37,6 +42,31 @@ def _recalculation_cache_key(team_id: int) -> str:
 
 def _recalculation_dirty_cache_key(team_id: int) -> str:
     return f"customer_analytics:email_thread_link_recalculation_dirty:{team_id}"
+
+
+def _matching_revision_cache_key(team_id: int) -> str:
+    return f"customer_analytics:email_matching_revision:{resolve_effective_team_id(team_id)}"
+
+
+def _get_matching_revision(team_id: int) -> int | None:
+    key = _matching_revision_cache_key(team_id)
+    cache.add(key, randbits(63), timeout=None)
+    try:
+        # Read from the Redis primary so replica lag cannot hide property edits.
+        revision = cache.incr(key, delta=0)
+    except ValueError:
+        return None
+    return revision if isinstance(revision, int) else None
+
+
+@contextmanager
+def _guard_email_thread_link_writes(team_id: int) -> Iterator[None]:
+    using = router.db_for_write(Account)
+    key = f"account-email-links:{resolve_effective_team_id(team_id)}"
+    with transaction.atomic(using=using):
+        with connections[using].cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [key])
+        yield
 
 
 def finish_email_thread_link_recalculation(team_id: int) -> None:
@@ -99,6 +129,7 @@ def schedule_email_thread_link_recalculation_for_account_properties(
 
     def enqueue() -> None:
         try:
+            cache.set(_matching_revision_cache_key(team_id), randbits(63), timeout=None)
             current_app.send_task(
                 _RECALCULATION_ACCOUNT_PROPERTIES_TASK,
                 args=[team_id, account_id],
@@ -202,7 +233,7 @@ def recalculate_email_thread_links_for_account_properties(
         if not threads:
             return processed
 
-        with transaction.atomic():
+        with _guard_email_thread_link_writes(team_id):
             locked_account = (
                 Account.objects.for_team(team_id).select_for_update().only("id").filter(id=account_id).first()
             )
@@ -254,16 +285,27 @@ def recalculate_email_thread_links(
         for thread in threads:
             member_search_enabled = thread.gmail_owner_id in enabled_owner_ids
             threads_by_member_search.setdefault(member_search_enabled, []).append(thread)
+        matching_revision = _get_matching_revision(team_id)
         matches_by_member_search = {
             member_search_enabled: (
                 match_accounts_for_gmail_emails if member_search_enabled else match_accounts_for_emails
             )(team, [email for thread in matching_threads for email in thread.participant_emails])
             for member_search_enabled, matching_threads in threads_by_member_search.items()
         }
-        for thread in threads:
-            group_matches = matches_by_member_search[thread.gmail_owner_id in enabled_owner_ids]
-            _replace_thread_links(team_id, thread, group_matches)
-            processed += 1
+        with _guard_email_thread_link_writes(team_id):
+            if matching_revision is None or _get_matching_revision(team_id) != matching_revision:
+                matches_by_member_search = {
+                    member_search_enabled: match_accounts_for_account_properties(
+                        team,
+                        [email for thread in matching_threads for email in thread.participant_emails],
+                        existing_matches=matches_by_member_search[member_search_enabled],
+                    )
+                    for member_search_enabled, matching_threads in threads_by_member_search.items()
+                }
+            for thread in threads:
+                group_matches = matches_by_member_search[thread.gmail_owner_id in enabled_owner_ids]
+                _replace_thread_links(team_id, thread, group_matches)
+                processed += 1
 
         if len(threads) < batch_size:
             return processed
