@@ -11373,10 +11373,10 @@ Today (12): `catalog_items`, `changes`, `departments`, `groups`, `hardwares`, `i
 
 Diffed against: <https://apidoc.samanage.com/redoc/schema/resolved_schema.json>
 
-- [ ] `categories` — lookup table resolving the category/subcategory IDs carried on incidents, changes and problems we already sync (high)
-- [ ] `{object_type}/{id}/audits (and /audits)` — per-ticket state/field transition history - the only way to compute time-in-state, reassignment and SLA breach analytics (high)
-- [ ] `{object_type}/{id}/time_tracks` — time logged per incident/change/problem; core effort and cost-per-ticket metric (high)
-- [ ] `configuration_items` — CMDB configuration items that incidents and changes reference; joins tickets to affected infrastructure (high)
+- [x] `categories` — lookup table resolving the category/subcategory IDs carried on incidents, changes and problems we already sync (high)
+- [x] `{object_type}/{id}/audits (and /audits)` — per-ticket state/field transition history - the only way to compute time-in-state, reassignment and SLA breach analytics (high)
+- [x] `{object_type}/{id}/time_tracks` — time logged per incident/change/problem; core effort and cost-per-ticket metric (high)
+- [x] `configuration_items` — CMDB configuration items that incidents and changes reference; joins tickets to affected infrastructure (high)
 - [ ] `roles` — lookup resolving the role IDs on users we already sync (medium)
 - [ ] `vendors` — lookup for the vendor IDs on hardwares, other_assets, contracts and purchase_orders (medium)
 - [ ] `contracts` — asset contracts with cost and renewal dates; underpins spend and renewal reporting (medium)
