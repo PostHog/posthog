@@ -445,6 +445,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "deletes the existing instances and closes their notification threads without a message."
         ),
     )
+    platform_owned = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether the alerts platform evaluates this alert and sends its notifications. Only such an "
+            "alert can set a grouping other than single."
+        ),
+    )
 
     @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
@@ -708,6 +715,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "state_timeline",
             "destination_types",
             "grouping",
+            "platform_owned",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -724,6 +732,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "platform_owned",
             "first_enabled_at",
             "created_at",
             "created_by",

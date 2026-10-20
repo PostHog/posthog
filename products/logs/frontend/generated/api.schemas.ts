@@ -704,6 +704,8 @@ export interface LogsAlertConfigurationApi {
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -878,6 +880,8 @@ export interface LogsAlertConfigurationDetailApi {
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -982,6 +986,8 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    readonly platform_owned?: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable

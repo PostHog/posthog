@@ -2455,6 +2455,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
         created = self._create_via_api(name="Added after the cutover")
 
+        assert created["platform_owned"] is True
         assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
         assert self._copy(created["id"]).owner == "platform"
 
@@ -2563,6 +2564,7 @@ class TestLogsAlertAPI(APIBaseTest):
             "max_instances": 100,
             "on_overflow": "degrade_visible",
         }
+        assert created["platform_owned"] is False
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
