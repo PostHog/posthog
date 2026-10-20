@@ -92,16 +92,6 @@ class TableAccessDeniedError(QueryError):
         self.table_name = table_name
 
 
-class InvalidUTF8ResultError(QueryError):
-    code_name = "invalid_utf8_result"
-
-    def __init__(self):
-        super().__init__(
-            "The query returns text that isn't valid UTF-8, so the results can't be returned. "
-            "Wrap text columns in toValidUTF8() to replace invalid characters, or in hex() to see the raw bytes."
-        )
-
-
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 

@@ -126,7 +126,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, InvalidUTF8ResultError
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -423,10 +423,6 @@ def response_results_contain_models(response_class: type[BaseModel]) -> bool:
     if field is None:
         return False
     return _annotation_mentions_base_model(field.annotation)
-
-
-def _result_has_undecodable_string(serialization_error: TypeError) -> bool:
-    return isinstance(serialization_error.__cause__, UnicodeDecodeError)
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -2947,18 +2943,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             stored = False
             if cacheable:
                 with self.timings.measure("cache_write"):
-                    try:
-                        stored = cache_manager.store_result(
-                            response=fresh_response_dict,
-                            # This would be a possible place to decide to not ever keep this cache warm
-                            # Example: Not for super quickly calculated insights
-                            # Set target_age to None in that case
-                            target_age=target_age,
-                        )
-                    except TypeError as err:
-                        if _result_has_undecodable_string(err):
-                            raise InvalidUTF8ResultError() from err
-                        raise
+                    stored = cache_manager.store_result(
+                        response=fresh_response_dict,
+                        # This would be a possible place to decide to not ever keep this cache warm
+                        # Example: Not for super quickly calculated insights
+                        # Set target_age to None in that case
+                        target_age=target_age,
+                    )
                 if stored and flight is not None:
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
