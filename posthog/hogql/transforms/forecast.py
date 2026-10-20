@@ -36,6 +36,7 @@ ONNX_INTRA_OP_THREADS = 2
 # takes under a second and a query about 12 seconds at most.
 RUN_TOKENS = 2048
 QUERY_TOKENS = 32768
+BUDGET_MESSAGE = "forecast exceeds its query budget. Use fewer rows, shorter histories, or a shorter horizon."
 TIME_LIMIT_MESSAGE = "forecast exceeded its time limit. Use fewer rows, shorter histories, or a shorter horizon."
 # The token cost below counts one block per forecast.
 assert MAX_HORIZON <= PATCH * BLOCK_PATCHES
@@ -187,6 +188,15 @@ def _tokens(length: int, horizon: int) -> int:
     return 2 * (math.ceil(length / PATCH) + math.ceil(horizon / PATCH))
 
 
+def forecast_tokens(spec: ForecastCall, values: list[object]) -> int:
+    """Transformer positions a forecast column costs, for the query budget."""
+    return sum(
+        _tokens(len(value[-MAX_CONTEXT:]), spec.horizon)
+        for value in values
+        if isinstance(value, list | tuple) and len(value) >= 2
+    )
+
+
 def _batches(series: dict[int, list[float]], horizon: int) -> list[list[int]]:
     """Row indexes in batches of at most RUN_TOKENS positions.
 
@@ -208,8 +218,6 @@ def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float)
         for i, value in enumerate(values)
         if isinstance(value, list | tuple) and len(value) >= 2
     }
-    if sum(_tokens(len(s), spec.horizon) for s in series.values()) > QUERY_TOKENS:
-        raise QueryError("forecast exceeds its query budget. Use fewer rows, shorter histories, or a shorter horizon.")
     out: list[object] = [([], [], []) for _ in values]
     for batch in _batches(series, spec.horizon):
         # NaN is missing, so shorter series are padded on the left.

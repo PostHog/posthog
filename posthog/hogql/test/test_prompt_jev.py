@@ -202,6 +202,22 @@ class TestPromptJev(SimpleTestCase):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
         model.return_value.forecast.assert_not_called()
 
+    def test_forecast_budget_is_shared_across_columns_and_stages(self) -> None:
+        node = parse_expr("forecast(v, 2)")
+        assert isinstance(node, ast.Call)
+        spec = ForecastCall.parse(node)
+        values: list[object] = [[1.0] * 8192] * 40
+        runner = PromptJevRunner(team_id=1, distinct_id=None)
+        with self.assertRaisesRegex(QueryError, "query budget"):
+            runner.check_budget([(spec, values), (spec, values)])
+        with patch("posthog.hogql.transforms.forecast._model") as model:
+            model.return_value.forecast.side_effect = lambda c, h, d: np.zeros((c.shape[0], h, 21))
+            runner.evaluate(spec, values)
+            runs = model.return_value.forecast.call_count
+            with self.assertRaisesRegex(QueryError, "query budget"):
+                runner.evaluate(spec, values)
+        self.assertEqual(model.return_value.forecast.call_count, runs)
+
     def test_forecast_batches_keep_each_row_with_its_own_result(self) -> None:
         node = parse_expr("forecast(v, 64)")
         assert isinstance(node, ast.Call)

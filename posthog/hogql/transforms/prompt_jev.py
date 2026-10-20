@@ -26,7 +26,13 @@ from posthog.hogql.functions.prompt_jev import (
     is_enrichment_call,
     parse_enrichment_call,
 )
-from posthog.hogql.transforms.forecast import evaluate_forecast, validate_forecast_access
+from posthog.hogql.transforms.forecast import (
+    BUDGET_MESSAGE,
+    QUERY_TOKENS,
+    evaluate_forecast,
+    forecast_tokens,
+    validate_forecast_access,
+)
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -147,6 +153,7 @@ class PromptJevRunner:
         self.distinct_id = distinct_id
         self.cache: dict[_DecisionKey, object] = {}
         self.input_bytes = 0
+        self.forecast_tokens = 0
         self.deadline = time.monotonic() + 60
         self.clients: dict[str, GatewaySystemOneClient] = {}
 
@@ -217,8 +224,10 @@ class PromptJevRunner:
         self, columns: list[tuple[PromptJevCall | ForecastCall, list[object]]]
     ) -> dict[_DecisionKey, None]:
         missing: dict[_DecisionKey, None] = {}
+        tokens = 0
         for spec, values in columns:
             if isinstance(spec, ForecastCall):
+                tokens += forecast_tokens(spec, values)
                 continue
             question_key = json.dumps(spec.question.to_json(), sort_keys=True)
             for value in values:
@@ -234,10 +243,15 @@ class PromptJevRunner:
         input_bytes = self.input_bytes + sum(len(key.text.encode()) for key in missing)
         if len(self.cache) + len(missing) > settings.HOGQL_JEV_MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
             raise QueryError("jev exceeds the query budget. Select fewer or shorter inputs.")
+        # Every forecast column in every SELECT of the query shares one budget.
+        if self.forecast_tokens + tokens > QUERY_TOKENS:
+            raise QueryError(BUDGET_MESSAGE)
         return missing
 
     def evaluate(self, spec: PromptJevCall | ForecastCall, values: list[object]) -> list[object]:
         if isinstance(spec, ForecastCall):
+            self.check_budget([(spec, values)])
+            self.forecast_tokens += forecast_tokens(spec, values)
             return evaluate_forecast(spec, values, self.deadline)
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
         missing = [key.text for key in self.check_budget([(spec, values)])]
