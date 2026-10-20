@@ -91,8 +91,6 @@ BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
 )
 
-MAX_REPORTED_COLUMN_TYPE_LENGTH = 200
-
 BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check function parameters and type conversions."
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
@@ -126,11 +124,11 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
 
 
 def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnreadableResultType":
-    column_type = err.message.removeprefix("Unknown type ")[:MAX_REPORTED_COLUMN_TYPE_LENGTH]
+    column_type = err.message.removeprefix("Unknown type ")
     return CHQueryErrorUnreadableResultType(
-        f"The query returns a column of type {column_type}, which can't be read. "
-        "Return final values instead of aggregate states, for example argMin() instead of argMinState(), "
-        "or argMinMerge() over stored states. For other types, cast the column to String.",
+        f"PostHog can't read a result column of type {column_type}. "
+        "For an aggregate state, use the plain aggregate function, for example argMin() instead of argMinState(), "
+        "or merge stored states with argMinMerge(). For other types, convert the column with toString().",
         code=err.code,
         code_name="unknown_type",
     )
