@@ -152,7 +152,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -169,6 +169,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -220,37 +221,13 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
   '''
-  SELECT session_replay_events.session_id AS session_id,
-         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
-         max(session_replay_events.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
-  GROUP BY session_replay_events.session_id
-  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
-  '''
   SELECT source.id,
          source.id AS id,
          source.matching_events AS matching_events
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -267,6 +244,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -316,31 +294,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
-  '''
-  SELECT session_replay_events.session_id AS session_id,
-         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
-         max(session_replay_events.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
-  GROUP BY session_replay_events.session_id
-  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
   '''
   SELECT source.id,
          source.id AS id,
@@ -348,7 +302,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -365,6 +319,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -414,31 +369,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
-  '''
-  SELECT session_replay_events.session_id AS session_id,
-         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
-         max(session_replay_events.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
-  GROUP BY session_replay_events.session_id
-  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
   '''
   SELECT source.id,
          source.id AS id,
@@ -446,7 +377,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -463,6 +394,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -510,30 +442,6 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
-  '''
-  SELECT session_replay_events.session_id AS session_id,
-         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
-         max(session_replay_events.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
-  GROUP BY session_replay_events.session_id
-  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
@@ -693,7 +601,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -710,6 +618,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -762,7 +671,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -779,6 +688,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -831,7 +741,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -848,6 +758,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -900,7 +811,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -917,6 +828,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1023,7 +935,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1040,6 +952,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1092,7 +1005,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1109,6 +1022,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1236,7 +1150,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1253,6 +1167,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1309,7 +1224,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1326,6 +1241,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1382,7 +1298,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1399,6 +1315,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1455,7 +1372,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1472,6 +1389,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1678,7 +1596,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1695,6 +1613,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1751,7 +1670,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1768,6 +1687,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1824,7 +1744,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1841,6 +1761,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
@@ -1897,7 +1818,7 @@
   FROM
     (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               if(or(empty(matched_events_array[plus(step_reached, 1)]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[plus(step_reached, 1)]))), matched_events_array[plus(step_reached, 1)], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[plus(step_reached, 1)]))), 0), session_step_events), -1)) AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
@@ -1914,6 +1835,7 @@
                   groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                   mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                   arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                   af_tuple.5 AS steps_bitfield,
                   aggregation_target AS aggregation_target
            FROM
