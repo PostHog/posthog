@@ -28,6 +28,7 @@ from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
     _coerce_to_datetime,
     _events_route_cache_key,
+    _events_route_modifiers,
     _get_earliest_timestamp_cache_key,
     format_label_date,
     get_earliest_timestamp_from_series,
@@ -536,7 +537,9 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # TTL window. A cache hit must still pass through _coerce_to_datetime instead of
         # returning the raw value, otherwise downstream date math hits AttributeError/TypeError.
         node = EventsNode(event="$pageview")
-        cache_key = _events_route_cache_key(self.team, _get_earliest_timestamp_cache_key(self.team, node))
+        cache_key = _events_route_cache_key(
+            self.team, _events_route_modifiers(self.team), _get_earliest_timestamp_cache_key(self.team, node)
+        )
         # team timezone is UTC in tests; "2021-03-15" is the pre-fix raw Date/String shape.
         cache.set(cache_key, "2021-03-15", timeout=3600)
 
@@ -632,15 +635,21 @@ class TestEarliestTimestampRouting(BaseTest):
         ):
             self.assertEqual(get_earliest_timestamp_from_series(self.team, [EventsNode(event=None)]), native)
 
+    @parameterized.expand([("allowlisted_project", True, {}), ("project_setting", False, {"useNewEventsSchema": True})])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_lookup_outside_a_run_keys_on_the_events_table_it_reads(self) -> None:
+    def test_lookup_outside_a_run_keys_on_the_events_table_it_reads(
+        self, _name: str, allowlisted: bool, team_modifiers: dict[str, bool]
+    ) -> None:
+        self.team.modifiers = team_modifiers
         node = EventsNode(event="$pageview")
         cache.set(
             _get_earliest_timestamp_cache_key(self.team, node), datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
         )
         native = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
         with (
-            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
+            override_instance_config(
+                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk) if allowlisted else ""
+            ),
             patch(
                 "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
             ) as execute,

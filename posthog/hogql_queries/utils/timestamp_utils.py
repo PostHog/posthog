@@ -18,12 +18,14 @@ from posthog.schema import (
     EventsNode,
     FunnelsDataWarehouseNode,
     GroupNode,
+    HogQLQueryModifiers,
     LifecycleDataWarehouseNode,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -136,12 +138,15 @@ def _get_earliest_timestamp_cache_key(
             raise ValueError(f"Unsupported node type: {type(node)}")
 
 
-def _events_route_cache_key(team: Team, cache_key: str) -> str:
+def _events_route_modifiers(team: Team) -> HogQLQueryModifiers:
+    return create_default_modifiers_for_team(team, get_events_route())
+
+
+def _events_route_cache_key(team: Team, modifiers: HogQLQueryModifiers, cache_key: str) -> str:
     # Each events table and cluster holds its own copy of the events, so one route's result must not answer another.
     # The route goes in front, because legacy keys end in event names and table names that a suffix could collide with.
-    route = get_events_route()
-    native_table = use_new_events_schema(team.pk, route)
-    native_cluster = bool(route and route.useNewEventsCluster)
+    native_table = use_new_events_schema(team.pk, modifiers)
+    native_cluster = bool(modifiers.useNewEventsCluster)
     if not (native_table or native_cluster):
         return cache_key
     native_host = get_new_events_cluster_host() if native_cluster else None
@@ -210,7 +215,8 @@ def _get_earliest_timestamp_from_node(
     """
     # The cache is team-wide (keyed by team + node, not user): the value is table metadata, and row
     # access is still enforced on the insight's main query, so per-user entries aren't worth the misses.
-    cache_key = _events_route_cache_key(team, _get_earliest_timestamp_cache_key(team, node))
+    modifiers = _events_route_modifiers(team)
+    cache_key = _events_route_cache_key(team, modifiers, _get_earliest_timestamp_cache_key(team, node))
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
         # Coerce on read too: entries cached before the coercion fix shipped hold a raw
@@ -229,7 +235,7 @@ def _get_earliest_timestamp_from_node(
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
     with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team, user=user, modifiers=get_events_route())
+        result = execute_hogql_query(query=query, team=team, user=user, modifiers=modifiers)
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
@@ -290,7 +296,8 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
     legacy raw-SQL earliest-timestamp helper: floored at 2015-01-01, falling back to
     now - DEFAULT_EARLIEST_TIME_DELTA when the team has no events.
     """
-    cache_key = _events_route_cache_key(team, f"earliest_timestamp_unfiltered_{team.pk}")
+    modifiers = _events_route_modifiers(team)
+    cache_key = _events_route_cache_key(team, modifiers, f"earliest_timestamp_unfiltered_{team.pk}")
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
         return _coerce_to_datetime(cached_result, team.timezone_info)
@@ -313,7 +320,7 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
             team=team,
             # The read has no upper bound and no filter, so the first row in sort key order is the answer.
             context=HogQLContext(team_id=team.pk, order_events_reads_by_sort_key=True),
-            modifiers=get_events_route(),
+            modifiers=modifiers,
         )
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
