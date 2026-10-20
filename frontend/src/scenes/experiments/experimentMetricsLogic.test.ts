@@ -752,6 +752,42 @@ describe('experimentMetricsLogic', () => {
             expect(createMock).not.toHaveBeenCalled()
         })
 
+        it('keeps the earlier results and shows the message when the backend rejects the run', async () => {
+            const message = 'This experiment started too long ago for its metrics to be recalculated.'
+            const windowError = {
+                step: 'request',
+                message,
+                error_type: 'recalculation_window_too_long',
+                retriable: false,
+            }
+            const rejected = {
+                ...baseRecalculation,
+                id: 'recalc-rejected',
+                status: 'failed',
+                completed_at: new Date().toISOString(),
+                metric_errors: { [PRIMARY_METRIC_UUID]: windowError, [SECONDARY_METRIC_UUID]: windowError },
+            }
+            let latest: object = completedRecalculation
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [200, latest] },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, rejected] },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            latest = { ...rejected, query_to: completedRecalculation.query_to, results: completedRecalculation.results }
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            })
+                .toDispatchActions(['setCurrentRecalculation', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+                .toNotHaveDispatchedActions(['pollRecalculation'])
+
+            expect(logic.values.recalculationRejectionMessage).toEqual(message)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.primaryMetricsResultsErrors[0]).toBeNull()
+            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+        })
+
         it('creates a recalculation for a stopped experiment to compute its final results', async () => {
             const stopped = { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment
             const createMock = jest.fn(() => [201, pendingRecalculation])
