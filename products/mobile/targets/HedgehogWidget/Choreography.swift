@@ -134,7 +134,7 @@ enum SharedStore {
 }
 
 enum HogSelection {
-    static let characters = ["coffee_cup", "party", "wizard", "explorer", "asleep", "superhero", "reading", "float"]
+    static let characters = ["coffee_cup", "party", "wizard", "explorer", "superhero", "reading", "float"]
 
     static func next(after current: String?) -> String {
         guard let current, let index = characters.firstIndex(of: current) else { return characters[0] }

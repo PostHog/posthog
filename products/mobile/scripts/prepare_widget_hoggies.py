@@ -18,7 +18,6 @@ FACES_LEFT: dict[str, bool] = {
     "party": True,
     "wizard": True,
     "explorer": False,
-    "asleep": True,
     "superhero": False,
     "reading": True,
     "float": True,

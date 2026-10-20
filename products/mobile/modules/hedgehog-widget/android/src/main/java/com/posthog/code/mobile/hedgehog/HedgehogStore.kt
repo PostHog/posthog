@@ -25,7 +25,7 @@ object HedgehogStore {
         editor.commit()
     }
 
-    private val characters = listOf("coffee_cup", "party", "wizard", "explorer", "asleep", "superhero", "reading", "float")
+    private val characters = listOf("coffee_cup", "party", "wizard", "explorer", "superhero", "reading", "float")
 
     fun selected(context: Context, id: Int): String? = prefs(context).getString("selectedHog.$id", null)
 

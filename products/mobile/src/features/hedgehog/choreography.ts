@@ -12,7 +12,7 @@ import {
 export type Pose = 'idle' | 'walk' | 'jump' | 'wave' | 'action' | 'fall'
 export type Facing = 'left' | 'right'
 
-export const HOGGIES = ['coffee_cup', 'party', 'wizard', 'explorer', 'asleep', 'superhero', 'reading', 'float'] as const
+export const HOGGIES = ['coffee_cup', 'party', 'wizard', 'explorer', 'superhero', 'reading', 'float'] as const
 export type Hoggie = (typeof HOGGIES)[number]
 
 const HOGGIE_LINES: Record<Hoggie, string> = {
@@ -20,7 +20,6 @@ const HOGGIE_LINES: Record<Hoggie, string> = {
     party: 'Dance break',
     wizard: 'A little magic',
     explorer: 'On an adventure',
-    asleep: 'Five more minutes',
     superhero: 'Up, up and away!',
     reading: 'One more chapter',
     float: 'Going with the flow',
@@ -335,7 +334,7 @@ function planSurprises(random: Random): Choreography['reaction'][] {
     return shuffled(random, HOGGIES).map((hoggie) => ({
         keyframes: [
             { ...makeTick('wave', 10, 0.5, 0, 'right', { bubble: HOGGIE_LINES[hoggie] }), hoggie },
-            { ...makeTick('jump', 4, 0.5, hoggie === 'asleep' || hoggie === 'reading' ? 0 : 0.2, 'right'), hoggie },
+            { ...makeTick('jump', 4, 0.5, hoggie === 'reading' ? 0 : 0.2, 'right'), hoggie },
             { ...makeTick('idle', 0, 0.5, 0, 'right', { bubble: HOGGIE_LINES[hoggie] }), hoggie },
             { ...makeTick('idle', 0, 0.5, 0, 'right', { bubble: HOGGIE_LINES[hoggie] }), hoggie },
         ],

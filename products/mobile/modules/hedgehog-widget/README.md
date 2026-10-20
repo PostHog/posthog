@@ -1,7 +1,7 @@
 # Hedgehog widget
 
 A home-screen widget for iOS and Android with a PostHog hedgehog that wanders, jumps, waves and dances.
-Tapping the hog cycles through eight illustrated characters: coffee, party, wizard, explorer, asleep, superhero, reading and float.
+Tapping the hog cycles through seven illustrated characters: coffee, party, wizard, explorer, superhero, reading and float.
 The selected character stays until the next tap, including across app launches and daily script syncs.
 The app has no hedgehog mode of its own yet; the widget is the only place the hedgehog appears.
 
@@ -89,7 +89,7 @@ interface Tick {
     motion?: Motion // iOS keyframes only, see below
     bubble?: string // legacy dialogue; ignored by the native renderers
     turn?: number // legacy half-turn markers; iOS plays one complete flip when entering an airborne sequence
-    hoggie?: 'coffee_cup' | 'party' | 'wizard' | 'explorer' | 'asleep' | 'superhero' | 'reading' | 'float'
+    hoggie?: 'coffee_cup' | 'party' | 'wizard' | 'explorer' | 'superhero' | 'reading' | 'float'
     // A bundled illustration replaces the pixel sprite. Missing/unknown artwork falls back to the pixel sprite.
     // Consecutive ticks with a turn add up, and the run ends on whole turns with y 0, so the hedgehog lands upright
 }
@@ -184,7 +184,7 @@ The sprite's feet sit about 4px above the bottom of the 160px cell (opaque body 
 ### Illustrated visitors
 
 The illustrations come from [PostHog's hoggies library](https://brand.posthog.com/hoggies):
-`coffee-cup.png`, `party.png`, `wizard-1.png`, `explorer.png`, `asleep.png`, `superhero.png`, `reading.png` and `float.png`.
+`coffee-cup.png`, `party.png`, `wizard-1.png`, `explorer.png`, `superhero.png`, `reading.png` and `float.png`.
 Download them from `https://brand.posthog.com/hoggies/<filename>` into a local directory and name `wizard-1.png` as `wizard.png`.
 Run `scripts/prepare_widget_hoggies.py --source <directory>` with Pillow available to regenerate both platforms' assets.
 It trims transparent margins, normalizes facing, and fits each illustration into a 320px transparent cell with its bottom at 312px.
