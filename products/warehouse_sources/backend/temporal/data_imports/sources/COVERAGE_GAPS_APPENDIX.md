@@ -13674,7 +13674,7 @@ Note: Tables are static (ZOOM_ENDPOINTS in products/warehouse_sources/backend/te
 
 ## Zuora — gaps
 
-Today (8): `accounts`, `credit_memos`, `invoices`, `orders`, `payments`, `products`, `refunds`, `subscriptions`
+Today (11): `accounts`, `billable_metrics`, `credit_memos`, `entitlement_grants`, `features`, `invoices`, `orders`, `payments`, `products`, `refunds`, `subscriptions`
 
 Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compact.yaml>
 
@@ -13690,6 +13690,9 @@ Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compac
 - [ ] `object-query/order-actions` — the individual actions inside each order we sync (create/amend/cancel/renew), giving orders analyzable structure (medium)
 - [ ] `object-query/order-line-items` — non-subscription order line items with quantity and amount, missing from the order headers we sync (medium)
 - [ ] `object-query/usages and object-query/processed-usages` — consumption records for usage-based charges - required to explain variable invoice amounts (medium)
+- [x] `/commerce/billable-metrics` — billable metric definitions that measure entitlement usage (`billable_metrics`)
+- [x] `/commerce/features` — catalog features granted through entitlements (`features`)
+- [x] `/commerce/entitlements/grants` — runtime entitlement grants per account and subscription, paginated by `nextPageToken` (`entitlement_grants`)
 
 Note: The connector already uses Zuora's Object Query API (/object-query/<segment>, filtered on updateddate), so every gap listed is a same-shape, same-pagination addition - the spec exposes ~50 object-query collections and the source wires up 8. Also unsynced but lower value: payment-applications, refund-applications, payment-methods, taxation-items, billing-runs, payment-runs, prepaid-balances/prepaid-balance-transactions, invoice-schedules, ramps, summarystatements. Zuora also serves the spec as zuora-openapi-for-otc.yaml (order-to-cash only); I used the full compact build, version 2026-07-24.
 
