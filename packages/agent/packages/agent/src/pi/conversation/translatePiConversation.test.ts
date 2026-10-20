@@ -2,6 +2,15 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { createPiConversationTranslator } from "./translatePiConversation";
 
+const streamingUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
 function assistant(
   content: AssistantMessage["content"],
   stopReason: AssistantMessage["stopReason"] = "stop",
@@ -69,6 +78,7 @@ describe("createPiConversationTranslator", () => {
         contentIndex: 0,
         delta: "complete",
       },
+      usage: streamingUsage,
     });
     const ended = translator.translateEvent({ type: "message_end", message });
 
@@ -112,7 +122,9 @@ describe("createPiConversationTranslator", () => {
       willRetry: false,
     });
 
-    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+    expect(
+      translator.translateEvent({ type: "agent_settled", aborted: false }),
+    ).toEqual([
       {
         type: "turn_completed",
         timestamp: 20,
@@ -157,7 +169,9 @@ describe("createPiConversationTranslator", () => {
         willRetry: false,
       });
 
-      expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      expect(
+        translator.translateEvent({ type: "agent_settled", aborted: false }),
+      ).toEqual([
         {
           type: "turn_completed",
           timestamp: 20,
@@ -219,7 +233,9 @@ describe("createPiConversationTranslator", () => {
       },
     });
 
-    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+    expect(
+      translator.translateEvent({ type: "agent_settled", aborted: false }),
+    ).toEqual([
       {
         type: "turn_completed",
         timestamp: 20,
@@ -256,7 +272,7 @@ describe("createPiConversationTranslator", () => {
       messages: [failedTurnMessage],
       willRetry: false,
     });
-    translator.translateEvent({ type: "agent_settled" });
+    translator.translateEvent({ type: "agent_settled", aborted: false });
     translator.translateEvent({
       type: "message_end",
       message: nextTurnMessage,
@@ -267,7 +283,9 @@ describe("createPiConversationTranslator", () => {
       willRetry: false,
     });
 
-    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+    expect(
+      translator.translateEvent({ type: "agent_settled", aborted: false }),
+    ).toEqual([
       {
         type: "turn_completed",
         timestamp: 20,
@@ -298,6 +316,7 @@ describe("createPiConversationTranslator", () => {
         contentIndex: 0,
         delta: "comp",
       },
+      usage: streamingUsage,
     });
 
     expect(translator.translateEvent({ type: "message_end", message })).toEqual(
@@ -324,6 +343,7 @@ describe("createPiConversationTranslator", () => {
         contentIndex: 0,
         delta: "first",
       },
+      usage: streamingUsage,
     });
     translator.translateEvent({ type: "message_end", message: first });
     translator.translateEvent({ type: "message_start", message: second });
@@ -358,6 +378,7 @@ describe("createPiConversationTranslator", () => {
           contentIndex: 0,
           delta: "stale",
         },
+        usage: streamingUsage,
       }),
     ).toEqual([]);
   });
@@ -388,7 +409,9 @@ describe("createPiConversationTranslator", () => {
       });
       translator.translateEvent({ type: "message_end", message: laterMessage });
 
-      expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      expect(
+        translator.translateEvent({ type: "agent_settled", aborted: false }),
+      ).toEqual([
         {
           type: "turn_completed",
           timestamp: 30,
@@ -451,6 +474,7 @@ describe("createPiConversationTranslator", () => {
           contentIndex: 0,
           delta: "Done",
         },
+        usage: streamingUsage,
       }),
     ).toEqual([
       {
@@ -872,6 +896,7 @@ describe("createPiConversationTranslator", () => {
         contentIndex: 0,
         delta: "running",
       },
+      usage: streamingUsage,
     });
 
     expect(translator.translateEvent({ type: "message_end", message })).toEqual(
@@ -886,6 +911,7 @@ describe("createPiConversationTranslator", () => {
             kind: "execute",
             status: "pending",
             rawInput: { command: "pwd" },
+            _meta: { posthog: { toolName: "Bash" } },
           },
         },
       ],

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SolarwindsServiceDeskSource(
     ResumableSource[SolarwindsServiceDeskSourceConfig, SolarwindsServiceDeskResumeConfig]
 ):
+    codebase_detection = detect(env=("^(SOLARWINDS_SERVICE_DESK|SOLARWINDSSERVICEDESK)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2.1",)  # pinned via Accept: application/vnd.samanage.v2.1+json
     default_version = "v2.1"
@@ -151,6 +154,9 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
         # At source-create only the token is probed (a 403 there can just mean the token's role
         # doesn't cover the probe resource); with a schema_name we probe that endpoint's own path.
         endpoint = SOLARWINDS_SERVICE_DESK_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None and endpoint.fanout is not None:
+            # A child path needs a parent id, so probe the parent list the fan-out reads.
+            endpoint = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint.fanout.parent_name]
         return validate_credentials(config.region, config.api_token, endpoint.path if endpoint else None)
 
     def get_resumable_source_manager(

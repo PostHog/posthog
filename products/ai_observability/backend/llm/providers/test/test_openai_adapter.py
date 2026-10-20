@@ -20,7 +20,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestOpenAIRecommendedModels:
@@ -114,8 +114,10 @@ def _make_bad_request_error(message: str) -> openai.BadRequestError:
     return openai.BadRequestError(message, response=response, body={"error": {"message": message}})
 
 
-def _content_filter_bad_request_error() -> openai.BadRequestError:
-    body = {"message": "The response was filtered by the content management policy.", "code": "content_filter"}
+def _content_filter_bad_request_error(
+    code: str = "content_filter", message: str = "The response was filtered by the content management policy."
+) -> openai.BadRequestError:
+    body = {"message": message, "code": code}
     request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
     response = httpx.Response(status_code=400, request=request, json={"error": body})
     return openai.BadRequestError("Error code: 400", response=response, body=body)
@@ -148,6 +150,33 @@ def _cross_field_error() -> ValidationError:
     raise AssertionError("expected ValidationError")
 
 
+class TestOpenAIStreamOutputSchema:
+    def _stream_kwargs(self, output_schema: OutputSchema | None) -> dict:
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+            output_schema=output_schema,
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = iter([])
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            list(OpenAIAdapter().stream(request, api_key="sk-test", analytics=AnalyticsContext(capture=False)))
+        return mock_client.chat.completions.create.call_args.kwargs
+
+    def test_output_schema_is_sent_as_strict_json_schema_response_format(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+        kwargs = self._stream_kwargs(OutputSchema(schema=schema, name="verdict"))
+
+        assert kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "verdict", "schema": schema, "strict": True},
+        }
+        assert "response_format" not in self._stream_kwargs(None)
+
+
 class TestOpenAIAdapterErrorMapping:
     @pytest.fixture
     def request_no_structured_output(self) -> CompletionRequest:
@@ -171,16 +200,21 @@ class TestOpenAIAdapterErrorMapping:
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
 
-    def test_non_402_status_error_is_not_swallowed(self, request_no_structured_output: CompletionRequest):
+    @parameterized.expand([("server_error", 500), ("precondition_failed", 412)])
+    def test_non_quota_status_error_is_not_swallowed(self, _name: str, status_code: int):
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = _make_api_status_error(500, "server error")
+        mock_client.chat.completions.create.side_effect = _make_api_status_error(status_code, "provider error")
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(openai.APIStatusError):
-                adapter.complete(
-                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
-                )
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
     @parameterized.expand(
         [
@@ -264,6 +298,14 @@ class TestOpenAIAdapterErrorMapping:
         [
             ("finish_reason", openai.ContentFilterFinishReasonError, None),
             ("prompt_rejected_400", _content_filter_bad_request_error, None),
+            (
+                "usage_policy_rejected_400",
+                lambda: _content_filter_bad_request_error(
+                    "invalid_prompt",
+                    "Invalid prompt: your prompt was flagged as potentially violating our usage policy.",
+                ),
+                None,
+            ),
             (
                 "json_fallback_finish_reason",
                 lambda: _make_bad_request_error("Invalid parameter: 'response_format' of type 'json_schema'"),

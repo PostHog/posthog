@@ -116,6 +116,7 @@ export interface destinationModalLogicActions {
     setIntegrationKind: (kind: IntegrationKind) => {
         kind:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'

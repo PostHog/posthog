@@ -1,6 +1,7 @@
 import datetime
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QualysVmdrSource(ResumableSource[QualysVmdrSourceConfig, QualysVmdrResumeConfig]):
+    codebase_detection = detect(env=("^(QUALYS_VMDR|QUALYSVMDR)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = QUALYS_VMDR_SUPPORTED_VERSIONS
     default_version = QUALYS_VMDR_DEFAULT_VERSION
@@ -149,6 +152,8 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
         def _description(endpoint: str) -> str | None:
             if endpoint == "knowledge_base":
                 return "Requires the KnowledgeBase download option enabled on your Qualys subscription"
+            if endpoint == "reports":
+                return "Requires the Report Share feature enabled on your Qualys subscription"
             return None
 
         schemas = [

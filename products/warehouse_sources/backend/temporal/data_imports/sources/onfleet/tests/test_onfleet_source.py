@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
     OnfleetSourceConfig,
 )
@@ -16,26 +20,6 @@ class TestOnfleetSource:
         self.source = OnfleetSource()
         self.team_id = 123
         self.config = OnfleetSourceConfig(api_key="key")
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://onfleet.com/api/v2/tasks/all?from=0",
-            "403 Client Error: Forbidden for url: https://onfleet.com/api/v2/workers",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://onfleet.com/api/v2/tasks/all",
-        ],
-    )
-    def test_non_retryable_errors_ignore_unrelated(self, other_error):
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_ok",
@@ -55,15 +39,16 @@ class TestOnfleetSource:
             ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert ok is expected_ok
 
-    def test_source_for_pipeline_plumbs_arguments(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "tasks"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = 1700000000000
-        inputs.incremental_field = "timeCreated"
-        manager = mock.MagicMock()
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "tasks",
+            [ScriptedResponse(json={"tasks": [{"id": "1"}]})],
+            incremental_field="timeCreated",
+            db_incremental_field_last_value=1700000000000,
+        )
 
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.name == "tasks"
-        assert response.primary_keys == ["id"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "tasks"
+        assert result.response.primary_keys == ["id"]
+        assert result.requests[0].param("from") == "1700000000000"

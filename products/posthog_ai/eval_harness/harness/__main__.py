@@ -3,18 +3,28 @@ from __future__ import annotations
 import os
 import sys
 import logging
+from contextlib import ExitStack
+from typing import TYPE_CHECKING
 
 from .cli import HarnessOptions, parse_args
 from .django_env import setup_django
 from .env_preflight import load_env_file
 from .ports import PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
-from .transcript import RunTranscript
+from .terminal import open_terminal
+from .transcript import RunTranscript, write_console
+
+if TYPE_CHECKING:
+    from .dashboard import EvalDashboard
+
+logger = logging.getLogger("products.posthog_ai.eval_harness")
 
 USAGE_ERROR_EXIT_CODE = 2
 
 
-def _run(options: HarnessOptions) -> int:
+def _run(
+    options: HarnessOptions, *, transcript: RunTranscript | None = None, dashboard: EvalDashboard | None = None
+) -> int:
     # Load the repo-root .env before Django reads the environment, so the harness
     # works without a manual `set -a; source .env`. Shell values win, and the
     # explicit overrides below still trump anything an env file provided.
@@ -37,7 +47,9 @@ def _run(options: HarnessOptions) -> int:
     # would otherwise silently point eval reads at the dev persons DB.
     os.environ["PERSONHOG_ADDR"] = f"127.0.0.1:{PERSONHOG_ROUTER_PORT}"
 
-    setup_django()
+    setup_django(keep_logging=transcript is not None)
+    if transcript is not None:
+        _configure_logging(transcript, verbose=options.verbose)
 
     # Deferred so Django is configured first: everything below reaches settings,
     # the ORM, or the products.tasks facade at import time.
@@ -45,20 +57,69 @@ def _run(options: HarnessOptions) -> int:
     from .lifecycle import SandboxedEvalHarness  # noqa: PLC0415 — must import after django.setup()
 
     try:
-        return SandboxedEvalHarness(options).run()
+        return SandboxedEvalHarness(options, dashboard=dashboard).run()
     except (PreflightError, SuiteDiscoveryError) as e:
         # A missing prerequisite or a typo'd selector is user error, not a harness
         # bug: say what's wrong without a traceback.
-        print(f"error: {e}", file=sys.stderr)  # noqa: T201
+        write_console(f"error: {e}\n", stream=sys.stderr)
         return USAGE_ERROR_EXIT_CODE
 
 
-def _configure_logging() -> None:
+def _configure_logging(transcript: RunTranscript | None = None, *, verbose: bool = False) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         force=True,
+        handlers=[transcript.logging_handler(verbose=verbose)] if transcript is not None else None,
     )
+
+
+def use_dashboard(options: HarnessOptions) -> bool:
+    if options.interactive is False:
+        return False
+    # hogli runs evals through a secrets wrapper that pipes stdout, so trust hogli's record of
+    # its own stdout. The view draws on /dev/tty, which the pipe does not affect.
+    stdout_tty = sys.stdout.isatty() or os.getenv("HOGLI_STDOUT_TTY") == "1"
+    terminal = sys.stdin.isatty() and stdout_tty
+    if options.interactive is True:
+        if not terminal:
+            try:
+                with open_terminal():
+                    pass
+            except OSError as error:
+                raise PreflightError(
+                    f"--tui could not open this session's terminal: {error}. Use --no-tui for a session without a terminal."
+                ) from error
+        return True
+    return terminal and os.getenv("TERM") != "dumb" and not os.getenv("CI")
+
+
+def _run_captured(options: HarnessOptions, transcript: RunTranscript, dashboard: EvalDashboard | None) -> int:
+    _configure_logging(transcript, verbose=options.verbose)
+    exit_code = 1
+    try:
+        try:
+            if dashboard is None or dashboard.begin_run():
+                if dashboard:
+                    logger.info("Interactive eval view ready")
+                exit_code = _run(options, transcript=transcript, dashboard=dashboard)
+        except KeyboardInterrupt:
+            if dashboard is None or dashboard.failure is None:
+                logger.warning("Interrupted")
+                exit_code = 130
+        except Exception:
+            logger.exception("Sandboxed eval harness failed")
+        finally:
+            if dashboard:
+                dashboard.end_run()
+        if dashboard:
+            dashboard.finish(exit_code)
+    finally:
+        if dashboard and (ui_error := dashboard.failure) is not None:
+            logger.error("Interactive eval view failed", exc_info=(type(ui_error), ui_error, ui_error.__traceback__))
+            exit_code = 1
+        logging.shutdown()
+    return exit_code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -67,21 +128,37 @@ def main(argv: list[str] | None = None) -> int:
         _configure_logging()
         return _run(options)
 
+    try:
+        interactive = use_dashboard(options)
+    except PreflightError as error:
+        write_console(f"error: {error}\n", stream=sys.stderr)
+        return USAGE_ERROR_EXIT_CODE
+
     transcript = RunTranscript.create()
     exit_code = 1
     try:
-        with transcript.capture():
-            _configure_logging()
-            try:
-                exit_code = _run(options)
-            except KeyboardInterrupt:
-                logging.getLogger(__name__).warning("Interrupted")
-                exit_code = 130
-            except Exception:
-                logging.getLogger(__name__).exception("Sandboxed eval harness failed")
-                exit_code = 1
-            finally:
-                logging.shutdown()
+        with ExitStack() as stack:
+            dashboard = None
+            if interactive:
+                from .dashboard import (
+                    open_dashboard,  # noqa: PLC0415 — keep the terminal UI off the noninteractive import path
+                )
+
+                try:
+                    dashboard = stack.enter_context(open_dashboard(transcript.path))
+                except (OSError, RuntimeError):
+                    with transcript.capture(verbose=options.verbose):
+                        _configure_logging(transcript, verbose=options.verbose)
+                        logger.exception("Interactive eval view could not start")
+                        if options.interactive is not True:
+                            write_console("Continuing with plain text output. Use --no-tui to select text output.\n")
+                        logging.shutdown()
+                    if options.interactive is True:
+                        return 1
+            with transcript.capture(verbose=options.verbose, console_output=dashboard.write if dashboard else None):
+                exit_code = _run_captured(options, transcript, dashboard)
+            if dashboard:
+                write_console(dashboard.result_text)
     finally:
         transcript.finish()
     return exit_code

@@ -1,3 +1,5 @@
+import time
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -162,6 +164,33 @@ class TestSchedulerState:
         assert states[(KIND, "s1")]["offset_seconds"] == 60
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_interval,new_offset",
+        [
+            pytest.param(3600, 0, id="interval_changed"),
+            pytest.param(INTERVAL, 60, id="offset_changed"),
+            pytest.param(3600, 60, id="both_changed"),
+        ],
+    )
+    async def test_single_upsert_applies_due_time_rule_per_row(self, conn, new_interval, new_offset):
+        unchanged = _state("unchanged", due_in_seconds=600)
+        await SchedulerStateTable.upsert_states(conn, [unchanged, _state("recadenced", due_in_seconds=600)])
+
+        recadenced = _state("recadenced", due_in_seconds=120, interval=new_interval, offset=new_offset)
+        new = _state("new", due_in_seconds=300, interval=3600, offset=30)
+        await SchedulerStateTable.upsert_states(conn, [_state("unchanged", due_in_seconds=9999), recadenced, new])
+
+        states = await _fetch_states(conn)
+        assert {
+            key: (row["next_due_at"], row["interval_seconds"], row["offset_seconds"])
+            for (_, key), row in states.items()
+        } == {
+            "unchanged": (unchanged.next_due_at, INTERVAL, 0),
+            "recadenced": (recadenced.next_due_at, new_interval, new_offset),
+            "new": (new.next_due_at, 3600, 30),
+        }
+
+    @pytest.mark.asyncio
     async def test_stale_state_rows_deleted_after_refresh_cutoff(self, conn):
         await SchedulerStateTable.upsert_states(
             conn, [_state("kept", due_in_seconds=600), _state("stale", due_in_seconds=600)]
@@ -191,3 +220,59 @@ class TestSchedulerState:
         async with conn.cursor() as cur:
             await cur.execute(f"UPDATE {JOB_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
         assert await acquire(OWNER_B) is True
+
+    @pytest.mark.parametrize(
+        "lease_owner,expires_in_seconds,expected",
+        [
+            pytest.param(OWNER_A, 60, True, id="own_live_lease"),
+            pytest.param(OWNER_A, -1, False, id="own_expired_lease"),
+            pytest.param(OWNER_B, 60, False, id="other_owner_lease"),
+            pytest.param(None, None, False, id="no_lease"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_lock_live_lease_only_holds_own_live_lease(self, conn, lease_owner, expires_in_seconds, expected):
+        if lease_owner is not None:
+            await JobsTable.try_acquire_sentinel_slot(
+                conn, lane="scheduler", group_key="tick-slot", owner_token=lease_owner, ttl_seconds=expires_in_seconds
+            )
+
+        async with conn.transaction():
+            held = await JobsTable.lock_live_lease(conn, lane="scheduler", group_key="tick-slot", owner_token=OWNER_A)
+
+        assert held is expected
+
+    @pytest.mark.asyncio
+    async def test_lock_live_lease_blocks_takeover_until_commit(self, conn, _db_url):
+        await JobsTable.try_acquire_sentinel_slot(
+            conn, lane="scheduler", group_key="tick-slot", owner_token=OWNER_A, ttl_seconds=60.0
+        )
+        async with (
+            await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as other_conn,
+            await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as probe,
+        ):
+            async with conn.transaction():
+                assert await JobsTable.lock_live_lease(
+                    conn, lane="scheduler", group_key="tick-slot", owner_token=OWNER_A
+                )
+                takeover = asyncio.create_task(
+                    JobsTable.try_acquire_sentinel_slot(
+                        other_conn, lane="scheduler", group_key="tick-slot", owner_token=OWNER_B, ttl_seconds=60.0
+                    )
+                )
+                deadline = time.monotonic() + 10
+                # Probe from an autocommit connection, because pg_stat_activity stays
+                # the same for the whole of a transaction.
+                while True:
+                    cursor = await probe.execute(
+                        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                        " AND wait_event_type = 'Lock' AND query LIKE %s",
+                        (f"%{JOB_LEASE_TABLE}%",),
+                    )
+                    row = await cursor.fetchone()
+                    if row and row[0]:
+                        break
+                    assert time.monotonic() < deadline, "takeover never waited on the lease row lock"
+                    await asyncio.sleep(0.05)
+                assert not takeover.done()
+            assert await asyncio.wait_for(takeover, timeout=10) is False

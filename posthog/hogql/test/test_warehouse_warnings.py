@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import DataWarehouseSyncWarning
 
@@ -15,7 +15,7 @@ def _make_warning(table_name: str = "t", schema_name: str = "s") -> DataWarehous
     )
 
 
-class TestWarehouseWarningsAccumulator(BaseTest):
+class TestWarehouseWarningsAccumulator(SimpleTestCase):
     def test_record_warnings_is_a_noop_outside_a_scope(self) -> None:
         # Should not raise — no accumulator installed.
         record_warnings([_make_warning()])

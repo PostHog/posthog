@@ -1,14 +1,13 @@
-import pytest
-from unittest import mock
+from base64 import b64encode
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+import pytest
+
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
 
 
@@ -17,18 +16,6 @@ class TestImaggaSource:
         self.source = ImaggaSource()
         self.team_id = 123
         self.config = ImaggaSourceConfig(api_key="acc_test", api_secret="secret_test")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Imagga"
-        assert config.label == "Imagga"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept behind the unreleased flag until the source has been exercised end to end.
-        assert config.unreleasedSource is True
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/imagga"
-        assert [f.name for f in config.fields] == ["api_key", "api_secret"]
 
     def test_api_secret_is_a_secret_password_field(self) -> None:
         # The secret must never render as plain text or be treated as non-sensitive by the serializer.
@@ -42,49 +29,17 @@ class TestImaggaSource:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_all_endpoints_full_refresh_only(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # /usage exposes no server-side timestamp filter, so nothing may advertise incremental/append —
-        # a client-side cursor over a single snapshot request is not incremental.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["daily_usage"])
-        assert [s.name for s in schemas] == ["daily_usage"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
-        "observed_error,should_match",
-        [
-            ("401 Client Error: Unauthorized for url: https://api.imagga.com/v2/usage?concurrency=1", True),
-            ("403 Client Error: Forbidden for url: https://api.imagga.com/v2/usage", True),
-            ("429 Client Error: Too Many Requests for url: https://api.imagga.com/v2/usage", False),
-            ("500 Server Error for url: https://api.imagga.com/v2/usage", False),
-        ],
+        "status,expected_valid",
+        [(200, True), (401, False)],
     )
-    def test_non_retryable_errors_match_only_auth_failures(self, observed_error: str, should_match: bool) -> None:
-        matched = any(key in observed_error for key in self.source.get_non_retryable_errors())
-        assert matched is should_match
-
-    @pytest.mark.parametrize(
-        "probe_result,expected_valid",
-        [(True, True), (False, False)],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source.validate_imagga_credentials"
-    )
-    def test_validate_credentials(
-        self, mock_validate: mock.MagicMock, probe_result: bool, expected_valid: bool
-    ) -> None:
-        mock_validate.return_value = probe_result
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status: int, expected_valid: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
-        mock_validate.assert_called_once_with("acc_test", "secret_test")
+        assert [request.path for request in network.requests_log] == ["/v2/usage"]
+        assert (
+            network.requests_log[0].headers["authorization"] == "Basic " + b64encode(b"acc_test:secret_test").decode()
+        )

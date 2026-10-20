@@ -92,6 +92,11 @@ mkdir -p "$BAKE_ROOT" "$(dirname "$REPO_DIR")"
 # Rust target dir only counts as warm for a checkout at this same path.
 git clone --depth 1 https://github.com/posthog/posthog.git "$REPO_DIR"
 cd "$REPO_DIR"
+if [[ -n "${DEV_STACK_REPOSITORY_SHA:-}" ]]; then
+    git fetch --depth 1 origin "$DEV_STACK_REPOSITORY_SHA"
+    git checkout --detach FETCH_HEAD
+    [[ "$(git rev-parse HEAD)" == "$DEV_STACK_REPOSITORY_SHA" ]]
+fi
 BAKED_SHA=$(git rev-parse HEAD)
 export COMPOSE_PROJECT_NAME=posthog
 
@@ -342,7 +347,10 @@ echo "dev stack ready — from the posthog checkout: uv sync && source .venv/bin
 EOF
 chmod +x /usr/local/bin/bootstrap-dev-stack
 
+/usr/bin/python3 -I /opt/posthog/task-filesystem.py seed-home
+
 mkdir -p "$(dirname "$BAKE_MANIFEST")"
-printf '{"baked_at": "%s", "posthog_sha": "%s", "bootstrap": "bootstrap-dev-stack"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BAKED_SHA" > "$BAKE_MANIFEST"
+BAKED_AGENT_VERSION=$(node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
+export BAKED_SHA BAKE_MANIFEST BAKED_AGENT_VERSION
+python3 -c 'import json, os; from datetime import datetime, timezone; json.dump({"baked_at": datetime.now(timezone.utc).isoformat(), "posthog_sha": os.environ["BAKED_SHA"], "agent_version": os.environ["BAKED_AGENT_VERSION"], "base_reference": os.environ.get("DEV_STACK_BASE_REFERENCE"), "recipe_sha": os.environ.get("DEV_STACK_RECIPE_SHA"), "bootstrap": "bootstrap-dev-stack"}, open(os.environ["BAKE_MANIFEST"], "w"))'
 log "bake complete at $BAKED_SHA"

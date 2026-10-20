@@ -47,7 +47,7 @@ const COMMAND_MODE_SHORTCUTS: Shortcut[] = [
 
 const EDIT_MODE_SHORTCUTS: Shortcut[] = [
     { keys: [['escape']], description: 'Leave the editor and select the cell' },
-    { keys: [['shift', 'enter']], description: 'Run the cell and select the next one' },
+    { keys: [['shift', 'enter']], description: 'Insert a line break in text; run and advance in code' },
     { keys: [['command', 'enter']], description: 'Run the cell' },
     { keys: [['option', 'enter']], description: 'Run the cell and insert a new one below' },
     { keys: [['command', 'shift', 'minus']], description: 'Split the cell at the cursor' },

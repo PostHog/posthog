@@ -48,7 +48,7 @@ class CloudflareEndpointConfig:
 
 # Most Cloudflare v4 REST lists are small configuration tables with no updated-since
 # filter, so they sync as full refreshes. `audit_logs` is the exception — it takes a
-# server-side `since` filter and can be sorted ascending, so it syncs incrementally.
+# server-side `since` filter, so it syncs incrementally.
 # The high-volume traffic datasets live in the separate GraphQL Analytics API, which
 # this REST source has no transport for.
 CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
@@ -69,20 +69,21 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
     # --- Zone-scoped security configuration ---
     # Cloudflare deprecated the legacy Firewall Rules API (and the Filters API its rules
     # reference) in favor of the Ruleset Engine; a zone that has moved to WAF custom rules
-    # gets a 400 on both rather than an empty list. Same shape as `rate_limits` below.
+    # gets a 400 on both rather than an empty list, and a zone where the API is retired
+    # gets a 410 Gone. Same shape as `rate_limits` below.
     "firewall_rules": CloudflareEndpointConfig(
         name="firewall_rules",
         path="/zones/{zone_id}/firewall/rules",
         parent=ZONES_PARENT,
         parent_key="_zone_id",
-        extra_skip_status_codes=(400,),
+        extra_skip_status_codes=(400, 410),
     ),
     "filters": CloudflareEndpointConfig(
         name="filters",
         path="/zones/{zone_id}/filters",
         parent=ZONES_PARENT,
         parent_key="_zone_id",
-        extra_skip_status_codes=(400,),
+        extra_skip_status_codes=(400, 410),
     ),
     "rulesets": CloudflareEndpointConfig(
         name="rulesets",
@@ -234,8 +235,8 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         path="/accounts/{account_id}/audit_logs",
         parent=ACCOUNTS_PARENT,
         parent_key="_account_id",
-        # `since` filters server-side and `direction=asc` makes the response order
-        # match SourceResponse's ascending sort mode.
+        # `since` filters server-side. `direction=asc` orders the rows of one account only.
+        # The read has one request series per account, so the run has no single order.
         params={"direction": "asc"},
         incremental_param="since",
         # This list has no `result_info.total_pages`, so the paginator only learns it has

@@ -45,6 +45,37 @@ class PRData:
     # Set by the hosted server from GitHub's compare API. Its shallow checkout holds no history, so
     # git cannot compute the merge base there (see diff_range).
     merge_base_sha: str = ""
+    # Every path the diff touches, unquoted: a rename's old and new name both. `files` names a
+    # rename once, so a deny pattern would miss code moved out of a protected directory.
+    touched_paths: list[str] = field(default_factory=list)
+    # Set by the hosted server from the external reviewers it asked: one dict per reviewer with state,
+    # reviewer, review_kind, findings_count, published, head_sha, base_ref, base_sha and skipped_paths. Trusted
+    # metadata, never PR text. Empty for the Action, which has no such source.
+    review_evidence: list[dict] = field(default_factory=list)
+
+    def pending_review_evidence(self) -> list[dict]:
+        """The external reviews still running on the current head."""
+        return [
+            item
+            for item in self.review_evidence
+            if item.get("head_sha") == self.head_sha and item.get("state") == "pending"
+        ]
+
+    def completed_review_evidence(self) -> list[dict]:
+        """The completed external reviews of the current head against the current merge base.
+
+        A retarget keeps the head SHA but changes the diff, so a review of another merge base does
+        not count. The base branch SHA is no match key, because it moves on every merge to the base
+        while the diff stays the same. An unknown merge base on either side never matches.
+        """
+        return [
+            item
+            for item in self.review_evidence
+            if item.get("head_sha") == self.head_sha
+            and item.get("state") == "completed"
+            and self.merge_base_sha
+            and item.get("base_sha") == self.merge_base_sha
+        ]
 
     @property
     def stacked(self) -> bool:
@@ -54,6 +85,11 @@ class PRData:
     @property
     def file_paths(self) -> list[str]:
         return [f["filename"] for f in self.files]
+
+    @property
+    def deny_paths(self) -> list[str]:
+        """The paths the deny-list matches: the changed files plus every touched path."""
+        return list(dict.fromkeys([*self.file_paths, *self.touched_paths]))
 
     @property
     def lines_added(self) -> int:
@@ -70,6 +106,27 @@ class PRData:
     @property
     def has_new_files(self) -> bool:
         return any(f.get("status") == "A" for f in self.files)
+
+
+def describe_review_evidence(evidence: dict) -> str:
+    """One line on a completed external review of the current head, for the prompt and the verdict."""
+    count = int(evidence.get("findings_count") or 0)
+    if count == 0:
+        findings = "no findings"
+    elif evidence.get("published"):
+        findings = f"{count} finding{'' if count == 1 else 's'}, posted on the PR"
+    else:
+        findings = f"{count} finding{'' if count == 1 else 's'}, not posted on the PR"
+    reviewer = evidence.get("reviewer")
+    kind = evidence.get("review_kind")
+    name = f"{reviewer} ({kind})" if kind else str(reviewer)
+    skipped = len(evidence.get("skipped_paths") or [])
+    if skipped:
+        return (
+            f"{name} reviewed the current head ({findings}) but skipped {skipped} changed "
+            f"file{'' if skipped == 1 else 's'}, so it does not count as assurance"
+        )
+    return f"{name} reviewed the current head: {findings}"
 
 
 _TRUSTED_ASSOCIATIONS = {"MEMBER", "OWNER", "COLLABORATOR"}
@@ -473,25 +530,36 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path, merge_base_sh
     revisions = diff_range(base_sha, head_sha, merge_base_sha)
     run_opts = {"capture_output": True, "text": True, "timeout": 30, "cwd": repo_root}
 
-    numstat = subprocess.run(["git", "diff", "--numstat", revisions], **run_opts)
+    numstat = subprocess.run(["git", "diff", "--numstat", "-z", revisions], **run_opts)
     if numstat.returncode != 0:
         raise RuntimeError(f"git diff --numstat failed: {numstat.stderr.strip()}")
 
-    name_status = subprocess.run(["git", "diff", "--name-status", revisions], **run_opts)
+    name_status = subprocess.run(["git", "diff", "--name-status", "-z", revisions], **run_opts)
+    if name_status.returncode != 0:
+        raise RuntimeError(f"git diff --name-status failed: {name_status.stderr.strip()}")
     status_map: dict[str, str] = {}
-    for line in name_status.stdout.strip().splitlines():
-        parts = line.split("\t", 1)
-        if len(parts) == 2:
-            status_map[parts[1]] = parts[0]
+    status_records = iter(name_status.stdout.split("\0"))
+    for status in status_records:
+        if not status:
+            continue
+        filename = next(status_records)
+        if status.startswith(("R", "C")):
+            filename = next(status_records)
+        status_map[filename] = status
 
     files = []
-    for line in numstat.stdout.strip().splitlines():
-        if not line:
+    numstat_records = iter(numstat.stdout.split("\0"))
+    for record in numstat_records:
+        if not record:
             continue
-        parts = line.split("\t", 2)
+        parts = record.split("\t", 2)
         if len(parts) != 3:
             continue
         added, deleted, filename = parts
+        if not filename:
+            # git_touched_paths keeps the old path for deny checks; file stats name only the destination.
+            next(numstat_records)
+            filename = next(numstat_records)
         is_binary = added == "-"
         files.append(
             {
@@ -503,6 +571,24 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path, merge_base_sh
             }
         )
     return files
+
+
+def git_touched_paths(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> list[str]:
+    """Every path the diff touches, with renames split into their old and new names.
+
+    `-z` keeps git from quoting a path with a newline or a quote in it, which would put a `"` in
+    front of the path and defeat every anchored deny pattern.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", "-z", diff_range(base_sha, head_sha, merge_base_sha)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git diff --name-only failed: {result.stderr.strip()}")
+    return [path for path in result.stdout.split("\0") if path]
 
 
 def new_diff_file(directory: Path) -> Path:
@@ -690,6 +776,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     git_root = repo_root or Path.cwd()
     ensure_commits(pr_number, head_sha, base_ref, base_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
+    touched_paths = git_touched_paths(base_sha, head_sha, git_root)
 
     review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number, pr["user"]["login"])
 
@@ -706,6 +793,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews_raw, head_sha),
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
@@ -717,11 +805,11 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     )
 
 
-def check_team_membership(author: str, team_slug: str) -> bool:
-    """Check if author is an active member of the given GitHub team."""
+def check_team_membership(org: str, author: str, team_slug: str) -> bool:
+    """Check if author is an active member of the given GitHub team in ``org``."""
     try:
         result = subprocess.run(
-            ["gh", "api", f"orgs/PostHog/teams/{team_slug}/memberships/{author}"],
+            ["gh", "api", f"orgs/{org}/teams/{team_slug}/memberships/{author}"],
             capture_output=True,
             text=True,
             timeout=10,

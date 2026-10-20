@@ -1,61 +1,58 @@
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import type { SnapshotApi } from '../generated/api.schemas'
+import type { CleanQuarantinedGroups } from '../lib/liftOnMerge'
+import { CleanQuarantinedStoryList } from './CleanQuarantinedStoryList'
 
 interface CleanQuarantinedSnapshotsProps {
-    snapshots: SnapshotApi[]
-    loading: boolean
-    loadFailed: boolean
+    groups: CleanQuarantinedGroups
+    prNumber: number
+    liftsLoading: boolean
+    liftsLoadFailed: boolean
     selectedSnapshotId: string | null
     onSelect: (snapshotId: string) => void
 }
 
-/** Quarantined stories this run rendered exactly as their baseline, which the changes-only strip leaves out. */
+/** Quarantined stories this run rendered exactly as their baseline, grouped by whether a lift is requested. */
 export function CleanQuarantinedSnapshots({
-    snapshots,
-    loading,
-    loadFailed,
+    groups,
+    prNumber,
+    liftsLoading,
+    liftsLoadFailed,
     selectedSnapshotId,
     onSelect,
-}: CleanQuarantinedSnapshotsProps): JSX.Element | null {
-    if (loading) {
-        return (
-            <div className="px-3 pb-3">
-                <LemonSkeleton className="h-4 w-1/3" />
-            </div>
-        )
-    }
-    if (loadFailed) {
-        return (
-            <div className="px-3 pb-3 text-xs text-muted" data-attr="visual-review-clean-quarantined-error">
-                Couldn't load the quarantined stories of this run. Reload the page to lift a quarantine when this pull
-                request merges.
-            </div>
-        )
-    }
-    if (snapshots.length === 0) {
-        return null
-    }
+}: CleanQuarantinedSnapshotsProps): JSX.Element {
     return (
-        <div className="px-3 pb-3" data-attr="visual-review-clean-quarantined">
-            <div className="text-xs font-semibold">Quarantined stories that rendered clean</div>
-            <div className="text-xs text-muted mb-1.5">
-                Select one to lift its quarantine when this pull request merges.
+        <div className="flex flex-col gap-2 px-3 pb-3" data-attr="visual-review-clean-quarantined">
+            <div className="text-xs text-muted">
+                These quarantined stories matched their baseline in this run. Select one to lift its quarantine when #
+                {prNumber} merges.
             </div>
-            <div className="flex flex-wrap gap-1">
-                {snapshots.map((snapshot) => (
-                    <LemonButton
-                        key={snapshot.id}
-                        type="secondary"
-                        size="xsmall"
-                        active={snapshot.id === selectedSnapshotId}
-                        onClick={() => onSelect(snapshot.id)}
-                        data-attr="visual-review-clean-quarantined-select"
-                    >
-                        {snapshot.identifier}
-                    </LemonButton>
-                ))}
-            </div>
+            {liftsLoading ? (
+                <LemonSkeleton className="h-4 w-1/3" />
+            ) : liftsLoadFailed ? (
+                <div className="text-xs text-muted" data-attr="visual-review-clean-quarantined-error">
+                    Couldn't load the quarantines and lift requests of this pull request. Reload the page.
+                </div>
+            ) : (
+                <>
+                    {groups.liftRequested.length > 0 && (
+                        <CleanQuarantinedStoryList
+                            title={`Lift requested (${groups.liftRequested.length})`}
+                            stories={groups.liftRequested}
+                            selectedSnapshotId={selectedSnapshotId}
+                            onSelect={onSelect}
+                        />
+                    )}
+                    {groups.notRequested.length > 0 && (
+                        <CleanQuarantinedStoryList
+                            title={`Not requested (${groups.notRequested.length}), stay quarantined after the merge`}
+                            stories={groups.notRequested}
+                            selectedSnapshotId={selectedSnapshotId}
+                            onSelect={onSelect}
+                        />
+                    )}
+                </>
+            )}
         </div>
     )
 }

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class N8nSource(ResumableSource[N8nSourceConfig, N8nResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(env=("^N8N_",), npm=("n8n", "n8n-workflow", "@n8n/chat"))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.n8n.io/api/api-reference/"
@@ -55,7 +58,7 @@ class N8nSource(ResumableSource[N8nSourceConfig, N8nResumeConfig], ValidateDatab
 
 Works with n8n Cloud and self-hosted instances. Enter your instance URL (e.g. `https://myorg.app.n8n.cloud`) and an API key created under **Settings > n8n API**.
 
-Some tables (users, projects, variables) require an owner/admin key or an Enterprise plan; deselect them if your key can't access them.""",
+Some tables (users, projects, project users, folders, variables) require an owner/admin key or an Enterprise plan; deselect them if your key can't access them.""",
             iconPath="/static/services/n8n.png",
             docsUrl="https://posthog.com/docs/cdp/sources/n8n",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -104,14 +107,14 @@ Some tables (users, projects, variables) require an owner/admin key or an Enterp
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # n8n's public API exposes no server-side timestamp filter, so every table
+        # Only the insights summary takes a server-side date filter; every list endpoint
         # is full refresh only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(N8N_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=list(N8N_ENDPOINTS[endpoint].incremental_fields),
                 detected_primary_keys=list(N8N_ENDPOINTS[endpoint].primary_keys),
             )
             for endpoint in ENDPOINTS
@@ -161,5 +164,7 @@ Some tables (users, projects, variables) require an owner/admin key or an Enterp
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every n8n endpoint is full refresh
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

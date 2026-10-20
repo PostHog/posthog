@@ -16,9 +16,11 @@ from botocore.serialize import create_serializer
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.settings import (
+    BUCKET_PAGE_SIZE,
     ERROR_MESSAGES,
     MACIE_API_VERSION,
     MACIE_ENDPOINTS,
+    USAGE_TIME_RANGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -36,6 +38,10 @@ class AwsMacieResumeConfig:
     next_token: str | None = None
     since_ms: int | None = None
     completed: bool = False
+    # The bucket ARNs of the page in progress, so a resume does not re-fetch a page that changed.
+    bucket_arns: tuple[str, ...] = ()
+    bucket_offset: int = 0
+    bucket_page_token: str | None = None
 
 
 class AwsMacieError(Exception):
@@ -125,8 +131,11 @@ def normalize_row(endpoint: str, item: dict[str, Any], region: str) -> dict[str,
     return row
 
 
-def list_payload(endpoint: str, since_ms: int | None, page_size: int) -> dict[str, Any]:
-    payload: dict[str, Any] = {"maxResults": page_size}
+def list_payload(endpoint: str, since_ms: int | None, page_size: int | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {} if page_size is None else {"maxResults": page_size}
+    if endpoint == "usage_statistics":
+        payload["timeRange"] = USAGE_TIME_RANGE
+        payload["sortBy"] = {"key": "accountId", "orderBy": "ASC"}
     if endpoint == "members":
         payload["onlyAssociated"] = "false"
     if endpoint == "findings":
@@ -134,6 +143,94 @@ def list_payload(endpoint: str, since_ms: int | None, page_size: int) -> dict[st
         if since_ms is not None:
             payload["findingCriteria"] = {"criterion": {"updatedAt": {"gte": since_ms}}}
     return payload
+
+
+def bucket_page_payload(page_token: str | None, page_size: int = BUCKET_PAGE_SIZE) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "maxResults": page_size,
+        "sortCriteria": {"attributeName": "bucketName", "orderBy": "ASC"},
+    }
+    if page_token:
+        payload["nextToken"] = page_token
+    return payload
+
+
+def request_bucket_profile(
+    client: AwsMacieClient, endpoint: str, bucket_arn: str, next_token: str | None, page_size: int | None
+) -> dict[str, Any]:
+    payload = {"resourceArn": bucket_arn, **list_payload(endpoint, None, page_size)}
+    if next_token:
+        payload["nextToken"] = next_token
+    try:
+        return client.request(MACIE_ENDPOINTS[endpoint].operation, payload)
+    except AwsMacieError as error:
+        # Macie has no profile for a bucket until automated discovery analyzes it.
+        if error.code == "ResourceNotFoundException":
+            return {}
+        raise
+
+
+def get_bucket_rows(
+    client: AwsMacieClient,
+    endpoint: str,
+    manager: ResumableSourceManager[AwsMacieResumeConfig],
+    state: AwsMacieResumeConfig,
+    region: str,
+) -> Iterator[list[dict[str, Any]]]:
+    setting = MACIE_ENDPOINTS[endpoint]
+    bucket_arns = list(state.bucket_arns)
+    offset, child_token = state.bucket_offset, state.next_token
+    # With saved bucket ARNs this is the token after that page, otherwise the token of the page to fetch.
+    page_token = state.bucket_page_token
+    page_loaded = bool(bucket_arns)
+    while True:
+        if page_loaded:
+            next_page_token = page_token
+        else:
+            manager.save_state(AwsMacieResumeConfig(bucket_page_token=page_token))
+            manager.safe_point()
+            page = client.request("DescribeBuckets", bucket_page_payload(page_token))
+            next_page_token = page.get("nextToken") or None
+            if next_page_token and next_page_token == page_token:
+                raise AwsMacieError("RepeatedPaginationToken", "AWS returned the same page token twice.")
+            bucket_arns = [bucket["bucketArn"] for bucket in page.get("buckets") or [] if bucket.get("bucketArn")]
+            offset, child_token = 0, None
+        page_loaded = False
+        for index in range(offset, len(bucket_arns)):
+            bucket_arn = bucket_arns[index]
+            while True:
+                response = request_bucket_profile(client, endpoint, bucket_arn, child_token, setting.page_size)
+                if setting.result_key:
+                    items = response.get(setting.result_key) or []
+                    next_token = response.get("nextToken") or None
+                else:
+                    items, next_token = ([response] if response else []), None
+                if next_token and next_token == child_token:
+                    raise AwsMacieError("RepeatedPaginationToken", "AWS returned the same page token twice.")
+                rows = [{**normalize_row(endpoint, item, region), "bucket_arn": bucket_arn} for item in items]
+                if next_token or index + 1 < len(bucket_arns):
+                    resume = AwsMacieResumeConfig(
+                        next_token=next_token,
+                        bucket_arns=tuple(bucket_arns),
+                        bucket_offset=index if next_token else index + 1,
+                        bucket_page_token=next_page_token,
+                    )
+                elif next_page_token:
+                    resume = AwsMacieResumeConfig(bucket_page_token=next_page_token)
+                else:
+                    resume = AwsMacieResumeConfig(completed=True)
+                manager.save_state(resume)
+                if rows:
+                    yield rows
+                manager.safe_point()
+                child_token = next_token
+                if next_token is None:
+                    break
+        if next_page_token is None:
+            break
+        page_token = next_page_token
+    manager.save_state(AwsMacieResumeConfig(completed=True))
+    manager.safe_point()
 
 
 def get_rows(
@@ -151,6 +248,9 @@ def get_rows(
         return
     client = AwsMacieClient(config, api_version)
     try:
+        if setting.per_bucket:
+            yield from get_bucket_rows(client, endpoint, manager, state, config.region)
+            return
         while True:
             payload = list_payload(endpoint, state.since_ms, setting.page_size)
             if state.next_token:
@@ -168,6 +268,8 @@ def get_rows(
             if next_token and next_token == state.next_token:
                 raise AwsMacieError("RepeatedPaginationToken", "AWS returned the same page token twice.")
             rows = [normalize_row(endpoint, item, config.region) for item in items]
+            if endpoint == "usage_statistics":
+                rows = [{**row, "time_range": page.get("timeRange")} for row in rows]
             state = AwsMacieResumeConfig(next_token=next_token, since_ms=state.since_ms, completed=next_token is None)
             manager.save_state(state)
             if rows:
@@ -190,6 +292,12 @@ def validate_credentials(
     except ValueError as error:
         return False, str(error)
     try:
+        if MACIE_ENDPOINTS[endpoint].per_bucket:
+            buckets = client.request("DescribeBuckets", bucket_page_payload(None, 1)).get("buckets") or []
+            if buckets and buckets[0].get("bucketArn"):
+                page_size = 1 if MACIE_ENDPOINTS[endpoint].page_size else None
+                request_bucket_profile(client, endpoint, buckets[0]["bucketArn"], None, page_size)
+            return True, None
         page = client.request(MACIE_ENDPOINTS[endpoint].operation, list_payload(endpoint, None, 1))
         if schema_name == "findings" and page.get("findingIds"):
             client.request("GetFindings", {"findingIds": page["findingIds"][:1]})

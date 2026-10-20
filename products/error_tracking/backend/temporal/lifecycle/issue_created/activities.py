@@ -150,6 +150,9 @@ def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> Issu
                 model_name=EMBEDDING_MODEL,
                 embedding=response.embedding,
                 source_issue_id=inputs.issue_id,
+                event_uuid=inputs.event_uuid,
+                event_timestamp=inputs.event_timestamp,
+                content=content,
             ),
             content=content,
         ),
@@ -182,8 +185,6 @@ def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferen
         team = Team.objects.select_related("organization").get(id=inputs.team_id)
     except Team.DoesNotExist:
         return SeverityInferenceSkipReason.TEAM_MISSING
-    if not team.organization.is_ai_data_processing_approved:
-        return SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED
 
     event_properties = fetch_event_properties(team, inputs)
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)

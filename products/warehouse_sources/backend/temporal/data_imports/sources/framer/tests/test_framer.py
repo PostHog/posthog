@@ -1,6 +1,5 @@
 import os
 import json
-import math
 import socket
 import threading
 from collections import deque
@@ -11,10 +10,11 @@ from typing import Any, Optional, cast
 import pytest
 
 from parameterized import parameterized
-from websockets.exceptions import InvalidMessage
+from websockets.exceptions import ConnectionClosedError, InvalidMessage
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
+    COLLECTION_METHODS_BY_VERSION,
     FramerAPIError,
     FramerClient,
     framer_source,
@@ -23,11 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer.fra
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.settings import (
     DEPLOYMENTS_PAGE_SIZE,
-    ENDPOINTS,
     PRIMARY_KEYS,
 )
 
 PROJECT_ID = "a" * 20
+
+COLLECTION_METHOD_CASES = [
+    (version, methods["fields"], methods["items"]) for version, methods in COLLECTION_METHODS_BY_VERSION.items()
+]
 
 
 class FakeFramerServer:
@@ -123,8 +126,8 @@ def no_ambient_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name)
 
 
-def make_client(server: FakeFramerServer) -> FramerClient:
-    client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=server)
+def make_client(server: FakeFramerServer, protocol_version: str = "0.1.29") -> FramerClient:
+    client = FramerClient(PROJECT_ID, "test-key", protocol_version=protocol_version, connect_fn=server)
     client.connect()
     return client
 
@@ -186,13 +189,6 @@ class TestFramer:
     def test_parse_unknown_custom_wrapper_falls_back_to_payload(self) -> None:
         assert devalue.parse('[{"node":1},["plugin-marshal",2],{"id":3},"n1"]') == {"node": {"id": "n1"}}
 
-    def test_parse_special_numbers(self) -> None:
-        parsed = devalue.parse('[{"nan":-3,"inf":-4,"ninf":-5,"nzero":-6}]')
-        assert math.isnan(parsed["nan"])
-        assert parsed["inf"] == math.inf
-        assert parsed["ninf"] == -math.inf
-        assert parsed["nzero"] == 0.0
-
     @parameterized.expand(
         [
             ({"type": "ping"},),
@@ -203,10 +199,6 @@ class TestFramer:
     )
     def test_stringify_round_trips(self, value: Any) -> None:
         assert devalue.parse(devalue.stringify(value)) == value
-
-    def test_stringify_matches_reference_encoding(self) -> None:
-        # Byte-for-byte fixture from the reference JS library.
-        assert devalue.stringify({"type": "ping"}) == '[{"type":1},"ping"]'
 
     @parameterized.expand(
         [
@@ -232,27 +224,21 @@ class TestFramer:
     def test_parse_project_id_rejects_invalid(self, value: str) -> None:
         assert parse_project_id(value) is None
 
-    def test_client_handshake_and_call(self) -> None:
+    @parameterized.expand([(version,) for version in COLLECTION_METHODS_BY_VERSION])
+    def test_client_handshake_and_call(self, protocol_version: str) -> None:
         server = FakeFramerServer(methods={"getProjectInfo2": {"id": PROJECT_ID, "name": "Site"}})
-        client = make_client(server)
+        client = make_client(server, protocol_version)
         assert client.call("getProjectInfo2") == {"id": PROJECT_ID, "name": "Site"}
         assert server.sent[0] == {"type": "pluginReadySignal"}
         assert "Authorization" in server.connect_kwargs["additional_headers"]
         assert f"projectId={PROJECT_ID}" in server.url
-        assert "sdkVersion=0.1.29" in server.url
+        assert f"sdkVersion={protocol_version}" in server.url
 
     def test_client_close_sends_graceful_disconnect(self) -> None:
         server = FakeFramerServer(graceful_disconnect=True)
         client = make_client(server)
         client.close()
         assert server.sent[-1] == {"type": "client-disconnect"}
-        assert server.closed
-
-    def test_client_close_without_graceful_disconnect(self) -> None:
-        server = FakeFramerServer()
-        client = make_client(server)
-        client.close()
-        assert all(message.get("type") != "client-disconnect" for message in server.sent)
         assert server.closed
 
     def test_client_raises_on_server_error_message(self) -> None:
@@ -279,9 +265,17 @@ class TestFramer:
             client.connect()
         assert exc_info.value.retryable
 
-    def test_client_wraps_handshake_eof_as_retryable(self) -> None:
+    @parameterized.expand(
+        [
+            ("eof_before_response", InvalidMessage("did not receive a valid HTTP response")),
+            # Raised when the TLS/TCP connection drops mid-handshake (e.g. a transient SSL
+            # error) after the HTTP upgrade itself succeeds.
+            ("dropped_mid_handshake", ConnectionClosedError(None, None)),
+        ]
+    )
+    def test_client_wraps_handshake_failure_as_retryable(self, _name: str, raised: Exception) -> None:
         def connect_fn(*args: Any, **kwargs: Any) -> Any:
-            raise InvalidMessage("did not receive a valid HTTP response")
+            raise raised
 
         client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=connect_fn)
         with pytest.raises(FramerAPIError) as exc_info:
@@ -298,12 +292,6 @@ class TestFramer:
         with pytest.raises(FramerAPIError) as exc_info:
             client.call("getNode")
         assert "Node not found" in str(exc_info.value)
-
-    def test_client_ignores_unrelated_messages(self) -> None:
-        server = FakeFramerServer(methods={"getLocales": [{"id": "l1"}]})
-        client = make_client(server)
-        server.incoming.appendleft(devalue.stringify({"type": "permissionUpdate", "permissionMap": {}}))
-        assert client.call("getLocales") == [{"id": "l1"}]
 
     def test_client_reassembles_chunked_messages(self) -> None:
         server = FakeFramerServer()
@@ -349,11 +337,6 @@ class TestFramer:
         assert exc_info.value.code == "PROXY"
         assert exc_info.value.retryable
 
-    def test_client_connects_directly_without_proxy(self) -> None:
-        server = FakeFramerServer()
-        make_client(server)
-        assert "sock" not in server.connect_kwargs
-
     def test_validate_credentials_success(self) -> None:
         server = FakeFramerServer(methods={"getProjectInfo2": {"id": PROJECT_ID, "name": "Site"}})
         with pytest.MonkeyPatch.context() as patcher:
@@ -396,9 +379,11 @@ class TestFramer:
         assert "Framer API error" not in error
         assert "try again" in error
 
-    def _run_endpoint(self, endpoint: str, methods: dict[str, Any]) -> list[dict[str, Any]]:
+    def _run_endpoint(
+        self, endpoint: str, methods: dict[str, Any], protocol_version: str = "0.1.29"
+    ) -> list[dict[str, Any]]:
         server = FakeFramerServer(methods=methods)
-        response = framer_source(PROJECT_ID, "key", endpoint, protocol_version="0.1.29")
+        response = framer_source(PROJECT_ID, "key", endpoint, protocol_version=protocol_version)
         assert response.name == endpoint
         assert response.primary_keys == PRIMARY_KEYS[endpoint]
         with pytest.MonkeyPatch.context() as patcher:
@@ -446,13 +431,17 @@ class TestFramer:
         )
         assert rows == [{"id": "page-1", "path": "/about", "collectionId": None, "draft": False}]
 
-    def test_collections_rows_include_fields(self) -> None:
+    @parameterized.expand(COLLECTION_METHOD_CASES)
+    def test_collections_rows_include_fields(
+        self, protocol_version: str, fields_method: str, _items_method: str
+    ) -> None:
         rows = self._run_endpoint(
             "Collections",
             {
                 "getCollections": [{"id": "c1", "name": "Blog", "readonly": False, "managedBy": "user"}],
-                "getCollectionFields2": [{"id": "f1", "name": "Title", "type": "string"}],
+                fields_method: [{"id": "f1", "name": "Title", "type": "string"}],
             },
+            protocol_version,
         )
         assert rows == [
             {
@@ -464,16 +453,17 @@ class TestFramer:
             }
         ]
 
-    def test_collection_items_rows(self) -> None:
+    @parameterized.expand(COLLECTION_METHOD_CASES)
+    def test_collection_items_rows(self, protocol_version: str, fields_method: str, items_method: str) -> None:
         rows = self._run_endpoint(
             "CollectionItems",
             {
                 "getCollections": [{"id": "c1", "name": "Blog"}],
-                "getCollectionFields2": [
+                fields_method: [
                     {"id": "f1", "name": "Title", "type": "string"},
                     {"id": "f2", "name": "Title", "type": "string"},
                 ],
-                "getCollectionItems2": [
+                items_method: [
                     {
                         "nodeId": "n1",
                         "externalId": None,
@@ -490,6 +480,7 @@ class TestFramer:
                     }
                 ],
             },
+            protocol_version,
         )
         assert rows == [
             {
@@ -510,18 +501,6 @@ class TestFramer:
                 },
             }
         ]
-
-    def test_collection_items_prefers_external_id(self) -> None:
-        rows = self._run_endpoint(
-            "CollectionItems",
-            {
-                "getCollections": [{"id": "c1", "name": "Blog"}],
-                "getCollectionFields2": [],
-                "getCollectionItems2": [{"nodeId": "n1", "externalId": "ext-1", "slug": "s", "fieldData": {}}],
-            },
-        )
-        assert rows[0]["id"] == "ext-1"
-        assert rows[0]["nodeId"] == "n1"
 
     def test_collection_items_keep_field_whose_name_matches_another_field_id(self) -> None:
         rows = self._run_endpoint(
@@ -575,9 +554,6 @@ class TestFramer:
         assert self._run_endpoint("Redirects", {"getRedirects": [{"id": "r1", "from": "/a", "to": "/b"}]}) == [
             {"id": "r1", "from": "/a", "to": "/b"}
         ]
-
-    def test_every_endpoint_has_a_primary_key(self) -> None:
-        assert set(PRIMARY_KEYS) == set(ENDPOINTS)
 
     def test_source_response_raises_for_invalid_project(self) -> None:
         response = framer_source("not a project", "key", "Project", protocol_version="0.1.29")

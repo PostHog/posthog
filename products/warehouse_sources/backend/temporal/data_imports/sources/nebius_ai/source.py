@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NebiusAISource(ResumableSource[NebiusAISourceConfig, NebiusAIResumeConfig]):
+    codebase_detection = detect(env=("^NEBIUS_API_KEY$",))
+
     api_docs_url = "https://docs.tokenfactory.nebius.com/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -50,7 +53,7 @@ class NebiusAISource(ResumableSource[NebiusAISourceConfig, NebiusAIResumeConfig]
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Nebius AI Studio (Token Factory) API key to pull your Nebius inference platform metadata into the PostHog Data warehouse.
 
-You can create an API key in the [Nebius AI Studio console](https://studio.nebius.com/settings/api-keys). A key with read access is enough to sync models, files, batches, and fine-tuning jobs.""",
+You can create an API key in the [Nebius AI Studio console](https://studio.nebius.com/settings/api-keys). A key with read access is enough to sync models, files, batches, datasets, dataset operations, and fine-tuning jobs with their events and checkpoints.""",
             iconPath="/static/services/nebius_ai.png",
             docsUrl="https://posthog.com/docs/cdp/sources/nebius-ai",
             fields=cast(

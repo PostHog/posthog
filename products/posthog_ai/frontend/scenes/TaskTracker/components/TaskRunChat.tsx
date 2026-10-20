@@ -99,6 +99,7 @@ export function TaskRunChat({
             typeof runConfig?.state?.codex_model_access === 'string'
                 ? runConfig.state.codex_model_access
                 : pendingInteraction?.props.currentCodexModelAccess,
+        taskRuntime: task?.runtime ?? pendingInteraction?.props.taskRuntime,
         onRunStarted: (newRunId, handoff) => {
             if (handoff) {
                 continueWithRun(handoff)

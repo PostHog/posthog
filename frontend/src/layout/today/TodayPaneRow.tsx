@@ -9,6 +9,7 @@ interface TodayPaneRowProps {
     icon?: JSX.Element | null
     to: string
     active?: boolean
+    variant?: 'default' | 'destructive'
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link. */
     action?: JSX.Element | null
     dataAttr?: string
@@ -21,6 +22,7 @@ export function TodayPaneRow({
     icon,
     to,
     active = false,
+    variant,
     action,
     dataAttr,
 }: TodayPaneRowProps): JSX.Element {
@@ -30,9 +32,10 @@ export function TodayPaneRow({
                 value={value}
                 to={to}
                 active={active}
+                variant={variant}
                 title={label}
                 data-attr={dataAttr}
-                className={cn('font-medium', action && 'pr-8')}
+                className={cn(action && 'pr-8')}
             >
                 {icon && (
                     <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4" aria-hidden>

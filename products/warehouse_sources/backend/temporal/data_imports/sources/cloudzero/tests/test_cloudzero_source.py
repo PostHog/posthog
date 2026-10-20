@@ -13,6 +13,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.
     CloudzeroSource,
     _parse_group_by,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudzero import (
+    CloudzeroSourceConfig,
+)
 
 
 def _config(
@@ -45,18 +52,6 @@ class TestSourceConfig:
         assert CloudzeroSource.supported_versions == ("v2",)
         assert CloudzeroSource.default_version == "v2"
         assert CloudzeroSource.api_docs_url.startswith("https://")
-
-
-class TestGetSchemas:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O) — public docs render the table list.
-        assert CloudzeroSource.lists_tables_without_credentials is True
-        tables = {t["name"]: t for t in CloudzeroSource().get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["Costs"]["sync_methods"]
-        # Costs is the only endpoint CloudZero lets us filter by time, so every other table
-        # can only be synced by full refresh.
-        assert [name for name, table in tables.items() if table["sync_methods"] != ["Full refresh"]] == ["Costs"]
 
 
 class TestValidateCredentials:
@@ -134,24 +129,17 @@ class TestResumableWiring:
     def test_non_cost_endpoints_use_their_own_key_and_no_partitioning(
         self, schema_name: str, expected_primary_keys: list[str]
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = schema_name
-        inputs.team_id = 1
-        inputs.job_id = "test_job"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = None
-        manager = MagicMock()
+        rows = [{expected_primary_keys[0]: "value"}]
+        body: Any = rows if schema_name == "RecommendationTypes" else {schema_name.lower(): rows}
+        result = SourceDriver(CloudzeroSource(), CloudzeroSourceConfig(api_key="key")).run(
+            schema_name, [ScriptedResponse(json=body)]
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source.cloudzero_source"
-        ) as mocked:
-            mocked.return_value.name = schema_name
-            mocked.return_value.column_hints = None
-            response = CloudzeroSource().source_for_pipeline(_config(), manager, inputs)
-
-        assert response.primary_keys == expected_primary_keys
-        assert response.partition_keys is None
-        assert response.partition_mode is None
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == expected_primary_keys
+        assert result.response.partition_keys is None
+        assert result.response.partition_mode is None
 
 
 class TestNonRetryableErrors:

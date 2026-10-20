@@ -113,6 +113,9 @@ Per-call (arguments to `DeltaLiteTable.upsert`): `max_parallel_partitions` (2),
 (128 MiB: compressed row-group bytes readers hold before decoding), `prune_strategy`
 (`probe`), `probe_concurrency` (8), `read_batch_size` (8192),
 `target_file_size` (table's `delta.targetFileSize`, else delta-rs's 100 MiB),
+`isolate_source_rows` (off: the batch's rows share an output file with the copied
+survivors; on: they get their own files),
+`max_row_group_bytes` (`None`: row groups close only at the encoder's row cap),
 `max_source_bytes` (2 GiB guard), `multipart_threshold` (64 MiB) /
 `multipart_part_size` (16 MiB), `commit_max_retries` (15).
 
@@ -123,6 +126,11 @@ budgets): `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` (256 MiB),
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB), `DELTALITE_MAX_SOURCE_BYTES`,
 `DELTALITE_MULTIPART_THRESHOLD_BYTES`, `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
+
+Kill switches for the request savings on the log and on small files (set to `0`
+to restore the earlier requests): `DELTALITE_PROBE_REFRESH`,
+`DELTALITE_OPTIMISTIC_COMMIT_VERSION`, `DELTALITE_COMMIT_JSON_CACHE`,
+`DELTALITE_SMALL_FILE_SINGLE_GET`. See `python/README.md`, "Log requests".
 
 `DeltaLiteTable.compact` takes the same budget knobs plus its own (see
 `python/README.md`, "Compaction"); it shares the process-global limits with

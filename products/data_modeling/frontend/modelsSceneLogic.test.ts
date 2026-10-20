@@ -17,7 +17,6 @@ function buildNode(id: string, overrides: Partial<DataModelingNode> = {}): DataM
         id,
         name: id,
         type: 'matview',
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -69,8 +68,8 @@ describe('modelsSceneLogic', () => {
                 '/api/environments/:team_id/data_modeling_edges/': {
                     count: 2,
                     results: [
-                        { id: 'e1', source_id: 'broken', target_id: 'child', dag: 'dag-1' },
-                        { id: 'e2', source_id: 'child', target_id: 'grandchild', dag: 'dag-1' },
+                        { id: 'e1', source_id: 'broken', target_id: 'child' },
+                        { id: 'e2', source_id: 'child', target_id: 'grandchild' },
                     ],
                 },
                 '/api/environments/:team_id/warehouse_saved_queries/': {

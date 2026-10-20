@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodaSource(SimpleSource[CodaSourceConfig]):
+    codebase_detection = detect(env=("^CODA_API_",), npm=("@codahq/packs-sdk",), pypi=("codaio",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -52,7 +55,7 @@ class CodaSource(SimpleSource[CodaSourceConfig]):
             label="Coda",
             caption="""Enter your Coda API token to pull your docs, tables, and rows into the PostHog Data warehouse.
 
-You can generate an API token in [Coda account settings](https://coda.io/account). The token only sees docs its creator can access. Rows are synced from every table of every doc — note Coda's doc-listing rate limit makes large workspaces slow to sync.""",
+You can generate an API token in [Coda account settings](https://coda.io/account). The token only sees docs its creator can access. Rows are synced from every table of every doc — note Coda's doc-listing rate limit makes large workspaces slow to sync. Workspace users and role activity sync only for workspaces where the token's creator is an admin.""",
             iconPath="/static/services/coda.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coda",
             releaseStatus=ReleaseStatus.ALPHA,

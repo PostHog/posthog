@@ -79,21 +79,13 @@ describe('messageTemplateLogic', () => {
         })
 
         it.each([
-            {
-                missing: 'name',
-                prefill: { key: 'content.email.subject', value: 'Welcome' },
-                toast: 'Name is required',
-            },
-            {
-                missing: 'subject',
-                prefill: { key: 'name', value: 'Welcome email' },
-                toast: 'Subject is required',
-            },
-        ])('toasts when the $missing is missing', async ({ prefill, toast }) => {
+            { missing: 'name', key: 'name', toast: 'Name is required' },
+            { missing: 'subject', key: 'content.email.subject', toast: 'Subject is required' },
+        ])('toasts when the $missing is missing', async ({ key, toast }) => {
             logic = messageTemplateLogic({ id: 'new' })
             logic.mount()
 
-            logic.actions.setTemplateValue(prefill.key, prefill.value)
+            logic.actions.setTemplateValue(key, '')
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
             }).toDispatchActions(['submitTemplateFailure'])
@@ -336,6 +328,118 @@ describe('messageTemplateLogic', () => {
             router.actions.push(NEW_PATH, { mode: 'editor' }, {})
 
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
+        })
+    })
+
+    describe('transactional drafts', () => {
+        const live = { templating: 'liquid', email: { subject: 'Live subject', html: '<p>Live</p>' } }
+        const draft = { templating: 'liquid', email: { subject: 'Draft subject', html: '<p>Draft</p>' } }
+        const serverTemplate = {
+            id: 'existing-id',
+            name: 'Existing',
+            content: live,
+            draft_content: draft,
+            transactional_hog_flow_id: 'flow-id',
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        let bodies: Record<string, unknown>[]
+
+        beforeEach(async () => {
+            bodies = []
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                // Saving the content publishes it and the server clears the draft.
+                return [
+                    200,
+                    'content' in body
+                        ? { ...serverTemplate, ...body, draft_content: null }
+                        : { ...serverTemplate, ...body, updated_at: '2026-01-01T00:01:00Z' },
+                ]
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': serverTemplate },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('edits the draft and saves edits to it without touching the live content', async () => {
+            expect(logic.values.template.content).toEqual(draft)
+            jest.useFakeTimers()
+            const edited = { ...draft, email: { ...draft.email, subject: 'Edited subject' } }
+
+            logic.actions.setTemplateValue('content', edited)
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone']).toMatchValues({
+                hasDraft: true,
+                hasUnsavedChanges: false,
+            })
+
+            expect(bodies).toEqual([{ draft_content: edited }])
+        })
+
+        it('holds autosave while an edit from elsewhere is unresolved, then saves once the person keeps theirs', async () => {
+            jest.useFakeTimers()
+            const edited = { ...draft, email: { ...draft.email, subject: 'Edited subject' } }
+
+            logic.actions.setExternallyEdited(true)
+            logic.actions.setTemplateValue('content', edited)
+            await jest.advanceTimersByTimeAsync(3000)
+            expect(bodies).toEqual([])
+
+            logic.actions.keepMyTemplateVersion()
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            expect(bodies).toEqual([{ draft_content: edited }])
+        })
+
+        it('publishing sends the content and leaves no draft behind', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions(['saveTemplateSuccess'])
+                .toMatchValues({ hasDraft: false, hasUnsavedChanges: false })
+
+            expect(bodies).toHaveLength(1)
+            expect(bodies[0].content).toEqual(draft)
+            expect(bodies[0]).not.toHaveProperty('draft_content')
+        })
+    })
+
+    describe('make transactional', () => {
+        it('keeps edits made while the conversion runs', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/messaging_templates/:id/make_transactional/': {
+                        id: 'existing-id',
+                        name: 'Existing',
+                        transactional_hog_flow_id: 'flow-id',
+                        updated_at: '2026-01-02T00:00:00Z',
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.makeTransactional()
+                logic.actions.setTemplateValue('name', 'Renamed while converting')
+            })
+                .toDispatchActions(['makeTransactionalDone'])
+                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: true })
+
+            expect(logic.values.template.name).toEqual('Renamed while converting')
         })
     })
 })

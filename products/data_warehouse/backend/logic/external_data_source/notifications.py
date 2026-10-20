@@ -9,7 +9,12 @@ import structlog
 
 from posthog.tasks.email import send_external_data_failure_digest
 
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataDestination,
+    ExternalDataJob,
+    ExternalDataSchema,
+)
+from products.warehouse_sources.backend.facade.pipelines import destination_named_in_failure
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
@@ -135,11 +140,26 @@ def notify_external_data_sync_failures(
             for schema in group
         ]
 
+        listed_schemas = ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]
+        destinations_by_name: dict[str, str] = {}
+        if any(schema.latest_error for schema in listed_schemas):
+            destinations = (
+                ExternalDataDestination.objects.for_team(team_id)
+                .exclude(deleted=True)
+                .order_by("created_at")
+                .values_list("name", "id")
+            )
+            for name, destination_pk in destinations:
+                destinations_by_name.setdefault(name, str(destination_pk))
+
         items = []
-        for schema in ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
+        for schema in listed_schemas:
             source_url = (
                 f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{schema.source_id}/syncs"
             )
+            error = schema.latest_error or "Unknown error"
+            destination_name = destination_named_in_failure(error, destinations_by_name)
+            destination_id = destinations_by_name.get(destination_name) if destination_name is not None else None
             items.append(
                 {
                     # Prefer the human-readable label (e.g. a Slack channel name) over the
@@ -151,7 +171,13 @@ def notify_external_data_sync_failures(
                     "source_url": source_url,
                     # The template truncates for display (truncatechars), and the rendered
                     # HTML is what crosses the Celery boundary — no need to cap here.
-                    "error": schema.latest_error or "Unknown error",
+                    "error": error,
+                    "destination_name": destination_name,
+                    "destination_url": (
+                        f"{settings.SITE_URL}/project/{team_id}/data-management/warehouse-destinations?destination={destination_id}"
+                        if destination_id is not None
+                        else None
+                    ),
                     "paused": schema.sync_halted,
                     "url": f"{source_url}?schema={quote(schema.name)}",
                 }

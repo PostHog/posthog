@@ -22,6 +22,26 @@ describe('TimeSeriesComboChart', () => {
         expect(chart.yTicks().length).toBeGreaterThan(0)
     })
 
+    it('reserves the requested bottom margin for axis overlays', () => {
+        let bottomMargin: number | undefined
+        function Measure(): null {
+            const { dimensions } = useChartLayout()
+            bottomMargin = dimensions.height - dimensions.plotTop - dimensions.plotHeight
+            return null
+        }
+        renderHogChart(
+            <TimeSeriesComboChart
+                series={BAR_AND_LINE}
+                labels={LABELS}
+                theme={THEME}
+                config={{ margins: { bottom: 76 } }}
+            >
+                <Measure />
+            </TimeSeriesComboChart>
+        )
+        expect(bottomMargin).toBe(76)
+    })
+
     describe('config.xAxis', () => {
         it('hides x-axis ticks when xAxis.hide is true', () => {
             const { chart } = renderHogChart(
@@ -85,6 +105,20 @@ describe('TimeSeriesComboChart', () => {
     })
 
     describe('config.yAxis', () => {
+        it('pins the value domain even when a goal line extends beyond it', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesComboChart
+                    series={BAR_AND_LINE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueDomain: { min: 0, max: 100 }, goalLines: [{ value: 200, label: 'Target' }] }}
+                />
+            )
+            const ticks = chart.yTicks().map(Number)
+            expect(Math.min(...ticks)).toBe(0)
+            expect(Math.max(...ticks)).toBe(100)
+        })
+
         it('hides y-axis ticks when yAxis.hide is true', () => {
             const { chart } = renderHogChart(
                 <TimeSeriesComboChart

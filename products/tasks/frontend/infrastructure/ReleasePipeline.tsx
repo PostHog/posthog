@@ -1,6 +1,17 @@
 import { Card } from '@posthog/quill'
 
-import { Sources, customState, fresh, imageNames, imageState, pinState, releaseBadge } from './infrastructureTypes'
+import {
+    Sources,
+    customState,
+    devStackBadge,
+    devStackProgress,
+    devStackState,
+    fresh,
+    imageNames,
+    imageState,
+    pinState,
+    releaseBadge,
+} from './infrastructureTypes'
 import { PipelineNode } from './PipelineNode'
 
 export function ReleasePipeline({
@@ -131,20 +142,11 @@ export function ReleasePipeline({
                         id="dev_stack"
                         title="PostHog dev stack"
                         subtitle={devStack?.name || 'Reading bake record'}
-                        state={
-                            !fresh(sources.dev_stack) || !base || !devStack?.base_image_reference
-                                ? 'unknown'
-                                : devStack.base_image_reference === base
-                                  ? 'current'
-                                  : 'waiting'
-                        }
+                        state={devStackState(sources)}
                         selected={selected}
                         onSelect={onSelect}
-                        badge={
-                            devStack && !fresh(sources.dev_stack)
-                                ? { label: 'Last seen', variant: 'default' }
-                                : undefined
-                        }
+                        badge={devStackBadge(sources)}
+                        progress={devStackProgress(sources)}
                     />
                     <span className="parallel-caption">Notebook and Streamlit build alongside the base.</span>
                 </div>

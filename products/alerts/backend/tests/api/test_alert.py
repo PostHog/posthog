@@ -8,16 +8,18 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorNoCommonType
 from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -34,6 +36,8 @@ from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -1821,6 +1825,28 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert "needs at least" in response.json()["detail"]
         assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("Function 'toStartOfHour' expects 1 argument, found 2"), "toStartOfHour"),
+            ("clickhouse", CHQueryErrorNoCommonType("There is no supertype", code=386), "no supertype"),
+        ]
+    )
+    @mock.patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulate_sql_query_error_returns_validation_error(self, _name, error, message, mock_calculate) -> None:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"})
+        mock_calculate.side_effect = error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": insight.id,
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.json()["detail"]
+
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
         mock_simulate.return_value = {
@@ -2112,7 +2138,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         cache.clear()
 
 
-class TestAlertEventProperties(APIBaseTest):
+class TestAlertEventProperties(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -2219,6 +2245,7 @@ class TestAlertEventProperties(APIBaseTest):
         expected_detector_fields: dict,
     ) -> None:
         alert = AlertConfiguration(
+            id=None,
             name="test alert",
             condition=condition,
             detector_config=detector_config,
@@ -2271,6 +2298,7 @@ class TestAlertEventProperties(APIBaseTest):
     )
     def test_event_properties_capture_alert_config_adoption(self, _name: str, config: dict, expected: dict) -> None:
         alert = AlertConfiguration(
+            id=None,
             name="test alert",
             condition={"type": "absolute_value"},
             config=config,
@@ -2279,6 +2307,18 @@ class TestAlertEventProperties(APIBaseTest):
         props = alert._get_event_properties()
         for key, value in expected.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
+
+class TestPersistedAlertEventProperties(APIBaseTest):
+    def test_event_properties_include_alert_id_and_subscriber_count(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="test alert")
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        props = alert._get_event_properties()
+
+        assert props["alert_id"] == alert.id
+        assert props["subscribed_users_count"] == 1
 
 
 class TestAlertListFilters(TrendsInsightAPITest):

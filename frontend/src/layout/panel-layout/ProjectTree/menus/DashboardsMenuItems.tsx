@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconPlusSmall } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -26,11 +26,30 @@ export function DashboardsMenuItems({
     MenuGroup = DropdownMenuGroup,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { pinnedDashboards, dashboardsLoading, loadDashboardsFailed } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
     return (
         <>
+            <MenuItem
+                asChild
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        onLinkClick?.(true)
+                    }
+                }}
+            >
+                {/* The dashboards scene reads the hash when it mounts, so the modal opens from any page */}
+                <Link
+                    buttonProps={{ menuItem: true }}
+                    to={`${urls.dashboards()}#newDashboard=modal`}
+                    onClick={() => onLinkClick?.(false)}
+                    data-attr="tree-item-menu-new-dashboard"
+                >
+                    <IconPlusSmall />
+                    New dashboard
+                </Link>
+            </MenuItem>
             <MenuSub
                 onOpenChange={(open) => {
                     if (open) {
@@ -39,15 +58,21 @@ export function DashboardsMenuItems({
                 }}
             >
                 <MenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive menuItem data-attr="tree-item-menu-pinned-dashboards">
                         Pinned dashboards
                         <IconChevronRight className="ml-auto size-3" />
                     </ButtonPrimitive>
                 </MenuSubTrigger>
 
-                <MenuSubContent>
+                {/* Matches the parent menu's width, so long dashboard names truncate instead of widening it */}
+                <MenuSubContent className="max-w-[250px]">
                     <MenuGroup>
-                        {dashboardsLoading ? (
+                        {/* A failed load leaves dashboardsLoading true for good, so it has to be read first */}
+                        {loadDashboardsFailed ? (
+                            <MenuItem disabled>
+                                <ButtonPrimitive menuItem>Couldn't load dashboards</ButtonPrimitive>
+                            </MenuItem>
+                        ) : dashboardsLoading ? (
                             <MenuItem disabled>
                                 <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
                             </MenuItem>
@@ -60,6 +85,7 @@ export function DashboardsMenuItems({
                                         }}
                                         to={urls.dashboard(dashboard.id)}
                                         tooltip={dashboard.name}
+                                        data-attr="tree-item-menu-pinned-dashboard"
                                         tooltipPlacement="right"
                                         onClick={(e) => {
                                             e.stopPropagation()

@@ -36,14 +36,25 @@ export function SourceFreshness({ sources, now }: { sources: Sources; now: numbe
                     {sourceNames.map((name) => {
                         const source = sources[name]
                         const isFresh = fresh(source, now)
+                        const partial = name === 'release' && !!sources.release?.data?.runs_error
                         return (
                             <TableRow key={name}>
-                                <TableCell className="font-medium">{sourceLabels[name]}</TableCell>
+                                <TableCell>
+                                    <span className="font-medium">{sourceLabels[name]}</span>
+                                    {source?.error && <p className="text-muted-foreground mt-1">{source.error}</p>}
+                                    {name === 'release' && sources.release?.data?.runs_error && (
+                                        <p className="text-muted-foreground mt-1">
+                                            {`Build history incomplete. ${sources.release.data.runs_error}`}
+                                        </p>
+                                    )}
+                                </TableCell>
                                 <TableCell>
                                     <Badge
                                         variant={
                                             isFresh
-                                                ? 'success'
+                                                ? partial
+                                                    ? 'warning'
+                                                    : 'success'
                                                 : source?.status === 'error'
                                                   ? 'destructive'
                                                   : source?.status === 'ok'
@@ -52,7 +63,9 @@ export function SourceFreshness({ sources, now }: { sources: Sources; now: numbe
                                         }
                                     >
                                         {isFresh
-                                            ? 'Fresh'
+                                            ? partial
+                                                ? 'Partial'
+                                                : 'Fresh'
                                             : source?.status === 'error'
                                               ? 'Unavailable'
                                               : source?.status === 'ok'

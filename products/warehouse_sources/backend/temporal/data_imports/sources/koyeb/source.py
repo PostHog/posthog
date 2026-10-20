@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
+    codebase_detection = detect(
+        env=("^KOYEB_",),
+        pypi=("koyeb-sdk",),
+        go=(
+            "github.com/koyeb/koyeb-api-client-go",
+            "github.com/koyeb/koyeb-cli",
+            "github.com/koyeb/koyeb-github-runner-scheduler",
+        ),
+    )
+
     api_docs_url = "https://www.koyeb.com/docs/reference/api"
 
     # `get_schemas` iterates the static endpoint catalog with no I/O, so the public docs can
@@ -48,7 +59,7 @@ class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Koyeb",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Koyeb API token to pull your Koyeb apps, services, deployments, instances, event streams, and usage details into the PostHog Data warehouse.
+            caption="""Enter a Koyeb API token to pull your Koyeb projects, apps, services, deployments, instances, event streams, usage details, and the instance and region catalogs into the PostHog Data warehouse.
 
 Create an API token under [API settings](https://app.koyeb.com/user/settings/api) in the Koyeb console. Tokens are scoped to the organization they were created in.""",
             iconPath="/static/services/koyeb.svg",

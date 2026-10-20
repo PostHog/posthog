@@ -1,6 +1,7 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TriggerDevSource(ResumableSource[TriggerDevSourceConfig, TriggerDevResumeConfig]):
+    # TRIGGER_ alone is a common app-domain prefix, so we match only the
+    # three keys Trigger.dev actually documents.
+    codebase_detection = detect(
+        env=("^TRIGGER_(SECRET_KEY|API_KEY|PROJECT_ID)$", "^TRIGGER_ACCESS_TOKEN$", "^TRIGGER_API_URL$"),
+        npm=("@trigger.dev/sdk", "@trigger.dev/react-hooks", "trigger.dev"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://trigger.dev/docs/management/overview"
 
@@ -116,10 +124,12 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
+            # A lookback re-reads rows that are already stored, and append would duplicate them.
+            lookback = TRIGGER_DEV_ENDPOINTS[endpoint].incremental_lookback
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental,
-                supports_append=has_incremental,
+                supports_append=has_incremental and lookback is None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=TRIGGER_DEV_ENDPOINTS[endpoint].should_sync_default,
             )

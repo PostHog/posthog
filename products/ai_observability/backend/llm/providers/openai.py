@@ -4,7 +4,7 @@ import json
 import uuid
 import logging
 from collections.abc import Generator
-from typing import Any
+from typing import Any, ClassVar
 
 from django.conf import settings
 
@@ -47,11 +47,15 @@ from products.ai_observability.backend.providers.formatters.tools_handler import
 
 logger = logging.getLogger(__name__)
 
+OPENAI_DECISIONS_BASE_URL = "https://api.openai.com/v1"
+
 
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
     TIMEOUT: float = 300.0
+
+    DECISION_MODELS: frozenset[str] = frozenset({"gpt-6-luna"})
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-5.4",
@@ -112,6 +116,11 @@ class OpenAIAdapter:
     name = "openai"
     request_timeout: float = OpenAIConfig.TIMEOUT
     max_retries: int = openai.DEFAULT_MAX_RETRIES
+
+    # OpenRouter returns 402 when the key can't afford the requested max_tokens (or is out of
+    # credits). Retrying never helps, so these map to the quota path and the workflow marks the
+    # key errored and stops.
+    QUOTA_EXHAUSTED_STATUS_CODES: ClassVar[frozenset[int]] = frozenset({402})
 
     def _create_client(
         self,
@@ -255,14 +264,12 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
-                # Azure OpenAI rejects a prompt that its filter blocks with a 400, before any
-                # completion exists to carry a `content_filter` finish reason.
-                if error.code == "content_filter":
+                # Azure OpenAI (`content_filter`) and OpenAI's usage policy check (`invalid_prompt`)
+                # reject a flagged prompt with a 400, before any completion exists to carry a
+                # `content_filter` finish reason.
+                if error.code in ("content_filter", "invalid_prompt"):
                     return ContentFilteredError(str(error))
-            # OpenRouter returns 402 when the key can't afford the requested
-            # max_tokens (or is out of credits). Retrying never helps — mirror
-            # the quota path so the workflow marks the key errored and stops.
-            if getattr(error, "status_code", None) == 402:
+            if getattr(error, "status_code", None) in self.QUOTA_EXHAUSTED_STATUS_CODES:
                 return QuotaExceededError(str(error))
         return None
 
@@ -356,6 +363,15 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     common["max_completion_tokens"] = request.max_tokens
                 if tools is not None:
                     common["tools"] = tools
+                if request.output_schema is not None:
+                    common["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": request.output_schema.name,
+                            "schema": request.output_schema.schema,
+                            "strict": request.output_schema.strict,
+                        },
+                    }
                 return common
 
             messages = request.messages

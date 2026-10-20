@@ -21,7 +21,13 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
+import {
+    EmailService,
+    formatMailbox,
+    parseAddressList,
+    sanitizeEmailSubject,
+    teamEmailCapBuckets,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
@@ -54,6 +60,24 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('formatMailbox', () => {
+    it.each([
+        ['no name', undefined, 'a@example.com'],
+        ['an empty name', '  ', 'a@example.com'],
+        ['a plain name', 'Dry Run', '"Dry Run" <a@example.com>'],
+        ['an apostrophe and ampersand', "O'Brien & Co", `"O'Brien & Co" <a@example.com>`],
+        ['a double quote', 'The "Real" Dry', '"The \\"Real\\" Dry" <a@example.com>'],
+        ['a backslash', 'Dry\\Run', '"Dry\\\\Run" <a@example.com>'],
+        [
+            'a line break that would start a header',
+            'Dry\r\nBcc: x@example.com',
+            '"DryBcc: x@example.com" <a@example.com>',
+        ],
+    ])('formats %s', (_name, name, expected) => {
+        expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
 })
 
@@ -420,6 +444,7 @@ describe('EmailService', () => {
                 // than the upper bound + scheduler overhead.
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
                 expect(scheduledMs).toBeLessThan(before + 2000)
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])
@@ -1084,6 +1109,28 @@ describe('EmailService', () => {
             })
         })
 
+        // A person without an email property renders an empty `to`. Counting that as email_failed
+        // lets one project's data trip the platform send failure rate alert.
+        it.each([
+            ['an empty string', ''],
+            ['only whitespace', '   '],
+            ['no value', undefined],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: email as string, name: 'Test User' },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
+            expect(result.skipped).toBe(true)
+            expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+        })
+
         describe('SES tenant attribution', () => {
             it('attributes the send to the team tenant', async () => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -1353,6 +1400,31 @@ describe('EmailService', () => {
                 'reply2@example.com',
                 'Customer Service <reply3@example.com>',
             ])
+        })
+
+        it.each([
+            ['uses the sender default when the step has none', undefined, ['support@posthog-test.com']],
+            ['uses the sender default when the step has no parsed addresses', ' , ', ['support@posthog-test.com']],
+            ['keeps the step reply-to over the sender default', 'step@example.com', ['step@example.com']],
+        ])('%s', async (_, replyTo, expected) => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: getIntegrationId(2),
+                kind: 'email',
+                config: {
+                    email: 'sender@posthog-test.com',
+                    name: 'Test User',
+                    domain: 'posthog-test.com',
+                    verified: true,
+                    provider: 'ses',
+                    reply_to: 'support@posthog-test.com',
+                },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 2 }, replyTo })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.ReplyToAddresses).toEqual(expected)
         })
 
         it.each([

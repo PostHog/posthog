@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 VELLUM_BASE_URL = "https://api.vellum.ai/v1"
 
 
-@dataclass
+@dataclass(frozen=True)
 class VellumEndpointConfig:
     name: str
     # Path relative to VELLUM_BASE_URL. Fan-out endpoints carry a `{deployment_id}` placeholder.
@@ -19,10 +19,10 @@ class VellumEndpointConfig:
     # ordering values, so we only send one we can reason about).
     ordering: str | None = None
     should_sync_default: bool = True
-    # Fan out over every workflow deployment, hitting `path` (with `{deployment_id}`) per parent to
-    # pull its execution history. The parent id is injected into each child row under
-    # `parent_id_field` so the composite primary key stays unique table-wide.
-    fan_out_over_workflow_deployments: bool = False
+    # Parent endpoint to fan out over, hitting `path` (with `{deployment_id}`) once per parent row. The
+    # parent id is injected into each child row under `parent_id_field` so the composite primary key
+    # stays unique table-wide.
+    fan_out_parent: str | None = None
     parent_id_field: str | None = None
 
 
@@ -64,8 +64,38 @@ VELLUM_ENDPOINTS: dict[str, VellumEndpointConfig] = {
         primary_keys=["workflow_deployment_id", "span_id"],
         partition_key="start",
         should_sync_default=False,
-        fan_out_over_workflow_deployments=True,
+        fan_out_parent="workflow_deployments",
         parent_id_field="workflow_deployment_id",
+    ),
+    # Release history per workflow deployment: one row per release, with the version and environment it
+    # shipped to. Release ids are UUIDs, but the parent id stays in the key like the other fan-outs.
+    # This and the release-tag tables below are fan-outs too, so they are also opt-in.
+    "workflow_deployment_releases": VellumEndpointConfig(
+        name="workflow_deployment_releases",
+        path="/workflow-deployments/{deployment_id}/releases",
+        primary_keys=["workflow_deployment_id", "id"],
+        partition_key="created",
+        should_sync_default=False,
+        fan_out_parent="workflow_deployments",
+        parent_id_field="workflow_deployment_id",
+    ),
+    # Release tags (e.g. LATEST, PRODUCTION) and the release each one points to. A tag name is unique only
+    # within its deployment, and tags carry no immutable timestamp of their own, so no partition key.
+    "workflow_deployment_release_tags": VellumEndpointConfig(
+        name="workflow_deployment_release_tags",
+        path="/workflow-deployments/{deployment_id}/release-tags",
+        primary_keys=["workflow_deployment_id", "name"],
+        should_sync_default=False,
+        fan_out_parent="workflow_deployments",
+        parent_id_field="workflow_deployment_id",
+    ),
+    "prompt_deployment_release_tags": VellumEndpointConfig(
+        name="prompt_deployment_release_tags",
+        path="/deployments/{deployment_id}/release-tags",
+        primary_keys=["prompt_deployment_id", "name"],
+        should_sync_default=False,
+        fan_out_parent="prompt_deployments",
+        parent_id_field="prompt_deployment_id",
     ),
 }
 

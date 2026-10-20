@@ -3,7 +3,7 @@ import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
     NEXUS_API_PATH,
+    NEXUS_DEFAULT_USER_SOURCE,
+    NEXUS_USER_SEARCH_LIMIT,
     SONATYPE_NEXUS_ENDPOINTS,
 )
 
@@ -270,6 +272,8 @@ def _get_repository_fanout_rows(
                 # slow-drips each one's single terminal page to just under the per-response budget
                 # would bypass the check and hold the worker for repositories × MAX_RESPONSE_SECONDS.
                 if time.monotonic() > pagination_deadline:
+                    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+                    resumable_source_manager.safe_point()
                     raise SonatypeNexusPaginationError(
                         f"Nexus pagination exceeded the {MAX_PAGINATION_SECONDS:g}s time budget for repository={repository}"
                     )
@@ -294,6 +298,8 @@ def _get_repository_fanout_rows(
                         f"Nexus returned a non-advancing continuation token for repository={repository}"
                     )
                 if page_count >= MAX_PAGES_PER_ENDPOINT:
+                    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+                    resumable_source_manager.safe_point()
                     raise SonatypeNexusPaginationError(
                         f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for repository={repository}"
                     )
@@ -314,6 +320,52 @@ def _get_repository_fanout_rows(
             )
 
 
+def _get_user_rows(
+    session: requests.Session, endpoint_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    local_users = _fetch_page(session, _build_url(endpoint_url, {"source": NEXUS_DEFAULT_USER_SOURCE}), logger)["items"]
+    if local_users:
+        yield local_users
+
+    # The cross-source search is the only way to list external-realm users (LDAP, SAML, Crowd), but it
+    # repeats local users, so keep only the external rows to not duplicate the full local list.
+    all_users = _fetch_page(session, endpoint_url, logger)["items"]
+    if len(all_users) >= NEXUS_USER_SEARCH_LIMIT:
+        logger.warning(
+            f"Sonatype Nexus: the cross-source user search hit the {NEXUS_USER_SEARCH_LIMIT}-user cap, "
+            "so some external-realm users may be missing"
+        )
+    external_users = [user for user in all_users if user.get("source") != NEXUS_DEFAULT_USER_SOURCE]
+    if external_users:
+        yield external_users
+
+
+def _get_blob_store_rows(
+    session: requests.Session, endpoint_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    blob_stores = _fetch_page(session, endpoint_url, logger)["items"]
+    for blob_store in blob_stores:
+        quota_status: dict[str, Any] = {}
+        # Without a soft quota the status is a fixed "no quota" reply, and an unavailable blob store
+        # can't report usage, so only ask for the status when it can carry information.
+        if blob_store.get("softQuota") and not blob_store.get("unavailable"):
+            status_url = f"{endpoint_url}/{quote(blob_store['name'], safe='')}/quota-status"
+            try:
+                quota_status = _fetch_page(session, status_url, logger)
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 404:
+                    logger.warning(f"Sonatype Nexus: blob store {blob_store['name']} not found, skipping")
+                    continue
+                raise
+        yield [
+            {
+                **blob_store,
+                "quotaViolation": quota_status.get("isViolation"),
+                "quotaMessage": quota_status.get("message"),
+            }
+        ]
+
+
 def get_rows(
     host: str,
     username: str,
@@ -329,6 +381,14 @@ def get_rows(
 
     if config.per_repository:
         yield from _get_repository_fanout_rows(session, base_url, endpoint_url, logger, resumable_source_manager)
+        return
+
+    if endpoint == "users":
+        yield from _get_user_rows(session, endpoint_url, logger)
+        return
+
+    if endpoint == "blob_stores":
+        yield from _get_blob_store_rows(session, endpoint_url, logger)
         return
 
     if not config.paginated:

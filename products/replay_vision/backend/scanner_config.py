@@ -29,6 +29,8 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
         return f"Prompt can be at most {MAX_PROMPT_LENGTH:,} characters."
     if scanner_type == ScannerType.CLASSIFIER:
         tags = scanner_config.get("tags") or []
+        if not isinstance(tags, list):
+            return "Categories must be a list."
         if len(tags) == 0:
             return "Add at least one category."
         if len(tags) > MAX_TAGS:
@@ -61,6 +63,9 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
         balance_variants = scanner_config.get("balance_variants")
         if balance_variants is not None and not isinstance(balance_variants, bool):
             return "balance_variants must be true or false."
+        start_on_launch = scanner_config.get("start_on_launch")
+        if start_on_launch is not None and not isinstance(start_on_launch, bool):
+            return "start_on_launch must be true or false."
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):

@@ -170,8 +170,12 @@ export interface scannerScoutLogicActions {
             | Partial<SignalScoutConfigApi>
             | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        note?: string | undefined
+    ) => {
         configId: string
+        note: string | undefined
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
@@ -853,6 +857,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             body: form.body,
                             cron: form.cron,
                             outputDestinations: form.outputDestinations,
+                            templateKey,
                         })
                     )
                     return result.config

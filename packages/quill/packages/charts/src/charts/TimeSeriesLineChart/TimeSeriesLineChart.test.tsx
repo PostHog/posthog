@@ -38,6 +38,21 @@ describe('TimeSeriesLineChart', () => {
         cleanup()
     })
 
+    it('reserves the requested bottom margin for axis overlays', () => {
+        let bottomMargin: number | undefined
+        function Measure(): null {
+            const { dimensions } = useChartLayout()
+            bottomMargin = dimensions.height - dimensions.plotTop - dimensions.plotHeight
+            return null
+        }
+        renderHogChart(
+            <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ margins: { bottom: 76 } }}>
+                <Measure />
+            </TimeSeriesLineChart>
+        )
+        expect(bottomMargin).toBe(76)
+    })
+
     describe('config.xAxis', () => {
         it('hides x-axis ticks when xAxis.hide is true', () => {
             const { chart } = renderHogChart(
@@ -515,6 +530,18 @@ describe('TimeSeriesLineChart', () => {
             expect(lines).toHaveLength(1)
             expect(lines[0].orientation).toBe('horizontal')
             expect(lines[0].label).toBe('Target')
+        })
+
+        it('includes shared domain values beyond the line data', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [10, 20, 30] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueDomain: { min: 0, include: [100] } }}
+                />
+            )
+            expect(Math.max(...chart.yTicks().map(Number))).toBeGreaterThanOrEqual(100)
         })
 
         it('extends the value axis so a goal line above the data still renders', () => {

@@ -4,6 +4,12 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.source import BaserowSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baserow import (
     BaserowSourceConfig,
@@ -76,30 +82,38 @@ class TestBaserowSource:
     def test_validate_credentials_maps_probe_results(
         self, probe_result: tuple[bool, int | None], expected_valid: bool, expected_message: str | None
     ) -> None:
+        status = probe_result[1]
+        answer = ScriptedResponse(status=status) if status is not None else ConnectionResetError("reset")
         with (
             mock.patch.object(BaserowSource, "is_database_host_valid", return_value=(True, None)),
-            mock.patch(f"{SOURCE_MODULE}.validate_baserow_credentials", return_value=probe_result),
+            scripted_network(always(answer)) as network,
         ):
             valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert valid is expected_valid
         assert message == expected_message
+        assert network.requests_log[0].path == "/api/database/tables/all-tables/"
+        assert network.requests_log[0].headers["authorization"] == "Token test-token"
 
     def test_validate_credentials_rejects_invalid_url_without_probing(self) -> None:
         config = BaserowSourceConfig(database_token="test-token", base_url="http://insecure.example.com")
-        with mock.patch(f"{SOURCE_MODULE}.validate_baserow_credentials") as mock_probe:
+        with scripted_network([]) as network:
             valid, message = self.source.validate_credentials(config, self.team_id)
 
         assert valid is False
         assert message == "Invalid Baserow instance URL"
-        mock_probe.assert_not_called()
+        assert network.requests_log == []
 
     def test_validate_credentials_rejects_blocked_host(self) -> None:
-        with mock.patch.object(BaserowSource, "is_database_host_valid", return_value=(False, "Host is not allowed")):
+        with (
+            mock.patch.object(BaserowSource, "is_database_host_valid", return_value=(False, "Host is not allowed")),
+            scripted_network([]) as network,
+        ):
             valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert valid is False
         assert message == "Host is not allowed"
+        assert network.requests_log == []
 
     def test_source_for_pipeline_resolves_table_id_from_schema_metadata(self) -> None:
         inputs = _make_inputs(schema_name="Projects", schema_metadata={"table_id": 10, "database_id": 1})
@@ -124,8 +138,11 @@ class TestBaserowSource:
 
     def test_source_for_pipeline_rejects_blocked_host(self) -> None:
         with mock.patch.object(BaserowSource, "is_database_host_valid", return_value=(False, "Host is not allowed")):
-            with pytest.raises(ValueError, match="Host is not allowed"):
-                self.source.source_for_pipeline(self.config, mock.MagicMock(), _make_inputs())
+            result = SourceDriver(self.source, self.config).run("Projects", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Host is not allowed" in str(result.raised)
+        assert result.requests == []
 
     def test_get_endpoint_permissions_reports_unreadable_tables(self) -> None:
         reason = "The database token does not have read permission for this table."

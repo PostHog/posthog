@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TrelloSource(ResumableSource[TrelloSourceConfig, TrelloResumeConfig]):
+    codebase_detection = detect(
+        env=("^TRELLO_",),
+        script_hosts=("p.trellocdn.com",),
+        npm=("trello",),
+        pypi=("py-trello",),
+        rubygems=("ruby-trello",),
+    )
+
     supported_versions = ("1",)
     default_version = "1"
     api_docs_url = "https://developer.atlassian.com/cloud/trello/rest/"

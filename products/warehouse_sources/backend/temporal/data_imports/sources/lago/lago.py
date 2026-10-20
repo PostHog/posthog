@@ -4,7 +4,8 @@ Lago is an open-source usage-based billing platform offered both as Lago Cloud
 (``https://api.getlago.com``) and self-hosted (a customer-supplied host), so the API base URL
 must be configurable. Auth is a single Bearer API key. List endpoints are page-number paginated
 (``page`` / ``per_page``) and wrap their records under a resource key alongside a ``meta`` object
-that carries ``total_pages`` / ``next_page``.
+that carries ``total_pages`` / ``next_page``. Billing entities and the analytics reports are the
+exception: they return the whole collection in one body with no ``meta``.
 
 Every stream is full-refresh. Lago's REST API exposes no universal server-side ``created_at`` /
 ``updated_at`` cursor across resources — only a handful of endpoints offer ad-hoc date filters
@@ -12,6 +13,9 @@ Every stream is full-refresh. Lago's REST API exposes no universal server-side `
 record-creation timestamp, so they are unsafe to treat as an incremental cursor. Incremental sync
 can be layered on later for a specific endpoint once its server-side filter is verified against the
 live API.
+
+Charges and wallet transactions are only listed per parent (a plan, a wallet), so those tables fan
+out over a fresh listing of the parent on every sync.
 
 Pagination, retries, auth-header redaction, and the redirect / off-host SSRF guards are provided by
 the shared ``rest_source`` framework (page-number paginator, ``allowed_hosts`` host-pinning,
@@ -21,9 +25,9 @@ has no framework equivalent, so it stays here as a run-time pre-check.
 
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 
@@ -33,8 +37,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -53,12 +64,15 @@ class LagoHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LagoResumeConfig:
     # The next page to fetch on resume. Persisted after each page is yielded, so a crash before
     # this write leaves the previous value in place and the last page is re-yielded (Lago merges
     # dedupe on `lago_id`).
-    next_page: int
+    next_page: Optional[int] = None
+    # Fan-out tables checkpoint the shape `build_dependent_resource` emits: which parents finished
+    # and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_base_url(api_url: Optional[str]) -> str:
@@ -80,6 +94,13 @@ def normalize_base_url(api_url: Optional[str]) -> str:
 
 def _host_of(base_url: str) -> str:
     return (urlparse(base_url).hostname or "").lower()
+
+
+def _encode_plan_code(row: dict[str, Any]) -> dict[str, Any]:
+    return {**row, "_path_code": quote(str(row.get("code", "")), safe="")}
+
+
+_PARENT_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {"plans": _encode_plan_code}
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -168,55 +189,75 @@ def lago_source(
     base_url = normalize_base_url(api_url)
     host = _host_of(base_url)
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url,
-            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
-            # logs and raised errors; only the non-secret accept/content headers are set here.
-            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-            # Pin every request to the base host and refuse redirects: a self-hosted host is
-            # customer-controlled, so a tampered pagination link or a 3xx to an internal address must
-            # not carry the Authorization header off-host (SSRF). `allowed_hosts=[]` means
-            # "same host as base_url only".
-            "allowed_hosts": [],
-            "allow_redirects": False,
-            # Page-number pagination; `meta.total_pages` stops after the last page so no extra empty
-            # page is fetched. `stop_after_empty_page` (default) covers a 0-row / missing-key body.
-            "paginator": PageNumberPaginator(base_page=1, total_path="meta.total_pages"),
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"per_page": config.page_size},
-                    "data_selector": config.data_key,
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": base_url,
+        # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+        # logs and raised errors; only the non-secret accept/content headers are set here.
+        "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        # Pin every request to the base host and refuse redirects: a self-hosted host is
+        # customer-controlled, so a tampered pagination link or a 3xx to an internal address must
+        # not carry the Authorization header off-host (SSRF). `allowed_hosts=[]` means
+        # "same host as base_url only".
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        # Page-number pagination; `meta.total_pages` stops after the last page so no extra empty
+        # page is fetched. `stop_after_empty_page` (default) covers a 0-row / missing-key body.
+        "paginator": PageNumberPaginator(base_page=1, total_path="meta.total_pages"),
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"page": resume.next_page}
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
-        # the last page (merge dedupes on `lago_id`) rather than skipping it.
-        if state and state.get("page") is not None:
-            resumable_source_manager.save_state(LagoResumeConfig(next_page=int(state["page"])))
+    resource: Iterable[Any]
+    if config.fanout is not None:
+        parent_config = LAGO_ENDPOINTS[config.fanout.parent_name]
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(LagoResumeConfig(fanout_state=state))
+
+        resource = build_dependent_resource(
+            endpoint_configs=LAGO_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param="per_page",
+            parent_endpoint_extra={"data_selector": parent_config.data_key},
+            child_endpoint_extra={"data_selector": config.data_key},
+            parent_data_map=_PARENT_DATA_MAPS.get(config.fanout.parent_name),
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+    else:
+        endpoint_config: Endpoint = {"path": config.path, "data_selector": config.data_key}
+        if config.paginated:
+            endpoint_config["params"] = {"per_page": config.page_size}
+        else:
+            endpoint_config["paginator"] = "single_page"
+
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+        }
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+            # the last page (merge dedupes on `lago_id`) rather than skipping it.
+            if state and state.get("page") is not None:
+                resumable_source_manager.save_state(LagoResumeConfig(next_page=int(state["page"])))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"page": resume.next_page} if resume and resume.next_page is not None else None,
+        )
 
     def items() -> Iterator[list[dict[str, Any]]]:
         # Re-check at run time (not just at source-create) in case the URL was edited or now resolves
@@ -229,7 +270,7 @@ def lago_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # Full-refresh replace: Lago exposes no `sort` param and no incremental cursor, so there is
         # no watermark to checkpoint. The default ascending mode is harmless here.
         sort_mode="asc",
