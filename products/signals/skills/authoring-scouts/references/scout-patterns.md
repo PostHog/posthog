@@ -52,6 +52,7 @@ The warehouse row is the big unlock: once a Slack channel, a Stripe account, a C
 | **Recurring measurement / LLM-judge**       | the deliverable is a **data series**, not a report — a recurring judgment, extraction, or snapshot no deterministic query can compute.                           | a content-quality judge scout (below)                                             |
 | **Maintainer / steward**                    | the scout **owns a set of PostHog objects** (dashboards, alerts, warehouse views, scanner prompts, a skill) and should fix what rots, not only describe the fix. | a dashboard steward, an alert-fleet steward, a warehouse-view steward (below)     |
 | **Owner-scoped book / queue**               | one person's accounts, tickets, pull requests, or issues, watched for the few things _that person_ should act on next.                                           | an account-book scout, a personal PR sensor (below)                               |
+| **Single-experiment analyst**               | one experiment matters enough to read every day against its own decision rule, beyond the fleet-wide validity sweep.                                             | a single-experiment analyst scout (below)                                         |
 | **Trigger-to-brief enrichment**             | an upstream rule already names a new entity (a signup, an eligible account, a new arrival) and the value is the **assembled, ranked brief** for its owner.       | a lead-brief scout (below)                                                        |
 | **Dispatcher / campaign**                   | detection already exists and the job is **arming one finding per run for implementation**, with a contract a coding agent can execute.                           | an improve-my-tool campaign scout (below)                                         |
 | **Fleet meta-scout / reviewer**             | the watched surface is the scout fleet itself: its configs, runs, reports, and memory.                                                                           | `signals-scout-inbox-validation`; a fleet reviewer, a fleet digest (below)        |
@@ -698,7 +699,7 @@ Fleet-wide watchers cannot serve this: the question is not "is anything anomalou
 Several people on one account team independently built the same book-scout shape within days of each other, which is the surest sign a pattern is real.
 
 - **Watched data:** the owner's entities, **resolved live from an ownership source** every run (account relationships in Customer analytics, an `owner_email` property on the group, a CRM ownership field, a GitHub login for PRs and issues), never a hardcoded list that rots as the book changes.
-  A single-entity variant (one high-value account, one experiment) is the same scout with a book of one.
+  A single-entity variant (one high-value account) is the same scout with a book of one; a single experiment has its own shape (single-experiment analyst, below).
 - **Discriminator: a fixed set of actionable shapes, filed only when the owner should act.** Name the shapes in a table at the top; the account-book form has settled on roughly six: a new stakeholder appearing, a sustained engagement change, a billing-intent visit, a product adopted from zero or dropped to zero, a support or AI-assistant conversation that reveals a config gap or frustration, and an unanswered customer question in the shared channel.
   Rank by **value × urgency** (MRR at stake, renewal proximity), deliver to the owner's Slack DM, and hold the whole thing to "would this person thank me for the interruption".
   The personal work-queue form has its own shapes: each open PR resolved to **whose turn it is** (CI, a bot, a reviewer, the author), issues that are unblocked and scoped, escalations another team has not answered inside the SLA.
@@ -719,6 +720,45 @@ Several people on one account team independently built the same book-scout shape
   - **Personal inbox triage.** The owner's own signals reports (suggested reviewer, or filed by their scouts), ranked, checked against their PRs, kept as one living report (see the digest pattern's living-report variant) and DM'd when something moved.
   - **Commitment follow-through.** See the commitment-ledger variant under the liveness pattern: what each account said it would try, re-checked against the signal that proves it.
 - **Gotchas:** a book scout reads names, emails, and conversation text about real customers, so its findings stay inside the project and its owner's DM, and nothing it writes should leak into a public artifact; never draft outreach that names contacts unless the owner asked for that; keep the fan-out guarded (one run per entity per lens, not a query storm) because a 40-account book with six lenses is 240 reads before any judgment.
+
+### Single-experiment analyst scout
+
+The canonical experiments scout sweeps every running experiment for validity threats: sample ratio mismatch, contamination, stalled exposure, mid-run flag edits.
+That breadth is its job, and it stops there.
+An experiment that matters needs more: an analyst who knows its hypothesis, its pre-registered decision rule and its known limits, reads it every day, and explains why the result moves.
+That is a scout with a book of one experiment, and it lives as long as the experiment does.
+
+- **Watched data:** the experiment entity (`experiment-get`: status, flag key and version, variants, metrics, stats method, exposure criteria), its results (`experiment-results-get` for every metric plus the exposures block with the SRM p-value and daily series, `experiment-timeseries-results` for one metric's history), the raw exposure and metric events through `execute-sql`, and anything that can change what an arm shows mid-run: deploys, model or config promotions, the activity log on the experiment and its flag, and a Replay Vision experiment scanner's per-variant split (`vision-scanners-variants-list`).
+- **Write the experiment into the body.** Unlike a canonical scout, this one is project-only by design: name the experiment id, the flag key, each arm and what it serves, the launch time, the planned read date, the metric ids, and the pre-registered decision rule word for word.
+  Point at the design doc or tracking skill that holds the decisions, read it every run, and say it wins when it and the body disagree, so a decision made mid-run reaches the scout without a body edit.
+- **Discriminator: does this change what the owner should decide or believe today?** Four shapes clear it.
+  **Arm integrity:** the treatment arm does not actually receive the treatment, users flip variant, or exposures arrive from a segment the design excludes.
+  **Validity:** SRM below a set p-value (0.01), an exposure stall against the trailing mean, a flag or metric edit, or stale results.
+  **Decision-rule movement:** a primary or guardrail crossing a pre-named threshold (chance to win or p-value) since the last recorded read, a guardrail breaching its margin, or a projection that the rule cannot be met by the read date.
+  **Explanation:** a deep dive that shows with numbers why the result is what it is.
+  Daily wobble inside those lines is one line in the tracker, never a report.
+- **Arm integrity is the check generic scouts miss.** Assignment can be perfect while the treatment is diluted: a fallback path that serves control behaviour, items without a score that sort like control, a client that never sends the request that evaluates the flag.
+  Compare the server-side assignment (the variant on the exposure event) with what the surface recorded as served, per arm.
+  Also measure the share of the treated surface's events whose person has no exposure event: an identity gap shrinks the analysed population without any warning.
+- **One living tracker, plus rotating deep dives.** File one rolling report (`Experiment <id> tracker: <name>`) and edit it every run: day N of the planned run, what changed since the last run, a scoreboard of every metric (n, rate or mean, chance to win and interval per arm), the integrity line, the change timeline, and one proposed next action.
+  Spend the rest of the run budget on one deep dive from a named rotation, oldest first: position or funnel-step curves, the mechanism the hypothesis assumes, segments (labelled as hypotheses), guardrail shape (a falling guardrail can mean less engagement, not a better product), replay themes per variant, and time to decision.
+  A dive that earns a report gets a notebook with a SQL cell for every number it quotes.
+- **Annotate what changes under the test.** Grant `annotation:write` so the scout annotates any mid-run change that does not restart the experiment (a model or config promotion, a deploy that touches the treated surface), and split reads before and after it.
+- **Read the stats the way the experiment does.** Use the experiment's own method and the decision rule as written.
+  For a goal-decrease metric, read the direction from the interval sign, not from a bare chance to win.
+  Results are cached and recompute on a schedule, so record `last_refresh` and treat results older than about a day and a half as stale, not as quiet.
+  Schedule the cron just after the daily metric recalculation, so each run reads fresh results.
+- **Hand the decisions to the owner.** The scout never ends, pauses, ships, or edits the experiment, its flag, or its metrics, and never triggers a recalculation; it proposes, with evidence.
+  Before the planned read, only the exact decision-rule conditions or a validity break justify a proposal to stop early: early results move a lot, and a scout that calls a winner on day three teaches people to ignore it.
+  On or after the read date it writes the readout against the rule (ship, no ship, or extend), and the owner decides.
+- **Quick close-out on end.** When the experiment stops, write a final tracker edit with the scoreboard and the reason from the activity log, save `addressed:<exp>:ended`, and close out empty on later runs; pause the scout once the readout is done.
+- **Dedupe + memory:** `dedupe:<exp>:tracker` holds the tracker report id; `pattern:<exp>:config` (flag version, variants, metric ids) catches drift; `pattern:<exp>:last-read` (per-metric n and chance to win) is the baseline for threshold crossings; `pattern:<exp>:timeline` lists mid-run changes with annotation ids; `pattern:<exp>:last-dive:<name>` drives the rotation; `noise:<exp>:<topic>` records what was ruled out.
+- **Seams:** the canonical experiments scout keeps fleet-wide validity across every experiment, so edit or reference its open report on this experiment rather than filing a duplicate.
+  A feature-owner scout for the system under test (a model, a pipeline) keeps that surface; the experiment scout reads those facts only where they change what an arm shows.
+- **Gotchas:** SQL timestamp literals follow the project timezone, so prefer `now() - INTERVAL` windows or convert the launch time once.
+  A client that never evaluates the flag can still emit metric events for exposed users, so filter raw SQL the same way the metrics do.
+  Internal users are in the exposure stream even when the results apply a test-account filter, so exclude them in raw SQL too.
+  After creating the scout, start one manual run with a run-only note that carries any leads found while writing it.
 
 ### Trigger-to-brief enrichment scout
 
