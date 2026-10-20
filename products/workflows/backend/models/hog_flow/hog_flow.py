@@ -247,4 +247,5 @@ def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
 def team_saved_for_hog_flows(sender, instance: Team, created, **kwargs):
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(team_id=instance.id)
+    team_id = instance.id
+    transaction.on_commit(lambda: refresh_affected_hog_flows.delay(team_id=team_id))

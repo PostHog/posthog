@@ -1184,6 +1184,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and helpers.count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -2018,6 +2023,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         source_type_model = ExternalDataSourceType(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:

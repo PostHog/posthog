@@ -16,6 +16,7 @@ from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
+from django.utils import timezone as django_timezone
 
 import requests
 import structlog
@@ -222,6 +223,7 @@ from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.proposals import (
     HOG_FLOW_VERSION_APP_SOURCE,
     PROPOSAL_MERGE_BY_ID_FIELDS,
+    absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
     count_proposals,
@@ -264,6 +266,7 @@ from products.workflows.backend.facade.secrets import (
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
+    suggestions_sample,
     suggestions_scout_refusal,
     suggestions_scout_status,
     sync_suggestions_scout,
@@ -4010,10 +4013,11 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
         "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
         "them under `measured`; the page shows that reading and flags a disagreement with yours. "
-        "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
-        "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
-        "that lifts one number by harming another, and a number under a key of your own reads to a "
-        "person as no evidence at all."
+        "Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 "
+        "interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. "
+        "A rate with no denominator lets a reviewer mistake noise for a result, a target with no "
+        "counter-metrics hides a change that lifts one number by harming another, and a number under a "
+        "key of your own reads to a person as no evidence at all."
     ),
 }
 
@@ -4027,7 +4031,27 @@ class SuggestionsScoutStatus(models.TextChoices):
     RUNNING = "running"
     PAUSED_BY_USER = "paused_by_user"
     PAUSED_BY_SYSTEM = "paused_by_system"
+    DRY_RUN = "dry_run"
     NOT_RUNNING = "not_running"
+
+
+class SuggestionsSampleSerializer(serializers.Serializer):
+    reached = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether an email step of the live version has enough tracked sends, over enough time, for "
+        "PostHog to judge it.",
+    )
+    tracked_sends = serializers.IntegerField(
+        read_only=True,
+        help_text="Tracked sends (sends with open tracking on) from the live version's busiest email step in the "
+        "last 7 days.",
+    )
+    required_sends = serializers.IntegerField(
+        read_only=True, help_text="Tracked sends an email step needs before PostHog judges it."
+    )
+    version_live_since = serializers.DateTimeField(
+        read_only=True, help_text="When the live version was published. PostHog waits 48 hours before judging it."
+    )
 
 
 class HogFlowOptimizationSerializer(serializers.Serializer):
@@ -4036,7 +4060,14 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         choices=SuggestionsScoutStatus.choices,
         read_only=True,
         help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
-        "workflows that have suggestions on.",
+        "workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on "
+        "writing to the inbox in its scout settings.",
+    )
+    sample = SuggestionsSampleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
+        "while suggestions are on but the scout is not running, or when the workflow has no email step.",
     )
 
 
@@ -5967,19 +5998,26 @@ class HogFlowViewSet(
         """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
 
         Same read as the outcome's "before" side, over the producer's window when it names a
-        relative one. A read that fails leaves the suggestion filed with the producer's numbers
-        only, which the page labels as unverified."""
+        relative one or an absolute interval. A read that fails leaves the suggestion filed with
+        the producer's numbers only, which the page labels as unverified."""
         window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
-        if not window or not re.fullmatch(r"-\d+[dh]", window):
+        bounds = absolute_window(window, django_timezone.now())
+        if bounds is None and (not window or not re.fullmatch(r"-\d+[dh]", window)):
             window = "-7d"
         try:
-            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            after_date = (
+                bounds.start
+                if bounds
+                else relative_date_parse_with_delta_mapping(window or "-7d", self.team.timezone_info)[0]
+            )
+            before_date = bounds.end if bounds else None
             tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
             reading = version_outcome(
                 team_id=self.team_id,
                 hog_flow_id=hog_flow.id,
                 versions=[base_version],
                 after=after_date,
+                before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
             )
@@ -6065,10 +6103,19 @@ class HogFlowViewSet(
         else:
             enabled = is_optimization_enabled(instance.id)
 
+        scout_status = suggestions_scout_status(self.team)
+        sample = None
+        # Off, the sample tells the person what to expect before they turn it on. On, only a running scout is
+        # held back by it, so the metrics read is skipped while the scout is paused or in dry run.
+        if not enabled or scout_status == SuggestionsScoutStatus.RUNNING:
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            try:
+                sample = suggestions_sample(team_id=self.team_id, hog_flow_id=instance.id)
+            except Exception as error:
+                # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
+                capture_exception(error)
         return Response(
-            HogFlowOptimizationSerializer(
-                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
-            ).data
+            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:
