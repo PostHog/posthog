@@ -201,7 +201,7 @@ def _calendar_anchor_utc(
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
 
 
-def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """Start of the local-time period of `period_minutes` that contains `timestamp`.
 
     The start is found on the local wall clock. A 30-minute DST change (Australia/Lord_Howe) moves the
@@ -217,7 +217,7 @@ def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_m
     return _localize_wall_time(team_timezone, wall_start, repeated_is_dst=bool(local.dst())).astimezone(UTC)
 
 
-def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """First start of a local-time period of `period_minutes` that is later than `after`.
 
     A DST change can make a local period longer or shorter than `period_minutes`. A 30-minute change
@@ -227,10 +227,10 @@ def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_
     """
     step = timedelta(minutes=min(period_minutes, 15))
     probe = after + step
-    start = _local_period_start(probe, team_timezone, period_minutes)
+    start = local_period_start(probe, team_timezone, period_minutes)
     while start <= after:
         probe += step
-        start = _local_period_start(probe, team_timezone, period_minutes)
+        start = local_period_start(probe, team_timezone, period_minutes)
     return start
 
 
@@ -365,9 +365,9 @@ def next_calendar_check_time(
             cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
             # The check runs at this alert's offset into the first local interval after the previous check,
             # which also moves an alert off the minute it was created on.
-            candidate = _next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
+            candidate = next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
             if candidate <= now:
-                candidate = _next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
+                candidate = next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
             return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(

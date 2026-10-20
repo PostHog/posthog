@@ -61,7 +61,7 @@ class OneSignalSource(ResumableSource[OneSignalSourceConfig, OneSignalResumeConf
         pub=("onesignal_flutter",),
         rubygems=("onesignal", "onesignal-ruby"),
         swiftpm=("github.com/onesignal/onesignal-xcframework", "github.com/onesignal/onesignal-ios-sdk"),
-        competes_with=(ProductKey.WORKFLOWS,),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True
@@ -84,7 +84,7 @@ class OneSignalSource(ResumableSource[OneSignalSourceConfig, OneSignalResumeConf
             ),
             iconPath="/static/services/onesignal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onesignal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -26,14 +26,20 @@ MAX_WORKFLOW_PAGES_PER_PIPELINE = 10
 MAX_JOB_PAGES_PER_WORKFLOW = 25
 MAX_COMPONENT_PAGES = 200
 MAX_VERSION_PAGES_PER_COMPONENT = 25
-# The deploy components endpoint is the exception: page size is required and no maximum is
-# documented, so we ask for the same ~20 items the other list endpoints return by default.
+MAX_ENVIRONMENT_PAGES = 50
+MAX_GROUP_PAGES = 50
+# The deploy components and environments endpoints are the exception: page size is required and
+# no maximum is documented, so we ask for the same ~20 items the other list endpoints return by
+# default.
 COMPONENTS_PAGE_SIZE = 20
+ENVIRONMENTS_PAGE_SIZE = 20
 # CircleCI rate-limits at roughly 1000 requests/minute per token (not officially documented);
 # 429s carry RateLimit-* headers we honor before retrying.
 MAX_RATE_LIMIT_SLEEP_SECONDS = 120
 # Endpoints served by the deploy components scan rather than the pipelines scan.
 COMPONENT_SCAN_ENDPOINTS = frozenset({"components", "component_versions"})
+# Endpoints whose list rows are yielded as-is, with no fan-out.
+DIRECT_LIST_ENDPOINTS = frozenset({"pipelines", "components", "environments", "groups", "collaborations"})
 # Workflow fields naming a CircleCI user, which is how the users stream discovers actor ids.
 WORKFLOW_ACTOR_FIELDS = ("started_by", "canceled_by", "errored_by")
 # A version row's identity beyond the component id. None of these are documented as required,
@@ -289,16 +295,19 @@ def _iter_pipeline_pages(
     )
 
 
-def _resolve_org_id(fetch_page: FetchPageFn, org_slug: str) -> str:
-    # The deploy endpoints take an organization UUID, which the v2 API only exposes through the
-    # collaborations list for the token's user.
-    for collaboration in fetch_page(_build_url("/me/collaborations")) or []:
+def _fetch_collaborations(fetch_page: FetchPageFn) -> list[dict[str, Any]]:
+    return fetch_page(_build_url("/me/collaborations")) or []
+
+
+def _resolve_org_id(fetch_page: FetchPageFn, org_slug: str, resource: str = "deploy components") -> str:
+    # The deploy and organization endpoints take an organization UUID, which the v2 API only
+    # exposes through the collaborations list for the token's user.
+    for collaboration in _fetch_collaborations(fetch_page):
         if collaboration.get("slug") == org_slug and collaboration.get("id"):
             return collaboration["id"]
 
     raise ValueError(
-        f"CircleCI organization '{org_slug}' was not found for this token, so its deploy "
-        "components cannot be looked up."
+        f"CircleCI organization '{org_slug}' was not found for this token, so its {resource} cannot be looked up."
     )
 
 
@@ -317,6 +326,50 @@ def _iter_component_pages(
         resource="components",
         start_token=start_token,
     )
+
+
+def _iter_environment_pages(
+    fetch_page: FetchPageFn,
+    org_slug: str,
+    logger: FilteringBoundLogger,
+    start_token: str | None,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    yield from _iter_pages(
+        fetch_page,
+        "/deploy/environments",
+        {
+            "org-id": _resolve_org_id(fetch_page, org_slug, "deploy environments"),
+            "page-size": ENVIRONMENTS_PAGE_SIZE,
+        },
+        logger,
+        max_pages=MAX_ENVIRONMENT_PAGES,
+        resource="environments",
+        start_token=start_token,
+    )
+
+
+def _iter_group_pages(
+    fetch_page: FetchPageFn,
+    org_slug: str,
+    logger: FilteringBoundLogger,
+    start_token: str | None,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    org_id = _resolve_org_id(fetch_page, org_slug, "groups")
+    yield from _iter_pages(
+        fetch_page,
+        f"/organizations/{quote(org_id, safe='')}/groups",
+        {},
+        logger,
+        max_pages=MAX_GROUP_PAGES,
+        resource="groups",
+        start_token=start_token,
+    )
+
+
+def _iter_collaboration_pages(fetch_page: FetchPageFn) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    # The collaborations list is a bare, unpaginated array covering every organization the token
+    # can see, independent of the configured org slug.
+    yield _fetch_collaborations(fetch_page), None
 
 
 def _workflows_for_pipeline(
@@ -649,11 +702,17 @@ def get_rows(
 
     if endpoint in COMPONENT_SCAN_ENDPOINTS:
         pages = _iter_component_pages(fetch_page, org_slug, logger, start_token)
+    elif endpoint == "environments":
+        pages = _iter_environment_pages(fetch_page, org_slug, logger, start_token)
+    elif endpoint == "groups":
+        pages = _iter_group_pages(fetch_page, org_slug, logger, start_token)
+    elif endpoint == "collaborations":
+        pages = _iter_collaboration_pages(fetch_page)
     else:
         pages = _iter_pipeline_pages(fetch_page, org_slug, logger, start_token)
 
     for items, next_token in pages:
-        if endpoint == "pipelines":
+        if endpoint in DIRECT_LIST_ENDPOINTS:
             if items:
                 yield items
         elif endpoint == "workflows":
@@ -664,9 +723,6 @@ def get_rows(
             yield from _project_rows(fetch_page, items, seen_project_slugs)
         elif endpoint == "users":
             yield from _user_rows(fetch_page, items, logger, seen_user_ids)
-        elif endpoint == "components":
-            if items:
-                yield items
         elif endpoint == "component_versions":
             yield from _component_version_rows(fetch_page, items, logger)
 

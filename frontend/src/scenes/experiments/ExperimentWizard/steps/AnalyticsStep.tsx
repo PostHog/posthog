@@ -14,6 +14,7 @@ import { formatCredits } from 'products/replay_vision/frontend/utils/credits'
 
 import { ExposureCriteriaPanel } from '../../ExperimentForm/ExposureCriteriaPanel'
 import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
+import { flagAggregatesByGroup } from '../../replayVisionScanner'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AnalyticsStep(): JSX.Element {
@@ -103,16 +104,17 @@ export function AnalyticsStep(): JSX.Element {
  * endpoint refuses without org AI approval, so an unconsented tick opens the consent popover
  * instead of letting the experiment save and the scanner fail after the fact. */
 function ReplayVisionScannerCheckbox(): JSX.Element {
-    const { createReplayVisionScanner } = useValues(experimentWizardLogic)
+    const { createReplayVisionScanner, linkedFeatureFlag } = useValues(experimentWizardLogic)
     const { setCreateReplayVisionScanner } = useActions(experimentWizardLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
+    const groupAggregated = flagAggregatesByGroup(linkedFeatureFlag)
 
     const checkbox = (
         <LemonCheckbox
             bordered
             fullWidth
-            checked={createReplayVisionScanner}
+            checked={createReplayVisionScanner && !groupAggregated}
             onChange={(checked) => {
                 if (checked && !dataProcessingAccepted) {
                     setConsentRequested(true)
@@ -120,7 +122,12 @@ function ReplayVisionScannerCheckbox(): JSX.Element {
                     setCreateReplayVisionScanner(checked)
                 }
             }}
-            disabledReason={getReplayVisionEditDisabledReason() ?? undefined}
+            disabledReason={
+                getReplayVisionEditDisabledReason() ??
+                (groupAggregated
+                    ? "This experiment's feature flag aggregates by group. Replay Vision can only watch experiments that aggregate by person."
+                    : undefined)
+            }
             data-attr="experiment-create-replay-vision-scanner"
             label={
                 <div className="py-3">

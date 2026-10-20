@@ -6,10 +6,12 @@ import pytest
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     RunStopped,
     ScriptedResponse,
     SourceDriver,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.crisp import crisp as crisp_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.crisp import CrispResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.source import CrispSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
@@ -68,24 +70,19 @@ def test_out_of_range_page_completes_without_discarding_rows(config: CrispSource
 
 
 @pytest.mark.parametrize(
-    ("schema", "last_value", "filter_date_start"),
+    ("last_value", "filter_date_start"),
     [
-        ("conversations", datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=UTC), "2026-01-02T03:04:05.678Z"),
-        ("conversations", None, None),
-        ("messages", datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05.000Z"),
-        ("messages", None, None),
+        (datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=UTC), "2026-01-02T03:04:05.678Z"),
+        (None, None),
     ],
 )
-def test_incremental_sync_filters_conversations_by_update_date(
-    config: CrispSourceConfig, schema: str, last_value: datetime | None, filter_date_start: str | None
+def test_incremental_conversations_filter_by_update_date(
+    config: CrispSourceConfig, last_value: datetime | None, filter_date_start: str | None
 ) -> None:
-    script = [page([{"session_id": "one", "created_at": 1000, "updated_at": 2000}])]
-    if schema == "messages":
-        script += [page([{"fingerprint": 1, "timestamp": 1500}]), page([])]
     result = SourceDriver(CrispSource(), config).run(
-        schema,
-        script,
-        incremental_field="updated_at" if schema == "conversations" else "conversation_updated_at",
+        "conversations",
+        [page([{"session_id": "one", "created_at": 1000, "updated_at": 2000}])],
+        incremental_field="updated_at",
         db_incremental_field_last_value=last_value,
     )
     assert result.raised is None
@@ -99,8 +96,135 @@ def test_incremental_sync_filters_conversations_by_update_date(
         expected["filter_date_start"] = (filter_date_start,)
     assert result.queries[0] == expected
     assert result.response is not None and result.response.sort_mode == "desc"
-    cursor = "updated_at" if schema == "conversations" else "conversation_updated_at"
-    assert [row[cursor] for row in result.rows] == [datetime.fromtimestamp(2, UTC)]
+    assert [row["updated_at"] for row in result.rows] == [datetime.fromtimestamp(2, UTC)]
+
+
+@pytest.mark.parametrize(
+    ("last_value", "first_window_start"),
+    [
+        (None, "2000-01-01T00:00:00.000Z"),
+        (datetime(2025, 12, 31, 12, 0, 0), "2025-12-31T11:59:59.999Z"),
+    ],
+)
+def test_incremental_messages_read_small_windows_oldest_first_and_stop_after_the_run_budget(
+    config: CrispSourceConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    last_value: datetime | None,
+    first_window_start: str,
+) -> None:
+    monkeypatch.setattr(crisp_module, "WINDOW_PAGE_SIZE", 2)
+    monkeypatch.setattr(crisp_module, "CONVERSATIONS_PER_RUN", 3)
+    hour_ms = 3_600_000
+    first = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    conversations: list[dict[str, Any]] = [
+        {"session_id": f"c{number}", "updated_at": first + number * hour_ms} for number in range(4)
+    ]
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/messages"):
+            if request.param("timestamp_before") is not None:
+                return page([])
+            return page([{"fingerprint": 1, "timestamp": 1000}])
+        low = datetime.fromisoformat(request.param("filter_date_start") or "").timestamp() * 1000
+        high = datetime.fromisoformat(request.param("filter_date_end") or "").timestamp() * 1000
+        return page([row for row in conversations if low <= row["updated_at"] <= high][:2])
+
+    result = SourceDriver(CrispSource(), config).run(
+        "messages",
+        respond,
+        incremental_field="conversation_updated_at",
+        db_incremental_field_last_value=last_value,
+    )
+    assert result.raised is None
+    windows = [request for request in result.requests if request.path.endswith("/conversations/1")]
+    assert windows[0].param("filter_date_start") == first_window_start
+    assert all(request.param("order_date_created") == "1" for request in windows)
+    assert [row["session_id"] for row in result.rows] == ["c0", "c1", "c2"]
+    assert not any("/c3/" in path for path in result.paths)
+    assert result.rows[0]["conversation_updated_at"] == datetime.fromtimestamp(first / 1000, UTC)
+    assert result.response is not None and result.response.sort_mode == "desc"
+
+
+@pytest.mark.parametrize(
+    ("finished", "loaded", "expected"),
+    [
+        (["c0", "c1"], 2, ["c2", "c3"]),
+        (["c0", "c1", "c2"], 3, ["c3"]),
+    ],
+)
+def test_resumed_incremental_messages_keep_the_run_budget_of_earlier_attempts(
+    config: CrispSourceConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    finished: list[str],
+    loaded: int,
+    expected: list[str],
+) -> None:
+    monkeypatch.setattr(crisp_module, "WINDOW_PAGE_SIZE", 2)
+    monkeypatch.setattr(crisp_module, "CONVERSATIONS_PER_RUN", 3)
+    hour_ms = 3_600_000
+    first = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    conversations: list[dict[str, Any]] = [
+        {"session_id": "c0", "updated_at": first},
+        {"session_id": "c1", "updated_at": first + hour_ms},
+        {"session_id": "c2", "updated_at": first + 2 * hour_ms},
+        {"session_id": "c3", "updated_at": first + 2 * hour_ms},
+        {"session_id": "c4", "updated_at": first + 3 * hour_ms},
+    ]
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/messages"):
+            if request.param("timestamp_before") is not None:
+                return page([])
+            return page([{"fingerprint": 1, "timestamp": 1000}])
+        low = datetime.fromisoformat(request.param("filter_date_start") or "").timestamp() * 1000
+        high = datetime.fromisoformat(request.param("filter_date_end") or "").timestamp() * 1000
+        matching = [row for row in conversations if low <= row["updated_at"] <= high]
+        number = int(request.path.rsplit("/", 1)[1])
+        return page(matching[(number - 1) * 2 : number * 2])
+
+    root = f"website/{config.website_id}/conversation"
+    result = SourceDriver(CrispSource(), config).run(
+        "messages",
+        respond,
+        incremental_field="conversation_updated_at",
+        resume_state=CrispResumeConfig(
+            paginator_state={
+                "completed": [f"{root}/{session_id}/messages" for session_id in finished],
+                "current": None,
+                "child_state": None,
+            },
+            started_at=datetime(2026, 2, 1, tzinfo=UTC).isoformat(),
+            conversations_loaded=loaded,
+        ),
+    )
+    assert result.raised is None
+    assert [row["session_id"] for row in result.rows] == expected
+    assert not any("/c4/" in path for path in result.paths)
+
+
+def test_incremental_messages_page_through_a_window_that_no_split_can_shrink(config: CrispSourceConfig) -> None:
+    updated_at = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    conversations: list[dict[str, Any]] = [
+        {"session_id": f"c{number}", "updated_at": updated_at} for number in range(51)
+    ]
+    list_requests = 0
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        nonlocal list_requests
+        if request.path.endswith("/messages"):
+            return page([]) if request.param("timestamp_before") else page([{"fingerprint": 1, "timestamp": 1000}])
+        list_requests += 1
+        if list_requests > 200:
+            raise RuntimeError("the window walk did not terminate")
+        low = datetime.fromisoformat(request.param("filter_date_start") or "").timestamp() * 1000
+        high = datetime.fromisoformat(request.param("filter_date_end") or "").timestamp() * 1000
+        matching = [row for row in conversations if low <= row["updated_at"] <= high]
+        number = int(request.path.rsplit("/", 1)[1])
+        return page(matching[(number - 1) * 50 : number * 50])
+
+    result = SourceDriver(CrispSource(), config).run("messages", respond, incremental_field="conversation_updated_at")
+    assert result.raised is None
+    assert sorted(row["session_id"] for row in result.rows) == sorted(row["session_id"] for row in conversations)
 
 
 def test_resumed_incremental_messages_defer_conversations_updated_after_the_run_started(

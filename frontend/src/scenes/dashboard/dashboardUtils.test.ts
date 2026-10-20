@@ -5,7 +5,13 @@ import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { BreakdownFilter, DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema/schema-general'
+import {
+    BreakdownFilter,
+    DashboardFilter,
+    HogQLVariable,
+    MetricsDashboardVariable,
+    QueryStatus,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     DashboardPlacement,
@@ -17,6 +23,7 @@ import {
 } from '~/types'
 
 import {
+    combineSavedAndUrlFilters,
     dashboardSearchParamsFromOverrides,
     dashboardTemplateForExport,
     dashboardToSaveableTemplate,
@@ -65,6 +72,44 @@ describe('searchParamsWithUrlFilters', () => {
         const searchParams = searchParamsWithUrlFilters({}, { explicitDate: false }, { explicitDate: true })
 
         expect(parseURLFilters(searchParams)).toEqual({ explicitDate: false })
+    })
+
+    it('keeps a saved metric variable query out of the URL, and reads it back from the saved filters', () => {
+        const saved: MetricsDashboardVariable = {
+            name: 'env',
+            source: 'sql',
+            query: 'SELECT private_value',
+            current: { values: ['a'] },
+        }
+        const persistedFilters = { metricVariables: [saved] }
+        const filters = { metricVariables: [{ ...saved, current: { values: ['b'] } }] }
+
+        const searchParams = searchParamsWithUrlFilters({}, filters, persistedFilters)
+
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).not.toContain('private_value')
+        expect(combineSavedAndUrlFilters(persistedFilters, parseURLFilters(searchParams))).toEqual(filters)
+        expect(
+            searchParamsWithUrlFilters({}, persistedFilters, persistedFilters)[SEARCH_PARAM_FILTERS_KEY]
+        ).toBeUndefined()
+        expect(combineSavedAndUrlFilters({}, parseURLFilters(searchParams))).toEqual({
+            metricVariables: [{ name: 'env', current: { values: ['b'] } }],
+        })
+    })
+
+    it('keeps a metric variable that is not saved yet out of the URL', () => {
+        const draft: MetricsDashboardVariable = {
+            name: 'region',
+            source: 'custom',
+            customValues: ['private_option'],
+            current: { values: ['private_option'] },
+        }
+
+        const searchParams = searchParamsWithUrlFilters({}, { metricVariables: [draft] }, {})
+
+        expect(parseURLFilters(searchParams)).toEqual({
+            metricVariables: [{ name: 'region', current: { values: ['private_option'] } }],
+        })
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).not.toContain('customValues')
     })
 
     it('keeps an override that clears an external filter', () => {
@@ -598,20 +643,22 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
 
 describe('getInsightQueryError', () => {
     it.each([
-        ['clickhouse_memory_limit_exceeded', 513],
-        ['invalid_query', 400],
-    ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
+        ['clickhouse_memory_limit_exceeded', 'Query ran out of memory', 513, 'Query ran out of memory'],
+        ['rate_limited', 'concurrency_limit_exceeded', 429, 'Too many queries are running right now.'],
+        ['invalid_query', 'Query is invalid', 400, 'Query is invalid'],
+    ])('maps error code %s with message %s to status %s', (errorCode, errorMessage, expectedStatus, expectedDetail) => {
         const error = getInsightQueryError({
             query_status: {
                 id: 'query-id',
                 error: true,
-                error_message: 'Query ran out of memory',
+                error_message: errorMessage,
                 error_code: errorCode,
             },
         } as unknown as InsightModel)
 
         expect(error?.status).toBe(expectedStatus)
         expect(error?.data?.code).toBe(errorCode)
+        expect(error?.detail).toBe(expectedDetail)
     })
 
     it('reads the memory code out of the error message when the status field is absent', () => {

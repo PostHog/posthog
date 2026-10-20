@@ -1,3 +1,4 @@
+import re
 import json
 import typing as t
 import datetime as dt
@@ -554,7 +555,10 @@ def test_create_batch_export_with_custom_schema(
     [
         ("SELECT", "Failed to parse query"),
         ("SELECT event,, FROM events", "Failed to parse query"),
-        ("SELECT unknown_field FROM events", "Invalid HogQL query: Unable to resolve field: unknown_field"),
+        (
+            "SELECT unknown_field FROM events",
+            re.compile(r"Invalid HogQL query: Unable to resolve field: unknown_field\. Available fields: .+"),
+        ),
         (
             "SELECT event, persons.id FROM events LEFT JOIN persons ON events.person_id = persons.id",
             "JOINs are not supported",
@@ -612,7 +616,11 @@ def test_create_batch_export_fails_with_invalid_query(
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == expected_error_message
+    detail = response.json()["detail"]
+    if isinstance(expected_error_message, re.Pattern):
+        assert expected_error_message.fullmatch(detail), detail
+    else:
+        assert detail == expected_error_message
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
@@ -740,6 +748,11 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
             "notAModifier: Extra inputs are not permitted",
         ),
         (
+            {"hogql_modifiers": {"useNewEventsCluster": True}},
+            "hogql_modifiers",
+            "Native events cluster queries are only supported by the synchronous query API",
+        ),
+        (
             {"model": "events", "hogql_modifiers": {"convertToProjectTimezone": False}},
             "hogql_modifiers",
             "'hogql_modifiers' is only supported for 'hogql' not 'events' model",
@@ -752,6 +765,7 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
         "unaliased-column",
         "filters",
         "unknown-modifier",
+        "native-cluster-modifier",
         "modifiers-with-events-model",
     ],
 )
@@ -776,6 +790,7 @@ def test_create_batch_export_with_hogql_model_fails_with_invalid_request(
     # HogQL may append field name suggestions to a resolution error, so match on the prefix.
     assert response.json()["detail"].startswith(expected_error_message), response.json()["detail"]
     assert BatchExportSource.objects.for_team(team.pk).count() == 0
+    assert not BatchExport.objects.filter(team=team).exists()
 
 
 def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(

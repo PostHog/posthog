@@ -123,6 +123,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
+        deferSceneMeasurementsDuringResize: true,
         activityScope: ActivityScope.DASHBOARD,
         iconType: 'dashboard',
     },
@@ -300,6 +301,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
+    [Scene.OnboardingWelcome]: { projectBased: true, name: 'Welcome' },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
     },
@@ -340,13 +342,17 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Library',
     },
-    [Scene.Views]: {
+    [Scene.AnalyticsList]: {
         projectBased: true,
-        name: 'Views',
+        name: 'Analytics',
     },
-    [Scene.ViewsNew]: {
+    [Scene.AnalyticsSpaces]: {
         projectBased: true,
-        name: 'New view',
+        name: 'Collections',
+    },
+    [Scene.AnalyticsProductHome]: {
+        projectBased: true,
+        name: 'Product analytics',
     },
     [Scene.Tools]: {
         projectBased: true,
@@ -627,6 +633,11 @@ export const redirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/action': urls.createAction(),
+    // The Views pane became Analytics; these keep old links in the Today navigation working.
+    '/views': urls.analyticsList(),
+    '/views/new': urls.analyticsList(),
+    // Analytics opens on View all; the bare path stays as the pane's prefix.
+    [urls.analytics()]: urls.analyticsList(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -848,8 +859,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
     [urls.library()]: [Scene.Library, 'library'],
     [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
-    [urls.views()]: [Scene.Views, 'views'],
-    [urls.viewsNew()]: [Scene.ViewsNew, 'viewsNew'],
+    [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
+    [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
+    [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
+    [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
@@ -895,6 +908,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
     [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
+    [urls.onboardingWelcome()]: [Scene.OnboardingWelcome, 'onboardingWelcome'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
     // Links from emails sent before the switch to verification codes.
@@ -934,6 +948,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    // The settings navigation's home for this page, next to billing. The /startups routes stay until links move over.
+    [urls.organizationStartups()]: [Scene.StartupProgram, 'organizationStartupProgram'],
+    [urls.organizationStartups(':referrer')]: [Scene.StartupProgram, 'organizationStartupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],

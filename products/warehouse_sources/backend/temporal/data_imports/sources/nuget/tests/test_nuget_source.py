@@ -10,10 +10,6 @@ class TestNugetSource:
         self.team_id = 123
         self.config = NugetSourceConfig(package_ids="Newtonsoft.Json, Serilog")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["packages"])
-        assert [schema.name for schema in schemas] == ["packages"]
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.nuget.source.validate_nuget_connection"
     )

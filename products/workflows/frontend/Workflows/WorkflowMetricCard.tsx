@@ -78,6 +78,7 @@ export interface WorkflowMetricCardProps {
     footer?: ReactNode
     /** Shorter card, so a page with tables below it does not push them off screen. */
     compact?: boolean
+    className?: string
 }
 
 // Collapse a response into the numbers the tile reads (per-index sums plus the grand total). A
@@ -108,6 +109,7 @@ export function WorkflowMetricCard({
     onClickTooltip,
     footer,
     compact,
+    className,
 }: WorkflowMetricCardProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -164,13 +166,14 @@ export function WorkflowMetricCard({
 
     const cardClassName = cn(
         CARD_CHROME,
+        className,
         onClick &&
             'cursor-pointer transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
     )
 
     if (loading) {
         return (
-            <div className={CARD_CHROME}>
+            <div className={cn(CARD_CHROME, className)}>
                 <div className="flex flex-col px-3">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="mt-3 h-9 w-32" />

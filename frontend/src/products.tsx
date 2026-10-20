@@ -255,6 +255,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
+    '/organization/legal': ['LegalDocuments', 'organizationLegalDocuments'],
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
@@ -291,7 +292,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -380,6 +381,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
     '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -561,6 +564,8 @@ export const productRedirects: Record<
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
     '/replay/vision': '/replay-vision',
+    '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+        combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     '/scout-trials': (_params, searchParams, hashParams) =>
         combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1724,6 +1729,7 @@ export const productUrls = {
     aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
+    organizationLegalDocuments: (): string => '/organization/legal',
     logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
@@ -1866,8 +1872,8 @@ export const productUrls = {
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
-    replayVisionTemplates: (): string => '/replay-vision/new/template',
-    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+    replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
     replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
@@ -1974,7 +1980,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+    broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
 }
@@ -1988,6 +1994,15 @@ export const fileSystemTypes = {
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
+    },
+    canvas: {
+        name: 'Canvas',
+        iconType: 'canvas',
+        flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
+        href: (ref: string) => urls.canvasDetail(ref),
+        listHref: () => urls.analyticsList({ type: 'canvas' }),
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+        filterKey: 'canvas',
     },
     cohort: {
         name: 'Cohort',
@@ -2110,7 +2125,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
     { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
-    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$pageview'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -2559,7 +2574,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
         searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-        alternativeFlags: [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
+        alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataOps',
@@ -2701,14 +2716,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
-        searchTabs: [
-            { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
-            {
-                name: 'Recommendations',
-                href: urls.errorTracking({ activeTab: 'recommendations' }),
-                flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
-            },
-        ],
+        searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
         sceneKey: 'ErrorTracking',
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },
@@ -2983,13 +2991,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'notebook',
         href: urls.notebooks(),
         searchKeywords: ['documents', 'scratchpad'],
-        searchTabs: [
-            {
-                name: 'Reusable widgets',
-                href: urls.notebooks('widgets'),
-                flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
-            },
-        ],
+        searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
     },
@@ -3172,8 +3174,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.skills(),
         searchKeywords: ['agent instructions', 'playbooks'],
         searchTabs: [
-            { name: 'Scouts', href: urls.skillsCategoryTab('scouts') },
-            { name: 'Community', href: urls.communitySkills(), flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS },
+            {
+                name: 'Community skills',
+                href: urls.communitySkills(),
+                flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+            },
         ],
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
@@ -3347,6 +3352,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Opt-outs', href: urls.workflows('opt-outs') },
             { name: 'Suppression list', href: urls.workflows('suppression') },
             { name: 'Reputation', href: urls.workflows('reputation') },
+            { name: 'Settings', href: urls.workflows('settings') },
         ],
         type: 'workflows',
         category: ProductItemCategory.MESSAGING,

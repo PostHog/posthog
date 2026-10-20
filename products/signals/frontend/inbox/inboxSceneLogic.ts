@@ -33,6 +33,7 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,
+    setInboxServedRanker,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
     InboxReportLinkSource,
@@ -283,11 +284,13 @@ function findReportRank(
     rank: number | null
     listSize: number | null
     section: InboxReportSectionKey | null
+    rankerId: string | null
 } {
+    const notFound = { rank: null, listSize: null, section: null, rankerId: null }
     if (flatList) {
         const filterValues = inboxFiltersLogic.findMounted()?.values
         if (!filterValues) {
-            return { rank: null, listSize: null, section: null }
+            return notFound
         }
         const isStaff = userLogic.findMounted()?.values.user?.is_staff ?? false
         const reportsBySection = Object.fromEntries(
@@ -307,9 +310,13 @@ function findReportRank(
         )
         const idx = rows.findIndex((row) => row.report.id === id)
         if (idx >= 0) {
-            return { rank: idx + 1, listSize: rows.length, section: rows[idx].sectionKey }
+            const sectionKey = rows[idx].sectionKey
+            const rankerId =
+                reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
+                    ?.values.loadedRanker ?? null
+            return { rank: idx + 1, listSize: rows.length, section: sectionKey, rankerId }
         }
-        return { rank: null, listSize: null, section: null }
+        return notFound
     }
     for (const sectionKey of Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]) {
         const mounted = reportListLogic.findMounted({
@@ -322,10 +329,15 @@ function findReportRank(
         }
         const idx = reports.findIndex((r: SignalReport) => r.id === id)
         if (idx >= 0) {
-            return { rank: idx + 1, listSize: reports.length, section: sectionKey }
+            return {
+                rank: idx + 1,
+                listSize: reports.length,
+                section: sectionKey,
+                rankerId: mounted.values.loadedRanker,
+            }
         }
     }
-    return { rank: null, listSize: null, section: null }
+    return notFound
 }
 
 // One list answered, with rows or with a failure, and none is still fetching. Until then, a missing
@@ -368,6 +380,7 @@ function captureOpenWhenRanked(
                 rank: resolved.rank,
                 listSize: resolved.listSize,
                 section: resolved.section,
+                rankerId: resolved.rankerId,
             },
             // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
             // posthog-js stamps an event at the capture moment. Without the override, a scroll or an
@@ -1216,6 +1229,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         beforeUnmount: () => {
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
             flushOpenReport(cache, 'unmount')
+            setInboxServedRanker(null)
         },
     })),
 

@@ -123,6 +123,8 @@ ActivityScope = Literal[
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "KnowledgeSource",
+    "KnowledgeLibrary",
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
@@ -365,6 +367,7 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
@@ -600,12 +603,16 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     # site, so the save that only moves the active version must not add an `updated` row.
     "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
-    # and the failure streak by the runner on every run outcome. When those are the only
+    # the pre-check fields on every scheduled pre-check, and the failure streak by the runner on
+    # every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
     # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
     "SignalScoutConfig": [
         "last_run_at",
         "consecutive_failure_count",
+        "last_precheck_at",
+        "last_precheck_outcome",
+        "last_precheck_row_count",
     ],
 }
 

@@ -2024,6 +2024,12 @@ database "posthog" {
       type    = "String"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
+    column "properties_group_custom" {
+      type = "Map(String, String)"
+    }
+    column "person_properties_map_custom" {
+      type = "Map(String, String)"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -5826,10 +5832,10 @@ SQL
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -5855,6 +5861,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -5890,6 +5899,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -12554,6 +12566,14 @@ SQL
       default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
+    column "properties_group_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+    }
+    column "person_properties_map_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -12586,6 +12606,26 @@ SQL
     index "inserted_at_idx" {
       expr        = "inserted_at"
       type        = "minmax"
+      granularity = 1
+    }
+    index "properties_group_custom_keys_bf" {
+      expr        = "mapKeys(properties_group_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "properties_group_custom_values_bf" {
+      expr        = "mapValues(properties_group_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "person_properties_map_custom_keys_bf" {
+      expr        = "mapKeys(person_properties_map_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "person_properties_map_custom_values_bf" {
+      expr        = "mapValues(person_properties_map_custom)"
+      type        = "bloom_filter"
       granularity = 1
     }
     engine "replicated_replacing_merge_tree" {
@@ -23710,6 +23750,92 @@ SQL
       type = "LowCardinality(String)"
     }
     column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "logs34_to_pattern_buckets" {
+    to_table = "posthog.logs_pattern_buckets"
+    query    = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  pattern_version,
+  pattern,
+  maxSimpleState(retention_days) AS retention_days,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text,
+      pattern_version,
+      pattern,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
+    FROM posthog.logs34
+    WHERE pattern_version != 0
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime('UTC')"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
+    }
+    column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }

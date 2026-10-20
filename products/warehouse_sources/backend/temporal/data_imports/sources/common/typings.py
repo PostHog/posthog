@@ -86,8 +86,18 @@ class SourceResponse:
     """Override partition mode at a source level"""
     partition_format: Optional[PartitionFormat] = None
     """Override partition format at a source level"""
-    sort_mode: Optional[SortMode] = "asc"
-    """our source typically return data in ascending timestamp order, but some (eg Stripe) do not"""
+    sort_mode: Optional[SortMode] = None
+    """The order in which the rows of an incremental or append read arrive.
+
+    - `"asc"`: ascending order of the incremental field, from the first row of the run to the last.
+    - `"desc"`: descending order of the incremental field.
+    - `None`: no order.
+
+    The watermark is the largest value the run read, with or without an order. `"asc"` is a promise
+    the pipeline acts on: after a worker shutdown, the next attempt reads only the rows after the
+    last value the pipeline queued, so a later row with a lower value is lost. Set it per run, and
+    only on a read whose query or API contract proves the order. A full refresh has no incremental
+    field, so the value has no effect there."""
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
@@ -118,6 +128,9 @@ class SourceResponse:
     a final checkpoint without opening a crash window before the pipeline flushes its last batch."""
     destination_reset_required: bool = False
     """Whether source metadata discovered during setup requires rebuilding the destination table."""
+    reset_handed_over: bool = False
+    """Whether the source passed this run's reset to another process, so this run must not delete the
+    destination table. Wins over `destination_reset_required` and the reset the run was asked for."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""

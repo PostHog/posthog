@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -6,14 +5,21 @@ from urllib.parse import urlencode
 from dateutil import parser as dateutil_parser
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -38,13 +44,15 @@ DEFAULT_PROBE_PATH = "/users.json"
 TOTAL_PAGES_HEADER = "X-Total-Pages"
 
 
-@dataclasses.dataclass
+@frozen
 class SolarwindsServiceDeskResumeConfig:
     # Next 1-indexed page to fetch. None means start from page 1.
     next_page: int | None = None
     # `updated_from` filter computed when the run started. Persisted so a resumed run issues the
     # exact same query instead of recomputing a window whose page boundaries would shift mid-crawl.
     updated_from: str | None = None
+    # Fan-out progress for child endpoints: completed parent paths plus the in-progress child page.
+    fanout_state: dict[str, Any] | None = None
 
 
 def base_url(region: Optional[str]) -> str:
@@ -82,15 +90,17 @@ def _format_updated_from(value: Any) -> Optional[str]:
     return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
 
 
-def _unwrap_row(item: dict[str, Any], wrapper_key: str) -> dict[str, Any]:
+def _unwrap_row(item: dict[str, Any], wrapper_key: str, parent_keys: frozenset[str] = frozenset()) -> dict[str, Any]:
     """Normalize a list item to a bare record dict.
 
     The official response samples are inconsistent: some list endpoints show bare records while
     others wrap each row under its singular resource name (e.g. ``{"problem": {...}}``). A real
     record is never a single-key dict of its own singular name, so unwrapping is unambiguous.
+    ``parent_keys`` are the fields a fan-out copies onto each child row, which sit beside the wrapper.
     """
-    if set(item.keys()) == {wrapper_key} and isinstance(item[wrapper_key], dict):
-        return item[wrapper_key]
+    wrapped = item.get(wrapper_key)
+    if isinstance(wrapped, dict) and set(item.keys()) - parent_keys == {wrapper_key}:
+        return {**wrapped, **{key: item[key] for key in parent_keys if key in item}}
     return item
 
 
@@ -128,6 +138,9 @@ def solarwinds_service_desk_source(
     config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if config.fanout is not None:
+        return _fanout_source_response(region, api_token, endpoint, team_id, job_id, resumable_source_manager, resume)
+
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume is not None and resume.next_page:
         initial_paginator_state = {"page": resume.next_page}
@@ -140,18 +153,7 @@ def solarwinds_service_desk_source(
             updated_from = _format_updated_from(db_incremental_field_last_value)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(region),
-            # Only the non-secret Accept header goes here; auth rides the framework auth config so
-            # its value is redacted from logs and raised error messages.
-            "headers": {"Accept": ACCEPT_HEADER},
-            "auth": {
-                "type": "api_key",
-                "api_key": f"Bearer {api_token}",
-                "name": "X-Samanage-Authorization",
-                "location": "header",
-            },
-        },
+        "client": _client_config(region, api_token),
         "resource_defaults": {},
         "resources": [
             {
@@ -190,6 +192,26 @@ def solarwinds_service_desk_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(endpoint, resource)
+
+
+def _client_config(region: Optional[str], api_token: str) -> ClientConfig:
+    return {
+        "base_url": base_url(region),
+        # Only the non-secret Accept header goes here; auth rides the framework auth config so
+        # its value is redacted from logs and raised error messages.
+        "headers": {"Accept": ACCEPT_HEADER},
+        "auth": {
+            "type": "api_key",
+            "api_key": f"Bearer {api_token}",
+            "name": "X-Samanage-Authorization",
+            "location": "header",
+        },
+    }
+
+
+def _source_response(endpoint: str, resource: Any) -> SourceResponse:
+    config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
@@ -204,6 +226,56 @@ def solarwinds_service_desk_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def _fanout_source_response(
+    region: Optional[str],
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SolarwindsServiceDeskResumeConfig],
+    resume: Optional[SolarwindsServiceDeskResumeConfig],
+) -> SourceResponse:
+    config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
+    fanout = config.fanout
+    assert fanout is not None
+    parent_wrapper_key = SOLARWINDS_SERVICE_DESK_ENDPOINTS[fanout.parent_name].wrapper_key
+    # Renames run before the child unwrap, so the unwrap must keep the renamed parent fields.
+    parent_keys = frozenset(
+        fanout.parent_field_renames.get(field, f"_{fanout.parent_name}_{field}") for field in fanout.include_from_parent
+    )
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(SolarwindsServiceDeskResumeConfig(fanout_state=state))
+
+    dependent = build_dependent_resource(
+        endpoint_configs=SOLARWINDS_SERVICE_DESK_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=fanout,
+        client_config=_client_config(region, api_token),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={
+            "paginator": SolarwindsPageNumberPaginator(base_page=1),
+            "data_selector_malformed_retryable": True,
+        },
+        child_endpoint_extra={
+            "paginator": SolarwindsPageNumberPaginator(base_page=1),
+            "data_selector_malformed_retryable": True,
+        },
+        parent_data_map=lambda item: _unwrap_row(item, parent_wrapper_key),
+        page_size_param="per_page",
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume is not None else None,
+    )
+    assert isinstance(dependent, Resource)
+    child = dependent.add_map(lambda item: _unwrap_row(item, config.wrapper_key, parent_keys))
+
+    return _source_response(endpoint, child)
 
 
 def validate_credentials(region: Optional[str], api_token: str, path: str | None = None) -> tuple[bool, str | None]:

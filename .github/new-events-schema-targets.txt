@@ -23,6 +23,7 @@ posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
+products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/cohorts
 products/customer_analytics/backend/hogql_queries
@@ -40,6 +41,7 @@ products/mcp_analytics/backend/tests/test_protocol_version_breakdown.py
 products/mcp_analytics/backend/tests/test_tool_quality_tables.py
 products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
+products/product_analytics/backend/tests/test_insight_data_checks.py
 products/replay_vision/backend/tests/test_session_identity.py
 products/web_analytics/backend/hogql_queries
 

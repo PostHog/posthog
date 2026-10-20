@@ -1503,6 +1503,34 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         traverse(destination_head_cohort, 0)
 
+    def test_copy_feature_flag_fails_for_target_when_cohort_includes_deleted_cohort(self):
+        deleted_cohort = Cohort.objects.create(team=self.team, name="deleted child", deleted=True)
+        head_cohort = Cohort.objects.create(
+            team=self.team,
+            name="head",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "id", "type": "cohort", "value": deleted_cohort.pk}],
+                }
+            },
+        )
+        self.feature_flag_to_copy.filters = {
+            "groups": [{"properties": [{"key": "id", "type": "cohort", "value": head_cohort.pk}]}]
+        }
+        self.feature_flag_to_copy.save()
+
+        response = self._post_copy_flag(self.feature_flag_to_copy)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["success"], [])
+        self.assertEqual(len(body["failed"]), 1)
+        self.assertEqual(body["failed"][0]["project_id"], self.team_2.id)
+        self.assertIn("cohort_does_not_exist", body["failed"][0]["error_message"])
+        self.assertFalse(Cohort.objects.filter(team_id=self.team_2.id).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team_id=self.team_2.id, key=self.feature_flag_key).exists())
+
     def test_copy_feature_flag_destination_cohort_not_overridden(self):
         cohort_name = "cohort-1"
         target_project = self.team_2

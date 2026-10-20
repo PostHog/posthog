@@ -155,12 +155,7 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
     return cap, mints
 
 
-# Two remote-config flags in the PostHog internal project, read for their payloads.
-# `/flags` serves an unencrypted payload to anyone with the public project token,
-# and drops an encrypted one. So the prompt flag is encrypted and read through the
-# remote_config endpoint, which decrypts only for a personal API key and ignores the
-# on/off switch: an operator clears the payload or deletes the flag to stop pinning.
-# The allowlist is not secret, so it stays unencrypted on `/flags`, with the limit
+# Two flags in the PostHog internal project, read for their payloads with the limit
 # override's person properties for targeting. The payloads are {"version": 4,
 # "text": "..."} (nothing reads the version) and {"models", "efforts", "programs"}.
 # A flag that is off, missing, unreadable or out of contract never refuses a mint:
@@ -201,6 +196,7 @@ WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
     "warehouse-source",
     "error-tracking-upload-source-maps",
     "error-tracking",
+    "feature-flags",
     "audit",
     "events-audit",
     "posthog-doctor",
@@ -246,7 +242,14 @@ def wizard_gateway_policy(
     the same person properties as the limit override, so it can be targeted."""
     properties = _targeting_properties(email=email, organization_id=organization_id, team_id=team_id)
     prompt_raw = _policy_payload(
-        lambda: _read_remote_config_payload(WIZARD_SYSTEM_PROMPT_FLAG),
+        # Local evaluation only, so the prompt read adds no network time to the mint.
+        lambda: posthoganalytics.get_feature_flag_payload(
+            WIZARD_SYSTEM_PROMPT_FLAG,
+            distinct_id,
+            person_properties=properties,
+            only_evaluate_locally=True,
+            send_feature_flag_events=True,
+        ),
         source="system prompt",
         field="system_prompt",
     )
@@ -295,36 +298,6 @@ def _policy_payload(read: Callable[[], object], *, source: str, field: str) -> d
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field).inc()
         return None
     return raw
-
-
-# The read runs on the mint request, so it makes one attempt in about 2 seconds and then
-# mints unpinned. The SDK's get_remote_config_payload retries, and sleeps for a 429 or 503
-# Retry-After outside its timeout, which can hold a worker for minutes.
-# A plain requests session makes no retries.
-_PROMPT_READ_TIMEOUT_SECONDS = (1.0, 1.0)
-_PROMPT_READ_SESSION = requests.Session()
-
-
-def _read_remote_config_payload(key: str) -> object:
-    """What the SDK's get_remote_config_payload returns, from one bounded request with
-    the SDK's host and keys. None when the SDK is off or holds no personal API key."""
-    client = posthoganalytics.setup()
-    if client.disabled or not client.personal_api_key:
-        return None
-    try:
-        response = _PROMPT_READ_SESSION.get(
-            f"{client.host.rstrip('/')}/api/projects/@current/feature_flags/{key}/remote_config",
-            params={"token": client.api_key},
-            headers={"Authorization": f"Bearer {client.personal_api_key}"},
-            timeout=_PROMPT_READ_TIMEOUT_SECONDS,
-        )
-    except requests.RequestException as e:
-        # The exception text holds the request URL, so only the type goes to the log.
-        raise RuntimeError(f"remote_config request failed: {type(e).__name__}") from e
-    if response.status_code != 200:
-        raise RuntimeError(f"remote_config answered HTTP {response.status_code}")
-    # The endpoint answers an empty body for a cleared payload.
-    return response.json() if response.content else None
 
 
 def _parse_system_prompt(raw: dict) -> WizardSystemPrompt | None:
