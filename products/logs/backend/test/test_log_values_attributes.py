@@ -12,6 +12,8 @@ from posthog.hogql.errors import QueryError
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import ExposedCHQueryError
 
+from products.logs.backend.presentation.views.api import _LogsValuesQuerySerializer
+
 
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
@@ -547,3 +549,11 @@ class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
     def test_too_many_keys_returns_400(self):
         response = self._get({"keys": ",".join(f"key.{i}" for i in range(101))})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestLogValuesQuerySerializer:
+    def test_blank_value_is_accepted(self) -> None:
+        serializer = _LogsValuesQuerySerializer(data={"key": "level", "value": ""})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("value", "") == ""

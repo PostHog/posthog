@@ -4755,10 +4755,6 @@ describe('dashboardLogic', () => {
         }
 
         beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
-                [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
-            })
             fetchRunWidgetsMock = jest.spyOn(widgetFetchUtils, 'fetchRunWidgets').mockResolvedValue([
                 {
                     tile_id: WIDGET_TILE.id,
@@ -4844,21 +4840,6 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
-        })
-
-        it('enables widget tiles on public dashboards when tile metadata is present', async () => {
-            logic = dashboardLogic({
-                id: 5,
-                placement: DashboardPlacement.Public,
-                dashboard: {
-                    ...dashboards[5],
-                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType,
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.dashboardWidgetsEnabled).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {

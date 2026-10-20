@@ -106,7 +106,8 @@ export const getMetricsAttributeValuesRetrieveUrl = (
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const metricsAttributeValuesRetrieve = async (
     projectId: string,
