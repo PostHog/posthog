@@ -79,7 +79,7 @@ function TaggerMetrics(): JSX.Element {
                 ) : (
                     <div className="flex-[2] bg-bg-light border rounded p-8 flex items-center justify-center">
                         <div className="text-muted text-center">
-                            No enabled taggers to display. Create and enable taggers to see metrics.
+                            No enabled taggers to display. Enable a tagger to see metrics.
                         </div>
                     </div>
                 )}
