@@ -3,6 +3,9 @@ import { combineUrl } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import { SOURCE_PREFILL_PARAM, parseBroadcastAudiencePrefill } from '../Broadcasts/broadcastAudiencePrefill'
+import type { EmailDraftRequestApi } from '../generated/api.schemas'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
+import { EMAIL_PREFILL_PARAM, MessageDraft } from '../MessageAudience/messageDrafts'
 import { HogFlowTriggerSchema } from './hogflows/steps/types'
 import type { HogFlowAction } from './hogflows/types'
 
@@ -10,10 +13,17 @@ export type WorkflowTriggerConfig = Extract<HogFlowAction, { type: 'trigger' }>[
 
 export const TRIGGER_PREFILL_PARAM = 'trigger'
 
-export function urlForNewWorkflowWithTrigger(config: WorkflowTriggerConfig, source?: string): string {
+export function urlForNewWorkflowWithTrigger(
+    config: WorkflowTriggerConfig,
+    source?: string,
+    email?: MessageDraft,
+    draftSource?: EmailDraftRequestApi
+): string {
     return combineUrl(urls.workflowNew(), {
         [TRIGGER_PREFILL_PARAM]: JSON.stringify(config),
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
+        ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
+        ...(draftSource ? { [DRAFT_SOURCE_PARAM]: JSON.stringify(draftSource) } : {}),
     }).url
 }
 

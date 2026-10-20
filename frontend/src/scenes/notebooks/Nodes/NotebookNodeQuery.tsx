@@ -110,6 +110,7 @@ const Component = ({
         query.kind === NodeKind.SavedInsightNode
             ? insightLogicProps
             : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
+    dataframeInsightProps.retainResponseOnUnmount = !isShared
     const { insightName } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
@@ -240,7 +241,7 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
-            context={isInsightVizNode(modifiedQuery) ? { insightProps: dataframeInsightProps } : undefined}
+            context={{ insightProps: dataframeInsightProps }}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({
@@ -475,6 +476,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
+    deferUntilInView: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,

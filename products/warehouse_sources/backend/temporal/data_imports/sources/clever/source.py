@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CleverSource(ResumableSource[CleverSourceConfig, CleverResumeConfig]):
+    codebase_detection = detect(npm=("clever",), pypi=("clever",), rubygems=("clever-ruby", "omniauth-clever"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1)
     default_version = CLEVER_API_VERSION_V3_1

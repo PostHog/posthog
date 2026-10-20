@@ -114,13 +114,13 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
     create_experiment_scheduled_recalculation_schedules,
 )
-from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )
-from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
+from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -132,7 +132,7 @@ from products.replay_vision.backend.temporal.read_meter import create_replay_vis
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
-from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
+from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
@@ -140,9 +140,11 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
-from products.today.backend.facade.temporal import create_today_briefing_schedule
+from products.subscriptions.backend.facade.temporal import create_schedule_all_subscriptions_schedule
+from products.today.backend.facade.temporal import delete_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
+from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -164,6 +166,12 @@ async def create_run_quota_limiting_schedule(client: Client):
 
     This schedule runs every 15 minutes.
     """
+    # Quota limiting queries AI credit usage, which requires a cloud region.
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV"):
+        if await a_schedule_exists(client, "run-quota-limiting-schedule"):
+            await a_delete_schedule(client, "run-quota-limiting-schedule")
+        return
+
     run_quota_limiting_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-quota-limiting",
@@ -179,35 +187,6 @@ async def create_run_quota_limiting_schedule(client: Client):
     else:
         await a_create_schedule(
             client, "run-quota-limiting-schedule", run_quota_limiting_schedule, trigger_immediately=False
-        )
-
-
-async def create_schedule_all_subscriptions_schedule(client: Client):
-    """Create or update the schedule for the ScheduleAllSubscriptionsWorkflow.
-
-    This schedule runs twice an hour, shortly before each supported delivery slot.
-    """
-    schedule_all_subscriptions_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "schedule-all-subscriptions",
-            asdict(ScheduleAllSubscriptionsWorkflowInputs()),
-            id="schedule-all-subscriptions-schedule",
-            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        ),
-        spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
-        # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
-        # Deterministic subscription child IDs prevent duplicate starts while a child is open.
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
-    )
-
-    if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
-        await a_update_schedule(client, "schedule-all-subscriptions-schedule", schedule_all_subscriptions_schedule)
-    else:
-        await a_create_schedule(
-            client,
-            "schedule-all-subscriptions-schedule",
-            schedule_all_subscriptions_schedule,
-            trigger_immediately=False,
         )
 
 
@@ -900,8 +879,9 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
-            jitter=timedelta(minutes=10),
+            # Runs at :20 to keep it away from the API query surge at the top of the hour.
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=20))],
+            jitter=timedelta(minutes=5),
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
@@ -961,15 +941,16 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
-    create_logs_volume_tick_schedule,
+    disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_autoresearch_daily_schedule,
-    create_today_briefing_schedule,
+    delete_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
@@ -992,6 +973,7 @@ schedules = [
     create_reconcile_metric_schedules_schedule,
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

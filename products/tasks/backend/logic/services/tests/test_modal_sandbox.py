@@ -28,7 +28,10 @@ from requests.exceptions import (
     Timeout,
 )
 
+from posthog.utils import get_instance_region
+
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
+from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxControlPlaneError,
@@ -495,6 +498,59 @@ class TestModalSandboxAgentServer:
         with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
+    @pytest.mark.parametrize(
+        "template,purpose",
+        [(SandboxTemplate.STREAMLIT_BASE, ""), (SandboxTemplate.DEFAULT_BASE, "dev_stack_image_bake")],
+    )
+    @override_settings(TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED=True)
+    def test_non_task_template_does_not_initialize_task_filesystem(
+        self, mock_sandbox: Any, template: SandboxTemplate, purpose: str
+    ) -> None:
+        mock_sandbox.config.template = template
+        mock_sandbox.config.metadata = {"purpose": purpose}
+        with patch.object(mock_sandbox, "execute") as execute, patch.object(mock_sandbox, "write_file") as write:
+            mock_sandbox._prepare_task_filesystem()
+        execute.assert_not_called()
+        write.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "enabled,snapshot_kind,compatible",
+        [
+            (False, "directory", True),
+            (False, "filesystem", True),
+            (True, "filesystem", True),
+            (True, "filesystem", False),
+            (True, "directory", False),
+            (True, None, True),
+            (True, None, False),
+            (False, None, True),
+        ],
+    )
+    def test_initializes_only_compatible_task_filesystems(
+        self, mock_sandbox: Any, enabled: bool, snapshot_kind: str | None, compatible: bool
+    ) -> None:
+        mock_sandbox.config.snapshot_restored = snapshot_kind is not None
+        mock_sandbox.config.snapshot_kind = snapshot_kind
+        with (
+            override_settings(TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED=enabled),
+            patch.object(
+                mock_sandbox,
+                "execute",
+                return_value=ExecutionResult(
+                    stdout="1" if compatible else "", stderr="", exit_code=0 if compatible else 1
+                ),
+            ) as execute,
+            patch.object(mock_sandbox, "_write_required_file") as write,
+        ):
+            mock_sandbox._prepare_task_filesystem()
+        initialize = compatible and (snapshot_kind is not None or enabled)
+        assert write.call_count == int(initialize)
+        if snapshot_kind is not None or enabled:
+            assert ("initialize gvisor" in execute.call_args.args[0]) == initialize
+            assert ("test -f" if snapshot_kind else "test -d") in execute.call_args_list[0].args[0]
+        else:
+            execute.assert_not_called()
+
     def test_get_connect_credentials_success(self, mock_sandbox: Any):
         result = mock_sandbox.get_connect_credentials()
 
@@ -614,6 +670,7 @@ class TestModalSandboxAgentServer:
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
         assert f"POSTHOG_SANDBOX_ID={shlex.quote(mock_sandbox.id)}" in command
+        assert "POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state" in command
         assert "--sandboxId" not in command
         assert f"--mode {shlex.quote('background')}" in command
         assert "--createPr true" in command
@@ -686,7 +743,7 @@ class TestModalSandboxAgentServer:
         command = _agent_server_launch_command(mock_sandbox.execute)
         barrier = command.index("while [ ! -f /tmp/workspace/.repo-ready ]; do sleep 0.1; done")
         marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
-        process = command.index("exec env", marker)
+        process = command.index("exec /usr/bin/python3 -I /opt/posthog/task-filesystem.py enter -- env", marker)
         assert barrier < marker < process
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
@@ -879,6 +936,8 @@ class TestModalSandboxAgentServer:
             ({"benjamin_enabled": True}, "POSTHOG_BENJAMIN=1"),
             ({"benjamin_enabled": False}, "POSTHOG_BENJAMIN=0"),
             ({}, "POSTHOG_BENJAMIN=0"),
+            ({"pi_acp_conversation": True}, "POSTHOG_PI_CONVERSATION_FORMAT=acp"),
+            ({}, "POSTHOG_PI_CONVERSATION_FORMAT=pi"),
         ],
     )
     def test_start_agent_server_toggle_env(self, mock_sandbox: Any, toggles, expected_env):
@@ -969,7 +1028,7 @@ class TestModalSandboxAgentServer:
         )
 
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
-            if ENV_DISABLE_BUNDLED_SKILLS in command:
+            if ENV_DISABLE_BUNDLED_SKILLS in command or _is_preflight_command(command):
                 return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             return ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
 
@@ -1045,10 +1104,13 @@ class TestModalSandboxAgentServer:
         mock_free.assert_not_called()
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
         # Bundled-skills clear, then refreshed bash-env and gh-guard files before reuse is accepted.
-        assert ENV_DISABLE_BUNDLED_SKILLS in commands[0]
-        assert any("mv" in command and "/tmp/agentsh-bash-env.sh" in command for command in commands[1:])
-        assert any("mv" in command and "/opt/posthog/bin/gh" in command for command in commands[1:])
-        assert any(command == "chmod +x /opt/posthog/bin/gh" for command in commands[1:])
+        preflight_index = next(index for index, command in enumerate(commands) if _is_preflight_command(command))
+        assert "task-filesystem.py enter" not in commands[preflight_index]
+        assert "task-filesystem.py enter" in commands[preflight_index - 1]
+        after_preflight = commands[preflight_index + 1 :]
+        assert any("mv" in command and "/tmp/agentsh-bash-env.sh" in command for command in after_preflight)
+        assert any("mv" in command and "/opt/posthog/bin/gh" in command for command in after_preflight)
+        assert any(command == "chmod +x /opt/posthog/bin/gh" for command in after_preflight)
 
     def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
@@ -1143,7 +1205,7 @@ class TestModalSandboxAgentServer:
         assert "nohup" in command
         assert "http://localhost:8080/health" in command
 
-    def test_start_agent_server_runs_one_preflight_exec_before_the_launch(self, mock_sandbox: Any):
+    def test_start_agent_server_separates_task_cleanup_from_provider_preflight(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None)
         )
@@ -1158,9 +1220,12 @@ class TestModalSandboxAgentServer:
 
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
         launch_index = commands.index(_agent_server_launch_command(mock_sandbox.execute))
-        assert launch_index == 2
-        assert _is_preflight_command(commands[0])
-        assert commands[1].startswith("bash /tmp/posthog-launch-preparation-")
+        assert launch_index == 3
+        assert "task-filesystem.py enter" in commands[0]
+        assert "curl" not in commands[0]
+        assert _is_preflight_command(commands[1])
+        assert "task-filesystem.py enter" not in commands[1]
+        assert commands[2].startswith("bash /tmp/posthog-launch-preparation-")
 
     def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
         events: list[str] = []
@@ -1763,6 +1828,7 @@ class TestModalSandboxCreateAllowlist:
         mock_create.return_value.wait_until_ready.assert_called_once_with(timeout=READINESS_PROBE_TIMEOUT_SECONDS)
 
 
+@pytest.mark.django_db
 class TestModalSandboxCreateImageFallback:
     """A failed create with an overlaid image must downgrade one step at a time (bare
     snapshot / bare custom image) instead of jumping to the clean base image — jumping
@@ -1819,6 +1885,42 @@ class TestModalSandboxCreateImageFallback:
         assert sandbox.config.image_fallback is not None
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
 
+    @pytest.mark.parametrize("image_id", ["im-verified", ""])
+    def test_protected_dev_stack_never_reads_the_mutable_name(self, image_id: str) -> None:
+
+        DevStackImageTarget.objects.create(
+            region=get_instance_region() or "DEV",
+            name="posthog-dev-stack",
+            active_image_id=image_id,
+        )
+        config = SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
+        custom = MagicMock(name="active")
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image") as base,
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, *args, **kwargs: image,
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name") as from_name,
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id", return_value=custom
+            ) as from_id,
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create") as create,
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+        from_name.assert_not_called()
+        if image_id:
+            from_id.assert_called_once_with(image_id)
+            assert create.call_args.kwargs["image"] is custom
+            assert sandbox.config.is_dev_stack_image
+        else:
+            assert create.call_args.kwargs["image"] is base.return_value
+            assert not sandbox.config.is_dev_stack_image
+            assert sandbox.config.image_fallback
+
     def test_falling_back_to_the_base_image_drops_the_dev_stack_cpu_floor(self) -> None:
         config = SandboxConfig(
             name="t",
@@ -1870,14 +1972,49 @@ class TestModalSandboxCreateImageFallback:
         bare_snapshot = MagicMock(name="bare_snapshot")
         overlaid_snapshot = MagicMock(name="overlaid_snapshot")
 
-        sandbox, images_tried = self._create_failing_on(
-            config, failing_image=overlaid_snapshot, loaded_image=bare_snapshot
-        )
+        with patch.object(ModalSandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=1)):
+            sandbox, images_tried = self._create_failing_on(
+                config, failing_image=overlaid_snapshot, loaded_image=bare_snapshot
+            )
 
         assert images_tried == [overlaid_snapshot, bare_snapshot]
         # The run still restored from the snapshot — the downgrade only cost the overlay.
         assert sandbox.config.snapshot_restored is True
         assert sandbox.config.image_fallback is not None
+
+    @pytest.mark.parametrize("failure", ["lookup", "create", "readiness"])
+    def test_required_snapshot_failure_never_falls_back_to_base(self, failure: str) -> None:
+        config = SandboxConfig(name="verification", snapshot_external_id="im-candidate", require_snapshot=True)
+        snapshot = MagicMock(name="candidate")
+        sandbox = MagicMock(object_id="sb-candidate")
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image"),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, *args, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=snapshot,
+                side_effect=RuntimeError("lookup unavailable") if failure == "lookup" else None,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                return_value=sandbox,
+                side_effect=RuntimeError("create unavailable") if failure == "create" else None,
+            ) as create,
+            patch.object(ModalSandbox, "_wait_until_ready", return_value=False),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            with pytest.raises(SandboxProvisionError):
+                ModalSandbox.create(config)
+        assert create.call_count == (0 if failure == "lookup" else 1)
+        if create.called:
+            assert create.call_args.kwargs["image"] is snapshot
+        if failure == "readiness":
+            sandbox.terminate.assert_called_once()
 
     def test_unrelated_invalid_error_preserves_vm_network_policy_on_fallback(self):
         config = SandboxConfig(
@@ -2126,14 +2263,36 @@ class TestModalSandboxCreateImageFallback:
         mock_sb.terminate.assert_called_once()
         assert error.value.non_retryable is False
 
-    def test_unready_sandbox_that_refuses_to_terminate_fails_the_provision(self):
+    @pytest.mark.parametrize(
+        "failure,termination_recovers",
+        [
+            ("readiness", False),
+            ("filesystem", False),
+            ("filesystem", True),
+            ("rate_limit", False),
+            ("rate_limit", True),
+        ],
+    )
+    def test_unready_sandbox_retries_termination_before_failing_provision(
+        self, failure: str, termination_recovers: bool
+    ) -> None:
         # process-task only records a sandbox id once create() has returned, so an unready
         # sandbox we could not terminate is invisible to every later cleanup path. Failing
         # beats recovering onto the next image and leaving the old one billing.
         mock_sb = MagicMock()
         mock_sb.object_id = "sb-stuck"
-        mock_sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
-        mock_sb.terminate.side_effect = ModalServiceError("terminate failed")
+        if failure == "readiness":
+            mock_sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+        mock_sb.terminate.side_effect = (
+            [ModalServiceError("terminate failed"), None]
+            if termination_recovers
+            else ModalServiceError("terminate failed")
+        )
+        initialization_error = (
+            SandboxRateLimitedError("rate limited", {"sandbox_id": "sb-stuck"})
+            if failure == "rate_limit"
+            else RuntimeError("filesystem setup failed")
+        )
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
@@ -2149,15 +2308,23 @@ class TestModalSandboxCreateImageFallback:
             ),
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb),
             patch("products.tasks.backend.logic.services.modal_sandbox.time.sleep"),
+            patch.object(ModalSandbox, "_prepare_task_filesystem", side_effect=initialization_error),
             patch("products.tasks.backend.exceptions.capture_exception"),
         ):
-            with pytest.raises(SandboxProvisionError) as error:
+            with pytest.raises(SandboxRateLimitedError if failure == "rate_limit" else SandboxProvisionError) as error:
                 ModalSandbox.create(
                     SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
                 )
 
-        assert mock_sb.terminate.call_count == UNREADY_TERMINATE_MAX_ATTEMPTS
-        assert "Failed to terminate an unready sandbox" in str(error.value)
+        assert mock_sb.terminate.call_count == (2 if termination_recovers else UNREADY_TERMINATE_MAX_ATTEMPTS)
+        assert error.value.context["sandbox_id"] == "sb-stuck"
+        if failure == "rate_limit":
+            assert error.value is initialization_error
+            assert error.value.next_retry_delay is not None
+        elif failure == "filesystem":
+            assert error.value.__cause__ is initialization_error
+        else:
+            assert "Failed to terminate an unready sandbox" in str(error.value)
 
     def test_create_failure_inside_the_recovery_stays_on_the_fallback_chain(self):
         # The recovery re-enters the image chain, which records its own downgrade on
@@ -2363,7 +2530,10 @@ class TestLaunchDevStackBootstrap:
         sandbox = self._sandbox()
         result = ExecutionResult(stdout="", stderr="", exit_code=exit_code, error=None)
 
-        with patch.object(ModalSandbox, "execute", return_value=result) as mock_execute:
+        with (
+            patch.object(ModalSandbox, "execute", return_value=result) as mock_execute,
+            patch.object(ModalSandbox, "_write_required_file"),
+        ):
             assert sandbox.launch_dev_stack_bootstrap() is expected
 
         # Absolute path, not a PATH probe — PATH could be shadowed inside the image.
@@ -2418,7 +2588,10 @@ class TestLaunchDevStackBootstrap:
         sandbox = self._sandbox(snapshot_restored=True, snapshot_kind=SNAPSHOT_KIND_DIRECTORY)
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
-        with patch.object(ModalSandbox, "execute", return_value=result):
+        with (
+            patch.object(ModalSandbox, "_write_required_file"),
+            patch.object(ModalSandbox, "execute", return_value=result),
+        ):
             assert sandbox.launch_dev_stack_bootstrap() is True
 
     def test_launch_scrubs_environment_so_a_poisoned_workspace_path_cannot_run_with_credentials(self):
@@ -2430,12 +2603,17 @@ class TestLaunchDevStackBootstrap:
         sandbox = self._sandbox(snapshot_restored=True, snapshot_kind=SNAPSHOT_KIND_DIRECTORY)
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
-        with patch.object(ModalSandbox, "execute", return_value=result) as mock_execute:
+        with (
+            patch.object(ModalSandbox, "_write_required_file"),
+            patch.object(ModalSandbox, "execute", return_value=result) as mock_execute,
+        ):
             assert sandbox.launch_dev_stack_bootstrap() is True
 
         command = mock_execute.call_args.args[0]
         assert "/usr/bin/env -i " in command  # absolute launcher, empty environment
         assert "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" in command
+        assert 'DOCKER_CONFIG="$docker_config"' in command
+        assert "/usr/bin/mktemp -d /run/posthog-bootstrap-docker." in command
         assert "/tmp/workspace" not in command
         # env -i means no credential is ever named in (or inherited by) the helper's env.
         assert "TOKEN" not in command and "API_KEY" not in command

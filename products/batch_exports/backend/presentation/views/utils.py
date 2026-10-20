@@ -10,11 +10,15 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.models import Team
 
+from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
+
 HOGQL_MODIFIERS_HELP_TEXT = (
-    "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. "
-    "Each modifier set here overrides the project modifier with the same name, and the project "
-    "modifiers apply to all others. For example, set convertToProjectTimezone to false to export "
-    "timestamps in UTC instead of the project timezone."
+    "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example "
+    "{\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here "
+    "overrides the project modifier with the same name, and the project modifiers apply to all others. If neither "
+    "sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to "
+    "export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object "
+    "replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
 )
 
 
@@ -69,5 +73,16 @@ class HogQLModifiersField(serializers.JSONField):
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
         else:
+            if modifiers.useNewEventsCluster:
+                raise serializers.ValidationError(
+                    "Native events cluster queries are only supported by the synchronous query API"
+                )
             self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
+
+    def to_representation(self, value: typing.Any) -> typing.Any:
+        # Runs drop modifiers removed from the schema, so responses drop them too: a client that sends back
+        # what it read must not fail validation on a key it never set.
+        if isinstance(value, dict):
+            value = drop_unknown_hogql_modifiers(value)
+        return super().to_representation(value)

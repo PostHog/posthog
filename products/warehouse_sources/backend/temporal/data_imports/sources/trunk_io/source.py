@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -54,6 +55,8 @@ MISSING_TARGET_BRANCH_ERROR = (
 
 @SourceRegistry.register
 class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
+    codebase_detection = detect(env=("^TRUNK_API_TOKEN$", "^TRUNK_ORG_URL_SLUG$"), npm=("@trunkio/launcher",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.trunk.io/flaky-tests/api"
 

@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { RecordingSnapshot } from '@posthog/replay-shared'
 
@@ -15,7 +16,7 @@ import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotData
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { RRWebRecordingConsoleLogPayload, SessionRecordingType } from '~/types'
+import { RecordingEventType, RRWebRecordingConsoleLogPayload, SessionRecordingType } from '~/types'
 
 import { makeExperimentSessionContextItem } from '../../__mocks__/experiment_session_context'
 import { BLOB_SOURCE_V2, overrideSessionRecordingMocks, setupSessionRecordingTest } from '../__mocks__/test-setup'
@@ -308,6 +309,33 @@ describe('playerInspectorLogic', () => {
             } as SessionRecordingType)
         }
 
+        it('highlights only events with matching UUIDs', async () => {
+            const { playerLogic, matchingLogic } = mountLogics(matchingProps('highlight-matching-events'))
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+
+            const event = (id: string, timestamp: string): RecordingEventType => ({
+                id,
+                event: '$pageview',
+                timestamp,
+                elements: [],
+                properties: {},
+                playerTime: 0,
+                fullyLoaded: false,
+            })
+            dataLogic.actions.loadEventsSuccess([
+                event('matching-event', '2025-01-01T00:00:10.000Z'),
+                event('other-event', '2025-01-01T00:00:20.000Z'),
+            ])
+
+            expect(matchingLogic.values.allItems.items.filter((item) => item.type === 'events')).toMatchObject([
+                { key: 'event-matching-event', highlightColor: 'primary' },
+                { key: 'event-other-event', highlightColor: undefined },
+            ])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
         it.each([
             ['armed via the skipToFirstMatchingEvent prop', { skipToFirstMatchingEvent: true }],
             ['armed during player initialization', {}],
@@ -412,6 +440,41 @@ describe('playerInspectorLogic', () => {
             ])
             await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
 
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it.each([
+            [503, false],
+            [500, true],
+        ])('clears highlights when a reload fails with %s (reported: %s)', async (failureStatus, reported) => {
+            let status = 200
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/matching_events': () =>
+                        status === 200
+                            ? [200, { results: [{ uuid: 'matching-event', timestamp: '2025-01-01T00:00:10.000Z' }] }]
+                            : [status, { detail: 'A server error occurred.' }],
+                },
+            })
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+            const { playerLogic, matchingLogic } = mountLogics({
+                sessionRecordingId: '1',
+                playerKey: `failed-reload-${failureStatus}`,
+                matchingEventsMatchType: { matchType: 'backend' as const, filters: DEFAULT_RECORDING_FILTERS },
+            })
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            expect(matchingLogic.values.matchingEvents).toHaveLength(1)
+
+            status = failureStatus
+            matchingLogic.actions.loadMatchingEvents()
+            await expectLogic(matchingLogic)
+                .toDispatchActions(['loadMatchingEventsSuccess'])
+                .toMatchValues({ matchingEvents: [], matchingEventsSettled: true })
+            expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
+
+            captureException.mockRestore()
             matchingLogic.unmount()
             playerLogic.unmount()
         })

@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
@@ -29,6 +30,7 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
+import { MESSAGE_KEYS } from './log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
 import {
@@ -44,9 +46,10 @@ import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
-import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { type CompiledRetentionRuleSet, RETENTION_MONTH_DAYS } from './retention/evaluate-retention'
 import {
     RETENTION_EXPIRED_STAGE_NAME,
     canHoldExpiredRow,
@@ -74,6 +77,8 @@ export interface LogsIngestionConsumerDeps {
     logsTransformer?: LogsTransformerService
     /** When set, enabled teams stamp per-row retention from retention rules before produce. */
     retentionRulesCache?: RetentionRulesCache
+    /** When set, pattern masking reads each team's message keys instead of the defaults. */
+    patternMessageKeysCache?: PatternMessageKeysCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -381,7 +386,6 @@ export class LogsIngestionConsumer {
     private readonly patternMaskingEnabledTeamsRaw: string
     private readonly jsonAttributeParsingEnabledTeamsRaw: string
     private readonly jsonAttributeExtractionEnabledTeamsRaw: string
-    private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
     protected topic: string
@@ -435,7 +439,6 @@ export class LogsIngestionConsumer {
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
         this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
         this.jsonAttributeExtractionEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS
-        this.patternMaskingStage = makePatternMaskingStage()
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -594,7 +597,11 @@ export class LogsIngestionConsumer {
             if (modeWithoutMasking !== 'decode_and_reencode') {
                 logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
             }
-            stages.push(this.patternMaskingStage)
+            const keysCache = this.deps.patternMessageKeysCache
+            const messageKeys = keysCache
+                ? await this.retryOnDependencyUnavailable(() => keysCache.getMessageKeys(message.teamId))
+                : MESSAGE_KEYS
+            stages.push(makePatternMaskingStage(messageKeys))
         }
 
         trace.getActiveSpan()?.setAttributes({
@@ -1286,13 +1293,13 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
-            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // Byte-days: ingested bytes weighted by the retention day count, only for teams that
+            // chose a retention other than the default. The default tier is covered by `bytes_ingested`,
             // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
             // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
             // leaves fixed tiers.
             if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
-                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+                this.queueRetentionByteDays(teamId, stats.bytesAllowed, stats.retentionDays)
             }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
@@ -1321,7 +1328,7 @@ export class LogsIngestionConsumer {
         ])
     }
 
-    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
+    private queueUsageMetric(teamId: number, metricName: string, count: number, timestamp?: DateTime): void {
         if (count === 0) {
             return
         }
@@ -1333,7 +1340,22 @@ export class LogsIngestionConsumer {
             metric_kind: 'usage',
             metric_name: metricName,
             count,
+            timestamp,
         })
+    }
+
+    /**
+     * Writes one `retention_byte_days` row per 30-day month of retention, each dated at the start of
+     * its month, so each month of storage bills when it starts instead of the whole period billing
+     * on the ingest day. The usage report sums these rows by timestamp, and the `app_metrics2` TTL
+     * counts from each row's own timestamp, so future rows stay until they are billed.
+     */
+    private queueRetentionByteDays(teamId: number, bytes: number, retentionDays: number): void {
+        const now = DateTime.utc()
+        for (let offsetDays = 0; offsetDays < retentionDays; offsetDays += RETENTION_MONTH_DAYS) {
+            const days = Math.min(RETENTION_MONTH_DAYS, retentionDays - offsetDays)
+            this.queueUsageMetric(teamId, 'retention_byte_days', bytes * days, now.plus({ days: offsetDays }))
+        }
     }
 
     /**

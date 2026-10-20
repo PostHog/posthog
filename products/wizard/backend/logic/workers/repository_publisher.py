@@ -3,6 +3,7 @@ import base64
 from typing import Any
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
@@ -219,7 +220,7 @@ def _github_integration(team_id: int, integration_id: int, source: str) -> GitHu
     integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
-    return GitHubIntegration(integration, source=source)
+    return GitHubIntegration(integration, source=source, priority=Priority.CRITICAL)
 
 
 def _repository_and_branch_tip(
@@ -304,7 +305,7 @@ def create_pull_request(
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
 
-    github = GitHubIntegration(integration, source=source)
+    github = GitHubIntegration(integration, source=source, priority=Priority.CRITICAL)
     if github.organization().casefold() != repository_name.owner.casefold():
         raise RepositoryPublishingError("GitHub integration does not own the repository.")
 

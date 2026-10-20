@@ -201,6 +201,8 @@ class ZxcvbnValidator:
     Validate that the password satisfies zxcvbn
     """
 
+    NEXT_STEP = "Try a longer password that isn't a common word or pattern."
+
     def __init__(self, min_length=8):
         self.min_length = min_length
 
@@ -208,10 +210,12 @@ class ZxcvbnValidator:
         result = zxcvbn(password)
 
         if result["score"] < 3:
-            joined_feedback = " ".join(result["feedback"]["suggestions"])
+            # zxcvbn's suggestions assume passphrases ("Add another word or two"), so only its
+            # warning is shown, which names the weakness it found
+            warning = result["feedback"]["warning"] or "This password is too easy to guess."
 
             raise ValidationError(
-                joined_feedback or "This password is too weak.",
+                f"{warning} {self.NEXT_STEP}",
                 code="password_too_weak",
             )
 
@@ -464,6 +468,9 @@ class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.Base
     activity_credential_type = "team_secret_token"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+            return None
+
         secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
@@ -535,9 +542,10 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
         if psak is None:
             return None
 
-        if self.defer_migrated_team_tokens and token in (
-            psak.team.secret_api_token,
-            psak.team.secret_api_token_backup,
+        if (
+            self.defer_migrated_team_tokens
+            and settings.ACCEPT_TEAM_SECRET_TOKENS
+            and token in (psak.team.secret_api_token, psak.team.secret_api_token_backup)
         ):
             return None
 
@@ -581,7 +589,7 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
                     try:
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                        user = User.objects.get(pk=info["id"])
+                        user = User.objects.get(pk=info["id"], is_active=True)
                         refuse_blocked_account(request, user, call_site="jwt", impersonated=False)
                         self.record_activity_actor(user)
                         return (user, None)
@@ -842,7 +850,7 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
             self.team_id = team_id
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
-            user = User.objects.get(pk=user_id)
+            user = User.objects.get(pk=user_id, is_active=True)
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:

@@ -74,3 +74,10 @@ class TestPublicDocsCatalog:
     def test_canonical_description_keys_are_real_endpoints(self) -> None:
         # A key that doesn't match an endpoint name would silently never apply to any synced table.
         assert set(CANONICAL_DESCRIPTIONS).issubset(set(ENDPOINTS))
+
+
+class TestSchemaDefaults:
+    def test_fan_out_tables_are_off_by_default(self) -> None:
+        schemas = {schema.name: schema for schema in VantageSource().get_schemas(MagicMock(), team_id=1)}
+        off_by_default = {"costs", "resources", "tag_values"}
+        assert {name for name, schema in schemas.items() if not schema.should_sync_default} == off_by_default

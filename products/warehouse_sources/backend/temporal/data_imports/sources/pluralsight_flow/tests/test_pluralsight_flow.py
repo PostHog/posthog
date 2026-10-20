@@ -1,20 +1,23 @@
-import json
-from collections.abc import Iterable
 from datetime import date
-from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pluralsightflow import (
+    PluralsightFlowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.pluralsight_flow import (
     PluralsightFlowResumeConfig,
     _format_incremental_value,
     normalize_workspace,
-    pluralsight_flow_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.source import (
+    PluralsightFlowSource,
 )
 
 
@@ -39,124 +42,91 @@ class TestFormatIncrementalValue:
         assert _format_incremental_value(date(2024, 3, 5)) == "2024-03-05T00:00:00"
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestPluralsightFlowSourceCoreEndpoints:
     """End-to-end pagination/resume behaviour of core endpoints via `rest_api_resource`."""
 
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response], should_use_incremental_field: bool = False
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = pluralsight_flow_source(
-                api_key="test-key",
-                workspace="acme",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=None,
-            )
-            # Iterating a Resource yields one page (list[dict]) per response, not flat rows.
-            pages = list(cast(Iterable[list[dict[str, Any]]], source_response.items()))
-            rows = [row for page in pages for row in page]
-            return rows, sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(PluralsightFlowSource(), PluralsightFlowSourceConfig(workspace="acme", api_key="test-key"))
 
     def test_paginates_until_short_page_and_saves_resume_offset(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         # A page exactly `limit` (1000) long doesn't tell the paginator it's the last page — only
         # a page shorter than `limit` does, so the first fake page must be full-sized.
         full_page = [{"id": i} for i in range(1000)]
         responses = [
-            _make_http_response({"count": 1001, "next": "...", "previous": None, "results": full_page}),
-            _make_http_response({"count": 1001, "next": None, "previous": "...", "results": [{"id": 1000}]}),
+            ScriptedResponse(json={"count": 1001, "next": "...", "previous": None, "results": full_page}),
+            ScriptedResponse(json={"count": 1001, "next": None, "previous": "...", "results": [{"id": 1000}]}),
         ]
-        rows, sent_params = self._drive("Repos", manager, responses)
+        result = self._driver().run("Repos", responses)
 
-        assert rows == [*full_page, {"id": 1000}]
+        assert result.raised is None
+        assert result.rows == [*full_page, {"id": 1000}]
         # OffsetPaginator always injects `offset` (starting at 0), unlike a bespoke paginator
         # that only adds it once seeded.
-        assert [p.get("offset") for p in sent_params] == [0, 1000]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [PluralsightFlowResumeConfig(offset=1000)]
+        assert result.params("offset") == ["0", "1000"]
+        assert result.saved_states == [PluralsightFlowResumeConfig(offset=1000)]
 
     def test_resume_seeds_paginator_with_saved_offset(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = PluralsightFlowResumeConfig(offset=2000)
+        result = self._driver().run(
+            "Repos",
+            [ScriptedResponse(json={"count": 1, "next": None, "previous": None, "results": [{"id": 5}]})],
+            resume_state=PluralsightFlowResumeConfig(offset=2000),
+        )
 
-        responses = [_make_http_response({"count": 1, "next": None, "previous": None, "results": [{"id": 5}]})]
-        rows, sent_params = self._drive("Repos", manager, responses)
+        assert result.raised is None
+        assert result.rows == [{"id": 5}]
+        assert result.params("offset") == ["2000"]
 
-        assert rows == [{"id": 5}]
-        assert sent_params[0].get("offset") == 2000
-        manager.load_state.assert_called_once()
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "filter_param"),
+        [
+            ("Commits", "/v3/customer/core/commits/", "author_date__gte"),
+            ("UserAliases", "/v3/customer/core/user_alias/", "created_at__gte"),
+        ],
+    )
+    def test_incremental_endpoint_sends_gte_filter(self, endpoint: str, path: str, filter_param: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            [ScriptedResponse(json={"count": 1, "next": None, "previous": None, "results": [{"id": 1}]})],
+            should_use_incremental_field=True,
+        )
 
-    def test_incremental_endpoint_sends_gte_filter(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.requests[0].param(filter_param) == "1970-01-01T00:00:00"
 
-        responses = [_make_http_response({"count": 1, "next": None, "previous": None, "results": [{"id": 1}]})]
-        _, sent_params = self._drive("Commits", manager, responses, should_use_incremental_field=True)
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("TeamMemberships", "/v3/customer/core/team_membership/"),
+            ("PullRequestProjects", "/v3/customer/core/pull_request_projects/"),
+            ("TicketProjects", "/v3/customer/core/ticket_projects/"),
+        ],
+    )
+    def test_full_refresh_endpoint_sends_no_date_filter(self, endpoint: str, path: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            [ScriptedResponse(json={"count": 1, "next": None, "previous": None, "results": [{"id": 7}]})],
+            should_use_incremental_field=True,
+        )
 
-        assert sent_params[0].get("author_date__gte") == "1970-01-01T00:00:00"
+        assert result.raised is None
+        assert result.rows == [{"id": 7}]
+        assert result.paths == [path]
+        assert not [name for name in result.requests[0].query if name.endswith("__gte")]
 
 
 class TestPluralsightFlowSourceMetricsEndpoints:
     def test_single_object_response_yields_one_row_with_date_range(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(
+            PluralsightFlowSource(), PluralsightFlowSourceConfig(workspace="acme", api_key="test-key")
+        ).run("CollaborationMetrics", [ScriptedResponse(json={"time_to_merge": {"average": 3.5, "trend": 0.1}})])
 
-        response = _make_http_response({"time_to_merge": {"average": 3.5, "trend": 0.1}})
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = lambda request, *a, **kw: response
-
-            source_response = pluralsight_flow_source(
-                api_key="test-key",
-                workspace="acme",
-                endpoint="CollaborationMetrics",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
-            pages = list(cast(Iterable[list[dict[str, Any]]], source_response.items()))
-            rows = [row for page in pages for row in page]
-
-        assert len(rows) == 1
-        assert rows[0]["time_to_merge"] == {"average": 3.5, "trend": 0.1}
-        assert "date_range" in rows[0]
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert len(result.rows) == 1
+        assert result.rows[0]["time_to_merge"] == {"average": 3.5, "trend": 0.1}
+        assert "date_range" in result.rows[0]
+        assert result.saved_states == []
 
 
 class TestValidateCredentials:
@@ -164,18 +134,15 @@ class TestValidateCredentials:
         ("status_code", "expected_valid"),
         [(200, True), (401, False), (403, False)],
     )
-    def test_maps_status_to_validity(self, status_code, expected_valid) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.pluralsight_flow"
-            ".make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.get.return_value = _make_http_response({}, status_code=status_code)
-
+    def test_maps_status_to_validity(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
             is_valid, status = validate_credentials("test-key", "acme")
 
         assert is_valid is expected_valid
         assert status == status_code
+        assert network.requests_log[0].path == "/v3/customer/core/users/"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer test-key"
 
     def test_invalid_workspace_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid Flow workspace"):

@@ -6,7 +6,6 @@ import { AuthorFrictionTable } from '../components/AuthorFrictionTable'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { FrictionGroupLegend } from '../components/FrictionGroupLegend'
-import { SourceScopeChip } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { authorFrictionLogic } from './authorFrictionLogic'
@@ -21,6 +20,7 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
         githubTeam,
         teamOptions,
         sourceId,
+        scopeRepo,
     } = useValues(authorFrictionLogic)
     const { loadFriction, setGithubTeam } = useActions(authorFrictionLogic)
 
@@ -54,7 +54,7 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopePanel busy={frictionLoading && !!friction} controls={<SourceScopeChip pickerOnly />}>
+            <ScopePanel busy={frictionLoading && !!friction} controls={null}>
                 <Section
                     id="author-friction"
                     title="Friction by author"
@@ -76,6 +76,7 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
                             maxScore={maxScore}
                             loading={frictionLoading}
                             sourceId={sourceId}
+                            repo={scopeRepo}
                             emptyState={
                                 githubTeam
                                     ? 'No one on this team has 3 merged pull requests in the window yet.'

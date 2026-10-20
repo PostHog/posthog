@@ -1462,6 +1462,9 @@ class RepoOverview:
     # changes show up as their own delta instead of hiding inside the total.
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    # The slice of billable_minutes whose jobs ran on the Depot CI engine, not on GitHub Actions.
+    depot_ci_billable_minutes: float | None
+    depot_ci_billable_minutes_prev: float | None
     # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
     # (logic/merge_queue.py). All authors, bots included: these measure the queue's mechanics,
     # not author behavior.
@@ -2039,6 +2042,8 @@ class PullRequestFrictionBreakdown:
     pushes_after_approval: int | None
     # None when the pull request never entered the merge queue.
     queue_seconds: float | None
+    # Gate attempts with a failed workflow run. A failed run of a check the queue does not require
+    # leaves the pull request queued, so this is an upper bound on queue removals, not a count of them.
     kickout_count: int | None
 
 

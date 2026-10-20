@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.organization import Organization
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.authentication import BillingServiceAuthentication
 from ee.models import License
@@ -390,6 +391,7 @@ class TestBillingServiceAuthentication(BaseTest):
 
         return jwt.encode(payload, secret, algorithm="HS256")
 
+    @covers_authentication(BillingServiceAuthentication)
     def test_valid_token_authenticates(self, mock_license):
         mock_license.return_value = self.license
 

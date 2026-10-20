@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PartnerStackSource(ResumableSource[PartnerStackSourceConfig, PartnerStackResumeConfig]):
+    codebase_detection = detect(env=("^(PARTNER_STACK|PARTNERSTACK)_",), script_hosts=("snippet.growsumo.com",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.partnerstack.com"

@@ -1,8 +1,10 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source import CoralogixSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
     CoralogixSourceConfig,
@@ -33,19 +35,15 @@ class TestCoralogixSource:
         # the editor to re-enter the key.
         assert CoralogixSource().connection_host_fields == ["domain"]
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = CoralogixSource().get_schemas(_config(), team_id=1, names=["logs"])
-        assert [s.name for s in schemas] == ["logs"]
-
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_validate_credentials(self, _name: str, probe_result: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source.validate_coralogix_credentials",
-            return_value=probe_result,
-        ) as probe:
+        status = 200 if probe_result else 403
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             valid, error = CoralogixSource().validate_credentials(_config("key-1", "coralogix.us"), team_id=1)
 
-        probe.assert_called_once_with("key-1", "coralogix.us")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == "https://api.coralogix.us/api/v1/dataprime/query"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key-1"
         assert valid is probe_result
         assert (error is None) is probe_result
 

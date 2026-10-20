@@ -1,50 +1,33 @@
 import { PreviewCard } from '@base-ui/react/preview-card'
-import { ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 
 import { Card, Skeleton } from '@posthog/quill'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { cardSideForPointer, trackPointer } from './todayPointer'
 import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardContext'
 import { TodayPreviewPayload } from './todayPreviewCards'
 
-const TodayReportHoverCard = lazyWithRetry(() =>
-    import('scenes/project-homepage/today/TodayReportHoverCard').then((m) => ({ default: m.TodayReportHoverCard }))
-)
 const TodayChatHoverCard = lazyWithRetry(() =>
     import('./TodayChatHoverCard').then((m) => ({ default: m.TodayChatHoverCard }))
+)
+const TodayObjectHoverCard = lazyWithRetry(() =>
+    import('./TodayObjectHoverCard').then((m) => ({ default: m.TodayObjectHoverCard }))
 )
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
 
-function isInTextLink(payload: TodayPreviewPayload): boolean {
-    return payload.kind === 'report' && payload.surface === 'briefing'
-}
-
-/** Beside a row, centered on it, so the path to a tall card is short from any row. On a link in the
- * home page text, above or below it on the side the pointer came from, so the card does not cover
- * the next link the pointer moves to. */
-function TodayPreviewPositioner({
-    payload,
-    children,
-}: {
-    payload: TodayPreviewPayload
-    children: ReactNode
-}): JSX.Element {
-    // Fixed per link: the direction at the moment the card moves to this link, not while the pointer rests on it.
-    const textSide = useMemo(() => (isInTextLink(payload) ? cardSideForPointer() : null), [payload])
-    const placement: Pick<PreviewCard.Positioner.Props, 'side' | 'align' | 'sideOffset'> = textSide
-        ? { side: textSide, align: 'start', sideOffset: 6 }
-        : { side: 'right', align: 'center', sideOffset: 10 }
+function TodayPreviewPositioner({ below, children }: { below: boolean; children: ReactNode }): JSX.Element {
     return (
         <PreviewCard.Positioner
             data-quill
             data-quill-portal="popover"
             // Quill's portal rule reads this token and wins over a z-index utility class.
             className="[--quill-z-popover:var(--z-popover-with-chart)]"
-            {...placement}
+            side={below ? 'bottom' : 'right'}
+            align={below ? 'start' : 'center'}
+            sideOffset={below ? 6 : 10}
         >
             {children}
         </PreviewCard.Positioner>
@@ -79,7 +62,6 @@ export function TodayPreviewCardProvider({
         }),
         [handle]
     )
-    useEffect(trackPointer, [])
     const close = useCallback(() => {
         setOpen(false)
     }, [])
@@ -96,9 +78,9 @@ export function TodayPreviewCardProvider({
                 {({ payload }) =>
                     payload ? (
                         <PreviewCard.Portal>
-                            <TodayPreviewPositioner payload={payload}>
+                            <TodayPreviewPositioner below={payload.kind === 'object'}>
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
-                                <PreviewCard.Popup className="outline-none">
+                                <PreviewCard.Popup className="origin-[var(--transform-origin)] outline-none transition-[opacity,scale] duration-150 ease-out data-[ending-style]:scale-97 data-[ending-style]:opacity-0 data-[starting-style]:scale-97 data-[starting-style]:opacity-0 motion-reduce:transition-none">
                                     <Card
                                         size="sm"
                                         className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
@@ -106,8 +88,8 @@ export function TodayPreviewCardProvider({
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
                                             {payload.kind === 'chat' ? (
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'report' ? (
-                                                <TodayReportHoverCard preview={payload} />
+                                            ) : payload.kind === 'object' ? (
+                                                <TodayObjectHoverCard preview={payload} onAction={close} />
                                             ) : (
                                                 <TodaySessionHoverCard preview={payload} onAction={close} />
                                             )}

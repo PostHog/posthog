@@ -1,11 +1,10 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconFolderMove, IconFolderOpen, IconStar, IconStarFilled } from '@posthog/icons'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { PROJECT_TREE_KEY, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
 
@@ -19,16 +18,15 @@ type SceneMenuBarFileItemsProps = {
 
 /**
  * File-system actions for the current scene's tree entry, intended to be placed inside
- * a <SceneMenuBarMenu label="File">. Returns null if no project tree entry is registered.
+ * a <SceneMenuBarMenu label="File">. Returns null when `sceneFileLogic.hasFileItems` is false, so parents gate on it.
  */
 export function SceneMenuBarFileItems({ dataAttrKey }: SceneMenuBarFileItemsProps): JSX.Element | null {
-    useMountedLogic(sceneFileLogic)
+    const { fileItemsEntry: projectTreeRefEntry } = useValues(sceneFileLogic)
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
-    const { projectTreeRefEntry, shortcutNonFolderPaths, shortcutData } = useValues(projectTreeDataLogic)
+    const { shortcutNonFolderPaths, shortcutData } = useValues(projectTreeDataLogic)
     const { openMoveToModal } = useActions(moveToLogic)
-
     if (!projectTreeRefEntry) {
         return null
     }

@@ -17,10 +17,8 @@ Architecture:
   say was emitted.
 """
 
-import json
 import math
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from django.db import transaction
@@ -44,22 +42,24 @@ from products.autoresearch.backend.dataset.labeling import (
     _own_events_excluded_clause,
     build_target_condition,
 )
+from products.autoresearch.backend.evaluation.history import latest_validation_runs
+from products.autoresearch.backend.evaluation.maturity import matures_at
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    champion_training_base_rate,
+    segment_thresholds,
+)
+from products.autoresearch.backend.inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does one bounded query per model plus the labels query, and a scoring run
-# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
-# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
-STALE_RUN_AFTER = timedelta(hours=6)
-
-# An outcome event timestamped just before the window closes can still be in the ingestion
-# queue when the window closes. Maturity waits this long past the window end so it lands
-# first; a completed date is never revisited, so a positive that arrives later than this
-# reads as a negative.
-OUTCOME_INGESTION_GRACE = timedelta(hours=1)
+# The inference and validation workflows both end by this timeout, so a RUNNING row older than
+# this belongs to a worker that died mid-run and the exception handler never ran. Neither kind
+# may hold a date forever.
+STALE_RUN_AFTER = INFERENCE_WORKFLOW_TIMEOUT
 
 # A live run stamps its events at emission time, which can cross midnight UTC before the
 # batch goes out; a backfill stamps noon UTC of the date. Both fall within this many days
@@ -203,7 +203,9 @@ def find_pending_validation_dates(pipeline: AutoresearchPipeline) -> list[Pendin
     return [
         item
         for item in _scored_groups(pipeline)
-        if item.key not in scoring and not _is_blocked(item, state) and item.window_end + OUTCOME_INGESTION_GRACE <= now
+        if item.key not in scoring
+        and not _is_blocked(item, state)
+        and matures_at(item.prediction_date, item.horizon_days) <= now
     ]
 
 
@@ -347,11 +349,19 @@ def _validate_claimed_date(
             user=user,
             query_context=query_context,
         )
+        # The cut point the Predictions tab showed for this date comes from the dates checked before it.
+        thresholds = segment_thresholds(
+            latest_validation_runs(team.pk, pipeline, limit=BASE_RATE_DATES, before=pending.prediction_date),
+            training_rate=champion_training_base_rate(team.pk, pipeline),
+        )
         per_model = {
             model_id: _ModelValidation(
                 emitted_role=model.emitted_role,
                 metrics=_compute_validation_metrics(
-                    model.p_y_by_person, realized, prediction_date=pending.prediction_date
+                    model.p_y_by_person,
+                    realized,
+                    prediction_date=pending.prediction_date,
+                    likely_threshold=thresholds.likely,
                 ),
             )
             for model_id, model in predictions.items()
@@ -623,20 +633,18 @@ def _query(
 
 # ── Metrics ────────────────────────────────────────────────────────────────────────
 
-# The frontend reads the same file for PREDICTION_SEGMENT_THRESHOLDS, so the Likely cutoff cannot drift.
-_SEGMENT_THRESHOLDS_PATH = Path(__file__).resolve().parents[2] / "frontend" / "predictionSegmentThresholds.json"
-LIKELY_THRESHOLD: float = float(json.loads(_SEGMENT_THRESHOLDS_PATH.read_text())["high"])
-
 
 def _compute_validation_metrics(
     predictions: dict[str, float],
     realized_labels: frozenset[str],
     *,
     prediction_date: date,
+    likely_threshold: float,
 ) -> dict[str, Any]:
     """
     AUC with its 95% interval, Brier score, ECE, quantile calibration bins, lift@k,
     average precision, and confusion counts from scored predictions against realized labels.
+    The ``likely`` counts flag scores at or above ``likely_threshold``, which is kept with them.
 
     Only the AUC and its interval need both classes, and average precision needs a positive.
     The other metrics are computed for a single-class date too, because an all-negative day
@@ -681,8 +689,9 @@ def _compute_validation_metrics(
     metrics["confusion"] = {
         "top_10": _confusion_counts(y_true, _top_k_flags(y_score, k=0.10)),
         "top_20": _confusion_counts(y_true, _top_k_flags(y_score, k=0.20)),
-        "likely": _confusion_counts(y_true, y_score >= LIKELY_THRESHOLD),
+        "likely": _confusion_counts(y_true, y_score >= likely_threshold),
     }
+    metrics["likely_threshold"] = likely_threshold
     return metrics
 
 

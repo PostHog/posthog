@@ -8,6 +8,12 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks import formbricks
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
     DEFAULT_HOST,
@@ -16,43 +22,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
     FormbricksHostNotAllowedError,
     FormbricksResumeConfig,
     FormbricksRetryableError,
-    _advance_skip,
     _build_initial_params,
-    _build_url,
     check_access,
-    formbricks_source,
-    get_rows,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import (
-    ENDPOINTS,
-    FORMBRICKS_ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import FORMBRICKS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source import FormbricksSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
+    FormbricksSourceConfig,
 )
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = formbricks._fetch_page.__wrapped__  # type: ignore[attr-defined]
 
 RESPONSES_CONFIG = FORMBRICKS_ENDPOINTS["responses"]
-SURVEYS_CONFIG = FORMBRICKS_ENDPOINTS["surveys"]
 
 
-class _FakeResumableManager:
-    def __init__(self, state: FormbricksResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[FormbricksResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> FormbricksResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: FormbricksResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _full_page(start: int) -> list[dict]:
+def _full_page(start: int) -> list[dict[str, str]]:
     return [{"id": f"resp_{start + i}"} for i in range(PAGE_SIZE)]
 
 
@@ -88,103 +75,67 @@ class TestBuildInitialParams:
 
 class TestGetRows:
     @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[str, list[dict]],
-        endpoint: str = "responses",
-        host: str | None = None,
-        **kwargs: Any,
-    ) -> tuple[list[dict], list[str]]:
-        fetched_urls: list[str] = []
+    def _driver(host: str | None = None) -> SourceDriver:
+        return SourceDriver(FormbricksSource(), FormbricksSourceConfig(api_key="fb-key", host=host))
 
-        def fake_fetch(session: Any, url: str, logger: Any) -> list[dict]:
-            fetched_urls.append(url)
-            return pages[url]
+    def test_full_page_advances_skip_until_short_page(self) -> None:
+        result = self._driver().run(
+            "responses",
+            [ScriptedResponse(json={"data": _full_page(0)}), ScriptedResponse(json={"data": [{"id": "last"}]})],
+        )
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.params("skip") == ["0", "250"]
+        assert result.params("limit") == ["250", "250"]
+        assert result.paths == ["/api/v2/management/responses"] * 2
+        # State is saved after yielding the full page, pointing at the next page.
+        assert result.saved_states == [FormbricksResumeConfig(next_url=result.urls[1])]
+        assert result.committed_states == [FormbricksResumeConfig(next_url=result.urls[1])]
 
-        monkeypatch.setattr(formbricks, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(formbricks, "make_tracked_session", lambda **_: MagicMock())
-        monkeypatch.setattr(formbricks, "_is_host_safe", lambda host, team_id: (True, None))
+    def test_resumes_from_saved_url_on_same_host(self) -> None:
+        resume_url = f"{DEFAULT_HOST}/api/v2/management/responses?limit=250&skip=500&sortBy=createdAt&order=asc"
+        result = self._driver().run(
+            "responses",
+            [ScriptedResponse(json={"data": [{"id": "resumed"}]})],
+            resume_state=FormbricksResumeConfig(next_url=resume_url),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "resumed"}]
+        assert result.urls == [resume_url]
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            host=host,
-            api_key="fb-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            team_id=1,
-            **kwargs,
-        ):
-            rows.extend(batch)
-        return rows, fetched_urls
-
-    def _initial_url(self, endpoint: str = "responses", **kwargs: Any) -> str:
-        config = FORMBRICKS_ENDPOINTS[endpoint]
-        return _build_url(
-            None,
-            config.path,
-            _build_initial_params(
-                config,
-                kwargs.get("should_use_incremental_field", False),
-                kwargs.get("db_incremental_field_last_value"),
-                kwargs.get("incremental_field"),
+    def test_ignores_resume_url_on_different_host(self) -> None:
+        result = self._driver().run(
+            "responses",
+            [ScriptedResponse(json={"data": []})],
+            resume_state=FormbricksResumeConfig(
+                next_url="https://attacker.example.com/api/v2/management/responses?skip=500"
             ),
         )
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.requests[0].origin == DEFAULT_HOST
+        assert result.requests[0].param("skip") == "0"
 
-    def test_full_page_advances_skip_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first = self._initial_url()
-        second = _advance_skip(first)
-        rows, fetched = self._collect(manager, monkeypatch, {first: _full_page(0), second: [{"id": "last"}]})
-        assert len(rows) == PAGE_SIZE + 1
-        assert fetched == [first, second]
-        # State is saved after yielding the full page, pointing at the next page.
-        assert [s.next_url for s in manager.saved] == [second]
+    def test_unpaginated_endpoint_fetches_once_without_params(self) -> None:
+        result = self._driver().run("surveys", [ScriptedResponse(json={"data": [{"id": "s1"}]})])
+        assert result.raised is None
+        assert result.rows == [{"id": "s1"}]
+        assert result.urls == [f"{DEFAULT_HOST}/api/v1/management/surveys"]
+        assert result.requests[0].query == {}
+        assert result.saved_states == []
 
-    def test_resumes_from_saved_url_on_same_host(self, monkeypatch: Any) -> None:
-        resume_url = f"{DEFAULT_HOST}/api/v2/management/responses?limit=250&skip=500&sortBy=createdAt&order=asc"
-        manager = _FakeResumableManager(FormbricksResumeConfig(next_url=resume_url))
-        rows, fetched = self._collect(manager, monkeypatch, {resume_url: [{"id": "resumed"}]})
-        assert rows == [{"id": "resumed"}]
-        assert fetched == [resume_url]
-
-    def test_ignores_resume_url_on_different_host(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(
-            FormbricksResumeConfig(next_url="https://attacker.example.com/api/v2/management/responses?skip=500")
-        )
-        url = self._initial_url()
-        _, fetched = self._collect(manager, monkeypatch, {url: []})
-        assert fetched == [url]
-
-    def test_unpaginated_endpoint_fetches_once_without_params(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        url = f"{DEFAULT_HOST}{SURVEYS_CONFIG.path}"
-        rows, fetched = self._collect(manager, monkeypatch, {url: [{"id": "s1"}]}, endpoint="surveys")
-        assert rows == [{"id": "s1"}]
-        assert fetched == [url]
-        assert manager.saved == []
-
-    def test_plaintext_http_host_is_rejected(self, monkeypatch: Any) -> None:
-        with pytest.raises(FormbricksHostNotAllowedError, match=HTTP_NOT_ALLOWED_ERROR):
-            self._collect(_FakeResumableManager(), monkeypatch, {}, host="http://formbricks.internal")
+    def test_plaintext_http_host_is_rejected(self) -> None:
+        result = self._driver("http://formbricks.internal").run("responses", [])
+        assert isinstance(result.raised, FormbricksHostNotAllowedError)
+        assert HTTP_NOT_ALLOWED_ERROR in str(result.raised)
+        assert result.requests == []
 
     def test_unsafe_host_is_rejected(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(formbricks, "make_tracked_session", lambda **_: MagicMock())
         monkeypatch.setattr(formbricks, "_is_host_safe", lambda host, team_id: (False, "internal IP"))
-        with pytest.raises(FormbricksHostNotAllowedError, match="internal IP"):
-            next(
-                iter(
-                    get_rows(
-                        host="https://formbricks.internal",
-                        api_key="fb-key",
-                        endpoint="responses",
-                        logger=MagicMock(),
-                        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                        team_id=1,
-                    )
-                )
-            )
+        result = self._driver("https://formbricks.internal").run("responses", [])
+        assert isinstance(result.raised, FormbricksHostNotAllowedError)
+        assert "internal IP" in str(result.raised)
+        assert result.requests == []
 
 
 class TestFetchPage:
@@ -265,23 +216,6 @@ class TestFetchPage:
 
 
 class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
-    def _response(self, status: int, redirect: bool = False) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        response.is_redirect = redirect
-        response.is_permanent_redirect = False
-        return response
-
     @parameterized.expand(
         [
             ("ok", 200, 200, None),
@@ -290,35 +224,33 @@ class TestCheckAccess:
             ("server_error", 500, 500, "Formbricks returned HTTP 500"),
         ]
     )
-    @patch(f"{formbricks.__name__}._is_host_safe", return_value=(True, None))
-    @patch(f"{formbricks.__name__}.make_tracked_session")
     def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_status: int,
         expected_message: str | None,
-        mock_session: MagicMock,
-        _mock_host_safe: MagicMock,
     ) -> None:
-        mock_session.return_value = self._session(self._response(status))
-        assert check_access(None, "fb-key", team_id=1) == (expected_status, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert check_access(None, "fb-key", team_id=1) == (expected_status, expected_message)
+        assert {request.path for request in network.requests_log} == {"/api/v1/management/me"}
+        assert network.requests_log[0].headers["x-api-key"] == "fb-key"
+        assert network.session_options[0]["redact_values"] == ("fb-key",)
 
-    @patch(f"{formbricks.__name__}._is_host_safe", return_value=(True, None))
-    @patch(f"{formbricks.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock, _mock_host_safe: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access(None, "fb-key", team_id=1)
+    def test_connection_error_maps_to_zero(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            status, message = check_access(None, "fb-key", team_id=1)
         assert status == 0
         assert message is not None and "boom" in message
+        assert {request.path for request in network.requests_log} == {"/api/v1/management/me"}
 
-    @patch(f"{formbricks.__name__}._is_host_safe", return_value=(True, None))
-    @patch(f"{formbricks.__name__}.make_tracked_session")
-    def test_redirect_maps_to_actionable_message(self, mock_session: MagicMock, _mock_host_safe: MagicMock) -> None:
-        mock_session.return_value = self._session(self._response(302, redirect=True))
-        status, message = check_access(None, "fb-key", team_id=1)
+    def test_redirect_maps_to_actionable_message(self) -> None:
+        response = ScriptedResponse(status=302, headers={"Location": "https://example.com/login"})
+        with scripted_network([response]) as network:
+            status, message = check_access(None, "fb-key", team_id=1)
         assert status == 0
         assert message is not None and "unexpected redirect" in message
+        assert [request.path for request in network.requests_log] == ["/api/v1/management/me"]
 
     def test_plaintext_http_host_fails_before_any_request(self) -> None:
         status, message = check_access("http://formbricks.internal", "fb-key", team_id=1)
@@ -339,41 +271,35 @@ class TestCheckAccess:
             ("server_error", 500, False, "Formbricks returned HTTP 500"),
         ]
     )
-    @patch(f"{formbricks.__name__}._is_host_safe", return_value=(True, None))
-    @patch(f"{formbricks.__name__}.make_tracked_session")
     def test_validate_credentials(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
-        _mock_host_safe: MagicMock,
     ) -> None:
-        mock_session.return_value = self._session(self._response(status))
-        assert validate_credentials(None, "fb-key", team_id=1) == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert validate_credentials(None, "fb-key", team_id=1) == (expected_valid, expected_message)
+        assert {request.path for request in network.requests_log} == {"/api/v1/management/me"}
 
     def test_validate_credentials_requires_api_key(self) -> None:
         assert validate_credentials(None, "", team_id=1) == (False, "Missing Formbricks API key")
 
 
 class TestFormbricksSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(e,) for e in FORMBRICKS_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = formbricks_source(
-            host=None,
-            api_key="fb-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-            team_id=1,
+        result = SourceDriver(FormbricksSource(), FormbricksSourceConfig(api_key="fb-key")).run(
+            endpoint, [ScriptedResponse(json={"data": []})]
         )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["id"]
+        assert result.response.sort_mode == "asc"
         if endpoint == "responses":
             # Responses can grow large, so they partition on the stable creation timestamp.
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["createdAt"]
+            assert result.response.partition_mode == "datetime"
+            assert result.response.partition_keys == ["createdAt"]
         else:
-            assert response.partition_mode is None
+            assert result.response.partition_mode is None

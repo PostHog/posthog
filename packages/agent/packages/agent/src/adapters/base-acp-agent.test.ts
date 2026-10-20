@@ -75,7 +75,154 @@ describe("BaseAcpAgent", () => {
     );
   });
 
-  it.each(["moonshotai/kimi-k3", "deepseek-ai/deepseek-v4-flash-0731"])(
+  it.each(["zai-org/glm-5.3", "zai-org/glm-5.3-flash"])(
+    "keeps gateway-owned served model %s selected for Claude sessions",
+    async (requestedModel) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValue([
+        {
+          id: "claude-opus-4-8",
+          owned_by: "anthropic",
+          context_window: 1_000_000,
+          supports_streaming: true,
+          supports_vision: true,
+          allowed: true,
+        },
+        {
+          id: requestedModel,
+          owned_by: "posthog",
+          context_window: 200_000,
+          supports_streaming: true,
+          supports_vision: false,
+          allowed: true,
+          api_shapes: [
+            "openai-chat-completions",
+            "openai-responses",
+            "anthropic-messages",
+          ],
+        },
+      ]);
+
+      const agent = new TestAcpAgent({} as AgentSideConnection);
+      const result = await agent.getModelConfigOptions(
+        requestedModel,
+        "https://gateway.us.posthog.com/posthog_code",
+        "token",
+      );
+
+      expect(result.currentModelId).toBe(requestedModel);
+      expect(result.options).toContainEqual(
+        expect.objectContaining({ value: requestedModel }),
+      );
+      expect(result.options).not.toContainEqual(
+        expect.objectContaining({ description: "Custom model" }),
+      );
+    },
+  );
+
+  it("falls back when the gateway cannot serve the saved model on Messages", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+        api_shapes: ["anthropic-messages", "openai-chat-completions"],
+      },
+      {
+        id: "zai-org/glm-5.3",
+        owned_by: "posthog",
+        context_window: 200_000,
+        supports_streaming: true,
+        supports_vision: false,
+        allowed: true,
+        api_shapes: ["openai-chat-completions", "openai-responses"],
+      },
+    ]);
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const result = await agent.getModelConfigOptions(
+      "zai-org/glm-5.3",
+      "https://gateway.us.posthog.com/posthog_code",
+      "token",
+    );
+
+    expect(result.currentModelId).toBe("claude-opus-4-8");
+    expect(result.options).not.toContainEqual(
+      expect.objectContaining({ value: "zai-org/glm-5.3" }),
+    );
+  });
+
+  it("falls back when the gateway lists the saved native model without Messages", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+        api_shapes: ["anthropic-messages", "openai-chat-completions"],
+      },
+      {
+        id: "claude-sonnet-5",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+        api_shapes: ["openai-chat-completions"],
+      },
+    ]);
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const result = await agent.getModelConfigOptions(
+      "claude-sonnet-5",
+      "https://gateway.us.posthog.com/posthog_code",
+      "token",
+    );
+
+    expect(result.currentModelId).toBe("claude-opus-4-8");
+    expect(result.options).not.toContainEqual(
+      expect.objectContaining({ value: "claude-sonnet-5" }),
+    );
+  });
+
+  it("keeps a saved native Anthropic id the gateway omits as a custom option", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const result = await agent.getModelConfigOptions(
+      "anthropic/claude-sonnet-5",
+      "https://gateway.us.posthog.com/posthog_code",
+      "token",
+    );
+
+    expect(result.currentModelId).toBe("anthropic/claude-sonnet-5");
+    expect(result.options).toContainEqual(
+      expect.objectContaining({
+        value: "anthropic/claude-sonnet-5",
+        description: "Custom model",
+      }),
+    );
+  });
+
+  it.each([
+    "moonshotai/kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "zai-org/glm-5.3",
+    "zai-org/glm-5.3-flash",
+  ])(
     "does not restore omitted gateway model %s as a custom option",
     async (savedModel) => {
       vi.mocked(fetchGatewayModels).mockResolvedValue([

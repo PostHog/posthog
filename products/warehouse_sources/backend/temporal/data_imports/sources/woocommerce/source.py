@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 WEBHOOK_SETUP_CAPTION = (
     "PostHog registers a webhook on your store for each of the product, order, coupon and customer "
@@ -69,6 +70,14 @@ class WooCommerceSource(
     ResumableSource[WooCommerceSourceConfig, WooCommerceResumeConfig],
     WebhookSource[WooCommerceSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^WOOCOMMERCE_",),
+        npm=("@woocommerce/woocommerce-rest-api",),
+        pypi=("woocommerce",),
+        composer=("automattic/woocommerce", "automattic/jetpack-woocommerce-stats", "automattic/woocommerce-analytics"),
+        rubygems=("woocommerce_api",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://woocommerce.github.io/woocommerce-rest-api-docs/"

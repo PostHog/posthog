@@ -28,6 +28,7 @@ products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/error_tracking/backend/hogql_queries
 products/experiments
+products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries
 products/marketing_analytics/backend/services/test_attribution_health.py
 products/marketing_analytics/backend/services/test_conversion_recordings.py
@@ -39,6 +40,7 @@ products/mcp_analytics/backend/tests/test_protocol_version_breakdown.py
 products/mcp_analytics/backend/tests/test_tool_quality_tables.py
 products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
+products/product_analytics/backend/tests/test_insight_data_checks.py
 products/replay_vision/backend/tests/test_session_identity.py
 products/web_analytics/backend/hogql_queries
 
@@ -51,6 +53,7 @@ posthog/tasks/test/test_ai_observability_usage_report.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
 posthog/temporal/ai_observability/eval_reports/test/test_activities.py
+products/autoresearch/backend/inference/test_person_property.py
 products/batch_exports/backend/tests/api/test_serializers.py
 products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py
 products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py

@@ -1,108 +1,59 @@
-import json
-from typing import Any, Optional
-
-import pytest
-from unittest import mock
+from typing import Any
 
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jobnimbus import (
+    JobNimbusSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.jobnimbus import (
     PAGE_SIZE,
     JobNimbusResumeConfig,
-    jobnimbus_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.settings import ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the jobnimbus module.
-JOBNIMBUS_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.jobnimbus.make_tracked_session"
-)
-# tenacity sleeps between retries; patch it so the retry-path tests don't actually wait.
-TENACITY_SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source import JobNimbusSource
 
 
-def _raw_response(body: Any, *, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = "https://app.jobnimbus.com/api1/contacts"
-    resp._content = b"" if body is None else json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(JobNimbusSource(), JobNimbusSourceConfig(api_key="jn-key"))
 
 
-def _response(results: list[dict[str, Any]], count: int, *, status: int = 200) -> Response:
-    return _raw_response({"count": count, "results": results}, status=status)
-
-
-def _make_manager(resume_state: Optional[JobNimbusResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run shows
-    only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(manager: mock.MagicMock, endpoint: str = "contacts") -> Any:
-    return jobnimbus_source(
-        api_key="jn-key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _response(results: list[dict[str, Any]], count: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"count": count, "results": results})
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_progresses_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_paginates_and_progresses_offset(self) -> None:
         full = [{"jnid": str(i)} for i in range(PAGE_SIZE)]
-        params = _wire(session, [_response(full, PAGE_SIZE + 1), _response([{"jnid": "last"}], PAGE_SIZE + 1)])
+        result = _driver().run(
+            "contacts", [_response(full, PAGE_SIZE + 1), _response([{"jnid": "last"}], PAGE_SIZE + 1)]
+        )
 
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["jnid"] for r in rows] == [*(str(i) for i in range(PAGE_SIZE)), "last"]
+        assert result.raised is None
+        assert [row["jnid"] for row in result.rows] == [*(str(i) for i in range(PAGE_SIZE)), "last"]
         # size/from map onto the offset paginator's limit/offset params.
-        assert params[0] == {"from": 0, "size": PAGE_SIZE}
-        assert params[1]["from"] == PAGE_SIZE
+        assert result.params("from") == ["0", str(PAGE_SIZE)]
+        assert result.params("size") == [str(PAGE_SIZE), str(PAGE_SIZE)]
         # Checkpoint saved once after the first full page (points at the next page); short page ends it.
-        manager.save_state.assert_called_once_with(JobNimbusResumeConfig(offset=PAGE_SIZE))
+        assert result.saved_states == [JobNimbusResumeConfig(offset=PAGE_SIZE)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"jnid": "x"}], PAGE_SIZE + 1)])
-
+    def test_resumes_from_saved_offset(self) -> None:
         # Offset 0 must never be fetched on resume.
-        manager = _make_manager(JobNimbusResumeConfig(offset=PAGE_SIZE))
-        _rows(_source(manager))
+        result = _driver().run(
+            "contacts",
+            [_response([{"jnid": "x"}], PAGE_SIZE + 1)],
+            resume_state=JobNimbusResumeConfig(offset=PAGE_SIZE),
+        )
 
-        assert params[0]["from"] == PAGE_SIZE
+        assert result.raised is None
+        assert result.params("from") == [str(PAGE_SIZE)]
 
     @parameterized.expand(
         [
@@ -128,9 +79,9 @@ class TestPagination:
                 ["Sales", "Crew A"],
                 {"field": "groups"},
             ),
+            ("units_of_measure", ["SQ", "Items", "LF"], "uom", ["SQ", "Items", "LF"], {}),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_account_lookups_are_fetched_in_one_unpaginated_request(
         self,
         endpoint: str,
@@ -138,63 +89,47 @@ class TestPagination:
         key: str,
         expected: list[Any],
         expected_params: dict[str, Any],
-        MockSession: mock.MagicMock,
     ) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response(body)])
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint=endpoint))
-
-        assert [r[key] for r in rows] == expected
-        assert session.send.call_count == 1
-        assert params[0] == expected_params
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert [row[key] for row in result.rows] == expected
+        assert len(result.requests) == 1
+        assert result.queries[0] == {name: (str(value),) for name, value in expected_params.items()}
+        assert result.saved_states == []
 
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(TENACITY_SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(
-        self, _name: str, status: int, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response(None, status=status), _response([{"jnid": "ok"}], 1)])
+    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int) -> None:
+        result = _driver().run("contacts", [ScriptedResponse(status=status), _response([{"jnid": "ok"}], 1)])
 
-        rows = _rows(_source(_make_manager()))
-
-        assert [r["jnid"] for r in rows] == ["ok"]
+        assert result.raised is None
+        assert [row["jnid"] for row in result.rows] == ["ok"]
         # The first (retryable) response is reissued, so the successful page needs a second send.
-        assert session.send.call_count == 2
+        assert len(result.requests) == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_status_raises(self, _name: str, status: int, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response(None, status=status)])
+    def test_client_error_status_raises(self, _name: str, status: int) -> None:
+        result = _driver().run("contacts", [ScriptedResponse(status=status)])
 
-        with pytest.raises(HTTPError):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, HTTPError)
 
     @parameterized.expand(
         [
             ("missing_results_key", "contacts", {"count": 0}, "matched nothing"),
             ("bare_list_body", "contacts", [{"jnid": "1"}], "matched nothing"),
             ("groups_settings_object", "groups", {"workflows": [], "sources": []}, "Required a list response body"),
+            ("uoms_object", "units_of_measure", {"uoms": ["SQ"]}, "Required a list response body"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_shape_change_fails_loud(
-        self, _name: str, endpoint: str, body: Any, error: str, MockSession: mock.MagicMock
-    ) -> None:
+    def test_shape_change_fails_loud(self, _name: str, endpoint: str, body: Any, error: str) -> None:
         # A 200 body without the expected list means the response shape changed — fail loud instead of
         # silently syncing 0 rows or wrapping a stray object as a row.
-        session = MockSession.return_value
-        _wire(session, [_raw_response(body)])
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        with pytest.raises(ValueError, match=error):
-            _rows(_source(_make_manager(), endpoint=endpoint))
+        assert isinstance(result.raised, ValueError)
+        assert error in str(result.raised)
 
 
 class TestValidateCredentials:
@@ -206,29 +141,45 @@ class TestValidateCredentials:
             ("server_error", 500, False, "JobNimbus returned HTTP 500"),
         ]
     )
-    @mock.patch(JOBNIMBUS_SESSION_PATCH)
     def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: mock.MagicMock,
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("jn-key") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert validate_credentials("jn-key") == (expected_valid, expected_message)
 
-    @mock.patch(JOBNIMBUS_SESSION_PATCH)
-    def test_probe_failure_is_not_validated(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("jn-key") == (False, "Could not validate JobNimbus API key")
+        assert network.requests_log
+        assert network.requests_log[0].path == "/api1/contacts"
+        assert network.requests_log[0].param("size") == "1"
+        assert network.requests_log[0].param("from") == "0"
+        assert network.requests_log[0].headers["authorization"] == "Bearer jn-key"
+
+    def test_probe_failure_is_not_validated(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert validate_credentials("jn-key") == (False, "Could not validate JobNimbus API key")
 
 
 class TestSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        if endpoint in ("groups", "units_of_measure"):
+            body: Any = []
+        elif endpoint == "users":
+            body = {"users": []}
+        elif endpoint == "workflows":
+            body = {"workflows": []}
+        elif endpoint == "lead_sources":
+            body = {"sources": []}
+        else:
+            body = {"count": 0, "results": []}
+
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None

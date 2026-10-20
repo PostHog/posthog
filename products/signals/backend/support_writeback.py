@@ -8,8 +8,6 @@ them to draw on, which closes the loop without putting agent output in front of 
 
 from __future__ import annotations
 
-from django.conf import settings
-
 import structlog
 
 from posthog.models import Team
@@ -17,6 +15,7 @@ from posthog.models import Team
 from products.conversations.backend.facade import api as conversations_facade
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +53,7 @@ def post_report_findings_to_tickets(team: Team, report_id: str, signals: list[di
     if not SignalReport.objects.filter(id=report_id, team_id=team.pk).exists():
         return 0
 
-    body = _note_body(f"{settings.SITE_URL}/project/{team.pk}/inbox/{report_id}")
+    body = _note_body(build_report_url(team.pk, report_id, ReportLinkSource.SUPPORT))
 
     posted = 0
     for ticket_id in ticket_ids:

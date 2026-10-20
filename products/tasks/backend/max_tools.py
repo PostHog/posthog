@@ -5,6 +5,7 @@ from django.db import transaction
 from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
+from posthog.egress.limiter.policies import Priority
 from posthog.storage import object_storage
 
 from ee.hogai.tool import MaxTool
@@ -560,7 +561,7 @@ Use this tool when the user wants to:
 
             for integration in integrations:
                 try:
-                    github = GitHubIntegration(integration)
+                    github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)
                     org = github.organization()
                     repos = github.list_all_cached_repositories()
 

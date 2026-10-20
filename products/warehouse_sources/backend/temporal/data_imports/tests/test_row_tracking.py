@@ -23,7 +23,14 @@ from posthog.redis import get_async_client, get_client
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    setup_row_tracking_with_billing_check,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BillingLimitsWillBeReachedException,
+)
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     _get_redis,
     decrement_rows,
@@ -34,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     setup_row_tracking,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 _READ_ONLY_REPLICA_ERROR = redis_exceptions.ReadOnlyError("You can't write against a read only replica.")
 _MISCONF_ERROR = redis_exceptions.ResponseError(
@@ -254,7 +262,8 @@ class TestRowTracking(BaseTest):
                 if keys:
                     await redis.delete(*keys)
 
-    async def _run(self, source: ExternalDataSource, limit: int, clear_cache: bool = True) -> bool:
+    @contextlib.asynccontextmanager
+    async def _billing_check_environment(self, limit: int, clear_cache: bool = True):
         from ee.models.license import License
 
         if clear_cache:
@@ -273,12 +282,30 @@ class TestRowTracking(BaseTest):
             self._setup_limits(limit),
             time_machine.travel("2024-01-01 12:00:00", tick=False),
         ):
+            yield
+
+    async def _run(self, source: ExternalDataSource, limit: int, clear_cache: bool = True) -> bool:
+        async with self._billing_check_environment(limit, clear_cache):
             return await will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
 
     @sync_to_async
-    def _create_source(self) -> ExternalDataSource:
-        with time_machine.travel(datetime(2023, 12, 1), tick=False):
+    def _create_source(self, created_at: datetime = datetime(2023, 12, 1)) -> ExternalDataSource:
+        with time_machine.travel(created_at, tick=False):
             return ExternalDataSource.objects.create(team=self.team)
+
+    @sync_to_async
+    def _create_schema(self, source: ExternalDataSource) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team=self.team, source=source, name=str(uuid.uuid4()))
+
+    async def _start_sync(self, schema: ExternalDataSchema, rows_to_sync: int, billable: bool = True) -> None:
+        await setup_row_tracking_with_billing_check(
+            self.team.pk,
+            schema,
+            SourceResponse(name=schema.name, items=lambda: [], primary_keys=None, rows_to_sync=rows_to_sync),
+            schema.source,
+            self._logger(),
+            billable=billable,
+        )
 
     @pytest.mark.asyncio
     async def test_row_tracking(self):
@@ -362,6 +389,33 @@ class TestRowTracking(BaseTest):
         source = await self._create_source()
         async with self._setup_redis_rows(20):
             assert await self._run(source, 10) is True
+
+    @parameterized.expand(
+        [
+            ("non_billable_run", False, datetime(2023, 12, 1), False),
+            ("run_of_a_source_in_its_free_week", True, datetime(2023, 12, 30), False),
+            ("billable_run", True, datetime(2023, 12, 1), True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_in_flight_rows_count_toward_the_limit_only_when_they_will_bill(
+        self, _name, in_flight_billable, in_flight_source_created_at, blocks_the_next_sync
+    ):
+        in_flight_schema = await self._create_schema(await self._create_source(in_flight_source_created_at))
+        next_schema = await self._create_schema(await self._create_source())
+
+        async with self._billing_check_environment(limit=25):
+            try:
+                await self._start_sync(in_flight_schema, rows_to_sync=20, billable=in_flight_billable)
+
+                if blocks_the_next_sync:
+                    with pytest.raises(BillingLimitsWillBeReachedException):
+                        await self._start_sync(next_schema, rows_to_sync=10)
+                else:
+                    await self._start_sync(next_schema, rows_to_sync=10)
+            finally:
+                await finish_row_tracking(self.team.pk, in_flight_schema.id)
+                await finish_row_tracking(self.team.pk, next_schema.id)
 
     @pytest.mark.asyncio
     async def test_row_tracking_with_previous_rows_from_other_team_in_org(self):

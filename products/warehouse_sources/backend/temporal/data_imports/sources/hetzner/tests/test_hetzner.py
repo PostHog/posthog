@@ -13,24 +13,26 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
+    HetznerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import (
     HETZNER_BASE_URL,
     METRICS_RETENTION,
     HetznerResumeConfig,
-    hetzner_child_source,
     hetzner_metrics_source,
-    hetzner_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the hetzner module.
-HETZNER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner.make_tracked_session"
-)
-# Retryable tests: silence tenacity's backoff so retries don't actually sleep.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
 def _page(
@@ -60,61 +62,60 @@ def _make_manager(resume_state: HetznerResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's query params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared rather than inspecting the shared dict after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str, manager: mock.MagicMock):
-    return hetzner_source(
-        api_token="token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
+def _driver() -> SourceDriver:
+    return SourceDriver(HetznerSource(), HetznerSourceConfig(api_token="token"))
+
+
+def _scripted_page(
+    items: list[dict[str, Any]] | None,
+    *,
+    endpoint: str = "servers",
+    last_page: int = 1,
+    status: int = 200,
+) -> ScriptedResponse:
+    return ScriptedResponse(
+        status=status,
+        json={endpoint: items or [], "meta": {"pagination": {"last_page": last_page}}},
     )
 
 
+def _scripted_metrics(time_series: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json={"metrics": {"start": "", "end": "", "step": 300, "time_series": time_series}})
+
+
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_last_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginates_until_last_page(self) -> None:
+        result = _driver().run(
+            "servers",
             [
-                _page([{"id": 1}, {"id": 2}], last_page=2),
-                _page([{"id": 3}], last_page=2),
+                _scripted_page([{"id": 1}, {"id": 2}], last_page=2),
+                _scripted_page([{"id": 3}], last_page=2),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source("servers", manager))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
         # last_page=2 stops after page 2 — no extra empty-page request.
-        assert session.send.call_count == 2
-        assert params[0]["page"] == 1
-        assert params[0]["per_page"] == 50
-        assert params[1]["page"] == 2
+        assert len(result.requests) == 2
+        assert result.params("page") == ["1", "2"]
+        assert result.params("per_page") == ["50", "50"]
         # Checkpoint saved after the first page, pointing at the next page.
-        manager.save_state.assert_called_once_with(HetznerResumeConfig(page=2))
+        assert result.saved_states == [HetznerResumeConfig(page=2)]
+
+    def test_resumes_from_the_saved_page(self) -> None:
+        result = _driver().run(
+            "servers",
+            [_scripted_page([{"id": 3}], last_page=3), _scripted_page([{"id": 4}], last_page=3)],
+            resume_state=HetznerResumeConfig(page=2),
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["2", "3"]
+        assert [row["id"] for row in result.rows] == [3, 4]
 
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
@@ -176,39 +177,52 @@ class TestMetrics:
             ),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_flattens_series_into_one_row_per_sample(
-        self, endpoint: str, parent: str, id_column: str, types: str, MockSession
+        self, endpoint: str, parent: str, id_column: str, types: str
     ) -> None:
-        session = MockSession.return_value
         created = NOW - timedelta(minutes=58)
         sample = (NOW - timedelta(minutes=5)).timestamp()
-        sent = _wire_requests(
-            session,
+        result = _driver().run(
+            endpoint,
             [
-                _page([{"id": 7, "created": created.isoformat()}], endpoint=parent),
-                _metrics(
+                _scripted_page([{"id": 7, "created": created.isoformat()}], endpoint=parent),
+                _scripted_metrics(
                     {"a": {"values": [[sample, "12.5"]]}, "b": {"values": [[sample, "3"], [sample + 300, "NaN"]]}}
                 ),
             ],
         )
 
-        rows = _rows(_metrics_source(endpoint, _make_manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {id_column: 7, "metric": "a", "timestamp": NOW - timedelta(minutes=5), "value": 12.5},
             {id_column: 7, "metric": "b", "timestamp": NOW - timedelta(minutes=5), "value": 3.0},
             {id_column: 7, "metric": "b", "timestamp": NOW, "value": None},
         ]
-        url, params = sent[1]
-        assert url == f"{HETZNER_BASE_URL}/{parent}/7/metrics"
+        request = result.requests[1]
+        assert request.url.startswith(f"{HETZNER_BASE_URL}/{parent}/7/metrics?")
         # A start before the resource existed would only fetch empty windows; it rounds up to the grid.
-        assert params == {
-            "type": types,
-            "start": _rfc3339(NOW - timedelta(minutes=55)),
-            "end": _rfc3339(NOW),
-            "step": 300,
+        assert request.query == {
+            "type": (types,),
+            "start": (_rfc3339(NOW - timedelta(minutes=55)),),
+            "end": (_rfc3339(NOW),),
+            "step": ("300",),
         }
+
+    @parameterized.expand([("incremental", True, 20), ("full_refresh", False, 55)])
+    def test_an_incremental_run_starts_from_the_watermark(
+        self, _name: str, should_use_incremental_field: bool, minutes_back: int
+    ) -> None:
+        created = NOW - timedelta(minutes=58)
+        result = _driver().run(
+            "server_metrics",
+            [_scripted_page([{"id": 7, "created": created.isoformat()}]), _scripted_metrics({})],
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="timestamp",
+            db_incremental_field_last_value=NOW - timedelta(minutes=20),
+        )
+
+        assert result.raised is None
+        assert result.requests[1].param("start") == _rfc3339(NOW - timedelta(minutes=minutes_back))
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_walks_retention_in_contiguous_windows(self, MockSession) -> None:
@@ -233,70 +247,86 @@ class TestMetrics:
         # Empty windows still give the pipeline a chance to hand the run off during a shutdown.
         assert manager.safe_point.call_count == window_count
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resource_deleted_mid_sync_is_skipped(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resource_deleted_mid_sync_is_skipped(self) -> None:
         recent = (NOW - timedelta(minutes=30)).isoformat()
         sample = NOW.timestamp()
-        _wire_requests(
-            session,
+        result = _driver().run(
+            "server_metrics",
             [
-                _page([{"id": 1, "created": recent}, {"id": 2, "created": recent}]),
-                _json_response({"error": {"code": "not_found"}}, status=404, reason="Not Found"),
-                _metrics({"cpu": {"values": [[sample, "1"]]}}),
+                _scripted_page([{"id": 1, "created": recent}, {"id": 2, "created": recent}]),
+                ScriptedResponse(status=404, json={"error": {"code": "not_found"}}),
+                _scripted_metrics({"cpu": {"values": [[sample, "1"]]}}),
             ],
         )
 
-        rows = _rows(_metrics_source("server_metrics", _make_manager()))
+        assert result.raised is None
+        assert [(row["server_id"], row["value"]) for row in result.rows] == [(2, 1.0)]
+        assert result.paths == ["/v1/servers", "/v1/servers/1/metrics", "/v1/servers/2/metrics"]
 
-        assert [(r["server_id"], r["value"]) for r in rows] == [(2, 1.0)]
 
-
-class TestNetworkMembers:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_deleted_or_empty_network_is_skipped(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire_requests(
-            session,
+class TestChildEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "network_members",
+                "networks",
+                "members",
+                {"type": "server", "id": 9, "ip": "10.0.0.2"},
+                {"network_id": 3, "type": "server", "id": 9, "ip": "10.0.0.2"},
+            ),
+            (
+                "zone_rrsets",
+                "zones",
+                "rrsets",
+                {"id": "www/A", "name": "www", "type": "A", "zone": 3, "records": [{"value": "198.51.100.7"}]},
+                {"zone": 3, "id": "www/A", "name": "www", "type": "A", "records": [{"value": "198.51.100.7"}]},
+            ),
+        ]
+    )
+    def test_fans_out_over_parents_and_skips_deleted_or_empty_ones(
+        self,
+        endpoint: str,
+        parent: str,
+        child_key: str,
+        child_row: dict[str, Any],
+        expected_row: dict[str, Any],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _page([{"id": 1}, {"id": 2}, {"id": 3}], endpoint="networks"),
-                _json_response({"error": {"code": "not_found"}}, status=404, reason="Not Found"),
-                _page([], endpoint="members"),
-                _page([{"type": "server", "id": 9}], endpoint="members"),
+                _scripted_page([{"id": 1}, {"id": 2}, {"id": 3}], endpoint=parent),
+                ScriptedResponse(status=404, json={"error": {"code": "not_found"}}),
+                _scripted_page([], endpoint=child_key),
+                _scripted_page([child_row], endpoint=child_key),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(
-            hetzner_child_source(api_token="token", endpoint="network_members", resumable_source_manager=manager)
-        )
-
-        assert rows == [{"network_id": 3, "type": "server", "id": 9}]
-        assert manager.safe_point.call_count == 2
+        assert result.raised is None
+        assert result.rows == [expected_row]
+        assert result.paths == [
+            f"/v1/{parent}",
+            f"/v1/{parent}/1/{child_key}",
+            f"/v1/{parent}/2/{child_key}",
+            f"/v1/{parent}/3/{child_key}",
+        ]
+        assert result.params("sort") == ["id:asc"] * 4
 
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    @mock.patch(SLEEP_PATCH, lambda *_: None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_transient_status_is_retried_then_reraised(self, _name: str, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], status=status, reason="err") for _ in range(5)])
+    def test_transient_status_is_retried_then_reraised(self, _name: str, status: int) -> None:
+        result = _driver().run("servers", always(_scripted_page([], status=status)))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("servers", _make_manager()))
-        # 5 attempts (DEFAULT_RETRY_ATTEMPTS) before giving up.
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) > 1
+        assert set(result.paths) == {"/v1/servers"}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_is_not_retried(self, MockSession) -> None:
+    def test_client_error_is_not_retried(self) -> None:
         # A 401 is fatal; raising HTTPError immediately (not retrying) lets get_non_retryable_errors act.
-        session = MockSession.return_value
-        _wire(session, [_page([], status=401, reason="Unauthorized")])
+        result = _driver().run("servers", [_scripted_page([], status=401)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("servers", _make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
@@ -307,22 +337,23 @@ class TestValidateCredentials:
             ("forbidden", 403, False, "Invalid Hetzner Cloud API token"),
         ]
     )
-    @mock.patch(HETZNER_SESSION_PATCH)
     def test_status_maps_to_validity(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None, mock_session
+        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        valid, message = validate_credentials("token")
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            valid, message = validate_credentials("token")
         assert valid is expected_valid
         assert message == expected_message
+        assert network.requests_log[0].path == "/v1/ssh_keys"
+        assert network.requests_log[0].param("per_page") == "1"
 
-    @mock.patch(HETZNER_SESSION_PATCH)
-    def test_network_error_is_invalid_not_raised(self, mock_session) -> None:
+    def test_network_error_is_invalid_not_raised(self) -> None:
         # A probe transport failure must return "not validated", never raise out of source creation.
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        valid, message = validate_credentials("token")
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("token")
         assert valid is False
         assert message == "Could not reach the Hetzner Cloud API"
+        assert {request.path for request in network.requests_log} == {"/v1/ssh_keys"}
 
 
 class TestSourceResponse:
@@ -330,7 +361,9 @@ class TestSourceResponse:
     def test_no_partition_for_timestampless_endpoints(self, endpoint: str) -> None:
         # actions has no `created`; catalog endpoints carry no timestamps — partitioning on a null or
         # absent field would rewrite partitions every sync, so these must stay unpartitioned.
-        with mock.patch(CLIENT_SESSION_PATCH):
-            response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [_scripted_page([], endpoint=endpoint)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.partition_mode is None
         assert response.partition_keys is None

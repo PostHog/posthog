@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,23 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^(PLATFORM_SH|PLATFORMSH)_",
+            "^PLATFORM_RELATIONSHIPS$",
+            "^PLATFORM_APPLICATION_NAME$",
+            "^PLATFORM_PROJECT_ENTROPY$",
+            "^PLATFORM_ENVIRONMENT_TYPE$",
+            "^UPSUN_CLI_TOKEN$",
+        ),
+        npm=("platformsh-config",),
+        pypi=("platformshconfig",),
+        composer=("platformsh/config-reader", "platformsh/api-platform"),
+        go=("github.com/platformsh/config-reader-go", "github.com/platformsh/platformify"),
+        hex=("platformshconfig",),
+        maven=("sh.platform:config",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.platform.sh/docs"
 

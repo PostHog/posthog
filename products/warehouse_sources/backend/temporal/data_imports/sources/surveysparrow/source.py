@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,16 @@ def _base_url_for(config: SurveySparrowSourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparrowResumeConfig]):
+    codebase_detection = detect(
+        env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",),
+        npm=("surveysparrow-react-native-sdk", "surveysparrow-ionic-plugin"),
+        pub=("surveysparrow_flutter_sdk",),
+        swiftpm=(
+            "github.com/surveysparrow/surveysparrow-ios-sdk",
+            "github.com/surveysparrow/surveysparrow-ionic-plugin",
+        ),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.surveysparrow.com/rest-apis/"

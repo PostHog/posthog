@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ def _probe_path(schema_name: Optional[str]) -> str:
 
 @SourceRegistry.register
 class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardResumeConfig]):
+    codebase_detection = detect(env=("^PRODUCTBOARD_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.productboard.com"

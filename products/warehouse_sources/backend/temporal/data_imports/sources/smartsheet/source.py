@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeConfig]):
+    codebase_detection = detect(
+        env=("^SMARTSHEET_",),
+        npm=("smartsheet",),
+        pypi=("smartsheet-python-sdk",),
+        maven=("com.smartsheet:smartsheet-sdk-java",),
+        rubygems=("smartsheet",),
+    )
+
     supported_versions = ("2.0",)
     default_version = "2.0"
     api_docs_url = "https://smartsheet.redoc.ly"
@@ -66,7 +75,7 @@ class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeC
             label="Smartsheet",
             caption="""Enter your Smartsheet API access token to pull your Smartsheet data into the PostHog Data warehouse.
 
-You can generate a personal access token under **Personal Settings → API Access** in your [Smartsheet account](https://app.smartsheet.com). The token inherits your account's read access; the `users` table additionally requires a system administrator account.""",
+You can generate a personal access token under **Personal Settings → API Access** in your [Smartsheet account](https://app.smartsheet.com). The token inherits your account's read access. The `users` and `events` tables require a system administrator account, and the `events` table also requires the Event Reporting add-on.""",
             iconPath="/static/services/smartsheet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/smartsheet",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -94,7 +103,7 @@ You can generate a personal access token under **Personal Settings → API Acces
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=["events"])
 
     def validate_credentials(
         self,
@@ -123,5 +132,6 @@ You can generate a personal access token under **Personal Settings → API Acces
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Smartsheet endpoint is full refresh
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

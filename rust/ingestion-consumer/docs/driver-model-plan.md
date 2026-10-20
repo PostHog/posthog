@@ -68,7 +68,7 @@ The numbered order is one valid schedule, not the only one: the [cycle dependenc
 The swap unit in cycle 3 is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
 That is where the complexity concentrates — the pins, the stash, and the flush interplay.
 Packing follows at once (cycle 4): the performance win depends only on the key-table scheduler, not on the event loop, decoupled commits, or the budget.
-The request time budget follows packing (cycle 5): its enforcement precondition is the one-outstanding-request-per-key rule ([#89995](https://github.com/PostHog/posthog/pull/89995)), and its budget sizes against the packed request size.
+The request time budget follows packing (cycle 5): its enforcement precondition is the one-outstanding-request-per-key rule (cycle 3), and its budget sizes against the packed request size.
 The governor follows (cycle 6): it needs the scheduler's ready queue for its growth signal, and it comes after packing and the time budget, so RTT (request round-trip time) tunes once, against the final request shape.
 The single-owner event loop follows as its own outcome (cycle 7), once the scheduler is simple.
 
@@ -417,12 +417,12 @@ Exit criterion after the targets: the request-size histograms center near T, and
 
 ## Cycle 5: a slow request redelivers only its remainder
 
-Outcome: a worker stops a request at the consumer's time budget, acks the finished prefix, and only the remainder redelivers.
+Outcome: a worker stops a request at the consumer's time budget, acks the finished messages, and only the unfinished ones redeliver.
 Today one slow message holds every message behind it until the ack watchdog fences the whole stream, and everything unacked replays with duplicate work.
 This budget is time per request. It is not B, the uncommitted-work budget of cycle 9.
 
-It needs [#89995](https://github.com/PostHog/posthog/pull/89995) merged on the worker side (`soft_budget_ms` on the wire, the `PARTIAL` ack).
-It needs cycle 3: one outstanding request per key is [#89995](https://github.com/PostHog/posthog/pull/89995)'s stated enforcement precondition.
+It needs [#115388](https://github.com/PostHog/posthog/pull/115388) merged on the worker side (`soft_budget_ms` on the wire, the `PARTIAL` ack with its `unfinished` list).
+It needs cycle 3: with one outstanding request per key, no later request can pass a cut message of its key.
 It sizes the budget against cycle 4's request size. Its cap on request RTT matters for cycle 6: set `REQUEST_LATENCY_BUDGET` below the soft budget, or the governor never shrinks.
 
 **Verify:** a generous budget on one lane enforces rarely and exercises the real partial-ack path at negligible volume.
@@ -430,24 +430,27 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 
 ### 14. Add partial settlement and the request time budget (implement)
 
-**Task:** Teach the transport the `PARTIAL` ack and the scheduler a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
+**Task:** Teach the transport the `PARTIAL` ack and the batcher state machine a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
 
 **Goal:** Partial redelivery exists as one settlement arm, not a new path.
 
-- The stream runner parses `PARTIAL` and resolves the send with the accepted index list, instead of fencing it as busy.
-- The scheduler's partial arm is the failure arm plus a completed prefix: complete each key's finished prefix as group completions, return the remainder to the front of its queue, and keep the key blocked until the redelivery settles.
-- The prototype against the old machinery ([#91480](https://github.com/PostHog/posthog/pull/91480)) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
-- Stamp `soft_budget_ms` on each request from config. Unset sends no budget.
+- The transport parses `PARTIAL` and resolves the send with the accepted count and the `unfinished` messages, named by partition and offset, instead of fencing it as busy. An ack that does not match the request fails the stream.
+- `BatcherStateMachine::on_request_partial` completes exactly the accepted set and returns each key's unfinished messages to the front of its queue, sent again at once as replay. The unfinished messages need not be the last of their key, because the worker groups by distinct id inside one Kafka key.
+- The order sentinel's ACK mark stops below a run's lowest unfinished offset, so the resend is legal. The consumer refuses to commit a poll offset that no completion covered (`commit_violations_total{kind="uncredited"}`).
+- A key resends without a budget once `INGESTION_REQUEST_BUDGET_ATTEMPTS` settles left its messages unfinished since it last finished a run, or at once when its request finished nothing, so a message that never fits the budget still lands. That request carries only such keys and goes ahead of budgeted replays.
+- The prototype against the old machinery ([#91480](https://github.com/PostHog/posthog/pull/91480)) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one settlement arm.
+- Stamp `soft_budget_ms` from config on each key-table request that fits one frame. Unset sends no budget, and `pin_stash` rejects one.
 
 **Interfaces:**
 
-- Modify the ack handling in `grpc_transport.rs`: parse `PARTIAL`; resolve with the accepted indexes.
-- Modify the settlement types and `KeyTableScheduler::on_settled`: add the partial arm.
-- Modify `Config`: add the soft budget per request, default unset.
+- Modify the ack handling in `grpc_transport.rs`: parse `PARTIAL`; resolve with the accepted count and the unfinished messages.
+- Modify `BatcherStateMachine` and `KeyQueues`: add the partial arm and the per-key escalation count.
+- Modify `Config`: add `INGESTION_REQUEST_SOFT_BUDGET_MS` (default unset) and `INGESTION_REQUEST_BUDGET_ATTEMPTS` (default 3), bounded at startup against the ack and stall timeouts.
 
 **Metrics:**
 
-- Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_timed_out_messages_total` (counter). The names match the wire: a `PARTIAL` ack with a `timed_out` index list.
+- Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_unfinished_messages_total` (counter). The names match the wire: a `PARTIAL` ack with an `unfinished` message list.
+- Add `ingestion_consumer_request_budget_escalations_total` (counter), one per key that resends without a budget. A charts warning alert fires on a sustained rate per lane.
 
 ### 15. Set the request time budgets (switchover)
 
@@ -456,7 +459,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 **Goal:** A slow request costs a partial redelivery, not a fenced stream and a full replay.
 
 - A charts values PR sets the budget lane by lane. The generous stage is the cycle's verify.
-- Watch the partial and timed-out counters, the key-order sentinel, and stream teardowns.
+- Watch the partial, unfinished and escalation counters, the key-order sentinel, and stream teardowns.
 - Rollback is unsetting the values.
 
 **Interfaces:**
@@ -759,7 +762,7 @@ flowchart LR
     C8["8: decoupled commits"]
     C9["9: bounded replay"]
     C10["10: clean handoff"]
-    PR(["#89995 worker side"])
+    PR(["#115388 worker side"])
 
     C1 --> C3
     C3 --> C4

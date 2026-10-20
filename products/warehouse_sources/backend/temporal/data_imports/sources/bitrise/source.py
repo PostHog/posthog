@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BitriseSource(ResumableSource[BitriseSourceConfig, BitriseResumeConfig]):
+    codebase_detection = detect(env=("^BITRISE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -102,6 +105,12 @@ You can create a personal access token in your [Bitrise security settings](https
                 )
             if endpoint == "branches":
                 return "Only branches that already have builds on Bitrise are listed"
+            if endpoint == "archived_builds":
+                return "The Bitrise API returns at most 1000 archived builds per app"
+            if endpoint == "build_requests":
+                return "Only open build requests are listed"
+            if endpoint == "activities":
+                return "Activity events of the account that owns the API token. Disabled by default because every sync reads the full history"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

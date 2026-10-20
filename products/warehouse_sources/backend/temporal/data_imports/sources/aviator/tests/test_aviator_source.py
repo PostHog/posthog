@@ -6,6 +6,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.source import AviatorSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
     AviatorSourceConfig,
@@ -39,10 +43,6 @@ class TestAviatorSource:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["queue_stats"])
-        assert [s.name for s in schemas] == ["queue_stats"]
-
     @parameterized.expand(
         [
             # Only the date-windowed analytics endpoint has a genuine server-side filter, so it is the
@@ -66,13 +66,14 @@ class TestAviatorSource:
         assert schema.supports_append is False
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    @parameterized.expand([("valid", True, True), ("invalid", False, False)])
-    def test_validate_credentials(self, _name: str, probe_result: bool, expected_ok: bool) -> None:
+    @parameterized.expand([("valid", 200, True), ("invalid", 401, False)])
+    def test_validate_credentials(self, _name: str, status: int, expected_ok: bool) -> None:
         config = AviatorSourceConfig(api_token="av_uat_test")
-        with patch.object(source_module, "validate_aviator_credentials", return_value=probe_result):
+        with scripted_network([ScriptedResponse(status=status, json=[])]) as network:
             ok, error = self.source.validate_credentials(config, team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert network.requests_log[0].path == "/api/v1/repo"
 
     @parameterized.expand(
         [

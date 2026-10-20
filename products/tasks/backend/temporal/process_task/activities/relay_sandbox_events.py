@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import time
 import asyncio
-from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
@@ -17,9 +16,11 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import agent_plan_steps, phase_for_tool_call, tool_call_from_acp_update
+from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
     is_hogland_sandbox_url,
@@ -39,7 +40,12 @@ from products.tasks.backend.logic.services.process_killed import (
 )
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
-from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_INITIAL_GENERATION,
+    TaskRunRedisStream,
+    TaskRunStreamGenerationMismatch,
+    get_task_run_stream_key,
+)
 from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
@@ -124,7 +130,7 @@ class FinalMessageTracker:
         self._current_turn_parts.clear()
 
 
-@dataclass
+@frozen
 class RelaySandboxEventsInput:
     run_id: str
     task_id: str
@@ -137,6 +143,7 @@ class RelaySandboxEventsInput:
     # to the parent to drive SlackAgentDesignRelayWorkflow children.
     slack_thread_context: dict[str, Any] | None = None
     is_agent_design_enabled: bool = False
+    stream_generation: str | None = None
 
 
 @activity.defn
@@ -180,6 +187,7 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         presence_gated=run_stream_presence_gated(task_run.state),
         origin_product=origin_product,
         thin_tail=run_stream_thin_tail(task_run.state),
+        expected_generation=input.stream_generation or TASK_RUN_STREAM_INITIAL_GENERATION,
     )
     await redis_stream.initialize()
 
@@ -239,13 +247,18 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
             is_agent_design_enabled=input.is_agent_design_enabled,
             finalize_stream_on_exit=finalize_stream_on_exit,
         )
+    except TaskRunStreamGenerationMismatch:
+        return False
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
         # Cancellation is expected when the workflow finishes or is replaced.
         # Do not emit an error sentinel: it makes clients treat a still-valid
         # task run as unrecoverably disconnected.
         if finalize_stream_on_exit:
-            await redis_stream.mark_complete()
+            try:
+                await redis_stream.mark_complete()
+            except TaskRunStreamGenerationMismatch:
+                pass
         raise
     except RuntimeError as e:
         # Interpreter-shutdown race: asyncio uses the default ThreadPoolExecutor
@@ -559,6 +572,7 @@ async def _relay_loop(
                                         # A pi runtime error ends the turn but is not a
                                         # successful completion — fail the run outright rather
                                         # than reporting the turn as answered.
+                                        await asyncio.to_thread(record_run_failure_cause, run_id, "pi_runtime_error")
                                         await _signal_safely(
                                             workflow_handle, "complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]
                                         )

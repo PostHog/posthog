@@ -441,6 +441,8 @@ class _CostHeadlines:
     cost_per_merge_usd_prev: float | None
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    depot_ci_billable_minutes: float | None
+    depot_ci_billable_minutes_prev: float | None
 
 
 def _derive_cost_headlines(costs: WindowCostsWithPrev, *, merged_count: int, merged_count_prev: int) -> _CostHeadlines:
@@ -459,9 +461,11 @@ def _derive_cost_headlines(costs: WindowCostsWithPrev, *, merged_count: int, mer
         cost_per_merge_usd_prev=opt_float(cost_usd_prev / merged_count_prev)
         if cost_usd_prev is not None and merged_count_prev
         else None,
-        # The queue slice mirrors billable_minutes' null gating so both go null together.
+        # The queue and Depot CI slices mirror billable_minutes' null gating so all go null together.
         merge_queue_billable_minutes=costs.merge_queue_billable_seconds / 60 if cost_cur else None,
         merge_queue_billable_minutes_prev=costs.merge_queue_billable_seconds_prev / 60 if cost_prev else None,
+        depot_ci_billable_minutes=costs.depot_ci_billable_seconds / 60 if cost_cur else None,
+        depot_ci_billable_minutes_prev=costs.depot_ci_billable_seconds_prev / 60 if cost_prev else None,
     )
 
 
@@ -538,6 +542,8 @@ def query_repo_overview(
         cost_per_merge_usd_prev=costs.cost_per_merge_usd_prev,
         merge_queue_billable_minutes=costs.merge_queue_billable_minutes,
         merge_queue_billable_minutes_prev=costs.merge_queue_billable_minutes_prev,
+        depot_ci_billable_minutes=costs.depot_ci_billable_minutes,
+        depot_ci_billable_minutes_prev=costs.depot_ci_billable_minutes_prev,
         merge_queue_merged_pr_count=queue.merged_pr_count,
         merge_queue_merged_pr_count_prev=queue.merged_pr_count_prev,
         merge_queue_median_first_gate_to_merge_seconds=queue.median_first_gate_to_merge_seconds,

@@ -1,50 +1,38 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 from unittest import mock
 
-import structlog
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvedata import (
+    TwelveDataSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data import twelve_data
+from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.source import TwelveDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.twelve_data import (
     TwelveDataError,
     TwelveDataResumeConfig,
     _format_time_bound,
     parse_symbols,
-    twelve_data_rows,
-    twelve_data_source,
     validate_credentials,
 )
 
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.twelve_data.make_tracked_session"
-)
 
-LOGGER = structlog.get_logger()
-
-
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = "https://api.twelvedata.com/mock"
-    resp.reason = "Error" if status >= 400 else "OK"
-    resp._content = json.dumps(body).encode()
-    return resp
+def _json(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
 def _error_body(code: int, message: str) -> dict[str, Any]:
     return {"code": code, "message": message, "status": "error"}
-
-
-def _make_manager(resume_state: TwelveDataResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
 
 
 def _time_series_body(symbol: str, datetimes: list[str]) -> dict[str, Any]:
@@ -60,32 +48,14 @@ def _time_series_body(symbol: str, datetimes: list[str]) -> dict[str, Any]:
 
 def _run(
     endpoint: str,
-    responses: list[Response],
-    symbols: list[str] | None = None,
-    manager: mock.MagicMock | None = None,
+    script: Script,
+    symbols: str = "AAPL",
+    config_start_date: str | None = None,
+    resume_state: TwelveDataResumeConfig | None = None,
     **kwargs: Any,
-) -> tuple[list[list[dict]], mock.MagicMock, mock.MagicMock]:
-    manager = manager if manager is not None else _make_manager()
-    session = mock.MagicMock()
-    session.get.side_effect = responses
-    with mock.patch(SESSION_PATCH, return_value=session):
-        batches = list(
-            twelve_data_rows(
-                api_key="key",
-                endpoint=endpoint,
-                symbols=symbols if symbols is not None else ["AAPL"],
-                interval="1day",
-                config_start_date=kwargs.pop("config_start_date", None),
-                resumable_source_manager=manager,
-                logger=LOGGER,
-                **kwargs,
-            )
-        )
-    return batches, session, manager
-
-
-def _params(session: mock.MagicMock, call_index: int) -> dict[str, Any]:
-    return session.get.call_args_list[call_index].kwargs["params"]
+) -> DriveResult:
+    config = TwelveDataSourceConfig(api_key="key", symbols=symbols, interval="1day", start_date=config_start_date)
+    return SourceDriver(TwelveDataSource(), config).run(endpoint, script, resume_state=resume_state, **kwargs)
 
 
 class TestParseSymbols:
@@ -126,57 +96,72 @@ class TestErrorEnvelope:
     def test_error_envelope_raises_with_code(self, _name: str, code: int, message: str) -> None:
         # The API wraps errors in a JSON envelope (sometimes on HTTP 200) — the raised message must
         # carry the vendor code so get_non_retryable_errors / get_retryable_errors can match it.
-        responses = [_response(_error_body(code, message))]
-        with pytest.raises(TwelveDataError, match=f"Twelve Data API error {code}"):
-            _run("quotes", responses)
+        result = _run("quotes", [_json(_error_body(code, message))])
+
+        assert isinstance(result.raised, TwelveDataError)
+        assert f"Twelve Data API error {code}" in str(result.raised)
 
     def test_no_data_in_window_is_empty_not_error(self) -> None:
         # An incremental sync with no new bars gets a code-400 "error" — it must complete cleanly,
         # not fail the job.
-        responses = [
-            _response(_error_body(400, "No data is available on the specified dates."), status=400),
-        ]
-        batches, _session, _manager = _run(
-            "time_series", responses, should_use_incremental_field=True, db_incremental_field_last_value="2026-07-21"
+        result = _run(
+            "time_series",
+            [_json(_error_body(400, "No data is available on the specified dates."), status=400)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-07-21",
         )
-        assert batches == []
+
+        assert result.raised is None
+        assert result.items == []
 
 
 class TestCatalogEndpoints:
     def test_catalog_does_not_touch_resume_state(self) -> None:
-        _batches, _session, manager = _run("exchanges", [_response({"data": [{"code": "XNGS"}], "status": "ok"})])
-        manager.save_state.assert_not_called()
+        result = _run("exchanges", [_json({"data": [{"code": "XNGS"}], "status": "ok"})])
+
+        assert result.rows == [{"code": "XNGS"}]
+        assert result.saved_states == []
 
 
 class TestPerSymbolEndpoints:
     def test_quote_single_object_row_drops_status(self) -> None:
         body = {"symbol": "AAPL", "close": "326.47", "status": "ok"}
-        batches, _session, _ = _run("quotes", [_response(body)])
-        assert batches == [[{"symbol": "AAPL", "close": "326.47"}]]
+
+        result = _run("quotes", [_json(body)])
+
+        assert result.items == [[{"symbol": "AAPL", "close": "326.47"}]]
 
     def test_sync_rejects_too_many_symbols(self) -> None:
         # The cap must hold at sync time too, so a stored config can't bypass validation.
-        symbols = [f"S{i}" for i in range(twelve_data.MAX_SYMBOLS + 1)]
-        with pytest.raises(TwelveDataError, match="Twelve Data symbol limit exceeded"):
-            _run("quotes", [], symbols=symbols)
+        symbols = ",".join(f"S{i}" for i in range(twelve_data.MAX_SYMBOLS + 1))
+
+        result = _run("quotes", [], symbols=symbols)
+
+        assert isinstance(result.raised, TwelveDataError)
+        assert "Twelve Data symbol limit exceeded" in str(result.raised)
 
     def test_resume_skips_completed_symbols(self) -> None:
-        resume = TwelveDataResumeConfig(completed_symbols=["AAPL"])
-        responses = [_response({"meta": {"symbol": "MSFT"}, "splits": [{"date": "2003-02-18", "ratio": 0.5}]})]
-        batches, session, _ = _run("splits", responses, symbols=["AAPL", "MSFT"], manager=_make_manager(resume))
-        assert session.get.call_count == 1
-        assert _params(session, 0)["symbol"] == "MSFT"
-        assert batches[0][0]["symbol"] == "MSFT"
+        result = _run(
+            "splits",
+            [_json({"meta": {"symbol": "MSFT"}, "splits": [{"date": "2003-02-18", "ratio": 0.5}]})],
+            symbols="AAPL,MSFT",
+            resume_state=TwelveDataResumeConfig(completed_symbols=["AAPL"]),
+        )
+
+        assert len(result.requests) == 1
+        assert result.params("symbol") == ["MSFT"]
+        assert result.items[0][0]["symbol"] == "MSFT"
 
 
 class TestTimeSeries:
     def test_config_start_date_used_when_not_incremental(self) -> None:
         with mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 2):
-            responses = [_response(_time_series_body("AAPL", ["2020-01-03", "2020-01-02"]))]
             # Short page → no further requests.
-            responses[0]._content = json.dumps(_time_series_body("AAPL", ["2020-01-02"])).encode()
-            _batches, session, _ = _run("time_series", responses, config_start_date="2020-01-01")
-        assert _params(session, 0)["start_date"] == "2020-01-01"
+            result = _run(
+                "time_series", [_json(_time_series_body("AAPL", ["2020-01-02"]))], config_start_date="2020-01-01"
+            )
+
+        assert result.params("start_date")[0] == "2020-01-01"
 
     def test_page_cap_stops_history_walk(self) -> None:
         # An arbitrarily old start date on a minute interval must not walk history unbounded.
@@ -184,15 +169,19 @@ class TestTimeSeries:
             mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 2),
             mock.patch.object(twelve_data, "MAX_TIME_SERIES_PAGES_PER_SYMBOL", 2),
         ):
-            responses = [
-                _response(_time_series_body("AAPL", ["2026-07-21", "2026-07-20"])),
-                _response(_time_series_body("AAPL", ["2026-07-20", "2026-07-19"])),
-                # Would be page 3 — must never be requested.
-                _response(_time_series_body("AAPL", ["2026-07-19", "2026-07-18"])),
-            ]
-            batches, session, _ = _run("time_series", responses, config_start_date="2000-01-01")
-        assert session.get.call_count == 2
-        assert [row["datetime"] for batch in batches for row in batch] == ["2026-07-21", "2026-07-20", "2026-07-19"]
+            result = _run(
+                "time_series",
+                [
+                    _json(_time_series_body("AAPL", ["2026-07-21", "2026-07-20"])),
+                    _json(_time_series_body("AAPL", ["2026-07-20", "2026-07-19"])),
+                    # Would be page 3 — must never be requested.
+                    _json(_time_series_body("AAPL", ["2026-07-19", "2026-07-18"])),
+                ],
+                config_start_date="2000-01-01",
+            )
+
+        assert len(result.requests) == 2
+        assert [row["datetime"] for row in result.rows] == ["2026-07-21", "2026-07-20", "2026-07-19"]
 
 
 class TestSourceResponse:
@@ -207,15 +196,9 @@ class TestSourceResponse:
         ]
     )
     def test_primary_keys_and_full_refresh_shape(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = twelve_data_source(
-            api_key="key",
-            endpoint=endpoint,
-            symbols=["AAPL"],
-            interval="1day",
-            config_start_date=None,
-            resumable_source_manager=_make_manager(),
-            logger=LOGGER,
-        )
+        response = _run(endpoint, []).response
+
+        assert response is not None
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"
         assert response.partition_mode is None
@@ -223,23 +206,19 @@ class TestSourceResponse:
 
 class TestValidateCredentials:
     def test_valid_key(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response({"current_usage": 0, "plan_limit": 800})
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with scripted_network([_json({"current_usage": 0, "plan_limit": 800})]):
             assert validate_credentials("key") == (True, None)
 
     def test_invalid_key_surfaces_vendor_message(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_error_body(401, "**apikey** parameter is incorrect"), status=401)
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with scripted_network([_json(_error_body(401, "**apikey** parameter is incorrect"), status=401)]):
             ok, error = validate_credentials("bad")
+
         assert ok is False
         assert error is not None and "401" in error
 
     def test_network_error_is_not_reported_as_bad_key(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             ok, error = validate_credentials("key")
+
         assert ok is False
         assert error == "Could not connect to Twelve Data"

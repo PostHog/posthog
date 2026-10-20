@@ -67,6 +67,24 @@ def _overview_stats_columns(**overrides: str) -> dict[str, str]:
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "change_event": {
+        "description": "Account configuration changes with their old and new field values. The API returns only the last 30 days; incremental sync retains imported history.",
+        "docs_url": "https://developers.google.com/google-ads/api/docs/change-event",
+        "columns": {
+            "customer_id": _IDS["customer_id"],
+            "customer_time_zone": "The account time zone used by change_event_change_date_time.",
+            "change_event_resource_name": "Unique change event resource name, including the account ID.",
+            "change_event_change_date_time": "Time of the change in the Google Ads account time zone, without an offset.",
+            "change_event_change_resource_type": "Type of resource that changed.",
+            "change_event_change_resource_name": "Resource name of the object that changed.",
+            "change_event_resource_change_operation": "Whether the change created, updated, or removed the object.",
+            "change_event_client_type": "Client used to make the change, such as the web client or API.",
+            "change_event_user_email": "Email of the user who made the change, when Google exposes it.",
+            "change_event_changed_fields": "Field mask identifying the fields that changed.",
+            "change_event_old_resource": "JSON representation of the changed resource before the change.",
+            "change_event_new_resource": "JSON representation of the changed resource after the change.",
+        },
+    },
     "ad": {
         "description": "An ad within an ad group (ad_group_ad), including its creative content and status.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group_ad",

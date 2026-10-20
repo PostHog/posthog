@@ -175,8 +175,6 @@ export const trendsSeries = {
 
 interface EventSeriesConfig {
     default: SeriesData
-    /** Return multiple series for this event even without a breakdown. */
-    multi?: SeriesData[]
     breakdowns?: Record<string, SeriesData[]>
 }
 
@@ -205,7 +203,8 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
             hedgehog: trendsSeries.napsByManyHedgehogs,
         },
     },
-    ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
+    EmptySeries: { default: trendsSeries.withZeroCounts[0] },
+    ActiveSeries: { default: trendsSeries.withZeroCounts[1] },
     Minimal: { default: trendsSeries.minimal },
     NoActivity: { default: trendsSeries.noActivity },
     WeeklyAcrossYears: { default: trendsSeries.weeklyAcrossYears },
@@ -233,9 +232,6 @@ export function lookupSeries(eventName: string, breakdownProperty?: string): Ser
     }
     if (breakdownProperty && config.breakdowns?.[breakdownProperty]) {
         return config.breakdowns[breakdownProperty]
-    }
-    if (config.multi) {
-        return config.multi
     }
     return [config.default]
 }

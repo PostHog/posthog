@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_INSPECTOR|AWSINSPECTOR)_",),
+        npm=("@aws-sdk/client-inspector2", "@aws-sdk/client-inspector"),
+        cargo=("aws-sdk-inspector2", "aws-sdk-inspector"),
+        go=("github.com/aws/aws-sdk-go-v2/service/inspector2", "github.com/aws/aws-sdk-go-v2/service/inspector"),
+        maven=(
+            "software.amazon.awssdk:inspector2",
+            "software.amazon.awssdk:inspector",
+            "com.amazonaws:aws-java-sdk-inspector2",
+            "com.amazonaws:aws-java-sdk-inspector",
+            "com.amazonaws:aws-java-sdk-inspectorscan",
+            "software.amazon.awssdk:inspectorscan",
+        ),
+        rubygems=("aws-sdk-inspector2", "aws-sdk-inspector"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (INSPECTOR_API_VERSION,)
     default_version = INSPECTOR_API_VERSION
@@ -109,10 +126,17 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
             name=ExternalDataSourceType.AWSINSPECTOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Inspector",
-            caption="""Sync Amazon Inspector findings and scan coverage into the PostHog Data warehouse.
+            caption="""Sync Amazon Inspector findings, scan coverage, and CIS scans into the PostHog Data warehouse.
 
 Enable Amazon Inspector in the region you select. Grant these IAM permissions for the tables you select:
-`inspector2:ListFindings`, `inspector2:ListCoverage`, and `inspector2:ListCoverageStatistics`.
+
+- `findings`: `inspector2:ListFindings`
+- `coverage`: `inspector2:ListCoverage`
+- `coverage_statistics`: `inspector2:ListCoverageStatistics`
+- `members`: `inspector2:ListMembers` (delegated administrator account only)
+- `cis_scans`: `inspector2:ListCisScans`
+- `cis_scan_result_details`: `inspector2:ListCisScans`, `inspector2:ListCisScanResultsAggregatedByTargetResource`, and `inspector2:GetCisScanResultDetails`
+- `clusters_for_image`: `inspector2:ListCoverage` and `inspector2:GetClustersForImage`
 
 Enter your access key ID and secret access key. Add a session token if you use temporary credentials.
 This source reads one AWS region.""",

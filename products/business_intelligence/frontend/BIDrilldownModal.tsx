@@ -5,13 +5,22 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { BIDrilldownProps, biDrilldownLogic } from './biDrilldownLogic'
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 
-export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldownProps }): JSX.Element {
-    const { selection, queries, showRows } = useValues(biDrilldownLogic(props))
+export function BIDrilldownModal({
+    logicProps: props,
+    onNavigate,
+    navigationDisabledReason,
+}: {
+    logicProps: BIDrilldownProps
+    onNavigate?: (worksheet: BIVisualizationNode) => void
+    navigationDisabledReason?: string
+}): JSX.Element {
+    const { selection, queries, showRows, hierarchyDrills } = useValues(biDrilldownLogic(props))
     const { close, viewRows } = useActions(biDrilldownLogic(props))
     return (
         <LemonModal title="Explore this result" isOpen={!!selection} onClose={close} width={showRows ? '90vw' : 520}>
@@ -31,6 +40,26 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                         </ul>
                     ) : null}
                     <div className="flex flex-wrap gap-2">
+                        {hierarchyDrills.map(({ hierarchy, next, worksheet }) => (
+                            <LemonButton
+                                key={hierarchy.id}
+                                type="primary"
+                                disabledReason={navigationDisabledReason}
+                                to={
+                                    onNavigate
+                                        ? undefined
+                                        : `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(worksheet))}`
+                                }
+                                onClick={() => {
+                                    onNavigate?.(worksheet)
+                                    close()
+                                }}
+                                tooltip={`${hierarchy.name}: ${onNavigate ? 'filters this worksheet to the selection' : 'opens a new worksheet filtered to this selection'}`}
+                            >
+                                Drill to {next.name}
+                                {onNavigate ? '' : ' in new worksheet'}
+                            </LemonButton>
+                        ))}
                         <LemonButton
                             type="primary"
                             onClick={() => {

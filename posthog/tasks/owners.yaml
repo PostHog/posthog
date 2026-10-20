@@ -26,3 +26,6 @@ rules:
       owners: conversations
     - match: ['/usage_report.py', '/test/test_usage_report.py']
       owners: team-billing
+    - match: '*llm_gateway*'
+      owners: team-agent-infrastructure
+      sensitive: true

@@ -1,18 +1,22 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
-from requests_mock import Mocker
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.systeme import (
     SystemeSourceConfig,
@@ -20,28 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.systeme.source import SystemeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.systeme.systeme import (
     SystemeResumeConfig,
-    systeme_source,
     validate_credentials,
 )
 
 
-@pytest.fixture(autouse=True)
-def transport(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session",
-        lambda **kwargs: requests.Session(),
-    )
-
-
-def manager(resume: SystemeResumeConfig | None = None) -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = resume is not None
-    result.load_state.return_value = resume
-    return result
-
-
-def rows(response: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
+def driver() -> SourceDriver:
+    return SourceDriver(SystemeSource(), SystemeSourceConfig(api_key="key"))
 
 
 @pytest.mark.parametrize(
@@ -55,20 +43,21 @@ def rows(response: SourceResponse) -> list[dict[str, Any]]:
     ],
 )
 def test_incremental_filter_and_full_refresh(
-    requests_mock: Mocker, endpoint: str, incremental: bool, watermark: datetime | str | None, expected: str | None
+    endpoint: str, incremental: bool, watermark: datetime | str | None, expected: str | None
 ) -> None:
-    requests_mock.get(
-        f"https://api.systeme.io/api/{endpoint}",
+    result = driver().run(
+        endpoint,
         [
-            {"json": {"items": [{"id": 20}], "hasMore": True}},
-            {"json": {"items": [{"id": 10}], "hasMore": False}},
+            ScriptedResponse(json={"items": [{"id": 20}], "hasMore": True}),
+            ScriptedResponse(json={"items": [{"id": 10}], "hasMore": False}),
         ],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
     )
-    response = systeme_source("key", endpoint, 1, "job", manager(), incremental, watermark)
-    assert rows(response) == [{"id": 20}, {"id": 10}]
-    assert response.sort_mode == "desc"
-    for request in requests_mock.request_history:
-        assert request.qs.get("registeredafter") == ([expected.lower()] if expected else None)
+    assert result.rows == [{"id": 20}, {"id": 10}]
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+    assert result.params("registeredAfter") == [expected, expected]
 
 
 @pytest.mark.parametrize(
@@ -82,62 +71,68 @@ def test_incremental_filter_and_full_refresh(
         ({"items": [{"id": 20}], "hasMore": True}, "repeated cursor"),
     ],
 )
-def test_invalid_or_repeated_cursor_fails(requests_mock: Mocker, body: dict[str, Any], message: str) -> None:
-    requests_mock.get("https://api.systeme.io/api/contacts", json=body)
-    state = manager(SystemeResumeConfig(cursor=20))
-    with pytest.raises(ValueError, match=message):
-        rows(systeme_source("key", "contacts", 1, "job", state))
-    assert requests_mock.call_count == 1
-    state.save_state.assert_not_called()
+def test_invalid_or_repeated_cursor_fails(body: dict[str, Any], message: str) -> None:
+    result = driver().run("contacts", always(ScriptedResponse(json=body)), resume_state=SystemeResumeConfig(cursor=20))
+    assert isinstance(result.raised, ValueError)
+    assert message in str(result.raised)
+    assert len(result.requests) == 1
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("status,expected", [(200, None), (401, "rejected your API key"), (403, "account permissions")])
-@pytest.mark.parametrize("schema,path", [(None, "contacts"), ("newsletters", "mailing/newsletters")])
+@pytest.mark.parametrize(
+    "schema,path",
+    [
+        (None, "contacts"),
+        ("newsletters", "mailing/newsletters"),
+        ("digital_products", "payment/digital-products"),
+        ("physical_products", "payment/physical-products"),
+    ],
+)
 def test_validate_credentials_status_and_probe(
-    requests_mock: Mocker, status: int, expected: str | None, schema: str | None, path: str
+    status: int, expected: str | None, schema: str | None, path: str
 ) -> None:
-    requests_mock.get(
-        f"https://api.systeme.io/api/{path}",
-        status_code=status,
+    response = ScriptedResponse(
+        status=status,
         json={"items": [{"id": 10}], "hasMore": True}
         if status == 200
         else {"detail": "Full authentication is required to access this resource."},
     )
-    valid, message = validate_credentials("test-key", schema)
+    with scripted_network([response]) as network:
+        valid, message = validate_credentials("test-key", schema)
     assert valid is (status == 200)
     if expected:
         assert expected in (message or "")
     else:
         assert message is None
-    assert requests_mock.call_count == 1
-    last_request = requests_mock.last_request
-    assert last_request is not None
-    assert last_request.qs == {"limit": ["10"]}
-    assert last_request.headers["X-API-Key"] == "test-key"
+    assert len(network.requests_log) == 1
+    last_request = network.requests_log[-1]
+    assert last_request.path == f"/api/{path}"
+    assert dict(last_request.query) == {"limit": ("10",)}
+    assert last_request.headers["x-api-key"] == "test-key"
 
 
 @pytest.mark.parametrize("status", [401, 403, 404, 429, 500])
-def test_sync_error_classification(requests_mock: Mocker, status: int) -> None:
-    requests_mock.get("https://api.systeme.io/api/contacts", status_code=status, json={"detail": "Request failed"})
+def test_sync_error_classification(status: int) -> None:
+    result = driver().run("contacts", always(ScriptedResponse(status=status, json={"detail": "Request failed"})))
     error_type = RESTClientRetryableError if status >= 500 or status == 429 else requests.HTTPError
-    with pytest.raises(error_type) as caught:
-        rows(systeme_source("test-key", "contacts", 1, "job", manager()))
+    assert isinstance(result.raised, error_type)
     matched = [
         message
         for pattern, message in SystemeSource().get_non_retryable_errors().items()
-        if pattern in str(caught.value)
+        if pattern in str(result.raised)
     ]
     assert bool(matched) is (status in (401, 403))
-    assert "test-key" not in str(caught.value)
-    assert requests_mock.call_count == (5 if status in (429, 500) else 1)
+    assert "test-key" not in str(result.raised)
+    assert len(result.requests) == (5 if status in (429, 500) else 1)
 
 
 @pytest.mark.parametrize("status", [404, 429, 500])
-def test_probe_does_not_report_transient_or_other_errors_as_invalid_key(requests_mock: Mocker, status: int) -> None:
-    requests_mock.get("https://api.systeme.io/api/contacts", status_code=status, json={"detail": "Request failed"})
+def test_probe_does_not_report_transient_or_other_errors_as_invalid_key(status: int) -> None:
     error_type = RESTClientRetryableError if status in (429, 500) else requests.HTTPError
-    with pytest.raises(error_type):
-        validate_credentials("key")
+    with scripted_network(always(ScriptedResponse(status=status, json={"detail": "Request failed"}))):
+        with pytest.raises(error_type):
+            validate_credentials("key")
 
 
 def test_source_adapter_forwards_pipeline_inputs() -> None:
@@ -182,9 +177,11 @@ def test_source_adapter_forwards_pipeline_inputs() -> None:
         )
 
 
-def test_unknown_endpoint_does_not_fetch(requests_mock: Mocker) -> None:
-    with pytest.raises(UnknownResourceError):
-        systeme_source("key", "unknown", 1, "job", manager())
-    with pytest.raises(UnknownResourceError):
-        validate_credentials("key", "unknown")
-    assert requests_mock.call_count == 0
+def test_unknown_endpoint_does_not_fetch() -> None:
+    result = driver().run("unknown", [])
+    assert isinstance(result.raised, UnknownResourceError)
+    with scripted_network([]) as network:
+        with pytest.raises(UnknownResourceError):
+            validate_credentials("key", "unknown")
+    assert result.requests == []
+    assert network.requests_log == []

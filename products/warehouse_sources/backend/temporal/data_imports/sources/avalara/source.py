@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
+    codebase_detection = detect(
+        env=("^AVALARA_",),
+        npm=("avatax",),
+        pypi=("avalara",),
+        composer=("avalara/avataxclient", "avalara/avalara_sdk", "avalara/avatax", "avalara/avatax-magento"),
+        maven=("net.avalara.avatax:avatax-rest-v2-api-java_2.11",),
+        rubygems=("avatax", "Avatax_AddressService", "Avatax_TaxService", "avalara_sdk"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
