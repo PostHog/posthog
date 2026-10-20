@@ -40,7 +40,7 @@ import { getBIChartRecord } from 'products/business_intelligence/frontend/biDril
 import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
-import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
+import { createBIMemberFormatter, getBIMemberLabel } from 'products/business_intelligence/frontend/biMemberAliases'
 import { BIPaneCharts } from 'products/business_intelligence/frontend/BIPaneCharts'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
@@ -233,7 +233,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
     }
-    const { inspect } = useActions(biDrilldownLogic(drilldownProps))
+    const { inspect: inspectResult } = useActions(biDrilldownLogic(drilldownProps))
+    const inspect = !props.inSharedMode && props.context?.onSelectBIMark ? props.context.onSelectBIMark : inspectResult
     const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
     const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
@@ -361,17 +362,21 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                   )
                 : undefined
         const aliasLabels = new Map<string, string>()
+        const records = new Map<string, Record<string, unknown>>()
         let pieXData = pieData.xData
         let pieYData = pieData.yData
         const memberFormatter =
             query.kind === NodeKind.BIVisualizationNode && pieDimension
-                ? createBIMemberFormatter(query.config, pieDimension.field)
+                ? props.context?.onSelectBIMark
+                    ? (value: unknown) => getBIMemberLabel(query.config, pieDimension.field, value)
+                    : createBIMemberFormatter(query.config, pieDimension.field)
                 : undefined
         if (memberFormatter) {
             if (pieData.yData.every((series) => 'breakdownValue' in series)) {
                 pieYData = pieData.yData.map((series) => {
                     const key = JSON.stringify([series.breakdownValue, series.name])
                     aliasLabels.set(key, series.settings?.display?.label ?? series.name)
+                    records.set(key, getBIChartRecord(query, '', undefined, series.breakdownValue))
                     return { ...series, name: key }
                 })
             } else if (pieXData && pieData.yData.length === 1) {
@@ -380,6 +385,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     data: pieXData.data.map((value) => {
                         const key = JSON.stringify(value ?? null)
                         aliasLabels.set(key, memberFormatter(value))
+                        records.set(key, { [pieData.xData!.column.name]: value })
                         return key
                     }),
                 }
@@ -390,8 +396,17 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             xData: pieXData,
             yData: pieYData,
             labelFormatter: aliasLabels.size ? (label: string): string => aliasLabels.get(label) ?? label : undefined,
+            records,
         }
-    }, [effectiveVisualizationType, seriesBreakdownData, xData, yData, query, chartSettings.seriesBreakdownColumn])
+    }, [
+        effectiveVisualizationType,
+        seriesBreakdownData,
+        xData,
+        yData,
+        query,
+        chartSettings.seriesBreakdownColumn,
+        props.context?.onSelectBIMark,
+    ])
 
     let component: JSX.Element | null = null
 
@@ -528,7 +543,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                               }
                             : undefined
                     }
-                    pointClickHint={canDrill ? 'Click to explore this result' : undefined}
+                    pointClickHint={
+                        canDrill
+                            ? props.context?.onSelectBIMark
+                                ? 'Click to filter other worksheets'
+                                : 'Click to explore this result'
+                            : undefined
+                    }
                 >
                     {showYearLabels && <BIChartYearLabels timezone={timezone} />}
                     {query.kind === NodeKind.BIVisualizationNode && props.editMode && props.context?.onEditBIAxis && (
@@ -542,6 +563,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <PartOfWholeChart
                 className="p-3"
                 {...pieDisplayData}
+                onSliceClick={
+                    canDrill && props.context?.onSelectBIMark
+                        ? ({ series }) => {
+                              const record = pieDisplayData.records.get(series.key)
+                              if (record) {
+                                  inspect(record)
+                              }
+                          }
+                        : undefined
+                }
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
@@ -558,6 +589,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     rows={'results' in response && Array.isArray(response.results) ? response.results : []}
                     chartKey={dataVisualizationProps.key}
                     onKeepOnly={props.editMode && !props.inSharedMode ? props.context?.onKeepBISelection : undefined}
+                    onInspect={canDrill && props.context?.onSelectBIMark ? inspect : undefined}
                     className="p-3"
                     xData={xData}
                     yData={yData}

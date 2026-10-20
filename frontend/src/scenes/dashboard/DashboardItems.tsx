@@ -39,6 +39,10 @@ import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLog
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
+import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardFilterBar } from 'products/business_intelligence/frontend/BIDashboardFilterBar'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
@@ -106,6 +110,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         scrollToBottomSignal,
         sizeKey,
     } = useValues(dashboardLogic)
+    const crossFilterLogic = biDashboardCrossFilterLogic({ dashboardId: dashboard?.id ?? 0, tiles: tiles ?? [] })
+    const { enabled: crossFilterEnabled } = useValues(crossFilterLogic)
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -475,6 +482,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
+            {canCrossFilter && dashboard && tiles?.some((tile) => isCrossFilterWorksheet(tile.insight?.query)) && (
+                <BIDashboardFilterBar dashboardId={dashboard.id} />
+            )}
             {layoutEditMode && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
@@ -586,6 +596,21 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         key={tile.id}
                                         tile={tile}
                                         insight={insight}
+                                        visualization={
+                                            canCrossFilter &&
+                                            crossFilterEnabled &&
+                                            dashboard &&
+                                            isCrossFilterWorksheet(insight.query) ? (
+                                                <BIDashboardTile
+                                                    dashboardId={dashboard.id}
+                                                    tileId={tile.id}
+                                                    insight={insight}
+                                                    query={insight.query}
+                                                    variablesOverride={currentDashboardVariables}
+                                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                                />
+                                            ) : undefined
+                                        }
                                         loadingQueued={loadingQueued}
                                         loading={loading}
                                         apiErrored={apiErrored}

@@ -157,6 +157,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    visualization?: JSX.Element
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -269,6 +270,7 @@ function InsightCardInternal(
         doNotLoad,
         filtersOverride,
         variablesOverride,
+        visualization,
         children,
         projectId,
         projectTimezone,
@@ -458,20 +460,22 @@ function InsightCardInternal(
             return BlockingEmptyState
         }
         return (
-            <Query
-                query={insight.query}
-                cachedResults={insight}
-                context={{
-                    insightProps: insightLogicProps,
-                }}
-                readOnly
-                embedded
-                inSharedMode={placement === DashboardPlacement.Public}
-                variablesOverride={variablesOverride}
-                editMode={false}
-            />
+            visualization ?? (
+                <Query
+                    query={insight.query}
+                    cachedResults={insight}
+                    context={{
+                        insightProps: insightLogicProps,
+                    }}
+                    readOnly
+                    embedded
+                    inSharedMode={placement === DashboardPlacement.Public}
+                    variablesOverride={variablesOverride}
+                    editMode={false}
+                />
+            )
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement, visualization])
 
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (

@@ -19,6 +19,7 @@ export const SqlProportionBar = ({
     presetChartHeight,
     className,
     labelFormatter,
+    onSliceClick,
 }: SqlChartProps): JSX.Element => {
     const { theme, series, legendConfig, total, showTotal, valueFormatter } = useSqlPartOfWholeChart(
         { xData, yData, chartSettings, labelFormatter },
@@ -48,6 +49,7 @@ export const SqlProportionBar = ({
                 valueFormatter={valueFormatter}
                 dataAttr="sql-proportion-bar"
                 onError={handleChartError}
+                onSliceClick={onSliceClick}
             />
             {showTotal && (
                 <div className="pt-4 text-center shrink-0">

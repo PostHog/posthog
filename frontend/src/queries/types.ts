@@ -114,6 +114,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     onDrillBIHierarchy?: (worksheet: BIVisualizationNode) => void
     biHierarchyDrillDisabledReason?: string
     onKeepBISelection?: (records: Record<string, unknown>[]) => void
+    onSelectBIMark?: (record: Record<string, unknown>) => void
     /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
     visualizationSettingsPanel?: {
         isOpen: boolean
