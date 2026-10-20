@@ -123,6 +123,22 @@ class TestScoutReportPersistence(BaseTest):
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
 
+    @parameterized.expand([("inbox_default", {}, True), ("inbox_opt_out", {"inbox": False}, False)])
+    def test_create_lists_report_in_inbox_per_scout_destinations(self, _name, output_destinations, expect_listed):
+        run = self._make_run()
+        assert run.scout_config is not None
+        run.scout_config.output_destinations = output_destinations
+        run.scout_config.save(update_fields=["output_destinations"])
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            run=run,
+        )
+        assert SignalReport.objects.get(id=result.report_id).listed_in_inbox is expect_listed
+
     def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
         # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
         # reaches the insert too. The index has to stop it, and surface the first report, not a 500.

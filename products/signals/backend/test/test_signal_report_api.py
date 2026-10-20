@@ -389,6 +389,18 @@ class TestSignalReportListAPI(APIBaseTest):
         assert retrieve_response.json()["metrics"][0]["metric_id"] == "affected-users"
         assert retrieve_response.json()["metrics"][0]["query"] == metric["query"]
 
+    def test_list_hides_unlisted_reports_unless_asked_and_retrieve_still_finds_them(self) -> None:
+        listed = self._create_report()
+        unlisted = self._create_report(listed_in_inbox=False)
+
+        default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        opt_in_ids = {row["id"] for row in self.client.get(self._list_url(include_unlisted="true")).json()["results"]}
+        retrieve_response = self.client.get(f"{self._list_url()}{unlisted.id}/")
+
+        assert default_ids == {str(listed.id)}
+        assert opt_in_ids == {str(listed.id), str(unlisted.id)}
+        assert retrieve_response.status_code == status.HTTP_200_OK
+
     def test_property_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
         self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
         property_definition = PropertyDefinition.objects.create(

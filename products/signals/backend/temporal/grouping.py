@@ -35,7 +35,12 @@ from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LEN
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutRun,
+    scout_lists_reports_in_inbox,
+)
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
@@ -808,6 +813,22 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         )
 
 
+def _signal_lists_in_inbox(*, team_id: int, source_product: str, extra: dict) -> bool:
+    # Only a scout can opt its reports out of the inbox. Every other source lists them.
+    if source_product != SignalSourceProduct.SIGNALS_SCOUT:
+        return True
+    run_id = extra.get("scout_run_id")
+    if not run_id:
+        return True
+    output_destinations = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(id=run_id)
+        .values_list("scout_config__output_destinations", flat=True)
+        .first()
+    )
+    return scout_lists_reports_in_inbox(output_destinations)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -816,6 +837,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
     def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
         spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
+        lists_in_inbox = _signal_lists_in_inbox(
+            team_id=input.team_id, source_product=input.source_product, extra=input.extra
+        )
         with transaction.atomic():
             promoted = False
             promotion_suppressed = False
@@ -895,6 +919,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         title=parent_report.title if inherit_content else "",
                         summary=parent_report.summary if inherit_content else "",
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                        listed_in_inbox=lists_in_inbox,
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
@@ -907,6 +932,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     report.total_weight += input.weight
                     report.signal_count += 1
                     update_fields = ["total_weight", "signal_count", "updated_at"]
+                    # Listing is one-way: an opted-out scout joining a listed report does not unlist it.
+                    if lists_in_inbox and not report.listed_in_inbox:
+                        report.listed_in_inbox = True
+                        update_fields.append("listed_in_inbox")
                     # A research pass writes the title together with the summary. A later signal must
                     # not rename the report away from the cause that the summary explains.
                     if input.updated_title and not _has_completed_research(report):
@@ -925,6 +954,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     # bill the customer. Only this founding signal decides: signals that join the
                     # report later (the branch above) leave the exemption unchanged either way.
                     billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                    listed_in_inbox=lists_in_inbox,
                 )
 
             # Promotion rules by status:

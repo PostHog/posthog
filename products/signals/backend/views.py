@@ -1327,6 +1327,7 @@ class SignalReportViewSet(
         if renders_reports or self._channel_id_filter_value() is not None:
             qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
+        qs = self._apply_signal_report_listed_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_created_after_filter(qs)
         unread = self.request.query_params.get("unread")
@@ -1532,6 +1533,12 @@ class SignalReportViewSet(
         if value in ("0", "false", "no"):
             return False
         raise serializers.ValidationError({name: f"Invalid value: {raw!r}. Allowed: true, false."})
+
+    def _apply_signal_report_listed_filter(self, queryset):
+        # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
+        if self.action != "list" or self._bool_query_param("include_unlisted") is True:
+            return queryset
+        return queryset.filter(listed_in_inbox=True)
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")

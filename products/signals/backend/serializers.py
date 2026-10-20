@@ -1926,6 +1926,15 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "Defaults to true."
         ),
     )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when every scout that "
+            "fed it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
+        ),
+    )
 
 
 MAX_FOR_YOU_REPORTS = 20
