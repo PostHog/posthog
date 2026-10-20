@@ -45,7 +45,6 @@ class TestTrialAccounting(BaseTest):
         self, exhausted: bool, authorized: bool, allowance: int
     ) -> None:
         grant = self.policy.claim(user_id=self.user.pk, limits=TrialLimits(allowance_microusd=allowance))
-        self.flag_mock.return_value = False
         record_llm_spend(
             "cost",
             team_id=self.team.id,

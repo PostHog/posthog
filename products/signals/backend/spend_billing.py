@@ -36,7 +36,7 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
 def usage_billing_enabled(team_id: int) -> bool | None:
     try:
         team = Team.objects.get(id=team_id)
-        if TrialPolicy(team).grant() is not None:
+        if TrialPolicy(team).active_grant() is not None:
             return True
         organization_id = str(team.organization_id)
 

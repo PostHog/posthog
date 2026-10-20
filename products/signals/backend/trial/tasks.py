@@ -1,6 +1,9 @@
 from celery import shared_task
 
+from posthog.models import Team
+
 from products.signals.backend.trial.models import SignalTrialGrant
+from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend.facade.api import iter_trial_task_runs
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.facade.contracts import TaskRunDTO
@@ -24,6 +27,8 @@ def cancel_trial_run(run: TaskRunDTO) -> bool:
 
 @shared_task(ignore_result=True)
 def cancel_trial_grant(team_id: int, grant_id: str) -> None:
+    if not TrialPolicy(Team.objects.get(id=team_id)).enabled():
+        return
     if (
         not SignalTrialGrant.objects.for_team(team_id, canonical=True)
         .filter(id=grant_id, exhaustion_reason="cost_limit")
