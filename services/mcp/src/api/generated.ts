@@ -39474,6 +39474,8 @@ export namespace Schemas {
       subject?: string;
       /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Preview text that most inboxes show after the subject. Supports Liquid templating. */
+      preheader?: string;
       /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
@@ -130273,6 +130275,11 @@ export namespace Schemas {
      * @maximum 1000
      */
     limit?: number;
+    /**
+     * Exact metric name to limit values to. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string;
     /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024

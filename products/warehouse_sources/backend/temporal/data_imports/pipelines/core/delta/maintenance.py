@@ -587,6 +587,11 @@ class DeltaMaintenance:
             "max_bins_per_commit": COMPACT_MAX_BINS_PER_COMMIT,
             "partitions": partitions,
         }
+        # Without this, compaction writes row groups up to deltalite's 128 MiB default and so joins again
+        # the row groups that the upsert cap split.
+        max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
+        if max_row_group_bytes > 0:
+            compact_kwargs["max_row_group_decoded_bytes"] = max_row_group_bytes
 
         def _run() -> dict[str, Any]:
             if identity is None:
@@ -605,6 +610,7 @@ class DeltaMaintenance:
             compact_target_size=target_size,
             compact_max_parallel_bins=compact_kwargs["max_parallel_bins"],
             compact_slot_budget_mb=round(slot_budget_mb, 1) if slot_budget_mb is not None else None,
+            compact_max_row_group_decoded_bytes=compact_kwargs.get("max_row_group_decoded_bytes"),
             pod_memory_mb=pod_mb_before,
             peak_rss_mb=_peak_rss_mb(),
         )
