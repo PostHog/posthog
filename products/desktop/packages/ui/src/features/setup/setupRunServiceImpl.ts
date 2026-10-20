@@ -11,10 +11,7 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import {
-  EXPERIMENT_SUGGESTIONS_FLAG,
-  getCloudUrlFromRegion,
-} from "@posthog/shared";
+import { getCloudUrlFromRegion } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   isTerminalStatus,
@@ -24,7 +21,6 @@ import { injectable } from "inversify";
 import { captureException, track } from "../../shell/analytics";
 import { createAuthenticatedClient } from "../auth/authClientImperative";
 import { fetchAuthState } from "../auth/authQueries";
-import { FEATURE_FLAGS, type FeatureFlags } from "../feature-flags/identifiers";
 
 /**
  * Renderer adapter for the setup discovery/enrichment orchestration. Wraps the
@@ -160,11 +156,7 @@ export class SetupRunServiceImpl implements ISetupRunService {
   }
 
   includeExperiments(): boolean {
-    return (
-      resolveService<FeatureFlags>(FEATURE_FLAGS).isEnabled(
-        EXPERIMENT_SUGGESTIONS_FLAG,
-      ) || import.meta.env.DEV
-    );
+    return import.meta.env.DEV;
   }
 
   trackDiscoveryStarted(p: { taskId: string; taskRunId: string }): void {
