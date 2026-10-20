@@ -82,6 +82,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
@@ -391,7 +392,15 @@ def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> Pla
     old name or condition, and the copy would keep its old cadence until the next backfill.
     """
     upsert = platform_upsert_of(alert)
-    if upsert is None or all(getattr(check, field) == getattr(upsert, field) for field in SETTINGS_FIELDS):
+    if upsert is None:
+        return check
+    try:
+        # The copy stores the anchor normalized, so the alert's start time is compared in that form.
+        upsert = replace(upsert, anchor_time=validate_and_normalize_schedule_start_time(upsert.anchor_time))
+    except ValueError:
+        # The backfill skips an alert whose start time cannot be read, so the copy keeps its own.
+        return check
+    if all(getattr(check, field) == getattr(upsert, field) for field in SETTINGS_FIELDS):
         return check
     try:
         refresh_settings(check.team_id, check.id, upsert)

@@ -675,13 +675,19 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     Settings only. The due time, `enabled` and the alert rows stay as they are, so an evaluation can
     call this before it decides and a retried attempt still finds the same checks due. A changed
     cadence takes effect from the next due time the check advances to.
+
+    Raises `ValueError` on a cadence `upsert_configuration` would refuse, because a stored one that
+    cannot advance fails every outcome of the batch it is recorded in.
     """
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
         name=upsert.name,
         source_config=upsert.source_config,
         check_interval_minutes=upsert.check_interval_minutes,
         recurrence_unit=upsert.recurrence_unit,
-        anchor_time=upsert.anchor_time,
+        anchor_time=anchor_time,
         evaluation_periods=upsert.evaluation_periods,
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,

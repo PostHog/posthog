@@ -156,6 +156,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 ("alert", 60 * 24 * 7, "week", None),
             ),
             ("started_later", {"schedule_start_time": "09:30"}, ("alert", 60 * 24, "day", "09:30")),
+            # A stored anchor that cannot advance would fail every outcome recorded beside it.
+            ("unreadable_start_time", {"schedule_start_time": "25:99"}, ("alert", 60 * 24, "day", None)),
         ]
     )
     def test_a_check_brings_its_copy_up_to_date_with_the_alert(
