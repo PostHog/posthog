@@ -1084,6 +1084,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
             'workflows-email-drafts-mcp',
+            'insight-data-checks',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
