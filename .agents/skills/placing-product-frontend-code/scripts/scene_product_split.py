@@ -30,7 +30,6 @@ SCENE_PRODUCT_ALIASES = {
     "insights": "product_analytics",
     "persons-management": "persons",
     "saved-insights": "product_analytics",
-    "themes": "product_analytics",
     "trends": "product_analytics",
 }
 
