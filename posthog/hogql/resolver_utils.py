@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterable
 from typing import Optional, cast
 
 from pydantic import BaseModel
@@ -27,7 +27,10 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
-from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.escape_sql import escape_hogql_identifier, quote_hogql_identifier
+
+# Bounds the message for wide warehouse tables. A longer list stops helping the reader pick a column.
+MAX_LISTED_FIELD_NAMES = 30
 
 
 def lookup_field_by_name(
@@ -111,44 +114,89 @@ def _select_set_type_source_name(index: int) -> str:
     return f"query source {index}"
 
 
-def _names_on_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+def _names_on_table_type(
+    table_type: ast.Type, context: HogQLContext, table_names: Callable[[Table], Iterable[str]]
+) -> list[str]:
+    if isinstance(table_type, ast.ColumnAliasedTableType):
+        return list(table_type.alias_to_original)
+    if isinstance(table_type, ast.SelectQueryAliasType):
+        return _names_on_table_type(table_type.select_query_type, context, table_names)
     if isinstance(table_type, ast.BaseTableType):
         try:
-            table = table_type.resolve_database_table(context)
+            return list(table_names(table_type.resolve_database_table(context)))
         except Exception:
-            return set()
-        return set(table.fields.keys())
+            return []
     if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
-        return set(getattr(table_type, "columns", {}).keys())
-    return set()
+        return list(getattr(table_type, "columns", {}).keys())
+    return []
+
+
+def _collect_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    context: HogQLContext,
+    table_names: Callable[[Table], Iterable[str]],
+) -> list[str]:
+    if isinstance(scope, ast.SelectSetQueryType):
+        names = [name for inner in scope.types for name in _collect_field_names(inner, context, table_names)]
+    else:
+        names = list(scope.aliases.keys())
+        for table_type in [*scope.tables.values(), *scope.anonymous_tables]:
+            names.extend(_names_on_table_type(table_type, context, table_names))
+        if scope.parent is not None:
+            names.extend(_collect_field_names(scope.parent, context, table_names))
+    return list(dict.fromkeys(names))
 
 
 def collect_available_field_names(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
 ) -> set[str]:
-    """Gather field names visible in a scope (aliases + joined-table fields)
-    for use in 'did you mean' suggestions when resolution fails.
+    """Every field name visible in a scope, for 'did you mean' suggestions when resolution fails."""
+    return set(_collect_field_names(scope, context, lambda table: table.fields.keys()))
 
-    Returns a flat set — callers don't need to know whether a name comes from
-    an alias, a named table, or an anonymous subquery.
+
+def collect_selectable_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
+) -> list[str]:
+    """Names a query in `scope` can select, in declaration order: aliases first, then the columns
+    `SELECT *` would return, including explicitly joined tables. Implicit join fields,
+    internal sub-tables and hidden fields are left out."""
+    return _collect_field_names(scope, context, lambda table: table.get_asterisk().keys())
+
+
+def _has_one_json_properties_field(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> bool:
+    try:
+        field = lookup_field_by_name(scope, "properties", context)
+        return field is not None and isinstance(field.resolve_constant_type(context), ast.StringJSONType)
+    except Exception:
+        return False
+
+
+def available_fields_suffix(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, node: ast.Field, context: HogQLContext
+) -> str:
+    """Name the fields `scope` does have, for an unresolved field with no close match.
+
+    Without the list a caller can only guess again. The property hint is worded as a condition because
+    a mistyped column read as `properties.x` returns NULL, not an error.
     """
-    names: set[str] = set()
-
-    if isinstance(scope, ast.SelectSetQueryType):
-        for inner in scope.types:
-            names.update(collect_available_field_names(inner, context))
-        return names
-
-    names.update(scope.aliases.keys())
-    for table_type in scope.tables.values():
-        names.update(_names_on_table_type(table_type, context))
-    for anon in scope.anonymous_tables:
-        names.update(_names_on_table_type(anon, context))
-
-    if scope.parent is not None:
-        names.update(collect_available_field_names(scope.parent, context))
-
-    return names
+    names = collect_selectable_field_names(scope, context)
+    if not names:
+        return ""
+    listed = ", ".join(names[:MAX_LISTED_FIELD_NAMES])
+    remaining = len(names) - MAX_LISTED_FIELD_NAMES
+    more = f", and {remaining} more" if remaining > 0 else ""
+    name = str(node.chain[0])
+    property_hint = (
+        f" If {name} is a custom property, read it as properties.{quote_hogql_identifier(name)}."
+        if len(node.chain) == 1 and _has_one_json_properties_field(scope, context)
+        else ""
+    )
+    join_hint = (
+        " If a field name exists in multiple tables, qualify it with the table name or alias."
+        if isinstance(scope, ast.SelectQueryType) and len(scope.tables) + len(scope.anonymous_tables) > 1
+        else ""
+    )
+    return f". Available fields: {listed}{more}.{property_hint}{join_hint}"
 
 
 def suggest_field_names(
