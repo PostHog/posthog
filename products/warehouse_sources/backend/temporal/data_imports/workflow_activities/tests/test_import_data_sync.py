@@ -95,7 +95,6 @@ def _event_control(event: asyncio.Event | None = None, *, attempt: int = 1) -> R
         attempt=attempt,
         workflow_id="wf-1",
         workflow_run_id="job-1",
-        verify_v3_lock=False,
     )
 
 

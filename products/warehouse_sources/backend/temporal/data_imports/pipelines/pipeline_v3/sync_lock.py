@@ -31,22 +31,38 @@ def _is_cancellation(error: BaseException) -> bool:
 
 LOCK_KEY_PREFIX = "v3_pipeline_lock"
 # Holder metadata lives in a second key because the lock value must stay a bare
-# run-id token — every release path compares it byte-for-byte.
+# token — every release path compares it.
 LOCK_META_KEY_PREFIX = "v3_pipeline_lock_meta"
 LOCK_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days, matching max workflow duration
 
+# A queue run holds the lock as "<queue job id>:<attempt>", so each attempt of one queue job has
+# its own token. Temporal tokens are run ids, which have no colon.
+QUEUE_TOKEN_SEPARATOR = ":"
+
 # Atomic check-and-delete: prevents a race where workflow A's expired lock is
 # acquired by workflow B, then A's delayed consumer releases B's lock.
-# Replaceable with DELEX once we upgrade to Redis >= 8.4.
+# A token also releases a holder "<token>:<attempt>": the loader and the teardown paths know a
+# queue run only by its job row's workflow_run_id, which is the queue job id.
 # Meta is deleted in the same script so it can't outlive its lock; readers must
 # still ignore mismatched-run_id meta (old pods release without deleting it).
 _RELEASE_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
+local holder = redis.call("get", KEYS[1])
+if holder and (holder == ARGV[1] or string.sub(holder, 1, #ARGV[1] + 1) == ARGV[1] .. ARGV[2]) then
     redis.call("del", KEYS[2])
     return redis.call("del", KEYS[1])
 end
 return 0
 """
+
+
+def queue_attempt_token(queue_job_id: str, attempt: int) -> str:
+    """The lock token of one attempt of a queue run."""
+    return f"{queue_job_id}{QUEUE_TOKEN_SEPARATOR}{attempt}"
+
+
+def lock_token_run_id(token: str) -> str:
+    """The run a token belongs to: the queue job id for a queue attempt token, else the token itself."""
+    return token.split(QUEUE_TOKEN_SEPARATOR, 1)[0]
 
 
 def _lock_key(team_id: int, schema_id: str) -> str:
@@ -140,7 +156,12 @@ def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
 
 
 def write_v3_pipeline_lock_meta(
-    team_id: int, schema_id: str, run_id: str, workflow_id: str, runner: str | None = None
+    team_id: int,
+    schema_id: str,
+    run_id: str,
+    workflow_id: str,
+    runner: str | None = None,
+    lease_owner: str | None = None,
 ) -> None:
     """Write the companion metadata for the current lock holder. Best-effort: never raises."""
     with _get_redis_client() as client:
@@ -155,6 +176,8 @@ def write_v3_pipeline_lock_meta(
             }
             if runner is not None:
                 meta["runner"] = runner
+            if lease_owner is not None:
+                meta["lease_owner"] = lease_owner
             payload = json.dumps(meta)
             client.set(_lock_meta_key(team_id, schema_id), payload, ex=LOCK_TTL_SECONDS)
         except Exception as e:
@@ -207,14 +230,22 @@ def get_v3_pipeline_lock_holder(team_id: int, schema_id: str) -> str | None:
 
 
 def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
-    """Release the lock only if held by this token. Fail-silent on errors."""
+    """Release the lock only if held by this token, or by an attempt token of this queue run.
+
+    Fail-silent on errors.
+    """
     with _get_redis_client() as client:
         if client is None:
             return False
 
         try:
             result = client.eval(
-                _RELEASE_LOCK_SCRIPT, 2, _lock_key(team_id, schema_id), _lock_meta_key(team_id, schema_id), token
+                _RELEASE_LOCK_SCRIPT,
+                2,
+                _lock_key(team_id, schema_id),
+                _lock_meta_key(team_id, schema_id),
+                token,
+                QUEUE_TOKEN_SEPARATOR,
             )
             return bool(result)
         except Exception as e:

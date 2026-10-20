@@ -31,6 +31,8 @@ class SkipReason(enum.StrEnum):
     DISABLED = "disabled"
     # The schema keeps failing, so its runs are spaced out (see `min_gap_between_runs`).
     DEFERRED = "deferred"
+    # Another attempt or another run took the sync lock over, so this attempt stopped.
+    LOCK_LOST = "lock_lost"
 
 
 RUNS_FINISHED_TOTAL = Counter(

@@ -29,9 +29,6 @@ class RunControl:
     attempt: int
     workflow_id: str | None
     workflow_run_id: str | None
-    # True when the run holds the V3 pipeline lock under `workflow_run_id` and must confirm it
-    # still holds it before it creates the job row.
-    verify_v3_lock: bool
     # Thread-safe wait used by source code that blocks between requests. Returns early on shutdown.
     shutdown_wait: Callable[[float], object] | None = None
     # Called with the row count of each batch the run stages. The Temporal path records the same
@@ -56,7 +53,6 @@ def temporal_run_control() -> RunControl:
         attempt=current_import_attempt(),
         workflow_id=current_workflow_id(),
         workflow_run_id=current_workflow_run_id(),
-        verify_v3_lock=True,
     )
 
 

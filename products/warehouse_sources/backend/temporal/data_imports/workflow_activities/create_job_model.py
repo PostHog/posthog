@@ -369,7 +369,9 @@ def create_external_data_job_model_activity(
 ) -> CreateExternalDataJobModelActivityOutputs:
     close_old_connections()
     info = activity.info()
-    return prepare_run(inputs, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id, verify_v3_lock=True)
+    return prepare_run(
+        inputs, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id, v3_lock_token=info.workflow_run_id
+    )
 
 
 def prepare_run(
@@ -377,12 +379,13 @@ def prepare_run(
     *,
     workflow_id: str | None,
     workflow_run_id: str | None,
-    verify_v3_lock: bool,
+    v3_lock_token: str | None,
 ) -> CreateExternalDataJobModelActivityOutputs:
     """Create the job row for one run and answer every pre-extraction question about it.
 
     `workflow_id` and `workflow_run_id` are stamped on the job row. The finalizer and the loader
-    find the run's job by `workflow_run_id`, and the V3 lock token is the same value.
+    find the run's job by `workflow_run_id`. `v3_lock_token` is the token the run holds the V3 lock
+    with: a Temporal run uses its `workflow_run_id`, and a queue run uses its attempt token.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
@@ -404,8 +407,7 @@ def prepare_run(
 
         source: ExternalDataSource = schema.source
 
-        if verify_v3_lock:
-            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id, run_id=workflow_run_id)
+        _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id, run_id=v3_lock_token)
 
         destination_ids: list[str] = []
         if is_multi_destination_enabled(inputs.team_id, source.source_type):

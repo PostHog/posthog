@@ -353,7 +353,7 @@ class TestOverlapPolicy:
 @pytest.mark.django_db(transaction=True)
 class TestClaim:
     @pytest.mark.asyncio
-    async def test_claims_pending_job_and_leases_its_group(self, conn):
+    async def test_claims_pending_job_and_leases_its_group(self, conn, _db_url):
         job_id = await _insert(conn)
         claimed = await _claim(conn)
         assert [j.id for j in claimed] == [job_id]
@@ -362,6 +362,13 @@ class TestClaim:
             await cur.execute(f"SELECT lane, group_key, owner_token FROM {JOB_LEASE_TABLE}")
             leases = await cur.fetchall()
         assert leases == [(LANE, JOB_DEFAULTS["group_key"], OWNER_A)]
+
+        group_key = JOB_DEFAULTS["group_key"]
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert JobsTable.get_live_lease_owner_sync(sync_conn, lane=LANE, group_key=group_key) == OWNER_A
+            assert JobsTable.get_live_lease_owner_sync(sync_conn, lane="other", group_key=group_key) is None
+            sync_conn.execute(f"UPDATE {JOB_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+            assert JobsTable.get_live_lease_owner_sync(sync_conn, lane=LANE, group_key=group_key) is None
 
     @pytest.mark.parametrize(
         "insert_overrides",

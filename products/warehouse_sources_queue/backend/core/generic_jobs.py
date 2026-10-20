@@ -972,6 +972,23 @@ class JobsTable:
             return (await cur.fetchone()) is not None
 
     @staticmethod
+    def get_live_lease_owner_sync(conn: psycopg.Connection[Any], *, lane: str, group_key: str) -> str | None:
+        """The owner token of the group's live lease, or None when no lease is live.
+
+        Sync, for callers outside the async consumer engine.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT owner_token FROM {JOB_LEASE_TABLE}
+                WHERE lane = %(lane)s AND group_key = %(group_key)s AND expires_at > now()
+                """,
+                {"lane": lane, "group_key": group_key},
+            )
+            row = cur.fetchone()
+        return str(row[0]) if row else None
+
+    @staticmethod
     async def delete_expired_lease(
         conn: psycopg.AsyncConnection[Any],
         *,

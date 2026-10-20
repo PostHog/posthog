@@ -104,6 +104,9 @@ class JobContext:
     # The engine fails a job without calling its handler past this attempt, so a handler that
     # owns an external state must finish that state at this attempt at the latest.
     max_attempts: int
+    # The token this consumer holds its group leases with. A handler that fences an external state
+    # per attempt records it, so a later attempt can ask whether that lease is still live.
+    lease_owner: str
 
     async def retry_history(self, job: Job, *, uncounted_tags: Collection[str]) -> RetryHistory:
         """The job's earlier retries, without the ones a handler returned with one of ``uncounted_tags``."""
@@ -557,6 +560,7 @@ class JobConsumer:
             shutdown_event=self._consumer._shutdown,
             database_url=config.database_url,
             max_attempts=config.max_attempts,
+            lease_owner=self._consumer._owner_token,
         )
 
     async def _process(self, job: Job) -> None:

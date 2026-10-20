@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
     get_v3_pipeline_lock_meta,
+    lock_token_run_id,
     release_v3_pipeline_lock,
     write_v3_pipeline_lock_meta,
 )
@@ -213,12 +214,12 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 
     holder_age_seconds = _holder_token_age_seconds(holder)
 
-    # A queue run holds the lock under its queue job id. The queue's job state decides whether it
-    # still runs, because Temporal knows nothing about it.
+    # A queue run holds the lock under an attempt token of its queue job. The queue's job state
+    # decides whether it still runs, because Temporal knows nothing about it.
     meta_says_queue = meta_found and meta is not None and meta.get("runner") == QUEUE_RUNNER
     if meta_says_queue or (not meta_found and _could_be_queue_job_id(holder)):
         try:
-            liveness = _queue_job_liveness(holder)
+            liveness = _queue_job_liveness(lock_token_run_id(holder))
         except Exception as e:
             logger.warning(
                 "v3_pipeline_lock_takeover_ambiguous",
@@ -309,7 +310,7 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 def _could_be_queue_job_id(token: str) -> bool:
     """Queue job ids are random UUIDs. Temporal run ids are UUIDv7, so those skip the queue lookup."""
     try:
-        return uuid.UUID(token).version != 7
+        return uuid.UUID(lock_token_run_id(token)).version != 7
     except (ValueError, AttributeError, TypeError):
         return False
 
@@ -347,7 +348,9 @@ def _take_over_from_queue_holder(
 
     try:
         holder_job = (
-            ExternalDataJob.objects.filter(team_id=inputs.team_id, schema_id=inputs.schema_id, workflow_run_id=holder)
+            ExternalDataJob.objects.filter(
+                team_id=inputs.team_id, schema_id=inputs.schema_id, workflow_run_id=lock_token_run_id(holder)
+            )
             .order_by("-created_at")
             .only("id", "status", "created_at")
             .first()
@@ -465,7 +468,7 @@ def _take_over_stale_running_job(
             summary = BatchQueue.get_run_activity_summary(
                 conn,
                 job_id=str(holder_job.id),
-                workflow_run_id=holder,
+                workflow_run_id=lock_token_run_id(holder),
             )
         except Exception as e:
             logger.warning(

@@ -529,7 +529,8 @@ class TestReleaseV3PipelineLockActivity:
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
 
-QUEUE_HOLDER = str(uuid.uuid4())
+QUEUE_JOB_ID = str(uuid.uuid4())
+QUEUE_HOLDER = f"{QUEUE_JOB_ID}:2"
 LOOKUP_FAILED = object()
 
 
@@ -632,6 +633,12 @@ class TestTakeOverFromQueueHolder:
         assert mock_release.called is (expected_path == "release")
         assert mock_stale_check.called is (expected_path == "stale_check")
         assert mock_describe.called is (expected_path == "temporal")
+        # The holder is an attempt token, and the queue and the job row know the run by its job id.
+        mock_liveness.assert_called_once_with(QUEUE_JOB_ID)
+        if mock_job_model.objects.filter.called:
+            assert mock_job_model.objects.filter.call_args.kwargs["workflow_run_id"] == QUEUE_JOB_ID
+        if mock_release.called:
+            mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), QUEUE_HOLDER)
 
     @patch(f"{MODULE}._describe_holder_workflow")
     @patch(f"{MODULE}._queue_job_liveness")
