@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Spinner, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -177,19 +177,19 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
     if (!dataWarehouseSources) {
         return (
             <>
-                <DashboardSetupPrompt kind="sources">
-                    {(dismissButton) => (
-                        <>
-                            <SourceSetupPanel
-                                headerAction={dismissButton}
-                                state={sourcesLoadError ? 'error' : 'checking'}
-                                onRetry={loadSources}
-                                rescanLoading={loading}
-                            />
-                            <SearchConsoleSource />
-                        </>
-                    )}
-                </DashboardSetupPrompt>
+                <h2 className="max-w-3xl w-full mx-auto mt-6 mb-0">Ad performance</h2>
+                {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ? (
+                    <SourceSetupPanel
+                        state={sourcesLoadError ? 'error' : 'checking'}
+                        onRetry={loadSources}
+                        rescanLoading={loading}
+                    />
+                ) : (
+                    <div className="flex justify-center p-8">
+                        <Spinner />
+                    </div>
+                )}
+                <SearchConsoleSource />
                 <DashboardConversionRecommendations />
             </>
         )
@@ -226,14 +226,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
             >
                 Ad performance
             </h2>
-            <DashboardSetupPrompt kind="sources">
-                {(dismissButton) => (
-                    <DetectedSources
-                        compact={hasSearchConsole && !hasSyncedMarketingSources}
-                        headerAction={dismissButton}
-                    />
-                )}
-            </DashboardSetupPrompt>
+            <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} dismissible />
             {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
                 !dataWarehouseSources?.results.some((source) =>
                     ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
@@ -399,7 +392,8 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
 
 const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, hasSyncedMarketingSources, dataWarehouseSources } = useValues(marketingAnalyticsLogic)
+    const { activeTab, hasSyncedMarketingSources, dataWarehouseSources, setupEnabled } =
+        useValues(marketingAnalyticsLogic)
     const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
@@ -456,15 +450,9 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     // Setup absorbs Integration health: while its flag is on, the audit lives inside
     // Setup as a section rather than as a second top-level tab, so there's one door to
     // "something is wrong with my setup" instead of two.
-    const setupEnabled =
-        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP] ||
-        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
-
     // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
-    // somewhere sensible. Here rather than in the logic because only the scene knows
-    // whether Setup is rendering: with its flag off those tabs are still real and
-    // resolve on their own. Above the early return below, since hooks have to run on
-    // every render.
+    // somewhere sensible. With Setup disabled, those tabs still render and resolve
+    // on their own. Keep the effect above the early return so hooks run on every render.
     const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
     useEffect(() => {
         if (absorbed) {

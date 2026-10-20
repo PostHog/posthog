@@ -23,6 +23,20 @@ function measurement(goal: ConversionGoalFilter): Record<string, unknown> {
     }
 }
 
+export function findConversionGoalForSource(
+    goals: ConversionGoalFilter[],
+    candidate: ConversionGoalFilter
+): ConversionGoalFilter | undefined {
+    return goals.find((goal) =>
+        candidate.kind === NodeKind.EventsNode
+            ? goal.kind === NodeKind.EventsNode && !!candidate.event && goal.event === candidate.event
+            : candidate.kind === NodeKind.ActionsNode &&
+              goal.kind === NodeKind.ActionsNode &&
+              !!candidate.id &&
+              goal.id === candidate.id
+    )
+}
+
 export function findEquivalentConversionGoal(
     goals: ConversionGoalFilter[],
     candidate: ConversionGoalFilter

@@ -22,7 +22,7 @@ import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType } from '~/types'
 
 import type { ConversionRecommendationApi } from '../generated/api.schemas'
-import { findEquivalentConversionGoal } from './findEquivalentConversionGoal'
+import { findConversionGoalForSource, findEquivalentConversionGoal } from './findEquivalentConversionGoal'
 import { recommendationToGoal } from './recommendationToGoal'
 
 export interface ConversionGoalFormLogicProps {
@@ -98,7 +98,7 @@ export interface conversionGoalFormLogicActions {
 export interface conversionGoalFormLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
-        configuredGoals: (currentTeam: TeamType | TeamPublicType | null) => ConversionGoalFilter[]
+        configuredGoals: (currentTeam: TeamPublicType | TeamType | null) => ConversionGoalFilter[]
         findExistingGoal: (
             configuredGoals: ConversionGoalFilter[]
         ) => (recommendation: ConversionRecommendationApi) => ConversionGoalFilter | undefined
@@ -219,8 +219,12 @@ export const conversionGoalFormLogic: LogicWrapper<conversionGoalFormLogicType> 
             (
                 goals: ConversionGoalFilter[]
             ): ((recommendation: ConversionRecommendationApi) => ConversionGoalFilter | undefined) =>
-                (recommendation) =>
-                    findEquivalentConversionGoal(goals, recommendationToGoal(recommendation)),
+                (recommendation) => {
+                    const candidate = recommendationToGoal(recommendation)
+                    return (
+                        findEquivalentConversionGoal(goals, candidate) ?? findConversionGoalForSource(goals, candidate)
+                    )
+                },
         ],
         duplicateGoal: [
             (s) => [s.configuredGoals, s.filter, s.editingGoalId],
@@ -267,8 +271,13 @@ export const conversionGoalFormLogic: LogicWrapper<conversionGoalFormLogicType> 
             ) {
                 return
             }
-            if (values.duplicateGoal) {
-                actions.reviewGoal(values.duplicateGoal.conversion_goal_id)
+            const configuredSuggestion =
+                values.recommendation && !values.editingGoalId
+                    ? findConversionGoalForSource(values.configuredGoals, values.filter)
+                    : undefined
+            const existingGoal = values.duplicateGoal ?? configuredSuggestion
+            if (existingGoal) {
+                actions.reviewGoal(existingGoal.conversion_goal_id)
                 return
             }
             if (

@@ -94,9 +94,10 @@ export function ConversionGoalRecommendations({
                 {!state && stateLoading && <LemonBanner type="info">Loading conversion recommendations…</LemonBanner>}
                 {isAnalyzing && (
                     <LemonBanner type="info">
+                        Scanning events and actions from the last {state?.latest_run?.lookback_days} days.{' '}
                         {state?.result_run
-                            ? 'Scanning the last 14 days. Previous suggestions remain available.'
-                            : 'Scanning events and actions from the last 30 days. You can leave this page while it runs.'}
+                            ? 'Previous suggestions remain available.'
+                            : 'You can leave this page while it runs.'}
                     </LemonBanner>
                 )}
                 {error && (

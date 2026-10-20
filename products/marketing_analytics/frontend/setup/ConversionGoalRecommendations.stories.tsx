@@ -82,7 +82,7 @@ function withState(state: ConversionRecommendationStateApi): ReturnType<typeof m
         post: {
             '/api/projects/:team_id/marketing_analytics/conversion_recommendations/start/': {
                 ...state,
-                latest_run: { ...run, status: 'pending', lookback_days: state.latest_run ? 14 : 30 },
+                latest_run: { ...run, status: 'pending', lookback_days: state.result_run ? 14 : 30 },
             },
         },
     })
@@ -93,7 +93,7 @@ const meta: Meta<typeof ConversionGoalRecommendations> = {
     args: { onConfigureGoals: () => {}, onUseSuggestion: () => {} },
     parameters: {
         layout: 'padded',
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI],
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
     },
     decorators: [
         (Story, { parameters }) => (
