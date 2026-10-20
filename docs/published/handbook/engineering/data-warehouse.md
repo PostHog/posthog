@@ -26,7 +26,7 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
-Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
+Returning to a notebook can reuse completed query results from the last 15 minutes in the same browser session. Saved insights show their recent definition and results at once, then fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache has a total size limit and excludes shared notebooks, errors, incomplete responses, and very large results; it does not change server cache freshness.
 
 ## Choosing data in Business intelligence
 

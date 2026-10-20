@@ -6,7 +6,7 @@ import { AnyResponseType } from '~/queries/schema/schema-general'
 
 import type { DataNodeLogicProps } from './dataNodeLogic'
 
-export const RESPONSE_CACHE_TTL = 10 * 60 * 1000
+export const RESPONSE_CACHE_TTL = 15 * 60 * 1000
 export const MAX_RETAINED_RESPONSE_LENGTH = 10_000_000
 /** How long a query keeps running after its node unmounts, waiting for a remount to pick it up. */
 export const ABANDONED_QUERY_GRACE_PERIOD = 60 * 1000
