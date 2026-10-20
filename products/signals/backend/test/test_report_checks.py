@@ -3051,6 +3051,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             ("hidden_monitoring_definition", False, "unchanged", "monitoring_disabled"),
             ("hidden_monitoring_after_flag_recovery", False, "unchanged", "monitoring_recovered"),
             ("visible_monitoring_removed", False, "revise", "monitoring_visible"),
+            ("revise_monitoring_with_null_interval", False, "revise", "monitoring_null_interval"),
             ("config_written_before_display_fields", True, "unchanged"),
             ("revise_approved", False, "revise"),
             ("retire_approved", False, "retire"),
@@ -3084,7 +3085,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             stored_config.update(probe_hints=[], skill_name=None)
         if variant == "invalid_stored":
             stored_config["retired_config_field"] = "obsolete"
-        if variant in {"monitoring_disabled", "monitoring_recovered", "monitoring_visible"}:
+        if variant in {"monitoring_disabled", "monitoring_recovered", "monitoring_visible", "monitoring_null_interval"}:
             stored_config["monitoring"] = {
                 "reference_period_minutes": 10080,
                 "threshold_scaling": "fixed",
@@ -3115,6 +3116,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
 
         if variant == "monitoring_visible":
             specs = [spec]
+        if variant == "monitoring_null_interval":
+            specs[0].config["monitoring"] = stored_config["monitoring"]
         if variant == "omitted_wait":
             specs[0] = self._spec(title=specs[0].title, existing_check_id=existing.id)
         if variant == "invalid_stored":
@@ -3123,7 +3126,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             specs[0] = specs[0].model_copy(update={"soak_hours": 72})
         with patch(
             "products.signals.backend.report_content_gates.feature_enabled_or_false",
-            return_value=variant in {"monitoring_recovered", "monitoring_visible"},
+            return_value=variant in {"monitoring_recovered", "monitoring_visible", "monitoring_null_interval"},
         ):
             written = create_checks_from_specs(
                 report=self.report,

@@ -333,6 +333,8 @@ def _spec_interval_minutes(spec: CheckSpec, previous: SignalReportCheck | None) 
     interval = spec.run_interval_minutes
     if interval is None and previous is not None:
         interval = previous.run_interval_minutes
+        if interval is None:
+            return None
     if spec.config.get("monitoring") is not None:
         return authored_monitoring_interval_minutes(_spec_soak_minutes(spec, previous), interval)
     return interval
