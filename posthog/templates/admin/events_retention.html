@@ -27,26 +27,35 @@
         border-top: 2px solid var(--hairline-color);
     }
     .muted { color: var(--body-quiet-color); }
+    .retention-table th.group-header { text-align: center; }
+    .retention-table code.field-name { text-transform: none; letter-spacing: normal; }
     </style>
 {% endblock %}
 {% block content %}
     <p><a href="/admin/">&larr; Back to admin</a></p>
     <p class="help">
-        Every organization with an events retention config, and every team with a retention of its own.
-        Events are deleted one calendar month at a time. A month is deleted only when every event in it is older than the retention.
-        Billing retention comes from the billing plan and only hides older events in queries.
+        Billing months is <code>Team.event_retention_months</code>, which the billing plan sets. It only hides older events in queries.
+        Deletion retention is the staff setting that the monthly cleanup enforces.
+        The cleanup deletes one calendar month at a time, and only when every event in that month is older than the retention.
     </p>
     {% if rows %}
         {% regroup rows by retention.organization_id as organizations %}
         <table class="retention-table">
             <thead>
                 <tr>
-                    <th>Team</th>
+                    <th rowspan="2">Team</th>
+                    <th rowspan="2">
+                        Billing months
+                        <br />
+                        <code class="field-name">event_retention_months</code>
+                    </th>
+                    <th colspan="4" class="group-header">Deletion retention</th>
+                </tr>
+                <tr>
                     <th>Team setting</th>
                     <th>Retention</th>
                     <th>Source</th>
                     <th>Deletes months before</th>
-                    <th>Billing retention</th>
                 </tr>
             </thead>
             <tbody>
@@ -67,17 +76,26 @@
                                 <a href="{% url 'admin:posthog_team_change' row.retention.team_id %}">{{ row.retention.team_name }}</a>
                                 <span class="muted">({{ row.retention.team_id }})</span>
                             </td>
+                            <td>{{ row.retention.billing_months }} months</td>
                             <td>{% if row.retention.team_months is not None %}{{ row.retention.team_months }} months{% else %}<span class="muted">-</span>{% endif %}</td>
                             <td>{% if row.retention.months is not None %}<strong>{{ row.retention.months }} months</strong>{% else %}<span class="muted">-</span>{% endif %}</td>
                             <td>{{ row.source }}</td>
                             <td>{% if row.deletes_before %}{{ row.deletes_before|date:"F Y" }}{% else %}<span class="muted">-</span>{% endif %}</td>
-                            <td>{{ row.retention.billing_months }} months</td>
                         </tr>
                     {% endfor %}
                 {% endfor %}
             </tbody>
         </table>
+        <p class="paginator">
+            {% if page.has_previous %}
+                <a href="?page={{ page.previous_page_number }}">&larr; Previous</a>
+            {% endif %}
+            Page {{ page.number }} of {{ page.paginator.num_pages }} &middot; {{ page.paginator.count }} teams
+            {% if page.has_next %}
+                <a href="?page={{ page.next_page_number }}">Next &rarr;</a>
+            {% endif %}
+        </p>
     {% else %}
-        <p>No organization or team has an events retention yet. Set one on the organization or team page.</p>
+        <p>No team has a deletion retention yet. Set one on the organization or team page.</p>
     {% endif %}
 {% endblock %}

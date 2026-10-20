@@ -213,12 +213,26 @@ class ConfiguredEventsRetention:
         return self.team_months if self.team_months is not None else self.organization_default_months
 
 
-def configured_events_retention() -> list[ConfiguredEventsRetention]:
-    """Every team that has a retention value of its own or belongs to an organization with a retention config."""
-    team_table = Team._meta.db_table
-    organization_table = Organization._meta.db_table
-    team_config_table = TeamEventsRetentionConfig._meta.db_table
-    org_config_table = OrganizationEventsRetentionConfig._meta.db_table
+# Every team that has a retention value of its own or belongs to an organization with a retention config.
+_CONFIGURED_RETENTION_FROM = f"""
+    FROM {Team._meta.db_table} AS team
+    JOIN {Organization._meta.db_table} AS organization ON organization.id = team.organization_id
+    LEFT JOIN {TeamEventsRetentionConfig._meta.db_table} AS team_config ON team_config.team_id = team.id
+    LEFT JOIN {OrganizationEventsRetentionConfig._meta.db_table} AS org_config
+        ON org_config.organization_id = team.organization_id
+    WHERE org_config.organization_id IS NOT NULL OR team_config.events_retention_months IS NOT NULL
+"""
+
+
+def count_configured_events_retention() -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT COUNT(*) {_CONFIGURED_RETENTION_FROM}")
+        [[count]] = cursor.fetchall()
+        return count
+
+
+def configured_events_retention(*, offset: int, limit: int) -> list[ConfiguredEventsRetention]:
+    """One page of the teams that count_configured_events_retention counts, ordered by organization."""
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
@@ -231,13 +245,11 @@ def configured_events_retention() -> list[ConfiguredEventsRetention]:
                    org_config.min_events_retention_months,
                    org_config.max_events_retention_months,
                    team.event_retention_months
-            FROM {team_table} AS team
-            JOIN {organization_table} AS organization ON organization.id = team.organization_id
-            LEFT JOIN {team_config_table} AS team_config ON team_config.team_id = team.id
-            LEFT JOIN {org_config_table} AS org_config ON org_config.organization_id = team.organization_id
-            WHERE org_config.organization_id IS NOT NULL OR team_config.events_retention_months IS NOT NULL
+            {_CONFIGURED_RETENTION_FROM}
             ORDER BY organization.name, organization.id, team.id
-            """
+            LIMIT %s OFFSET %s
+            """,
+            [limit, offset],
         )
         return [
             ConfiguredEventsRetention(

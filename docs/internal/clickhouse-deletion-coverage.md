@@ -294,7 +294,7 @@ Staff set the retention in Django admin, on the team and organization pages:
 - A team's effective retention is its own value, else its organization's default. A team with neither keeps all its events.
 - This setting is separate from `Team.event_retention_months`, which the billing plan sets and which only hides older events from queries.
 - The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
-  It shows the effective retention, where it comes from, the first month the cleanup keeps, and the billing retention.
+  It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
 `monthly_old_events_cleanup_job` has two steps:
 

@@ -8,6 +8,7 @@ from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
     TeamEventsRetentionConfig,
     configured_events_retention,
+    count_configured_events_retention,
     effective_events_retention,
 )
 from posthog.models.organization import Organization
@@ -109,6 +110,12 @@ class TestEventsRetentionConfig(BaseTest):
         overrides = Team.objects.create(organization=other_org, name="Overrides")
         TeamEventsRetentionConfig.objects.create(team=overrides, events_retention_months=6)
 
-        retention = {(item.team_id, item.team_months, item.months) for item in configured_events_retention()}
+        retention = [
+            (item.team_id, item.team_months, item.months) for item in configured_events_retention(offset=0, limit=10)
+        ]
 
-        assert retention == {(self.team.id, None, None), (own_value.id, 18, 18), (overrides.id, 6, 6)}
+        assert count_configured_events_retention() == 3
+        assert sorted(retention) == sorted([(self.team.id, None, None), (own_value.id, 18, 18), (overrides.id, 6, 6)])
+        assert [item.team_id for item in configured_events_retention(offset=1, limit=2)] == [
+            team_id for team_id, _, _ in retention[1:3]
+        ]
