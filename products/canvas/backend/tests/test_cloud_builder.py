@@ -240,7 +240,23 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         result = run_cloud_builder(project)
 
         self.assertEqual(result["status"], "ready", result["diagnostics"])
-        validate_builder_output(result)
+        self.assertEqual(validate_builder_output(result)[2], [])
+
+    def test_ready_build_warns_about_a_prop_the_library_does_not_accept(self) -> None:
+        result = run_cloud_builder(
+            synthetic_source_project(
+                'import { Card } from "@posthog/quill"\n'
+                "export default function Canvas() { return <Card notARealProp /> }\n"
+            )
+        )
+
+        _, _, diagnostics = validate_builder_output(result)
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(
+            [(item["severity"], item["code"], item["path"], item["line"]) for item in diagnostics],
+            [("warning", "type_error", "src/canvas.tsx", 2)],
+        )
+        self.assertIn("notARealProp", diagnostics[0]["message"])
 
     def test_bundles_the_canvas_sdk_import_inline(self) -> None:
         payload = synthetic_source_project(

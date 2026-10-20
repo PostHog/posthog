@@ -1,5 +1,6 @@
 import { Scanner } from '@tailwindcss/oxide'
 import { build } from 'esbuild'
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -339,6 +340,45 @@ function diagnostic(code, message, file, line) {
     }
 }
 
+const typeCheckPath = path.join(builderDirectory, 'typecheck.mjs')
+const TYPE_CHECK_TIMEOUT_MS = 20_000
+
+// The check gets its own process and heap, so running out of memory or time skips it instead of failing the build.
+function runTypeCheck(files) {
+    return new Promise((resolve) => {
+        const skipped = (reason) =>
+            resolve([
+                { severity: 'warning', code: 'type_check_skipped', message: `The type check did not run: ${reason}` },
+            ])
+        const child = spawn(process.execPath, ['--max-old-space-size=384', typeCheckPath], {
+            stdio: ['pipe', 'pipe', 'ignore'],
+        })
+        const timer = setTimeout(() => child.kill('SIGKILL'), TYPE_CHECK_TIMEOUT_MS)
+        let output = ''
+        child.stdout.on('data', (chunk) => {
+            output += chunk
+        })
+        child.stdin.on('error', () => {})
+        child.on('error', (error) => {
+            clearTimeout(timer)
+            skipped(error.message)
+        })
+        child.on('close', (code, signal) => {
+            clearTimeout(timer)
+            if (code !== 0) {
+                skipped(signal === 'SIGKILL' ? 'it ran out of time' : `it exited with ${code ?? signal}`)
+                return
+            }
+            try {
+                resolve(JSON.parse(output))
+            } catch {
+                skipped('it returned invalid output')
+            }
+        })
+        child.stdin.end(JSON.stringify({ files, resolveDir: builderDirectory }))
+    })
+}
+
 function sha256(content) {
     return createHash('sha256').update(content, 'utf8').digest('hex')
 }
@@ -539,6 +579,7 @@ async function buildCanvas(project) {
     if (diagnostics.length) {
         return { contractVersion: 1, status: 'failed', diagnostics }
     }
+    const authorFiles = project.files
     project = { ...project, files: { ...project.files }, dependencies: { ...project.dependencies } }
     let html = project.files[project.entryHtml]
     let legacy = null
@@ -666,7 +707,7 @@ async function buildCanvas(project) {
         ...(project.component ? { component: project.component } : {}),
         ...legacy,
     }
-    return { contractVersion: 1, status: 'ready', diagnostics: [], manifest, files }
+    return { contractVersion: 1, status: 'ready', diagnostics: await runTypeCheck(authorFiles), manifest, files }
 }
 
 let input = ''

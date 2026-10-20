@@ -629,6 +629,7 @@ def _build_canvas_template_image() -> modal.Image:
         .add_local_file(str(builder_dir / "build.mjs"), "/scripts/canvas-builder/build.mjs", copy=True)
         .add_local_file(str(builder_dir / "manifest.json"), "/scripts/canvas-builder/manifest.json", copy=True)
         .add_local_file(str(builder_dir / "canvas-sdk.mjs"), "/scripts/canvas-builder/canvas-sdk.mjs", copy=True)
+        .add_local_file(str(builder_dir / "typecheck.mjs"), "/scripts/canvas-builder/typecheck.mjs", copy=True)
     )
 
 

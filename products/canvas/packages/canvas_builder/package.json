@@ -7,6 +7,8 @@
         "@tailwindcss/oxide": "4.3.1",
         "@tanstack/react-table": "8.21.3",
         "@tanstack/react-virtual": "3.14.9",
+        "@types/react": "19.0.14",
+        "@types/react-dom": "19.0.6",
         "d3": "7.9.0",
         "dayjs": "1.11.13",
         "esbuild": "0.25.0",
@@ -21,6 +23,7 @@
         "recharts": "2.15.0",
         "tailwindcss": "4.3.1",
         "three": "0.179.1",
+        "typescript": "6.0.3",
         "zod": "3.25.76"
     },
     "overrides": {

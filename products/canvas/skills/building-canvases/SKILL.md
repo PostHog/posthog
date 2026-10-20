@@ -189,6 +189,7 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.
+   On `ready`, fix every `type_error` warning in the build's diagnostics and save again: most are a prop or value a library does not accept, which the canvas silently ignores.
 
 Save once per requested change, when the canvas is ready — not after every micro-edit. When the
 user asked for a draft, end your reply by saying a draft is ready to preview and promote; the

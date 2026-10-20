@@ -175,7 +175,8 @@ def _run_sandbox_builder(project: dict[str, Any]) -> dict[str, Any]:
         template=SandboxTemplate.CANVAS_BUILD,
         default_execution_timeout_seconds=45,
         ttl_seconds=90,
-        memory_gb=0.5,
+        # The type check runs as a second node process beside the build, and the two do not fit in 0.5 GB.
+        memory_gb=1,
         cpu_cores=1,
         disk_size_gb=1,
         block_network=True,

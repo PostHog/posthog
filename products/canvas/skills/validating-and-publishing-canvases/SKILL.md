@@ -131,7 +131,11 @@ until the build you queued is terminal:
 
 - `queued`/`building` — in progress; poll again shortly.
 - `ready` — the canvas's `published_build_id` advances to this build (unless a newer publish
-  superseded it first). The task's canvas work is done.
+  superseded it first).
+  Read the build's diagnostics before you finish.
+  A `type_error` warning is TypeScript rejecting the code, most often a prop or value that a library does not accept, which the rendered canvas silently ignores.
+  Fix every one and save again; the message names the file, the line, and what the type expects.
+  `type_check_skipped` means the check did not run, and there is nothing to fix.
 - `failed` — read the build's error diagnostics, fix the project, and publish again. A failed
   build never replaces the last good one, so the canvas keeps rendering the previous version —
   finishing the task here would leave the user with a stale canvas and a silent failure.
@@ -149,7 +153,7 @@ Publishing goes live the moment its build is ready, and that is the default. Use
 when the user asked for one: a preview to look at first, a review step before going live, or an
 explicit "don't publish yet". A draft is a real, buildable version that is never the head: the
 live canvas keeps rendering the current version until someone promotes the draft. This is
-different from `canvas-validate-create`, which only compile-checks and produces no build or
+different from `canvas-validate-create`, which only checks the source and produces no build or
 preview.
 
 1. **Stage** — `canvas-draft-create` with the complete `project` (same shape, capabilities, and
