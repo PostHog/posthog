@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -14,7 +16,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PaginationStyle = Literal["none", "offset", "cursor", "incident_export", "postmortems", "schedule_rotations"]
 
 
-@dataclass
+@frozen
 class SquadcastEndpointConfig:
     path: str  # Path under the regional API base URL, e.g. "/v3/services"
     pagination: PaginationStyle = "none"

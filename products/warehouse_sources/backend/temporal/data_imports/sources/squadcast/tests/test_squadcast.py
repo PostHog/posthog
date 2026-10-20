@@ -526,6 +526,7 @@ class TestScheduleRotations:
         "failing_status,expect_raised",
         [
             (404, False),
+            (403, False),
             (400, True),
         ],
     )
@@ -535,7 +536,7 @@ class TestScheduleRotations:
         }
         rotations = {
             "1": _json({"error": {"code": "x", "message": "boom"}}, status_code=failing_status),
-            "2": _json({"data": [{"id": 20, "scheduleID": 2}]}),
+            "2": _json({"data": [{"id": 20}]}),
         }
 
         result = _run(

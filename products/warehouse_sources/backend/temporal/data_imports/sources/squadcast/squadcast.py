@@ -348,6 +348,7 @@ def _iter_schedule_rotations(
     config: SquadcastEndpointConfig,
     team_id: str,
     start_cursor: str | None,
+    logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SquadcastResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     schedules_config = SQUADCAST_ENDPOINTS["schedules"]
@@ -373,11 +374,20 @@ def _iter_schedule_rotations(
             try:
                 rotations = _extract_rows(client.get(config.path.format(schedule_id=schedule_id)), config.envelope)
             except requests.HTTPError as exc:
-                # The schedule was deleted between the list request and this one.
-                if exc.response is not None and exc.response.status_code == 404:
+                # 404: the schedule was deleted after the list request. 403: the role can't read this
+                # schedule. Either way skip only this schedule, so the team's other schedules still sync.
+                if exc.response is not None and exc.response.status_code in (403, 404):
+                    logger.warning(
+                        f"Squadcast: cannot read rotations of schedule {schedule_id} for team {team_id} "
+                        f"(status={exc.response.status_code}), skipping"
+                    )
                     rotations = []
                 else:
                     raise
+
+            for rotation in rotations:
+                if isinstance(rotation, dict):
+                    rotation.setdefault("scheduleID", schedule_id)
 
             if rotations:
                 yield _prepare_rows(rotations, config, team_id)
@@ -409,7 +419,7 @@ def _iter_team_rows(
     elif config.pagination == "postmortems":
         yield from _get_postmortem_rows(client, config, team_id, logger, db_incremental_field_last_value)
     elif config.pagination == "schedule_rotations":
-        yield from _iter_schedule_rotations(client, config, team_id, start_cursor, resumable_source_manager)
+        yield from _iter_schedule_rotations(client, config, team_id, start_cursor, logger, resumable_source_manager)
     else:
         assert config.team_param is not None
         data = client.get(config.path, {config.team_param: team_id})
