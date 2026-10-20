@@ -827,6 +827,17 @@ describe('preserveGroupTargetingFilters', () => {
             restored: [{}, {}],
         },
         {
+            name: 'two sets with one filter on different group types trade variants',
+            stored: [
+                { ...onGroupType0, value: 'business' },
+                { ...onGroupType1, value: 'business' },
+            ],
+            storedVariants: ['control', 'test'],
+            values: ['business', 'business'],
+            sentVariants: ['test', 'control'],
+            restored: [{}, {}],
+        },
+        {
             name: 'a set changes only its rollout',
             values: ['enterprise', 'pro'],
             sentRollouts: [50, 100],
@@ -856,13 +867,33 @@ describe('preserveGroupTargetingFilters', () => {
             typed: [onGroupType1, onGroupType0],
             restored: [onGroupType1, onGroupType0],
         },
+        {
+            name: 'the agent types both properties after two sets with one filter trade places',
+            stored: [
+                { ...onGroupType0, value: 'business' },
+                { ...onGroupType1, value: 'business' },
+            ],
+            values: ['business', 'business'],
+            typed: [onGroupType1, onGroupType0],
+            restored: [onGroupType1, onGroupType0],
+        },
     ])(
         'merges a group property that two person-aggregated sets hold when $name',
-        ({ stored = planOnTwoGroupTypes, storedRollouts = [], values, sentRollouts = [], typed = [], restored }) => {
+        ({
+            stored = planOnTwoGroupTypes,
+            storedRollouts = [],
+            storedVariants = [],
+            values,
+            sentRollouts = [],
+            sentVariants = [],
+            typed = [],
+            restored,
+        }) => {
             const existing = {
                 groups: stored.map((property, index) => ({
                     properties: [{ key: 'plan', operator: 'exact', ...property }],
                     rollout_percentage: storedRollouts[index] ?? 100,
+                    variant: storedVariants[index] ?? null,
                 })),
             }
 
@@ -870,6 +901,7 @@ describe('preserveGroupTargetingFilters', () => {
                 groups: values.map((value, index) => ({
                     properties: [{ key: 'plan', operator: 'exact', value, ...typed[index] }],
                     rollout_percentage: sentRollouts[index] ?? 100,
+                    variant: sentVariants[index] ?? null,
                 })),
             })
 
@@ -895,7 +927,7 @@ describe('preserveGroupTargetingFilters', () => {
                     { type: 'person', key: 'country', value: 'CA' },
                 ],
             ],
-            restored: [{}, { type: 'person' }],
+            restoredByProperty: [{}, { type: 'person' }],
         },
         {
             name: 'each set holds the key as a group property and as a person property',
@@ -909,11 +941,11 @@ describe('preserveGroupTargetingFilters', () => {
                     { type: 'person', key: 'plan', value: 'free' },
                 ],
             ],
-            restored: [{}, {}],
+            restoredByProperty: [{}, {}],
         },
     ])(
         'types only what two person-aggregated sets agree on when they trade places and $name',
-        ({ stored, restored }) => {
+        ({ stored, restoredByProperty }) => {
             const existing = {
                 groups: stored.map((properties) => ({
                     properties: properties.map((property) => ({ operator: 'exact', ...property })),
@@ -931,7 +963,12 @@ describe('preserveGroupTargetingFilters', () => {
 
             expect(merged?.groups?.map((group) => group.properties)).toEqual(
                 swapped.map((properties) =>
-                    properties.map(({ key, value }, index) => ({ key, operator: 'exact', value, ...restored[index] }))
+                    properties.map(({ key, value }, index) => ({
+                        key,
+                        operator: 'exact',
+                        value,
+                        ...restoredByProperty[index],
+                    }))
                 )
             )
         }

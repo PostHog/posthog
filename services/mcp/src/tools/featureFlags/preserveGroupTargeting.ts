@@ -43,8 +43,11 @@
  * edits can need different types, so the set restores a type only when typing the property from the
  * source and from each of those sets gives the same type and group_type_index. It looks up no other
  * stored set. A property that those stored sets type differently stays untyped, which makes the API
- * reject the write. Typed group properties that one of those stored sets holds in full do not move
- * the incoming set to group aggregation.
+ * reject the write. When the source or one stored person-aggregated set whose filters the incoming
+ * set keeps has every typed group property of the incoming set on the same group type, those
+ * properties do not move the incoming set to group aggregation. That check counts such a set even when
+ * both sets keep their own condition, because a typed swap of two sets with the same filters keeps
+ * both conditions.
  *
  * `aggregation_group_type_index: null` means person aggregation. Only a missing key is
  * filled from the existing flag.
@@ -311,7 +314,11 @@ type MergeConditionOptions = {
     payloadChangesFlagAggregation: boolean
     /** This set never gains group aggregation. See isPinnedToPerson. */
     pinnedToPerson: boolean
-    /** Stored property maps. Typed group properties that one map holds in full name no group type. */
+    /**
+     * Property maps of the stored person sets that this set may come from. When one map has every
+     * typed group property of the set on the same group type, those properties do not set the set's
+     * aggregation_group_type_index.
+     */
     personSetProps: (Map<string, FlagProperty[]> | undefined)[]
 }
 
@@ -506,24 +513,30 @@ export function preserveGroupTargetingFilters(
             const group = incomingGroups[index]
             return !!existingSet && isRecord(group) && keepsCondition(group, existingSet)
         })
-        const matchedPersonSets = personSources.map((personSource, index) => {
+        const sameFilterPersonSets = personSources.map((personSource, index) => {
             const group = incomingGroups[index]
             if (!personSource || !isRecord(group)) {
                 return []
             }
-            return existingSets.filter(
-                (other, otherIndex): other is ExistingSet =>
-                    (!keptConditions[index] || !keptConditions[otherIndex]) &&
-                    otherIndex !== index &&
-                    other?.aggregation === null &&
-                    hasSameKeySet(other.propsByKey, personSource.propsByKey) &&
-                    keepsFilters(group, other)
+            return existingSets.flatMap((other, otherIndex) =>
+                other &&
+                otherIndex !== index &&
+                other.aggregation === null &&
+                hasSameKeySet(other.propsByKey, personSource.propsByKey) &&
+                keepsFilters(group, other)
+                    ? [{ set: other, index: otherIndex }]
+                    : []
             )
         })
+        const matchedPersonSets = sameFilterPersonSets.map((matches, index) =>
+            matches.filter((match) => !keptConditions[index] || !keptConditions[match.index]).map((match) => match.set)
+        )
 
         const personSetPropsFor = (index: number): (Map<string, FlagProperty[]> | undefined)[] =>
             sourceSets[index]
-                ? [personSources[index], ...(matchedPersonSets[index] ?? [])].map((personSet) => personSet?.propsByKey)
+                ? [personSources[index], ...(sameFilterPersonSets[index] ?? []).map((match) => match.set)].map(
+                      (personSet) => personSet?.propsByKey
+                  )
                 : [aggregatesOnPersonsOnly ? crossSetPropsByKey : undefined]
 
         const resolvedGroups = result.groups.map((group, index) =>
