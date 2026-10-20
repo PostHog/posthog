@@ -322,7 +322,7 @@ export function Waterfall() {
 ```tsx
 import { useChartTheme } from '@posthog/quill-charts'
 import * as d3 from 'd3'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { cursorIn, TipBox, useSize, type Tip } from './chart-kit'
 
 type Node = { name: string; value?: number; children?: Node[] }
@@ -373,11 +373,14 @@ export function Sunburst() {
   const { ref, size } = useSize()
   const [tip, setTip] = useState<Tip | null>(null)
   const radius = Math.min(size.width, size.height) / 2
-  const root = d3
-    .hierarchy(PATHS)
-    .sum((d) => d.value ?? 0)
-    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-  d3.partition<Node>().size([2 * Math.PI, radius])(root)
+  // Hovering re-renders on every mouse move, so the layout must not be rebuilt each time.
+  const root = useMemo(() => {
+    const tree = d3
+      .hierarchy(PATHS)
+      .sum((d) => d.value ?? 0)
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    return d3.partition<Node>().size([2 * Math.PI, radius])(tree)
+  }, [radius])
   const arc = d3
     .arc<d3.HierarchyRectangularNode<Node>>()
     .startAngle((d) => d.x0)
@@ -395,7 +398,8 @@ export function Sunburst() {
       {radius > 0 && (
         <svg width={size.width} height={size.height} className="block">
           <g transform={`translate(${size.width / 2},${size.height / 2})`}>
-            {(root.descendants() as d3.HierarchyRectangularNode<Node>[])
+            {root
+              .descendants()
               .filter((d) => d.depth > 0)
               .map((d) => (
                 <path
@@ -419,6 +423,7 @@ export function Sunburst() {
                       color: colorOf(d),
                     })
                   }
+                  onMouseLeave={() => setTip(null)}
                 />
               ))}
           </g>
@@ -652,6 +657,7 @@ export function Beeswarm() {
                   color: theme.colors[PLANS.indexOf(d.plan) % theme.colors.length],
                 })
               }
+              onMouseLeave={() => setTip(null)}
             />
           ))}
         </svg>
