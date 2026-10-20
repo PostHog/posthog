@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
@@ -10,6 +11,8 @@ import { AccessControlLevel, AccessControlResourceType, DataModelingNode, DataWa
 
 import { nodeEndpointUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
+
+import { QuillNodeDetailActions } from './QuillNodeDetailActions'
 
 export function NodeDetailActions({
     node,
@@ -21,6 +24,10 @@ export function NodeDetailActions({
     const { hasMaterializationChanges, savingMaterialization } = useValues(
         materializationJobsLogic({ viewId: savedQuery.id, kind: node.type === 'endpoint' ? 'endpoint' : 'view' })
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillNodeDetailActions node={node} savedQuery={savedQuery} />
+    }
     return (
         <>
             {node.type === 'endpoint' ? (
