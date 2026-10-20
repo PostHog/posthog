@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError, UnknownTypeError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -91,6 +91,8 @@ BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
 )
 
+MAX_REPORTED_COLUMN_TYPE_LENGTH = 200
+
 BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check function parameters and type conversions."
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
@@ -123,8 +125,21 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
+def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnreadableResultType":
+    column_type = err.message.removeprefix("Unknown type ")[:MAX_REPORTED_COLUMN_TYPE_LENGTH]
+    return CHQueryErrorUnreadableResultType(
+        f"The query returns a column of type {column_type}, which can't be read. "
+        "Return final values instead of aggregate states, for example argMin() instead of argMinState(), "
+        "or argMinMerge() over stored states. For other types, cast the column to String.",
+        code=err.code,
+        code_name="unknown_type",
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, UnknownTypeError):
+        return _wrap_unknown_type_error(err)
     if not isinstance(err, ServerException):
         return err
 
@@ -294,6 +309,10 @@ class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
 
 
 class CHQueryErrorBadGet(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnreadableResultType(ExposedCHQueryError):
     pass
 
 
