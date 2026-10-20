@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 class FronteggResumeConfig:
     page: int | None = None
     offset: int | None = None
+    created_from: str | None = None
 
 
 class FronteggAuth(OAuth2Auth):
@@ -82,18 +83,20 @@ def frontegg_source(
     if path is None:
         raise ValueError(f"Frontegg table has no endpoint path: {inputs.schema_name}")
     endpoint["path"] = path.format(api_version=api_version)
-    filtered = inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None
-    if filtered:
-        endpoint["params"] = {
-            **(endpoint.get("params") or {}),
-            "created_from": _created_from(inputs.db_incremental_field_last_value),
-        }
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.offset is not None:
+        # The offset counts rows within the window of the attempt that saved it.
+        created_from = resume.created_from
+    elif inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
+        created_from = _created_from(inputs.db_incremental_field_last_value)
+    else:
+        created_from = None
+    if created_from is not None:
+        endpoint["params"] = {**(endpoint.get("params") or {}), "created_from": created_from}
     rest_config: RESTAPIConfig = {
         "client": {"base_url": REGIONS[config.region], "auth": auth, "request_timeout": (10, 60)},
         "resources": [{"name": inputs.schema_name, "endpoint": endpoint}],
     }
-    # The watermark advances with each written batch, so an offset saved under an older created_from would skip rows.
-    resume = manager.load_state() if manager.can_resume() and not filtered else None
     initial_state = (
         {key: value for key, value in (("page", resume.page), ("offset", resume.offset)) if value is not None}
         if resume
@@ -106,6 +109,7 @@ def frontegg_source(
                 FronteggResumeConfig(
                     page=int(state["page"]) if "page" in state else None,
                     offset=int(state["offset"]) if "offset" in state else None,
+                    created_from=created_from,
                 )
             )
 

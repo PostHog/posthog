@@ -77,15 +77,23 @@ class TestFronteggTransport:
             (True, datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05+00:00"),
         ],
     )
-    @pytest.mark.parametrize("resume_offset", [None, 200])
+    @pytest.mark.parametrize(
+        "resume",
+        [
+            None,
+            FronteggResumeConfig(offset=200),
+            FronteggResumeConfig(offset=200, created_from="2025-12-01T00:00:00+00:00"),
+        ],
+    )
     def test_audits_offset_pagination_incremental_and_resume(
         self,
         should_use_incremental_field: bool,
         last_value: datetime | None,
         created_from: str | None,
-        resume_offset: int | None,
+        resume: FronteggResumeConfig | None,
     ) -> None:
-        first_offset = resume_offset if resume_offset is not None and created_from is None else 0
+        first_offset = resume.offset if resume and resume.offset is not None else 0
+        window = resume.created_from if resume else created_from
         full_page = [{"frontegg_id": f"event-{index}"} for index in range(200)]
         result = SourceDriver(FronteggSource(), config()).run(
             "audits",
@@ -94,7 +102,7 @@ class TestFronteggTransport:
                 ScriptedResponse(json={"data": full_page, "total": first_offset + 201}),
                 ScriptedResponse(json={"data": [{"frontegg_id": "last"}], "total": first_offset + 201}),
             ],
-            resume_state=FronteggResumeConfig(offset=resume_offset) if resume_offset is not None else None,
+            resume_state=resume,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=last_value,
         )
@@ -108,10 +116,10 @@ class TestFronteggTransport:
                 "sortBy": ("createdAt",),
                 "sortDirection": ("asc",),
             }
-            if created_from is not None:
-                expected["created_from"] = (created_from,)
+            if window is not None:
+                expected["created_from"] = (window,)
             assert request.query == expected
-        assert result.saved_states == [FronteggResumeConfig(offset=first_offset + 200)]
+        assert result.saved_states == [FronteggResumeConfig(offset=first_offset + 200, created_from=window)]
 
     @pytest.mark.parametrize(
         "region,host",
