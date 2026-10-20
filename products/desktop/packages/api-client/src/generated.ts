@@ -6263,10 +6263,31 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupRailEnum =
+        | "blue"
+        | "purple"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red";
+    export type DashboardTileGroup = Partial<{
+        title: string;
+        collapsed: boolean;
+        tint: boolean;
+        rail: DashboardTileGroupRailEnum | NullEnum;
+    }>;
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
-        group_titles: Record<string, string>;
+        groups: Record<string, DashboardTileGroup>;
     }>;
     /**
      * Serializer mixin that handles tags for objects.
@@ -6358,7 +6379,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        group_titles?: (Record<string, string> | null) | undefined;
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -6770,7 +6791,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        group_titles?: (Record<string, string> | null) | undefined;
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -19456,7 +19477,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
-        group_titles: Record<string, string> | null;
+        groups: Record<string, DashboardTileGroup> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
         use_dashboard: number | null;
