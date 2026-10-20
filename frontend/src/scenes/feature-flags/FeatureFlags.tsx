@@ -56,7 +56,7 @@ import {
     FeatureFlagType,
 } from '~/types'
 
-import { deletedCohortFilters } from 'products/feature_flags/frontend/deletedCohortFilters'
+import { deletedCohortDisabledReason, deletedCohortFilters } from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
@@ -187,6 +187,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
     const configFormat = featureFlagConfigFormat(featureFlag.filters)
     const isV1Config = configFormat === 'v1'
+    const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters(featureFlag.filters))
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -294,7 +295,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                           ? 'Unarchive this flag before enabling it.'
                                           : configFormat === 'unsupported'
                                             ? UNSUPPORTED_CONFIG_DISABLED_REASON
-                                            : undefined
+                                            : !featureFlag.active
+                                              ? deletedCohortReason
+                                              : undefined
                                 }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'}
@@ -331,7 +334,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? 'Updating…'
                                             : !canArchiveFeatureFlag(featureFlag.filters)
                                               ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
-                                              : undefined
+                                              : featureFlag.archived
+                                                ? deletedCohortReason
+                                                : undefined
                                     }
                                 >
                                     {featureFlag.archived ? 'Unarchive' : 'Archive'}
