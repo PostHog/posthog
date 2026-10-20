@@ -17,7 +17,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    AlertDestinationDelivery,
+    DeliveryPath,
+    PlatformAlertCheckStatus,
+    PlatformAlertState,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -986,6 +991,40 @@ class AlertDestinationData(TypedDict):
     in_app_resource_id: NotRequired[str]
     # A path in the app, because the inbox opens it with the client-side router.
     in_app_url: NotRequired[str]
+
+
+# The transitions a destination can send about. `CHECK` announces nothing, so no destination hears it.
+DESTINATION_EVENT_KINDS: Final = frozenset(
+    {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
+)
+
+
+@frozen
+class NewAlertDestination:
+    """One destination to add to an alert the platform owns the destinations of."""
+
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    delivery: AlertDestinationDelivery = AlertDestinationDelivery.NATIVE
+    # Required for a workflow destination, and refused for a native one.
+    hog_flow_id: UUID | None = None
+    enabled: bool = True
+    legacy_hog_function_ids: tuple[UUID, ...] = ()
+
+
+@frozen
+class StoredAlertDestination:
+    """One `AlertDestination` row, with its configuration decrypted."""
+
+    id: UUID
+    configuration_id: UUID
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    delivery: AlertDestinationDelivery
+    hog_flow_id: UUID | None
+    enabled: bool
+    consecutive_failures: int
+    legacy_hog_function_ids: tuple[UUID, ...]
 
 
 class AlertDestinationValidationError(Exception):

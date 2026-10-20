@@ -8,13 +8,16 @@ configuration already holds in this app. The prefix names what the rows are for:
 source configures on the shared platform, rather than one product's own table.
 """
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.alerts_platform.backend.facade.contracts import Grouping
+from products.alerts_platform.backend.facade.contracts import DestinationType, Grouping
 from products.alerts_platform.backend.facade.enums import (
+    AlertDestinationDelivery,
     DeliveryPath,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
@@ -26,6 +29,12 @@ from products.alerts_platform.backend.facade.enums import (
 
 def single_instance_grouping() -> dict[str, object]:
     return Grouping().to_stored()
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def destination_type_choices() -> list[tuple[str, str]]:
+    # A callable, so a new destination type does not write a state-only migration for its choice.
+    return DestinationType.choices
 
 
 # nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
@@ -105,6 +114,11 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
+    # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
+    # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
+    destinations_owner = models.CharField(
+        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
+    )
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.
@@ -243,5 +257,49 @@ class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["configuration", "grouping_key", "episode_started_at"],
                 name="platform_alert_delivery_path_one_per_episode",
+            )
+        ]
+
+
+class AlertDestination(TeamScopedRootMixin, UUIDModel):
+    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+
+    One row is one destination a person sees on the alert's page. A native row sends through the
+    platform's transport for its type. A workflow row sends through the workflow it owns, which is
+    how a customized destination keeps what it sends.
+    """
+
+    Delivery = AlertDestinationDelivery
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="destinations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    type = models.CharField(max_length=32, choices=destination_type_choices)
+    delivery = models.CharField(max_length=16, choices=Delivery.choices)
+    # The whole `AlertDestinationData`, encrypted: a webhook URL or a routing key is a credential.
+    config = EncryptedJSONField(default=dict)
+    # The transitions it sends about, as `AlertEventKind` values.
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    # Set only for a workflow row. A plain id, because the platform does not import the workflows product.
+    hog_flow_id = models.UUIDField(null=True, blank=True)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    disabled_reason = models.TextField(null=True, blank=True)
+
+    # The HogFunctions this replaced, so an id issued before the move still finds the destination.
+    legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdestination"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(delivery=AlertDestinationDelivery.NATIVE.value, hog_flow_id__isnull=True)
+                    | models.Q(delivery=AlertDestinationDelivery.WORKFLOW.value, hog_flow_id__isnull=False)
+                ),
+                name="alert_destination_flow_only_for_workflow",
             )
         ]

@@ -33,6 +33,13 @@ class DeliveryPath(LabeledStrEnum):
     HOG_FUNCTION = "hog_function", "HogFunction"
 
 
+class AlertDestinationDelivery(LabeledStrEnum):
+    """How an `AlertDestination` sends: a native transport, or the workflow it owns."""
+
+    NATIVE = "native", "Native"
+    WORKFLOW = "workflow", "Workflow"
+
+
 class PlatformAlertState(LabeledStrEnum):
     """Where one alert instance stands."""
 

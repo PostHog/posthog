@@ -13,6 +13,7 @@ from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     HandbackRefusal,
+    NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
@@ -24,8 +25,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
+    StoredAlertDestination,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
+from products.alerts_platform.backend.logic import (
+    alert_destinations,
+    platform_lifecycle,
+    platform_reads,
+    platform_writes,
+)
 
 
 def due_checks(
@@ -179,3 +186,23 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
     platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def create_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]
+) -> tuple[StoredAlertDestination, ...]:
+    """Adds destinations to one alert, all or none. Raises `AlertDestinationValidationError` on a refused one."""
+    return alert_destinations.create_alert_destinations(
+        team_id=team_id, configuration_id=configuration_id, destinations=destinations
+    )
+
+
+def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
+    """Deletes the named destinations of one alert. An id of another alert is left alone."""
+    return alert_destinations.delete_alert_destinations(
+        team_id=team_id, configuration_id=configuration_id, destination_ids=destination_ids
+    )
