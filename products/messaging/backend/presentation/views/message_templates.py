@@ -209,8 +209,8 @@ class MessageTemplateSerializer(serializers.Serializer):
     )
     sensitive = serializers.BooleanField(
         required=False,
-        help_text="For emails that carry login codes, reset links or other secrets. Sent emails keep a placeholder "
-        "instead of their body, and clicked links are recorded without their query string. Can change at any time.",
+        help_text="For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent "
+        "email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
     )
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,

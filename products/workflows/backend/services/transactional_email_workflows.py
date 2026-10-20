@@ -167,4 +167,5 @@ def update_transactional_email_workflow(
             base_live_updated_at=None,
             includes_staged_draft=False,
             validated_status=flow.status,
+            keeps_live_sensitivity=False,
         )

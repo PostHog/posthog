@@ -613,10 +613,10 @@ export class SesWebhookHandler {
             timestamp?: string
         }[]
     }> {
-        logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
+        // Payloads carry recipients and clicked links, including reset links from sensitive emails,
+        // so the logs keep identifiers only.
         const parsed = this.parseIncomingBody(opts.body)
-
-        logger.info('[SesWebhookHandler] parsed', { parsed })
+        logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
 
         // When verification is required the message must be a signed SNS envelope. Raw deliveries
         // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
@@ -624,7 +624,10 @@ export class SesWebhookHandler {
             if (!('envelope' in parsed)) {
                 return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
             }
-            logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
+            logger.info('[SesWebhookHandler] verifying signature', {
+                type: parsed.envelope.Type,
+                messageId: parsed.envelope.MessageId,
+            })
             const ok = await this.verifySnsSignature(parsed.envelope)
             logger.info('[SesWebhookHandler] signature verified', { ok })
             if (!ok) {
@@ -713,7 +716,10 @@ export class SesWebhookHandler {
         }[] = []
 
         for (const rec of records) {
-            logger.info('[SesWebhookHandler] processing record', { rec })
+            logger.info('[SesWebhookHandler] processing record', {
+                eventType: rec.eventType,
+                messageId: rec.mail.messageId,
+            })
             // Prefer the custom MIME header (carries the full signed code including distinct_id,
             // unbounded). Fall back to the SES EmailTag for messages sent before the header carrier
             // was added, or where the configuration set hasn't enabled `IncludeOriginalHeaders`.

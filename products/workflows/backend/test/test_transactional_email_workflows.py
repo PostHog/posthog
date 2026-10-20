@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.integration import Integration
+from posthog.models.scoping import team_scope
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -24,6 +25,8 @@ from products.workflows.backend.facade.transactional_emails import (
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
+from products.workflows.backend.services.hog_flow_revisions import restore_revision
+from products.workflows.backend.services.hog_flow_writes import publish_confirm_value, publish_draft
 
 
 def _content(
@@ -85,6 +88,25 @@ class TestTransactionalEmailWorkflows(BaseTest):
             .values_list("version", flat=True)
         )
         assert list(versions) == [1, 2]
+
+    def test_publishing_an_older_version_keeps_the_protection_set_on_the_template(self):
+        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+        update_transactional_email_workflow(
+            team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content(sensitive=True)
+        )
+
+        with team_scope(self.team.id):
+            restore_revision(hog_flow_id=flow_id, version=1, overwrite=False, expected_draft_updated_at=None)
+            draft_updated_at = HogFlow.objects.get(id=flow_id).draft_updated_at
+            publish_draft(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                hog_flow_id=flow_id,
+                previewed_value=publish_confirm_value(hog_flow_id=flow_id, draft_updated_at=draft_updated_at),
+                validate=lambda _state, content: content,
+            )
+
+        assert HogFlow.objects.get(id=flow_id).actions[1]["config"]["sensitive"] is True
 
     def test_the_stored_workflow_passes_the_workflows_api_validation(self):
         flow = HogFlow.objects.get(

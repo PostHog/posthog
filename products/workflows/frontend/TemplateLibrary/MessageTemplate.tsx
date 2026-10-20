@@ -182,9 +182,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         <div className="min-w-0">
                                             <div className="font-semibold">Protect sensitive data</div>
                                             <p className="text-secondary text-sm m-0 mt-1">
-                                                For emails with login codes or reset links. Sent emails keep a
-                                                placeholder instead of their content, and clicked links are recorded
-                                                without their query string.
+                                                For emails with login codes or reset links. PostHog keeps no copy of
+                                                what each email contained, and clicked links keep only the site address.
                                             </p>
                                         </div>
                                     </div>
@@ -232,7 +231,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Transactional
                                 </LemonTag>
                                 {originalTemplate.sensitive && (
-                                    <Tooltip title="Sent emails keep a placeholder instead of their content, and clicked links are recorded without their query string.">
+                                    <Tooltip title="PostHog keeps no copy of what each email contained, and clicked links keep only the site address.">
                                         <LemonTag
                                             type="highlight"
                                             icon={<IconLock />}

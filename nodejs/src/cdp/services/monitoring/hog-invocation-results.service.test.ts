@@ -3,7 +3,9 @@ import { DateTime } from 'luxon'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
 import { createExampleInvocation } from '../../_tests/fixtures'
+import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CdpOutput } from '../../cdp-services'
 import {
     HogInvocationResultRow,
@@ -140,6 +142,35 @@ describe('HogInvocationResultsService', () => {
             const decoded = JSON.stringify(globals)
             expect(decoded).not.toContain('sk-super-secret')
             expect(decoded).not.toContain('abc123')
+        })
+
+        it.each([
+            ['an ordinary email', false, { code: '482913' }],
+            ['a sensitive email', true, undefined],
+        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, variables) => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        email: {
+                            type: 'function_email',
+                            config: { template_id: 'template-email', sensitive, inputs: {} },
+                        } as any,
+                    },
+                    edges: [],
+                })
+                .build()
+            service.queueLifecycleRow(
+                createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } }),
+                'running'
+            )
+            await service.flush()
+
+            const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
+                string,
+                any
+            >
+            expect(globals.variables).toEqual(variables)
+            expect(globals.event?.uuid).toBeDefined()
         })
 
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {

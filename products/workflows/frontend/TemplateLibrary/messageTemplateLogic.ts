@@ -62,8 +62,8 @@ export interface messageTemplateLogicValues {
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
     isMakingTransactional: boolean
-    isSavingSensitive: boolean
     isSavingDraft: boolean
+    isSavingSensitive: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
     isTemplateValid: boolean
@@ -89,6 +89,7 @@ export interface messageTemplateLogicValues {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -112,6 +113,7 @@ export interface messageTemplateLogicValues {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -183,12 +185,6 @@ export interface messageTemplateLogicActions {
     makeTransactionalDone: (hogFlowId: string | null) => {
         hogFlowId: string | null
     }
-    setSensitive: (sensitive: boolean) => {
-        sensitive: boolean
-    }
-    setSensitiveDone: () => {
-        value: true
-    }
     replayDeferredExternalEdit: () => {
         value: true
     }
@@ -203,6 +199,7 @@ export interface messageTemplateLogicActions {
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -217,6 +214,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -274,6 +272,12 @@ export interface messageTemplateLogicActions {
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    setSensitive: (sensitive: boolean) => {
+        sensitive: boolean
+    }
+    setSensitiveDone: () => {
+        value: true
+    }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
     }
@@ -305,6 +309,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -320,6 +325,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -348,6 +354,7 @@ export interface messageTemplateLogicActions {
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -362,6 +369,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -377,6 +385,7 @@ export interface messageTemplateLogicActions {
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -391,6 +400,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -665,11 +675,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return form
             },
             saveTemplate: async (template) => {
-                // Saving the content publishes it, and the server clears the draft.
+                // Saving the content publishes it, and the server clears the draft. The sensitive setting
+                // saves on its own, so a publish never sends it and can't undo a change still in flight.
+                const { sensitive: _sensitive, ...content } = template
                 const saved =
                     template.id === 'new'
                         ? await api.messaging.createTemplate(template)
-                        : await api.messaging.updateTemplate(template.id, template)
+                        : await api.messaging.updateTemplate(template.id, content)
                 const { form, draft, published } = splitDraft(saved)
                 actions.setDraftState(draft, published)
                 return form

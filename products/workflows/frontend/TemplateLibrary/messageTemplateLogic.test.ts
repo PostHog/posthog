@@ -340,6 +340,7 @@ describe('messageTemplateLogic', () => {
             content: live,
             draft_content: draft,
             transactional_hog_flow_id: 'flow-id',
+            sensitive: false,
             updated_at: '2026-01-01T00:00:00Z',
         }
         let bodies: Record<string, unknown>[]
@@ -424,6 +425,7 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toHaveLength(1)
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
+            expect(bodies[0]).not.toHaveProperty('sensitive')
         })
     })
 
