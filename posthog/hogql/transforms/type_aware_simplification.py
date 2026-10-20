@@ -5,7 +5,6 @@ import math
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import cast
-from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -15,6 +14,7 @@ from posthog.hogql.observability import record_type_simplification
 from posthog.hogql.type_system import (
     RuntimeType,
     constant_type_from_runtime_type,
+    convert_literal_to_runtime_type,
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
 )
@@ -375,75 +375,12 @@ def _fold_constant_cast(source: ast.Expr, target_type: RuntimeType, allow_numeri
     if not allow_numeric and target_type.family in {"integer", "float", "decimal"}:
         return None
 
-    converted_value = _convert_literal_to_runtime_type(source.value, target_type)
+    converted_value = convert_literal_to_runtime_type(source.value, target_type)
     if converted_value is None:
         return None
 
     constant_type = constant_type_from_runtime_type(target_type.with_nullable(False))
     return ast.Constant(value=converted_value, type=constant_type, start=source.start, end=source.end)
-
-
-def _convert_literal_to_runtime_type(value: object, target_type: RuntimeType) -> object | None:
-    converter = _LITERAL_RUNTIME_TYPE_CONVERTERS.get(target_type.family)
-    if converter is None:
-        return None
-
-    try:
-        return converter(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-
-def _convert_integer_literal(value: object) -> int | None:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return int(value)
-    return None
-
-
-def _convert_float_literal(value: object) -> float | None:
-    if not isinstance(value, (int, float, str)) or isinstance(value, bool):
-        return None
-    result = float(value)
-    return result if math.isfinite(result) else None
-
-
-def _convert_boolean_literal(value: object) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int) and value in (0, 1):
-        return bool(value)
-    if isinstance(value, str) and value.lower() in {"true", "false"}:
-        return value.lower() == "true"
-    return None
-
-
-def _convert_uuid_literal(value: object) -> UUID | None:
-    if isinstance(value, UUID):
-        return value
-    if isinstance(value, str):
-        return UUID(value)
-    return None
-
-
-def _convert_date_literal(value: object) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        return date.fromisoformat(value)
-    return None
-
-
-_LITERAL_RUNTIME_TYPE_CONVERTERS: dict[str, Callable[[object], object | None]] = {
-    "integer": _convert_integer_literal,
-    "float": _convert_float_literal,
-    "boolean": _convert_boolean_literal,
-    "uuid": _convert_uuid_literal,
-    "date": _convert_date_literal,
-}
 
 
 def _fold_literal_json_call(node: ast.Call, dialect: HogQLDialect) -> ast.Constant | None:
