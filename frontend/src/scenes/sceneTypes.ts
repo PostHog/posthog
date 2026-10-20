@@ -130,6 +130,7 @@ export enum Scene {
     OAuthAuthorize = 'OAuthAuthorize',
     Onboarding = 'Onboarding',
     OnboardingCoupon = 'OnboardingCoupon',
+    OnboardingWelcome = 'OnboardingWelcome',
     OrganizationCreateFirst = 'OrganizationCreate',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',
@@ -346,6 +347,7 @@ export interface SceneConfig {
      * @default 'app'
      */
     layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
+    deferSceneMeasurementsDuringResize?: boolean
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

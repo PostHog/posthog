@@ -1309,6 +1309,11 @@
         "params": [],
         "scope": "project"
     },
+    "onboardingWelcome": {
+        "template": "/welcome",
+        "params": [],
+        "scope": "project"
+    },
     "organizationBilling": {
         "template": "/organization/billing",
         "params": [],
@@ -1489,6 +1494,11 @@
         "params": [],
         "scope": "project"
     },
+    "replayVisionNewScanner": {
+        "template": "/replay-vision/new/goal",
+        "params": [],
+        "scope": "project"
+    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1509,13 +1519,13 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerOverview": {
-        "template": "/replay-vision/{id}/overview",
+    "replayVisionScannerGoal": {
+        "template": "/replay-vision/{id}/goal",
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerTemplate": {
-        "template": "/replay-vision/{id}/template",
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
         "params": ["id"],
         "scope": "project"
     },
@@ -1526,11 +1536,6 @@
     },
     "replayVisionTab": {
         "template": "/replay-vision",
-        "params": [],
-        "scope": "project"
-    },
-    "replayVisionTemplates": {
-        "template": "/replay-vision/new/template",
         "params": [],
         "scope": "project"
     },
@@ -1598,6 +1603,11 @@
         "template": "/signup",
         "params": [],
         "scope": "global"
+    },
+    "simpleOnboarding": {
+        "template": "/onboarding/simple",
+        "params": [],
+        "scope": "project"
     },
     "site": {
         "template": "/site/{url}",

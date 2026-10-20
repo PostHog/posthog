@@ -303,6 +303,7 @@ from .commission_junction.source import CommissionJunctionSource
 from .commslayer.source import CommslayerSource
 from .companycam.source import CompanycamSource
 from .concord.source import ConcordSource
+from .conecto_crm.source import ConectoCRMSource
 from .conekta.source import ConektaSource
 from .configcat.source import ConfigCatSource
 from .confluence.source import ConfluenceSource
@@ -679,6 +680,7 @@ from .kinde.source import KindeSource
 from .kion.source import KionSource
 from .kisi.source import KisiSource
 from .kissmetrics.source import KissmetricsSource
+from .klar.source import KlarSource
 from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
@@ -725,7 +727,10 @@ from .linkedin_pages.source import LinkedinPagesSource
 from .linkrunner.source import LinkrunnerSource
 from .linnworks.source import LinnworksSource
 from .linode.source import LinodeSource
+from .listmonk.source import ListmonkSource
+from .litellm.source import LiteLLMSource
 from .liveblocks.source import LiveblocksSource
+from .livestorm.source import LivestormSource
 from .llama_cloud.source import LlamaCloudSource
 from .lob.source import LobSource
 from .lodgify.source import LodgifySource
@@ -756,6 +761,7 @@ from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
 from .medusa.source import MedusaSource
 from .meetup.source import MeetupSource
+from .megaphone.source import MegaphoneSource
 from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
@@ -1260,6 +1266,7 @@ from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
 from .tracklution.source import TracklutionSource
 from .tradable_bits.source import TradableBitsSource
+from .trafficstars.source import TrafficStarsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource

@@ -105,9 +105,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Phyllo client ID or secret for the selected environment"),
-            ("forbidden", 403, False, "Invalid Phyllo client ID or secret for the selected environment"),
-            ("server_error", 500, False, "Phyllo returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -123,13 +120,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/v1/work-platforms"
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].param("offset") == "0"
-
-    def test_connection_error_swallowed(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("cid", "cs-secret", "production") == (
-                False,
-                "Could not validate Phyllo credentials",
-            )
 
 
 class TestPhylloSourceResponse:

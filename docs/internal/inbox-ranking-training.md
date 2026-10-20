@@ -43,7 +43,7 @@ Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
 ## Row budget
 
 A feature set can limit the rows one head keeps (`max_examples_per_head`).
-The report-embedding family sets it to 100,000.
+The report-embedding sets set it to 250,000.
 The budget limits history, not the rows inside a day:
 
 - The head's examples are grouped by report-creation day, newest first.

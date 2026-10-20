@@ -705,6 +705,9 @@ export class LogsIngestionConsumer {
                     usageStats,
                     transformationBatchBudget
                 )
+                await this.deps.teamManager.setTeamsIngestedData(
+                    rateLimiterAllowedMessages.map((message) => message.teamId)
+                )
                 await this.emitUsageMetrics(usageStats)
                 // Best-effort flush of transformation app metrics + function logs; never block the data path
                 if (this.deps.logsTransformer) {

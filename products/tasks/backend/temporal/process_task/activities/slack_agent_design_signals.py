@@ -147,9 +147,8 @@ def _agent_proxy_base_url() -> str | None:
 
     Prefer the in-cluster URL (skips the ingress/CDN round-trip, and exists on envs without a
     public proxy FQDN), then the public URL the browser uses, then the ingest URL. The ingest URL
-    is the single local opt-in — ``_is_sandbox_event_ingest_enabled`` keys off it and mprocs runs
-    the proxy on :8003 — and the proxy serves ingest and stream on the same host, so it doubles as
-    a read base locally.
+    is the single local opt-in for the proxy (mprocs runs it on :8003), and the proxy serves
+    ingest and stream on the same host, so it doubles as a read base locally.
     """
     return (
         settings.TASKS_AGENT_PROXY_INTERNAL_URL
