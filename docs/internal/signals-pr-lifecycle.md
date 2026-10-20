@@ -282,3 +282,5 @@ Paid continuation after trial exhaustion checks billing with a three-second conn
 Report admission and the transition to in-progress commit in one transaction. A failed transition rolls back the report reservation and funding snapshot.
 Direct report attempts release their reservations when funding setup fails or is canceled.
 Async report and LLM stages run billing checks on the general database thread pool, outside report transactions.
+
+The minute-level spend recovery sweep expires stale queued sweeps and selects only incomplete receipts with persisted trial sources. The report-reservation fallback checks at most 100 rows per sweep, advancing a shared cursor in UUID order and wrapping at the end. Active owners and deleted projects therefore cannot keep later abandoned reservations out of the scan. Partial indexes cover both recovery scans.

@@ -3804,7 +3804,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
             GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks"),
             GinIndex(fields=["billing_amounts"], name="signals_spend_billing_days"),
             models.Index(
-                fields=["updated_at"], condition=models.Q(accounting_failed=True), name="signals_spend_incomplete"
+                fields=["updated_at"],
+                condition=models.Q(accounting_failed=True) & ~models.Q(trial_sources={}),
+                name="signals_spend_incomplete",
             ),
         ]
         constraints = [

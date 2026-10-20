@@ -61,6 +61,10 @@ def recover_spend(team_id: int, spend_id: str) -> None:
 def recover_incomplete_spend() -> None:
     release_abandoned_report_reservations()
     for spend in (
-        SignalSpend.objects.unscoped().filter(accounting_failed=True).order_by("updated_at").only("id", "team_id")[:100]
+        SignalSpend.objects.unscoped()
+        .filter(accounting_failed=True)
+        .exclude(trial_sources={})
+        .order_by("updated_at")
+        .only("id", "team_id")[:100]
     ):
         recover_spend.apply_async(args=(spend.team_id, str(spend.id)), expires=60)

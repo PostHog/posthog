@@ -15,9 +15,17 @@ class Migration(migrations.Migration):
 
     operations = [
         SafeAddIndexConcurrently(
+            model_name="signaltrialreportreservation",
+            index=models.Index(
+                condition=models.Q(status="reserved", active_attempts__gt=0, attempt_run_ids__len__gt=0),
+                fields=["id"],
+                name="signals_trial_report_pending",
+            ),
+        ),
+        SafeAddIndexConcurrently(
             model_name="signalspend",
             index=models.Index(
-                condition=models.Q(("accounting_failed", True)),
+                condition=models.Q(accounting_failed=True) & ~models.Q(trial_sources={}),
                 fields=["updated_at"],
                 name="signals_spend_incomplete",
             ),

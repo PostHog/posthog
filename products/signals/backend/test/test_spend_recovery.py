@@ -1,16 +1,23 @@
-from uuid import uuid4
+from datetime import timedelta
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.core.cache import cache
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team
 
 from products.signals.backend.facade.trial import start_task_trial
 from products.signals.backend.models import SignalSpend
-from products.signals.backend.spend import record_task_spend
+from products.signals.backend.spend import record_llm_spend, record_task_spend
 from products.signals.backend.spend_recovery import recover_incomplete_spend, recover_spend
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.trial.tasks import REPORT_RESERVATION_RECOVERY_CURSOR_KEY
 from products.tasks.backend.facade.contracts import TaskRunActualCost
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.models import Task, TaskRun
@@ -23,6 +30,8 @@ class TestTrialSpendRecovery(BaseTest):
         self.flag.start()
         self.addCleanup(self.flag.stop)
         self.policy = TrialPolicy(self.team)
+        cache.delete(REPORT_RESERVATION_RECOVERY_CURSOR_KEY)
+        self.addCleanup(cache.delete, REPORT_RESERVATION_RECOVERY_CURSOR_KEY)
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
@@ -115,6 +124,67 @@ class TestTrialSpendRecovery(BaseTest):
         grant.refresh_from_db()
         assert grant.settled_microusd == 50
         assert grant.incomplete_sources == 0
+
+    @parameterized.expand([("active_owners", True), ("deleted_team", False)])
+    def test_reservation_scan_advances_past_full_batch_and_wraps(self, _name: str, team_exists: bool) -> None:
+        grant = self.claim()
+        task = Task.objects.create(team=self.team, title="Recovery scan", origin_product="signals_scout")
+        active, abandoned = task.create_run(), task.create_run()
+        TaskRun.objects.filter(id=abandoned.id).update(status=TaskRun.Status.FAILED)
+        reservations = [
+            SignalTrialReportReservation(
+                id=UUID(int=index + 1),
+                team_id=self.team.id if team_exists else -1,
+                grant=grant,
+                report_id=uuid4(),
+                active_attempts=1,
+                attempt_run_ids=[active.id],
+            )
+            for index in range(100)
+        ]
+        last = SignalTrialReportReservation(
+            id=UUID(int=101),
+            team_id=self.team.id,
+            grant=grant,
+            report_id=uuid4(),
+            active_attempts=1,
+            attempt_run_ids=[abandoned.id],
+        )
+        SignalTrialReportReservation.objects.bulk_create([*reservations, last])
+        with patch("products.signals.backend.spend_recovery.recover_spend.apply_async"):
+            recover_incomplete_spend()
+            last.refresh_from_db()
+            assert last.status == SignalTrialReportReservation.Status.RESERVED
+            recover_incomplete_spend()
+            last.refresh_from_db()
+            assert last.status == SignalTrialReportReservation.Status.RELEASED
+            assert last.active_attempts == 0
+            TaskRun.objects.filter(id=active.id).update(status=TaskRun.Status.FAILED)
+            recover_incomplete_spend()
+        remaining = SignalTrialReportReservation.objects.unscoped().filter(
+            status=SignalTrialReportReservation.Status.RESERVED
+        )
+        assert remaining.count() == (0 if team_exists else 100)
+
+    def test_recovery_sweep_skips_legacy_failures_without_using_its_batch_budget(self) -> None:
+        SignalSpend.objects.bulk_create(
+            [SignalSpend(team=self.team, signal_id=uuid4(), accounting_failed=True) for _ in range(100)]
+        )
+        SignalSpend.objects.for_team(self.team.id).update(updated_at=timezone.now() - timedelta(days=1))
+        grant = self.claim()
+        signal_id = uuid4()
+        record_llm_spend(
+            "pending-cost",
+            team_id=self.team.id,
+            signal_id=str(signal_id),
+            stage="research",
+            token_cost_microusd=None,
+            trial_grant_id=str(grant.id),
+        )
+        pending = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+        with patch("products.signals.backend.spend_recovery.recover_spend.apply_async") as dispatch:
+            recover_incomplete_spend()
+        dispatch.assert_called_once_with(args=(self.team.id, str(pending.id)), expires=60)
 
     def test_terminal_accounting_failure_recovers_from_pre_execution_receipt(self) -> None:
         grant = self.claim()

@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from django.core.cache import cache
+
 from celery import shared_task
 
 from posthog.models import Team
@@ -9,6 +11,8 @@ from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend.facade.api import has_active_task_runs, iter_trial_task_runs
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.facade.contracts import TaskRunDTO
+
+REPORT_RESERVATION_RECOVERY_CURSOR_KEY = "signals:trial-report-recovery:cursor"
 
 
 def release_abandoned_report_attempts(policy: TrialPolicy, run_id: UUID) -> None:
@@ -59,13 +63,21 @@ def cancel_trial_grant(team_id: int, grant_id: str) -> None:
 def release_abandoned_report_reservations() -> None:
     # A worker can disappear inside a direct-report request. Task termination is
     # already durable, so reservations can release abandoned attempts from it.
-    for reservation in (
+    pending = (
         SignalTrialReportReservation.objects.unscoped()
         .filter(status=SignalTrialReportReservation.Status.RESERVED, active_attempts__gt=0, attempt_run_ids__len__gt=0)
-        .order_by("created_at")[:100]
-    ):
+        .order_by("id")
+    )
+    cursor = cache.get(REPORT_RESERVATION_RECOVERY_CURSOR_KEY)
+    batch = list((pending.filter(id__gt=cursor) if cursor else pending)[:100])
+    if not batch and cursor:
+        batch = list(pending[:100])
+    for reservation in batch:
         # nosemgrep: celery-task-team-scope-audit -- Cross-team scanner resolves each reservation's explicit team identity.
         team = Team.objects.filter(id=reservation.team_id).first()
         if team is not None:
             for run_id in reservation.attempt_run_ids:
                 release_abandoned_report_attempts(TrialPolicy(team), run_id)
+    if batch:
+        # Advance past live owners and deleted teams so they cannot starve later rows.
+        cache.set(REPORT_RESERVATION_RECOVERY_CURSOR_KEY, str(batch[-1].id), timeout=None)
