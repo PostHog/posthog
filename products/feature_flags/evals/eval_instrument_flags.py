@@ -53,6 +53,7 @@ from typing import Any
 
 from django.conf import settings
 
+from products.feature_flags.evals.offline_config import offline_suite
 from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -145,6 +146,11 @@ async def eval_instrument_flags(ctx: EvalContext) -> None:
 
     await SandboxedPrivateEval(
         experiment_name="sandboxed-feature-flags-instrument-trigger-cli",
+        offline_suite=offline_suite(
+            "feature_flags/eval_instrument_flags::eval_instrument_flags",
+            metrics=["instrument_flags_skill_triggered", "edited_a_file"],
+        ),
+        send_to_posthog=True,
         cases=cases,
         scorers=[
             SkillTriggered(SKILL_NAME, name=SCORER_NAME),

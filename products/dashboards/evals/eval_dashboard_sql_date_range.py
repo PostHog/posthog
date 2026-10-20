@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.evals.offline_config import offline_suite
 from products.dashboards.evals.scorers import SQLTilesFollowDashboardDateRange
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -23,6 +24,11 @@ def seed_team(context: CustomPromptSandboxContext) -> dict[str, Any]:
 async def eval_dashboard_sql_date_range(ctx: EvalContext) -> None:
     await SandboxedPrivateEval(
         experiment_name="sandboxed-dashboards-sql-date-range-cli",
+        offline_suite=offline_suite(
+            "dashboards/eval_dashboard_sql_date_range::eval_dashboard_sql_date_range",
+            metrics=["sql_tiles_follow_dashboard_date_range"],
+        ),
+        send_to_posthog=True,
         cases=[
             SandboxedEvalCase(
                 name="sql_tiles_without_date_hint",

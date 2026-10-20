@@ -1,7 +1,7 @@
 # Offline evaluation result reporting
 
 The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
-Public suites under `products/posthog_ai/evals/` and `products/slack_app/evals/` also publish those results to PostHog's offline experiment API when configured.
+Suites under `products/posthog_ai/evals/` and the product-owned `products/*/evals/` trees also publish those results to PostHog's offline experiment API when a publishing credential is configured.
 The Signals pytest suites reuse the same publisher for their completed results.
 Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
@@ -37,14 +37,16 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 
 ## Configured offline experiment suites
 
-Configured public PostHog AI and Slack app suites opt into the offline experiment publisher, including both sandboxed and one-shot suites.
-The 11 experiment-skill suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+All discovered shared-harness suites are enrolled in the offline experiment publisher, including both sandboxed and one-shot suites.
+The experiment-skill, Feature Flags, Dashboards, turn-suggestion and Business Knowledge retrieval suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
+Public suites retain their Braintrust uploads during enrollment. Braintrust also remains the execution engine for every shared-harness suite, including those whose results publish only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses this upload too.
 
-The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and [Slack app catalog](../../products/slack_app/evals/offline_config.py) pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
+The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and each product's `evals/offline_config.py` pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
 Suites select their own metrics from the catalog; sandboxed suites also include the harness-provided `exit_code_zero` metric.
 The SQL suite retains its seven existing scorer versions.
+The discovery-wide enrollment test checks every suite's publishing flag, stable key, scorer coverage, pinned UUIDs and ownership tags without executing agents or judges.
 Provide the API key through the environment before running the suite:
 
 | Variable                       | Purpose                                                                                                                                                                                                                                  |
@@ -90,6 +92,12 @@ Score definitions and experiment runs use the same team and component tags:
 | -------------------- | ------------------------------------------------------------------------------------------- |
 | PostHog AI           | `team:surfaces`, `component:posthog-ai/<domain>` (for example `sql` or `product-analytics`) |
 | Slack app            | `team:surfaces`, `component:slack-app/<area>` (for example `followup-classifier`)           |
+| Conversations        | `team:conversations`, `component:conversations`                                             |
+| Business Knowledge   | `team:conversations`, `component:business-knowledge`                                        |
+| Data Catalog         | `team:data-modeling`, `component:data-catalog`                                              |
+| Notebooks            | `team:data-tools`, `component:notebooks`                                                    |
+| Feature Flags        | `team:feature-flags`, `component:feature-flags`                                             |
+| Dashboards           | `team:product-analytics`, `component:dashboards`                                            |
 | Signals grouping     | `team:self-driving`, `component:signals/grouping`                                           |
 | Signals scout safety | `team:self-driving`, `component:signals/scout-safety`                                       |
 
@@ -98,6 +106,34 @@ Score definitions and experiment runs use the same team and component tags:
 To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
 
 Each prepared experiment's tag update is attempted once per publisher, including when delivery pauses and resumes. A failed or interrupted replacement is not repeated automatically, because it may already have succeeded or someone may have edited the tags afterward. Inspect the experiment's tags before manually retrying a replacement.
+
+### Additional one-shot suites
+
+Run these through the same harness and publishing lifecycle:
+
+```bash
+hogli evals turn_suggestions/eval_turn_suggestions::eval_turn_suggestions
+hogli evals business_knowledge/eval_retrieval::eval_retrieval
+hogli evals conversations/eval_support_reply::eval_support_reply
+```
+
+Turn suggestions reuse the labeled benchmark cases and the configured System One judge, once per case.
+`TURN_SUGGESTIONS_EVAL_THRESHOLD` overrides the production show threshold for the run; it must be between 0 and 1.
+Case metadata records the threshold and requested judge model, and outputs retain the selected offer, probability, outcome and duration.
+An accepted optional offer counts as correct; an unavailable judgment reports an error.
+The existing `turn_suggestions_benchmark` command remains available for multi-endpoint comparisons and threshold sweeps; those modes are not part of this suite.
+
+Business Knowledge retrieval reuses the labeled `retrieval_eval.yaml` corpus and queries.
+Each case seeds an isolated team, searches the corpus and cleans up the team.
+Its boolean score checks the existing found/not-found expectation, including queries expected to return no results.
+It does not score source relevance or replace the ordinary retrieval unit tests.
+
+Support reply retains its existing behavior: mocked by default, or live when `SUPPORT_REPLY_EVAL_LIVE=1`.
+Both case metadata and output identify the mode so runs can be compared within the same mode.
+
+These suites use the existing one-shot infrastructure and credential prerequisites described in the harness guide.
+The turn-suggestion judge additionally needs its existing System One configuration; selecting the suite does not configure that service.
+MCP saved-report grading, semantic-layer canary commands and ReviewHog campaigns retain their separate workflows and are not enrolled by these wrappers.
 
 ### CI configuration
 
@@ -145,7 +181,7 @@ Existing local logs, enabled case exports, and Braintrust results remain availab
 Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
 Each suite declares its destination `project_id`, selects at least one metric in `scorer_kinds`, and pins the corresponding immutable version UUIDs in `scorer_versions`.
 These fields belong to `OfflineEvalSuite` in code. Scorer version UUIDs must be distinct for the suite's enrolled metrics.
-The AI and Slack catalog helpers add `exit_code_zero` for sandboxed suites. One-shot suites pass `suite_kind=SUITE_KIND` to enroll only their declared metrics.
+Catalog helpers add `exit_code_zero` for sandboxed suites. One-shot suites pass `suite_kind=SUITE_KIND` to enroll only their declared metrics.
 Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
