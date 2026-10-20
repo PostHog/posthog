@@ -28,7 +28,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import (
+    ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY,
+    CohortSerializer,
+    get_flags_blocking_cohort_deletion,
+)
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -110,6 +114,7 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_create_flags,
     user_can_edit_flag,
+    validate_flag_restorable,
 )
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
@@ -1984,7 +1989,8 @@ class ExperimentService:
         manually stays archived. The flag stays disabled either way; re-enabling it is
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
-        when the caller lacks feature_flag:write scope or editor access to the flag.
+        when the caller lacks feature_flag:write scope or editor access to the flag. The flag
+        also stays archived when one of its release conditions targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -2001,6 +2007,18 @@ class ExperimentService:
             return
 
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+            return
+
+        try:
+            validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+        except ValidationError:
+            logger.warning(
+                "experiment_flag_unarchive_skipped",
+                experiment_id=experiment.pk,
+                flag_id=feature_flag.pk,
+                team_id=self.team.pk,
+                reason="flag_targets_missing_or_deleted_cohort",
+            )
             return
 
         # Gated write inside unarchive_experiment's transaction: safe because an
@@ -2450,8 +2468,8 @@ class ExperimentService:
         The ids come from the EXPOSURE_FROZEN_COHORT_KEY stamps in the flag's filters, which
         round-trip through the flag API and are therefore user-editable — treat them as claims,
         not facts. Only delete a cohort verifiable as an orphaned freeze snapshot: named like one,
-        and no longer referenced by any active flag (the same protection the cohort API enforces
-        on delete). Anything failing verification is skipped rather than fatal — a leftover
+        and no longer referenced by any flag that blocks its deletion through the cohort API.
+        Anything failing verification is skipped rather than fatal — a leftover
         cohort is cheaper than a blocked lifecycle action or a hijacked deletion.
         """
         for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
@@ -2463,12 +2481,12 @@ class ExperimentService:
                     reason="not_a_freeze_snapshot_name",
                 )
                 continue
-            if get_active_flags_using_cohort(cohort):
+            if get_flags_blocking_cohort_deletion(cohort):
                 logger.warning(
                     "experiment_freeze_snapshot_cleanup_skipped",
                     cohort_id=cohort.pk,
                     team_id=self.team.pk,
-                    reason="still_referenced_by_active_flags",
+                    reason="still_referenced_by_flags",
                 )
                 continue
             cohort.deleted = True

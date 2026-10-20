@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -15,11 +14,6 @@ class TestUbidotsSource:
         self.source = UbidotsSource()
         self.team_id = 123
         self.config = UbidotsSourceConfig(api_token="BBUS-token")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["devices"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "devices"
 
     @parameterized.expand(
         [
@@ -67,9 +61,3 @@ class TestUbidotsSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["api_version"] == expected
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Ubidots schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

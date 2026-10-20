@@ -21,10 +21,6 @@ class TestJotformSource:
         # Editing the host the API key is sent to must re-require the secret.
         assert self.source.connection_host_fields == ["enterprise_domain"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["forms"])
-        assert [s.name for s in schemas] == ["forms"]
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

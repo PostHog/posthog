@@ -53,6 +53,7 @@ from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
@@ -485,6 +486,81 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+APP_EVALUATION_CONTEXT = "posthog-web-app"
+
+
+def flags_for_app_evaluation_context(
+    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """
+    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts.
+    """
+    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
+    if flags is None:
+        return None
+    excluded = {
+        definition["key"]
+        for definition in definitions or []
+        if definition.get("evaluation_contexts") and APP_EVALUATION_CONTEXT not in definition["evaluation_contexts"]
+    }
+    return {key: value for key, value in flags.items() if key not in excluded}
+
+
+@frozen
+class _FlagIdentity:
+    person_properties: dict[str, Any]
+    groups: dict[str, str]
+    group_properties: dict[str, dict[str, Any]]
+
+
+def _flag_identity(current_user: dict[str, Any], joined_at: str) -> _FlagIdentity:
+    """
+    Mirrors `userIdentity()` in `frontend/src/lib/utils/posthogIdentity.ts`, which sends these inputs to /flags.
+    Local evaluation drops any flag it cannot decide from them, and decides a flag differently when they differ.
+    """
+    groups: dict[str, str] = {}
+    group_properties: dict[str, dict[str, Any]] = {}
+    organization = current_user.get("organization")
+    team = current_user.get("team")
+    metadata = (organization.get("metadata") or {}) if organization else {}
+    if team:
+        groups["project"] = team["uuid"]
+        group_properties["project"] = {
+            "id": team["id"],
+            "uuid": team["uuid"],
+            "name": team["name"],
+            "ingested_event": team["ingested_event"],
+            "is_demo": team["is_demo"],
+            "timezone": team["timezone"],
+            "instance_tag": metadata.get("instance_tag"),
+        }
+    if organization:
+        groups["organization"] = organization["id"]
+        group_properties["organization"] = {
+            "id": organization["id"],
+            "name": organization["name"],
+            "slug": organization["slug"],
+            "created_at": organization["created_at"],
+            "available_product_features": organization["available_product_features"],
+            "member_count": organization["member_count"],
+            "project_count": len(organization["teams"]),
+            **metadata,
+        }
+        if organization.get("customer_id"):
+            groups["customer"] = organization["customer_id"]
+    groups["instance"] = settings.SITE_URL
+    group_properties["instance"] = {"site_url": settings.SITE_URL}
+    return _FlagIdentity(
+        person_properties={
+            "email": None if current_user["anonymize_data"] else current_user["email"],
+            "joined_at": joined_at,
+        },
+        groups=groups,
+        group_properties=group_properties,
+    )
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -714,37 +790,21 @@ def _build_template_context(
     context["posthog_app_context"] = posthog_app_context
 
     if posthog_distinct_id:
-        groups = {}
-        group_properties: dict[str, dict[str, str | int]] = {}
-        person_properties = {}
-        if request.user and request.user.is_authenticated:
-            user = cast("User", request.user)
-            person_properties["email"] = user.email
-            person_properties["joined_at"] = user.date_joined.isoformat()
-            if user.organization:
-                groups["organization"] = str(user.organization.id)
-                group_properties["organization"] = {
-                    "name": user.organization.name,
-                    "created_at": user.organization.created_at.isoformat(),
-                }
-            if user.team:
-                groups["project"] = str(user.team.uuid)
-                group_properties["project"] = {
-                    "id": user.team.id,
-                    "uuid": str(user.team.uuid),
-                    "name": user.team.name,
-                }
+        user = cast("User", request.user)
+        identity = _flag_identity(posthog_app_context["current_user"], user.date_joined.isoformat())
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):
             feature_flags = posthoganalytics.get_all_flags(
                 posthog_distinct_id,
                 only_evaluate_locally=True,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
+                person_properties=identity.person_properties,
+                groups=identity.groups,
+                group_properties=identity.group_properties,
             )
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
-        posthog_bootstrap["featureFlags"] = feature_flags
+        posthog_bootstrap["featureFlags"] = flags_for_app_evaluation_context(
+            feature_flags, posthoganalytics.feature_flag_definitions()
+        )
 
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
@@ -1826,7 +1886,10 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[(at_location + 1) :], False)
+        return self.is_generic_domain(email[(at_location + 1) :])
+
+    def is_generic_domain(self, domain: str) -> bool:
+        return self.emails.get(domain, False)
 
 
 # maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the

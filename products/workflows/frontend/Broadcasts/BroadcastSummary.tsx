@@ -14,6 +14,7 @@ import {
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -39,6 +40,7 @@ import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { ComposerDraftFeedback } from './ComposerDraftFeedback'
+import { QuillBroadcastActionsMenu } from './QuillBroadcastActionsMenu'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -282,6 +284,7 @@ export function BroadcastSummary(): JSX.Element {
         useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
 
     const confirmMoveToDraft = (): void => {
@@ -363,7 +366,24 @@ export function BroadcastSummary(): JSX.Element {
               }
             : null,
     ]
-    const actionsMenu = (
+    const actionsMenu = todayRailNav ? (
+        <QuillBroadcastActionsMenu
+            items={actionItems.flatMap((item) =>
+                item
+                    ? [
+                          {
+                              label: item.label,
+                              onClick: item.onClick,
+                              disabledReason: 'disabledReason' in item ? item.disabledReason : undefined,
+                              danger: 'status' in item && item.status === 'danger',
+                              'data-attr': item['data-attr'],
+                          },
+                      ]
+                    : []
+            )}
+            loading={movingToDraft || duplicating}
+        />
+    ) : (
         <LemonMenu items={actionItems}>
             <LemonButton
                 type="secondary"
