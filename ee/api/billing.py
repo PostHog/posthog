@@ -579,7 +579,16 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
 
 
 class BillingSpendTimeSeriesResponseSerializer(BillingTimeSeriesResponseSerializer):
-    pricing_reset_dates = serializers.ListField(child=serializers.DateField(), required=False)
+    pricing_reset_dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        help_text=(
+            "Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period "
+            "assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on "
+            "filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list "
+            "does not establish whether a renewal occurred."
+        ),
+    )
 
 
 class BillingTeamOptionsResponseSerializer(serializers.Serializer):

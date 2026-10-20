@@ -120,12 +120,16 @@ If the user asks about dollars, call `posthog:billing-spend-get` with the same d
 range and breakdowns. Treat spend as an estimate/attribution layer over usage, not as a
 replacement for usage investigation.
 
-If spend spikes or drops while usage volume looks stable, check whether the date is near
-the start of a new billing period. Tiered pricing can make spend move differently from
-usage because tiers reset each period. The first tier is often free, and lower paid tiers
-are usually more expensive per unit. In this case, call `posthog:billing-overview-get` and inspect
-the product/addon `tiers`, `free_allocation`, and display-unit fields before treating the
-movement as a real usage spike or drop.
+If spend spikes or drops while usage volume looks stable, check the spend response's `pricing_reset_dates`.
+These are usage dates where the organization's known billing-period assignment changes.
+They apply across the organization, including when the response is filtered to a product or project.
+Daily usage is reported after the day ends, so the spend chart's “Pricing tiers reset” marker can differ from the usage chart's calendar “Billing period starts” marker.
+Keep usage on the day it occurred when comparing the charts.
+If reset dates are missing or empty, explain that the response does not establish a pricing reset; the calendar renewal date alone cannot confirm one.
+
+At a pricing reset, free allowances and volume discounts start again.
+The first tier is often free, and lower paid tiers are usually more expensive per unit.
+When billing access allows it, call `posthog:billing-overview-get` and inspect the product/addon `tiers`, `free_allocation`, and display-unit fields to explain the spend movement.
 
 ### Step 3. Attribute the usage
 
