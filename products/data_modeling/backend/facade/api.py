@@ -55,6 +55,7 @@ _LAZY = {
     "MaterializationFailedError": "facade.contracts",
     "MaterializationForbiddenError": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
+    "SchedulingUnavailableError": "models.datawarehouse_saved_query",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
