@@ -4248,7 +4248,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const tiles = dashboard.tiles.map((tile) => {
                 const previousTile = previousTiles.get(tile.id)
                 if (previousTile && !layoutsPersisted) {
-                    return { ...tile, layouts: previousTile.layouts }
+                    return { ...tile, layouts: previousTile.layouts, group_key: previousTile.group_key }
                 }
                 const draftSm = previousTile?.layouts?.sm
                 const originalSm = originalLayouts?.[tile.id]?.sm
@@ -4260,7 +4260,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         draftSm.w !== originalSm.w ||
                         draftSm.h !== originalSm.h)
                 ) {
-                    return { ...tile, layouts: previousTile.layouts }
+                    return { ...tile, layouts: previousTile.layouts, group_key: previousTile.group_key }
                 }
                 return tile
             })

@@ -2454,6 +2454,27 @@ describe('dashboardLogic', () => {
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
+            it('keeps a tile in its unsaved group when another update echoes while editing', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                moveFirstTile()
+                const draftTile = logic.values.dashboard!.tiles[0]
+                logic.actions.setTileProperty(draftTile.id, { group_key: 'plans' })
+                const addedTile = { ...WIDGET_TILE, id: 999 }
+                const updatedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: [
+                        ...logic.values.dashboard!.tiles.map((tile) =>
+                            tile.id === draftTile.id ? { ...tile, group_key: null } : tile
+                        ),
+                        addedTile,
+                    ],
+                }
+
+                dashboardsModel.actions.updateDashboardSuccess(updatedDashboard)
+
+                expect(logic.values.dashboard!.tiles[0].group_key).toBe('plans')
+            })
+
             it('uses the server layout for tiles without draft changes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 const firstTile = logic.values.dashboard!.tiles[1]
