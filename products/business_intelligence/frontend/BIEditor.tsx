@@ -141,7 +141,7 @@ export function BIEditor({
                                     icon={<IconX />}
                                     size="xsmall"
                                     type="tertiary"
-                                    aria-label="Hide fields"
+                                    aria-label="Hide data panel"
                                     onClick={toggleFieldsPane}
                                     data-attr="bi-editor-close-fields"
                                 />
