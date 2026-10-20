@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { WorkflowSenderDomainNotice } from './WorkflowSenderDomainNotice'
 
 type WorkflowStatusBarProps = WorkflowLogicProps & {
     editorLayout: HogFlowEditorLayout
@@ -31,6 +32,7 @@ export function WorkflowStatusBar({
         isAutoSavePending,
         autoSaveEnabled,
         lastSavedAt,
+        senderDomainNotice,
     } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -48,13 +50,11 @@ export function WorkflowStatusBar({
         ? 'The live version keeps running until you publish.'
         : isActive
           ? 'Changes you make save as a draft.'
-          : isWaitingForDomain
-            ? 'Edits save now. Sending starts once every email domain is verified.'
-            : null
+          : null
     const autoSaveExplanation = isActive
         ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
         : isWaitingForDomain
-          ? 'Auto-save stores your edits now. Sending starts once every email domain is verified.'
+          ? 'Auto-save stores your changes as you edit. Sending starts once every email domain is verified.'
           : 'Draft workflows auto-save as you edit.'
 
     return (
@@ -91,9 +91,14 @@ export function WorkflowStatusBar({
                     ) : (
                         <LemonTag>Draft</LemonTag>
                     ))}
-                {showWorkflowStatus && statusExplanation && (
-                    <span className="text-xs text-secondary truncate">{statusExplanation}</span>
-                )}
+                {showWorkflowStatus &&
+                    (senderDomainNotice ? (
+                        <WorkflowSenderDomainNotice notice={senderDomainNotice} />
+                    ) : (
+                        statusExplanation && (
+                            <span className="text-xs text-secondary truncate">{statusExplanation}</span>
+                        )
+                    ))}
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
                 toggle and History never shift as the narration or the timestamp changes. */}

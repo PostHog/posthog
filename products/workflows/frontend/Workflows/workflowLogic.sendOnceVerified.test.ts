@@ -12,6 +12,22 @@ import { workflowLogic } from './workflowLogic'
 const WORKFLOW_ID = 'wf-send-once-verified-1'
 const UNVERIFIED_SENDER = { id: 7, domain: 'example.com' }
 
+const emailStep = (from: Record<string, unknown>): HogFlow['actions'][number] =>
+    ({
+        id: 'email_node',
+        type: 'function_email',
+        name: 'Welcome email',
+        description: '',
+        created_at: 0,
+        updated_at: 0,
+        config: { template_id: 'template-email', inputs: { email: { value: { from, to: {}, subject: 'Hi' } } } },
+    }) as HogFlow['actions'][number]
+
+const withEmailStep = (workflow: HogFlow, from: Record<string, unknown>): HogFlow => ({
+    ...workflow,
+    actions: [workflow.actions[0], emailStep(from), workflow.actions[1]],
+})
+
 const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Welcome',
@@ -207,5 +223,39 @@ describe('workflowLogic send once verified', () => {
         await mountWith(makeWorkflow(overrides))
 
         expect(logic.values.showStartedSendingNotice).toBe(false)
+    })
+
+    it.each([
+        ['an email step has no sender', 'draft', {}, [], true, { stage: 'no_domain', url: '/workflows/channels' }],
+        [
+            'a draft sends from an unverified domain',
+            'draft',
+            { integrationId: 7 },
+            [UNVERIFIED_SENDER],
+            true,
+            { stage: 'unverified', domains: ['example.com'], url: '/workflows/channels' },
+        ],
+        [
+            'an enabled workflow waits for its domain',
+            'waiting_for_domain',
+            { integrationId: 7 },
+            [UNVERIFIED_SENDER],
+            true,
+            { stage: 'waiting', domains: ['example.com'], url: '/workflows/channels' },
+        ],
+        ['every sender is verified', 'active', { integrationId: 7 }, [], true, null],
+        ['the flag is off', 'draft', {}, [], false, null],
+    ] as const)('shows the sender domain notice when %s', async (_name, status, from, senders, flagOn, notice) => {
+        await mountWith(withEmailStep(makeWorkflow({ status, unverified_email_senders: [...senders] }), { ...from }), {
+            flagOn,
+        })
+
+        expect(logic.values.senderDomainNotice).toEqual(notice)
+    })
+
+    it('shows no sender domain notice for a workflow without an email step', async () => {
+        await mountWith(makeWorkflow())
+
+        expect(logic.values.senderDomainNotice).toBeNull()
     })
 })

@@ -68,6 +68,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { SenderDomainNotice, senderDomainNotice } from './senderDomainNotice'
 import { unverifiedSenderDomains } from './unverifiedSenderDomains'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { prefilledEmailContent, prefilledWorkflow, withEmailSender, withPrefilledEmail } from './workflowEmailPrefill'
@@ -265,6 +266,7 @@ export interface workflowLogicValues {
     dismissedStartedSendingNotices: Record<string, true>
     enablePromptDomains: string[] | null
     enablePromptOpen: boolean
+    senderDomainNotice: SenderDomainNotice | null
     showStartedSendingNotice: boolean
     startedSendingNoticeKey: string | null
     unverifiedSenderDomains: string[]
@@ -3000,6 +3002,11 @@ export interface workflowLogicMeta {
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         unverifiedSenderDomains: (originalWorkflow: HogFlow | null, featureFlags: FeatureFlagsSet) => string[]
         enablePromptDomains: (enablePromptOpen: boolean, unverifiedSenderDomains: string[]) => string[] | null
+        senderDomainNotice: (
+            workflow: HogFlow,
+            originalWorkflow: HogFlow | null,
+            featureFlags: FeatureFlagsSet
+        ) => SenderDomainNotice | null
         startedSendingNoticeKey: (originalWorkflow: HogFlow | null) => string | null
         showStartedSendingNotice: (
             startedSendingNoticeKey: string | null,
@@ -3767,6 +3774,17 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.enablePromptOpen, s.unverifiedSenderDomains],
             (enablePromptOpen: boolean, unverifiedSenderDomains: string[]): string[] | null =>
                 enablePromptOpen ? unverifiedSenderDomains : null,
+        ],
+        senderDomainNotice: [
+            (s) => [s.workflow, s.originalWorkflow, s.featureFlags],
+            (
+                workflow: HogFlow,
+                originalWorkflow: HogFlow | null,
+                featureFlags: FeatureFlagsSet
+            ): SenderDomainNotice | null =>
+                featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] && originalWorkflow
+                    ? senderDomainNotice(workflow, originalWorkflow)
+                    : null,
         ],
         startedSendingNoticeKey: [
             (s) => [s.originalWorkflow],

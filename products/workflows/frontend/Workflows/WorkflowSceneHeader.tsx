@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconClock, IconCopy, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -230,9 +230,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
-                                {workflow?.status === 'waiting_for_domain' && (
-                                    <LemonTag type="warning">Waiting for domain</LemonTag>
-                                )}
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Workflow}
                                     minAccessLevel={AccessControlLevel.Editor}
