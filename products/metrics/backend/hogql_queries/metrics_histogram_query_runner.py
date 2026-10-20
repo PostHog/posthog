@@ -8,7 +8,7 @@ upper bound, cell = observation count.
 
 import datetime as dt
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING
 
 from posthog.schema import (
     CachedMetricsHistogramQueryResponse,
@@ -24,12 +24,10 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.permissions import posthog_feature_flag_enabled
-from posthog.shared_link_user import SharedLinkUser
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
+from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
@@ -66,26 +64,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
         user_access_control.assert_access_level_for_resource("metrics", "viewer")
-        if not posthog_feature_flag_enabled(
-            METRICS_FEATURE_FLAG,
-            str(user.distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-        ):
-            raise UserAccessControlError("metrics", "viewer")
         return True
-
-    def _enforce_alpha_gate_for_anonymous_viewers(self) -> None:
-        user = cast("Optional[User | SharedLinkUser]", self.user)
-        if user is None or not user.is_anonymous:
-            return
-        if not posthog_feature_flag_enabled(
-            METRICS_FEATURE_FLAG,
-            str(getattr(user, "distinct_id", None) or f"shared-viewer-{self.team.pk}"),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-        ):
-            raise UserAccessControlError("metrics", "viewer")
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError(
@@ -93,7 +72,6 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         )
 
     def _calculate(self) -> MetricsHistogramQueryResponse:
-        self._enforce_alpha_gate_for_anonymous_viewers()
         date_range = metrics_query_date_range(self.team, self.query.dateRange)
         date_from = date_range.date_from()
         date_to = date_range.date_to()

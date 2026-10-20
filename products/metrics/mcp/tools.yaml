@@ -19,7 +19,6 @@ tools:
         title: Characterize metric anomaly
         description_file: ./prompts/characterize-metric-anomaly.md
         system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
-        feature_flag: metrics
     metric-attribute-values-list:
         operation: metrics_attribute_values_retrieve
         enabled: true
@@ -33,7 +32,6 @@ tools:
         description: >
             List the values of one attribute key of a metric, from the most frequent value to the least frequent. Use it
             to find the exact value for a filter, for example the service.name of a service.
-        feature_flag: metrics
         response:
             include:
                 - results
@@ -53,7 +51,6 @@ tools:
             query-metrics, or as a PromQL label name. In PromQL, service.name is service_name and other names with dots
             need quotes.
         system_prompt_hint: Find the labels of a metric before you filter or group it
-        feature_flag: metrics
         response:
             include:
                 - results
@@ -69,7 +66,6 @@ tools:
         title: List metric names
         description_file: ./prompts/metric-names-list.md
         system_prompt_hint: Discover which server/infrastructure metrics exist before querying them
-        feature_flag: metrics
         response:
             include:
                 - results
@@ -97,7 +93,6 @@ tools:
         title: Query metrics
         description_file: ./prompts/query-metrics.md
         system_prompt_hint: Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas
-        feature_flag: metrics
         response:
             include:
                 - results

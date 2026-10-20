@@ -71,8 +71,7 @@ export const manifest: ProductManifest = {
                 { name: 'Viewer', href: urls.metrics('viewer') },
                 { name: 'SQL', href: urls.metrics('sql') },
             ],
-            // Open alpha: the nav item is visible to everyone; the scene gate offers the
-            // feature preview toggle to visitors who have not enrolled yet.
+            // Open alpha: available to everyone, with an alpha banner on the scene.
             tags: ['alpha'],
             sceneKey: 'Metrics',
         },

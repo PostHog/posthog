@@ -75,11 +75,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const defaultInsightName =
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
-    const metricsAlertsEnabled = useFeatureFlag('METRICS')
     const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
     const insightDisplayName = insight?.name || insight?.derived_name
 

@@ -1,0 +1,119 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The anomaly characterization to run.",
+            "properties": {
+                "aggregation": {
+                    "anyOf": [
+                        {
+                            "description": "* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                            "enum": [
+                                "sum",
+                                "avg",
+                                "count",
+                                "min",
+                                "max",
+                                "p95",
+                                "rate",
+                                "increase",
+                                "histogram_quantile"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile"
+                },
+                "anomalyFrom": {
+                    "description": "Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong.",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                "anomalyTo": {
+                    "description": "End of the suspicious window (exclusive). Defaults to now.",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                "baselineFrom": {
+                    "description": "Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo.",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                "baselineTo": {
+                    "description": "End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                "candidateKeys": {
+                    "description": "Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.",
+                    "items": {
+                        "maxLength": 255,
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "filters": {
+                    "description": "Label predicates narrowing which series are characterized.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            "op": {
+                                "default": "eq",
+                                "description": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                                "enum": ["eq", "neq", "regex", "not_regex"],
+                                "type": "string"
+                            },
+                            "scope": {
+                                "default": "auto",
+                                "description": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                                "enum": ["resource", "attribute", "auto"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "Value to compare against. For regex operators this is the pattern.",
+                                "maxLength": 1024,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "metricName": {
+                    "description": "Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').",
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                "quantile": {
+                    "anyOf": [
+                        {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Quantile for histogram_quantile. Defaults to 0.95."
+                }
+            },
+            "required": ["metricName", "anomalyFrom"],
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

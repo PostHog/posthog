@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_val
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import relative_date_parse
 
@@ -54,7 +54,6 @@ from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
     MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
-    METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -939,11 +938,6 @@ class _MetricErrorSpikesResponseSerializer(serializers.Serializer):
 class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
-    # Metrics is in private alpha: gate the API behind the `metrics` flag so only
-    # PostHog and directly-added teams can reach it. Added to the mixin's default
-    # permissions (team/org/access-control), not replacing them.
-    posthog_feature_flag = METRICS_FEATURE_FLAG
-    permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
