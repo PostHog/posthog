@@ -105,7 +105,7 @@ INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "
 # Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
 # examples reach, and how many trailing days of reports grade a candidate. Promotion is manual: a
 # person runs `inbox_ranking_promote_job`, which writes the served pointer.
-INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 60, type_cast=int)
+INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 90, type_cast=int)
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.

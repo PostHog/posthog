@@ -2125,7 +2125,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
     { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
-    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$pageview'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -2716,14 +2716,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
-        searchTabs: [
-            { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
-            {
-                name: 'Recommendations',
-                href: urls.errorTracking({ activeTab: 'recommendations' }),
-                flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
-            },
-        ],
+        searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
         sceneKey: 'ErrorTracking',
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },

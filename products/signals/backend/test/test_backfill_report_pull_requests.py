@@ -82,10 +82,14 @@ class TestBackfillReportPullRequests(BaseTest):
             }
         )
         SignalReportTask.objects.create(team=self.team, report=task_report, task=task, relationship="implementation")
-        with patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as reviewers:
+        with (
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as reviewers,
+            patch("products.signals.backend.tasks.send_pull_request_ready_push.delay") as ready_push,
+        ):
             with self.captureOnCommitCallbacks(execute=True):
                 call_command("backfill_report_pull_requests", team_id=self.team.id, batch_size=1, stdout=StringIO())
             reviewers.assert_not_called()
+            ready_push.assert_not_called()
         assignment.refresh_from_db()
         claim_id = SignalReportArtefact.objects.get(report=active, type="work_claim").id
         assert claim_id is not None
