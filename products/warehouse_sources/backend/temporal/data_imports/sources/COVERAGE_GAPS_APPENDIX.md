@@ -3925,20 +3925,20 @@ Note: Extracted every GET path from the official Python SDK operation index and 
 
 ## DoIt — **thin**
 
-Today: report tables are discovered from the user's account at sync time, alongside the fixed `Budgets`, `Insights`, `Anomalies`, and `Invoices` tables.
+Today: report tables are discovered from the user's account at sync time, alongside the fixed `Budgets`, `Insights`, `InsightResourceResults`, `Anomalies`, `Invoices`, `Assets`, `Annotations`, and `SupportTickets` tables.
 
 Diffed against: <https://developer.doit.com/openapi/doit-api.yaml>
 
-- [ ] `Assets (GET /billing/v1/assets)` — identify billing accounts and licensed subscriptions referenced in saved cloud cost reports (high)
+- [x] `Assets (GET /billing/v1/assets)` — identify billing accounts and licensed subscriptions referenced in saved cloud cost reports (high)
 - [x] `Invoices (GET /billing/v1/invoices)` — reconcile cloud spending with actual invoices, outstanding balances, and payment status (high)
 - [x] `Anomalies (GET /anomalies/v1)` — measure unexpected cloud spending, severity, and anomaly costs (high)
 - [x] `Budgets (GET /analytics/v1/budgets)` — compare budget limits with current utilization, forecasts, and risk status (high)
 - [x] `Insights (GET /insights/v1/results)` — track optimization opportunities, estimated savings, and operational risks (high)
-- [ ] `Insight resource results (GET /insights/v1/results/source/{sourceID}/insight/{insightKey}/resource-results)` — identify cloud resources responsible for savings opportunities and risks (medium)
+- [x] `Insight resource results (GET /insights/v1/results/source/{sourceID}/insight/{insightKey}/resource-results)` — identify cloud resources responsible for savings opportunities and risks (medium)
 - [ ] `Commitments (GET /analytics/v1/commitment-manager)` — compare contractual cloud commitments with current attainment and forecast spending (medium)
 - [ ] `Allocations (GET /analytics/v1/allocations)` — explain how cloud spending is assigned to teams, products, and cost centers (medium)
-- [ ] `Annotations (GET /analytics/v1/annotations)` — relate spending changes to recorded operational events and report annotations (medium)
-- [ ] `Support requests (GET /support/v1/tickets)` — analyze support demand, resolution times, and ticket status alongside cloud spending (medium)
+- [x] `Annotations (GET /analytics/v1/annotations)` — relate spending changes to recorded operational events and report annotations (medium)
+- [x] `Support requests (GET /support/v1/tickets)` — analyze support demand, resolution times, and ticket status alongside cloud spending (medium)
 
 Note: Parsed every GET operation in the official OpenAPI document and checked selected billing and analytics schemas. Source code creates one table per accessible saved report, using its normalized name; no static names exist without credentials. The source lists reports for discovery and imports their result rows, so today remains empty. Insight resources need parent fan-out; IAM, themes, auth, write operations, and partner provisioning were excluded.
 
@@ -4924,10 +4924,10 @@ Today (9): `observations`, `release_dates`, `releases`, `series`, `series_catego
 
 Diffed against: <https://fred.stlouisfed.org/docs/api/fred/>
 
-- [ ] `Child categories (GET /fred/category/children)` — resolve parent_id values from synced series categories and build a complete category hierarchy (high)
-- [ ] `Series vintage dates (GET /fred/series/vintagedates)` — identify publication and revision dates for economic series (medium)
-- [ ] `Release sources (GET /fred/release/sources)` — join economic releases to their publishing institutions (medium)
-- [ ] `Release tables (GET /fred/release/tables)` — preserve official release hierarchies for reports such as national accounts (medium)
+- [x] `Child categories (GET /fred/category/children)` — resolve parent_id values from synced series categories and build a complete category hierarchy (high)
+- [x] `Series vintage dates (GET /fred/series/vintagedates)` — identify publication and revision dates for economic series (medium)
+- [x] `Release sources (GET /fred/release/sources)` — join economic releases to their publishing institutions (medium)
+- [x] `Release tables (GET /fred/release/tables)` — preserve official release hierarchies for reports such as national accounts (medium)
 
 Note: Read the official operation index and the individual reference pages for all four gaps. Current series tables cover configured series IDs; categories need tree traversal and release resources need release fan-out. Vintage dates describe revision timing; historical values require observation requests and keys that preserve each vintage. Excluded search variants and reverse listings that mainly repeat existing series, tags, or release data.
 
@@ -5052,15 +5052,15 @@ Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). Th
 
 ## Frontegg — **thin**
 
-Today (3): `permissions`, `roles`, `users`
+Today (5): `audits`, `permissions`, `roles`, `tenants`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/frontegg/openapi-public/master/combined.json>
 
-- [ ] `Get accounts (tenants) (GET /tenants/resources/tenants/v2)` — resolve tenantId and tenantIds on users into customer account names and metadata (high)
-- [ ] `Get audits (V2) (GET /audits/resources/audits/v2)` — analyze login activity, user changes, and account events over time (high)
-- [ ] `Get users roles (GET /identity/resources/users/v3/roles)` — join synced users and roles through account-specific assignments (medium)
+- [x] `Get accounts (tenants) (GET /tenants/resources/tenants/v2)` — resolve tenantId and tenantIds on users into customer account names and metadata (high). Added as `tenants`.
+- [x] `Get audits (V2) (GET /audits/resources/audits/v2)` — analyze login activity, user changes, and account events over time (high). Added as `audits`, incremental on `createdAt`.
+- [ ] `Get users roles (GET /identity/resources/users/v3/roles)` — join synced users and roles through account-specific assignments (medium); skipped: a lookup that needs user IDs and an account header, and each `users` row already carries its per-account roles in `tenants`
 - [ ] `Get all groups paginated (GET /identity/resources/groups/v2)` — describe customer user groups for account segmentation and membership analysis (medium)
-- [ ] `Get users groups (GET /identity/resources/users/v3/groups)` — connect users to their customer groups (medium)
+- [ ] `Get users groups (GET /identity/resources/users/v3/groups)` — connect users to their customer groups (medium); skipped: a lookup that needs user IDs and an account header, with no documented response shape or key. `Get all groups paginated` is the better route to membership
 - [ ] `Get sub-accounts hierarchy tree (GET /tenants/resources/hierarchy/v1/tree)` — roll up account activity through parent and child customer accounts (medium)
 
 Note: Parsed the official combined OpenAPI file and checked identity.json, tenants.json, and audits.json for service prefixes. The user schema exposes tenant IDs but the source only imports users, roles, and permissions. Account-scoped lists need tenant fan-out and management-token permissions. Excluded authentication, keys, session configuration, and invitations that expose tokens.
@@ -5135,12 +5135,12 @@ Note: Diffed the official Seller API V2 OpenAPI file and also inspected the Buye
 
 ## Gainsight CS — gaps
 
-Today (9): `activity_timeline`, `call_to_action`, `company`, `company_person`, `cta_group`, `email_logs`, `gsuser`, `relationship`, `relationship_person`
+Today (11): `activity_timeline`, `call_to_action`, `company`, `company_person`, `cta_configuration`, `cta_group`, `cta_task`, `email_logs`, `gsuser`, `relationship`, `relationship_person`
 
 Diffed against: <https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs>
 
-- [ ] `Get CTA configurations (GET /v2/cockpit/admin/picklist/lite)` — resolve CTA status, priority, type, and reason IDs into readable labels (high)
-- [ ] `Fetch Tasks (GET /v2/cockpit/task/list/{CTA_GSID})` — measure follow-up task completion, due dates, and ownership for synced calls to action (medium)
+- [x] `Get CTA configurations (GET /v2/cockpit/admin/picklist/lite)` — resolve CTA status, priority, type, and reason IDs into readable labels (high)
+- [x] `Fetch Tasks (GET /v2/cockpit/task/list/{CTA_GSID})` — measure follow-up task completion, due dates, and ownership for synced calls to action (medium)
 
 Note: Read the official API index and the Cockpit CTA, Task, Success Plan, Person, and Data Management references. The two gaps use specialized GET routes; tasks need CTA fan-out and picklists need entity and category selection. The custom_objects field already permits extra readable objects through the generic query API, so arbitrary object names are not new gaps. Excluded write APIs, job status, and playbook configuration; tenant access determines generic object availability.
 
@@ -5171,11 +5171,11 @@ Today (5): `cdn_requests`, `cdn_traffic`, `origin_groups`, `resources`, `ssl_cer
 
 Diffed against: <https://docs.gcore.com/api-reference/services_docs_mintlify_enriched/cdn_api.yaml>
 
-- [ ] `Get CDN logs (GET /cdn/advanced/v1/logs)` — analyze individual requests, status codes, client locations, and paths beyond hourly request totals (high)
-- [ ] `Aggregated statistics (GET /cdn/statistics/aggregate/stats)` — compare cache efficiency, error rates, and traffic across countries and regions (high)
+- [x] `Get CDN logs (GET /cdn/advanced/v1/logs)` — analyze individual requests, status codes, client locations, and paths beyond hourly request totals (high)
+- [x] `Aggregated statistics (GET /cdn/statistics/aggregate/stats)` — compare cache efficiency, error rates, and traffic across countries and regions (high)
 - [ ] `Origin shielding usage statistics (GET /cdn/statistics/shield_usage/series)` — measure shielding usage and its contribution to delivery costs (medium)
-- [ ] `Get CDN activity logs (GET /cdn/activity_log/requests)` — correlate resource changes and operator actions with delivery problems (medium)
-- [ ] `Get purges history list (GET /cdn/purge_statuses)` — analyze cache purge frequency and failures by CDN resource (medium)
+- [x] `Get CDN activity logs (GET /cdn/activity_log/requests)` — correlate resource changes and operator actions with delivery problems (medium)
+- [x] `Get purges history list (GET /cdn/purge_statuses)` — analyze cache purge frequency and failures by CDN resource (medium)
 
 Note: Parsed every collection GET in the official CDN OpenAPI file and inspected statistics parameters and grouping options. Current statistics tables request only requests and sent_bytes, grouped by resource. Request logs cover only the latest three days; aggregate statistics omit the latest two hours. Excluded resource settings, certificates already synced, log uploader configuration, and other Gcore products outside the CDN source.
 
@@ -13470,13 +13470,14 @@ Diffed against: <https://developers.yousign.com/reference/get-contacts-1>
 - [ ] `identity verifications (GET /verifications/identity_documents, /companies, /bank_accounts, /proofs_of_address, /identity_videos, /watchlists)` — KYC verification outcomes per signer, an entire product surface with no coverage (medium)
 - [ ] `workflow sessions (GET /workflow_sessions)` — identity/onboarding workflow runs and their state (medium)
 - [ ] `workflow session applicants (GET /workflow_sessions/{id}/applicants)` — per-applicant outcome inside a workflow session (medium)
+- [x] `approvers (GET /signature_requests/{signatureRequestId}/approvers)` — full approver details and approval status per signature request, alongside the signers we already sync (medium)
 - [ ] `followers (GET /signature_requests/{signatureRequestId}/followers)` — who is CC'd on a request, alongside the signers we already sync (medium)
 - [ ] `document analyses (GET /document_analyses)` — automated document checks and their verdicts (low)
 - [ ] `consent requests (GET /signature_requests/{signatureRequestId}/consent_requests)` — per-signer consent steps within a request (low)
 - [ ] `workflow templates (GET /workflow_templates)` — lookup resolving the template behind a workflow session (low)
 - [ ] `electronic seals (GET /electronic_seals/{id})` — sealed-document records, distinct from the signature request flow (low)
 
-Note: Yousign publishes an OAS spec (docs slug 'oas-specification'); paths above were confirmed one by one from the ReadMe reference pages. Approvers only expose a single-item GET (/signature_requests/{id}/approvers/{approverId}) with no list endpoint, so they are not listed as a gap. Audit trails are PDF downloads rather than queryable collections.
+Note: Yousign publishes an OAS spec (docs slug 'oas-specification'); paths above were confirmed one by one from the ReadMe reference pages. Audit trails are PDF downloads rather than queryable collections.
 
 ## YouTube Analytics — gaps
 
@@ -13674,7 +13675,7 @@ Note: Tables are static (ZOOM_ENDPOINTS in products/warehouse_sources/backend/te
 
 ## Zuora — gaps
 
-Today (8): `accounts`, `credit_memos`, `invoices`, `orders`, `payments`, `products`, `refunds`, `subscriptions`
+Today (11): `accounts`, `billable_metrics`, `credit_memos`, `entitlement_grants`, `features`, `invoices`, `orders`, `payments`, `products`, `refunds`, `subscriptions`
 
 Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compact.yaml>
 
@@ -13690,6 +13691,9 @@ Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compac
 - [ ] `object-query/order-actions` — the individual actions inside each order we sync (create/amend/cancel/renew), giving orders analyzable structure (medium)
 - [ ] `object-query/order-line-items` — non-subscription order line items with quantity and amount, missing from the order headers we sync (medium)
 - [ ] `object-query/usages and object-query/processed-usages` — consumption records for usage-based charges - required to explain variable invoice amounts (medium)
+- [x] `/commerce/billable-metrics` — billable metric definitions that measure entitlement usage (`billable_metrics`)
+- [x] `/commerce/features` — catalog features granted through entitlements (`features`)
+- [x] `/commerce/entitlements/grants` — runtime entitlement grants per account and subscription, paginated by `nextPageToken` (`entitlement_grants`)
 
 Note: The connector already uses Zuora's Object Query API (/object-query/<segment>, filtered on updateddate), so every gap listed is a same-shape, same-pagination addition - the spec exposes ~50 object-query collections and the source wires up 8. Also unsynced but lower value: payment-applications, refund-applications, payment-methods, taxation-items, billing-runs, payment-runs, prepaid-balances/prepaid-balance-transactions, invoice-schedules, ramps, summarystatements. Zuora also serves the spec as zuora-openapi-for-otc.yaml (order-to-cash only); I used the full compact build, version 2026-07-24.
 
