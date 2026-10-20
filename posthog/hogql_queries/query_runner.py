@@ -3131,8 +3131,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
-        # The resolved modifiers below key the events table and cluster choice. Drop the requested values from the
-        # query, so an explicit false and an unset value that resolve the same way share one cache entry.
+        # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
         modifier_source: dict[str, Any] | None = query
         while isinstance(modifier_source, dict):
             if isinstance(modifier_source.get("modifiers"), dict):
