@@ -823,11 +823,10 @@ class DeltaMaintenance:
 
         `select_partitions` limits the pass, from the partition stats at the bin size the engine uses.
         """
+        table_target_size = table_target_file_size(table)
         partitions = None
         if select_partitions is not None:
-            partitions = select_partitions(
-                await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
-            )
+            partitions = select_partitions(await asyncio.to_thread(_partition_file_stats, table, table_target_size))
         if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
             await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
             compacted = await self._compact_with_deltalite(table, partitions=partitions)
@@ -871,7 +870,7 @@ class DeltaMaintenance:
             if table is None:
                 return "skipped"
 
-            partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+            partitions = await asyncio.to_thread(_partition_file_stats, table, table_target_file_size(table))
             removable_files = _small_file_fragmentation(partitions, table_wide_small_files=False).total_removable
             if removable_files < min_removable_files:
                 return "skipped"

@@ -217,7 +217,7 @@ WIDE_ROW_MIN_TABLE_BYTES = WIDE_ROW_MAX_TARGET_FILE_SIZE_BYTES
 
 def table_target_file_size(table: deltalake.DeltaTable) -> int:
     """The table's `delta.targetFileSize` in bytes, or the writers' default when it is absent or invalid."""
-    raw = table.metadata().configuration.get(TARGET_FILE_SIZE_PROPERTY)
+    raw = (table.metadata().configuration or {}).get(TARGET_FILE_SIZE_PROPERTY)
     if not isinstance(raw, str) or not raw.strip().isdigit() or int(raw) <= 0:
         return DEFAULT_TARGET_FILE_SIZE_BYTES
     return int(raw)
