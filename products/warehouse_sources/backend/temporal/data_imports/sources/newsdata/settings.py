@@ -15,7 +15,7 @@ class NewsDataEndpointConfig:
     # safe partition key. None disables partitioning (e.g. the sources catalog has no timestamp).
     partition_key: Optional[str] = None
     # True only for endpoints that accept the `from_date`/`to_date` query params (verified against
-    # the live API: rejected on /latest, accepted on /archive and /crypto). Drives whether the
+    # the live API: rejected on /latest, accepted on /archive and /crypto; documented for /market). Drives whether the
     # endpoint can sync incrementally via a genuine server-side timestamp filter.
     supports_date_filter: bool = False
     # /sources returns the full catalog in a single response and rejects the `page` param, so
@@ -64,6 +64,16 @@ NEWSDATA_ENDPOINTS: dict[str, NewsDataEndpointConfig] = {
     "crypto": NewsDataEndpointConfig(
         name="crypto",
         path="/crypto",
+        partition_key="pubDate",
+        supports_date_filter=True,
+        default_lookback_days=30,
+        sort_mode="desc",
+        incremental_fields=_pub_date_incremental_fields(),
+    ),
+    # Stock-market and financial news (labelled beta by the vendor). Same shape as crypto.
+    "market": NewsDataEndpointConfig(
+        name="market",
+        path="/market",
         partition_key="pubDate",
         supports_date_filter=True,
         default_lookback_days=30,
