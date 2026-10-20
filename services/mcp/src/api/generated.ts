@@ -31921,6 +31921,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -33322,6 +33323,7 @@ export namespace Schemas {
       LambdaLabs: 'LambdaLabs',
       LangSmith: 'LangSmith',
       Linode: 'Linode',
+      Listmonk: 'Listmonk',
       LlamaCloud: 'LlamaCloud',
       Mem0: 'Mem0',
       Metriport: 'Metriport',
@@ -34737,6 +34739,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -37441,6 +37444,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -49563,6 +49567,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -50998,6 +51003,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -105587,6 +105593,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -107053,6 +107060,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -108486,6 +108494,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
