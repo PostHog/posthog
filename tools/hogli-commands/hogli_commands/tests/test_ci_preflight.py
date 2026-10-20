@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
+from hogli_commands import ci_preflight
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import (
     DIFF_CHECKS,
@@ -293,9 +295,17 @@ class TestStalenessRisks:
             assert fragment in risk
 
 
+@pytest.fixture
+def workspaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for ws in ("", "products/desktop", "packages/agent", "tools/hedgebox-dummy"):
+        (tmp_path / ws).mkdir(parents=True, exist_ok=True)
+        (tmp_path / ws / "pnpm-workspace.yaml").touch()
+    monkeypatch.setattr(ci_preflight, "REPO_ROOT", tmp_path)
+
+
+@pytest.mark.usefixtures("workspaces")
 class TestWorkspaceScopedLockfile:
-    """The lockfile check must validate each pnpm workspace against its own lockfile.
-    These hit the real repo layout, like TestDetectTestType in test_test_runner.py."""
+    """The lockfile check must validate each pnpm workspace against its own lockfile."""
 
     @pytest.mark.parametrize(
         "file_path,expected_workspace",
@@ -342,9 +352,8 @@ class TestWorkspaceScopedLockfile:
 
         assert status == "pass"
         ran_dirs = [call.kwargs["cwd"] for call in mock_run.call_args_list]
-        from hogli.manifest import REPO_ROOT
-
-        assert ran_dirs == [REPO_ROOT if d == "." else REPO_ROOT / d for d in expected_dirs]
+        root = ci_preflight.REPO_ROOT
+        assert ran_dirs == [root if d == "." else root / d for d in expected_dirs]
 
     @patch("hogli_commands.ci_preflight._workspace_install_present", return_value=True)
     @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/pnpm")

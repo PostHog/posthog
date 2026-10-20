@@ -179,6 +179,19 @@ def _convert_insights_times(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+# The insights row id can carry a `plan=<compressed query plan>` segment next to the
+# `start=`, `end=` and `entity_id=` segments. The plan value changes between requests for the same
+# bucket, so the merge on `id` would insert every re-read lookback row as a new row.
+_INSIGHTS_ID_PLAN_SEGMENT = re.compile(r"(?:^|:)plan=[^:]*")
+
+
+def _stable_insights_id(row: dict[str, Any]) -> dict[str, Any]:
+    row_id = row.get("id")
+    if not isinstance(row_id, str):
+        return row
+    return {**row, "id": _INSIGHTS_ID_PLAN_SEGMENT.sub("", row_id).lstrip(":")}
+
+
 def _make_client(api_key: str) -> RESTClient:
     return RESTClient(
         base_url=OPENAI_ADS_BASE_URL,
@@ -290,7 +303,7 @@ def openai_ads_source(
         currency = _account_currency(api_key)
 
         def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
-            return {**_convert_insights_times(row), "currency_code": currency}
+            return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
 
         data_map = enrich_insights
     else:

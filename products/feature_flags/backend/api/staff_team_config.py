@@ -22,6 +22,7 @@ from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
+    FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
     UnknownIdsError,
     get_organizations_of_teams,
@@ -111,13 +112,8 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         choices=FlagEvaluationsMode.choices,
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
-            "an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab "
-            "charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's "
-            "Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and "
-            "the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it "
-            "writes to flag_evaluations. This is the stored mode: while the "
-            "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab "
-            "read events anyway."
+            f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
+            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway."
         ),
     )
     feature_flag_count = serializers.IntegerField(
@@ -173,12 +169,7 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
 class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
     flag_evaluations_mode = serializers.ChoiceField(
         choices=FlagEvaluationsMode.choices,
-        help_text=(
-            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab "
-            "charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's "
-            "Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing "
-            "$feature_flag_called to events for the teams it writes to flag_evaluations."
-        ),
+        help_text=f"Target flag_evaluations mode. {FLAG_EVALUATIONS_MODES_HELP}",
     )
     team_ids = serializers.ListField(
         child=serializers.IntegerField(),

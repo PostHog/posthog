@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ def _has_custom_query(config: UsBeaSourceConfig) -> bool:
 
 @SourceRegistry.register
 class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
+    codebase_detection = detect(env=("^(US_BEA|USBEA)_",), pypi=("beaapi",))
+
     # Static endpoint catalog with no I/O in get_schemas - safe for public docs.
     lists_tables_without_credentials = True
     # BEA's Data Retrieval API has no version segment or header - the URI and method names

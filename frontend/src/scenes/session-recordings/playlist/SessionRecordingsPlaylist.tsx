@@ -15,6 +15,9 @@ import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { WatchPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/WatchPicksListColumn'
+import { watchPicksLogic } from 'products/replay_vision/frontend/replay_scanners/watchPicksLogic'
+
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
@@ -29,9 +32,13 @@ type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     description?: string
     /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
     listEmptyState?: JSX.Element
+    picksInList?: boolean
 }
 
-export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
+export function SessionRecordingsPlaylist({
+    picksInList = false,
+    ...props
+}: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -49,16 +56,43 @@ export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylis
     }
     const isVerticalLayout = layoutRef.current
 
+    const layout = (
+        <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
+            {isVerticalLayout ? (
+                <VerticalLayout {...props} picksInList={picksInList} />
+            ) : (
+                <HorizontalLayout {...props} picksInList={picksInList} />
+            )}
+        </div>
+    )
+
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
-                {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
-            </div>
+            {picksInList ? (
+                <BindLogic
+                    logic={watchPicksLogic}
+                    props={{ logicKey: logicProps.logicKey ?? 'playlist', playlistLogicProps: logicProps }}
+                >
+                    {layout}
+                </BindLogic>
+            ) : (
+                layout
+            )}
         </BindLogic>
     )
 }
 
-function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
+type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'picksInList'> & { picksInList: boolean }
+
+function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    if (picksInList && !isPlaylistCollapsed) {
+        return <WatchPicksListColumn recordingsList={<Playlist {...props} />} />
+    }
+    return <Playlist {...props} />
+}
+
+function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -93,7 +127,7 @@ function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Ele
                           }
                 }
             >
-                <Playlist {...props} />
+                <PlaylistColumn {...props} picksInList={picksInList} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
@@ -103,7 +137,7 @@ function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Ele
     )
 }
 
-function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
+function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -140,7 +174,7 @@ function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Eleme
                 }
             />
             <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
-                <Playlist {...props} />
+                <PlaylistColumn {...props} picksInList={picksInList} />
             </div>
         </>
     )

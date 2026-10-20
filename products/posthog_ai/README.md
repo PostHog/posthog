@@ -18,6 +18,12 @@ Your integration can show up in any of these:
 
 There are two runtimes, picked per conversation by `conversation.agent_runtime`. **`sandbox` is where all new work goes.** `langgraph` is the legacy runtime and is frozen — do not extend it.
 
+## Testing PostHog AI
+
+Use the [eval harness](eval_harness/README.md) to test PostHog AI 2.0 with the real sandbox agent.
+Run `hogli evals --list` to find suites and `hogli evals <selector>` to run them.
+Add suites under `products/posthog_ai/evals/` or `products/<product>/evals/` and follow [`/writing-evals`](../../.agents/skills/writing-evals/SKILL.md).
+
 ## There is no backend integration API
 
 Nothing you build here talks to a PostHog AI backend. An integration has two halves:
@@ -204,7 +210,6 @@ mcp/           # this product's own MCP tools
 skills/        # agent skills owned by PostHog AI, plus the repo-wide skills build (see skills/README.md)
 evals/         # eval suites (see evals/AGENTS.md)
 eval_harness/  # the harness those suites run on
-dags/          # Dagster assets
 ```
 
 ## Where to read next

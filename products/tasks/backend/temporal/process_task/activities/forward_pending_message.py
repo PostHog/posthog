@@ -68,7 +68,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun, stamp_pending_user_message_id
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by", "task__team", "task__loop").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
         # The run existed when this workflow started, so a missing row means it was
         # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather
@@ -257,6 +257,7 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
     reply_text = _extract_assistant_text_from_command_result(
         command_result_data
     ) or _extract_recent_assistant_text_from_logs(task_run)
+    is_agent_answer = bool(reply_text)
 
     if not reply_text and _has_recent_question_tool_failure(task_run):
         reply_text = "I need clarification before continuing. Please reply in this thread with your preferred option."
@@ -270,6 +271,7 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
             text=reply_text,
             user_message_ts=user_message_ts,
             trace_id=_extract_trace_id_from_command_result(command_result_data),
+            offer_reply_suggestions=is_agent_answer,
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))

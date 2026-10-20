@@ -330,6 +330,32 @@ const subscriptionsRetrieve = (): ToolBase<ReturnType<typeof SubscriptionsRetrie
     },
 })
 
+const SubscriptionsSummariesListSchema = () => {
+    const SubscriptionsSummariesListQueryParams = orvalSchemas.SubscriptionsSummariesListQueryParams()
+    return SubscriptionsSummariesListQueryParams
+}
+
+const subscriptionsSummariesList = (): ToolBase<
+    ReturnType<typeof SubscriptionsSummariesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedSubscriptionSummaryList>
+> => ({
+    name: 'subscriptions-summaries-list',
+    schema: SubscriptionsSummariesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SubscriptionsSummariesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSubscriptionSummaryList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/summaries/`,
+            query: {
+                cursor: params.cursor,
+                dashboard: params.dashboard,
+                insight: params.insight,
+            },
+        })
+        return await withPostHogUrl(context, result, '/subscriptions')
+    },
+})
+
 const SubscriptionsTestDeliveryCreateSchema = () => {
     const SubscriptionsTestDeliveryCreateParams = orvalSchemas.SubscriptionsTestDeliveryCreateParams()
     return SubscriptionsTestDeliveryCreateParams.omit({ project_id: true })
@@ -359,5 +385,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'subscriptions-list': subscriptionsList,
     'subscriptions-partial-update': subscriptionsPartialUpdate,
     'subscriptions-retrieve': subscriptionsRetrieve,
+    'subscriptions-summaries-list': subscriptionsSummariesList,
     'subscriptions-test-delivery-create': subscriptionsTestDeliveryCreate,
 }

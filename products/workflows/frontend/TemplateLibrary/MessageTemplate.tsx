@@ -1,9 +1,21 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonDivider, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonMenuOverlay,
+    LemonTag,
+    Spinner,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
@@ -15,6 +27,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
+import { workflowLogic } from '../Workflows/workflowLogic'
+import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
+import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
+import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
@@ -22,6 +39,7 @@ import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
+import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
@@ -45,6 +63,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         setTemplatePickerOpen,
         syncExternalEdit,
         keepMyTemplateVersion,
+        setTransactionalTab,
+        discardDraft,
     } = useActions(logic)
     const {
         template,
@@ -56,7 +76,16 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
+        transactionalHogFlowId,
+        transactionalTab,
+        draftsEnabled,
+        hasDraft,
+        hasUnsavedChanges,
+        isSavingDraft,
+        isDiscardingDraft,
     } = useValues(logic)
+    const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+    const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
@@ -88,6 +117,66 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
+    const editor = (
+        <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
+            {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
+            {isSyncingExternalEdit && <SpinnerOverlay />}
+            {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
+                <Spinner className="text-lg" />
+            ) : (
+                <EmailTemplater
+                    value={template?.content.email}
+                    onChange={(value) => setTemplateValue('content.email', value)}
+                    onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
+                    type="native_email_template"
+                    layout="inline"
+                />
+            )}
+        </div>
+    )
+
+    const tabs = (
+        <LemonTabs
+            activeKey={transactionalTab}
+            onChange={setTransactionalTab}
+            className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
+            tabs={[
+                // Unmounting the editor would drop a canvas edit it hasn't exported yet.
+                { key: 'design', label: 'Design', content: editor, keepMounted: true },
+                transactionalHogFlowId
+                    ? {
+                          key: 'metrics',
+                          label: 'Metrics',
+                          content: <WorkflowMetrics id={transactionalHogFlowId} />,
+                      }
+                    : null,
+                transactionalHogFlowId
+                    ? {
+                          key: 'sends',
+                          label: 'Sends',
+                          content: <WorkflowInvocations id={transactionalHogFlowId} />,
+                      }
+                    : null,
+                transactionalHogFlowId
+                    ? {
+                          key: 'versions',
+                          label: 'Versions',
+                          content: <WorkflowRevisions id={transactionalHogFlowId} />,
+                      }
+                    : null,
+                {
+                    key: 'api',
+                    label: 'API',
+                    content: transactionalHogFlowId ? (
+                        <TransactionalEmailApiExample templateId={props.id} />
+                    ) : (
+                        <MakeTransactionalPrompt {...props} />
+                    ),
+                },
+            ]}
+        />
+    )
+
     return (
         <Form
             logic={messageTemplateLogic}
@@ -105,6 +194,26 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
+                    nameSuffix={
+                        showTransactional && transactionalHogFlowId ? (
+                            <>
+                                <LemonTag type="success" className="ml-1">
+                                    Transactional
+                                </LemonTag>
+                                {(hasDraft || hasUnsavedChanges) && (
+                                    <Tooltip title="Your changes save as a draft. Sends use the live version until you publish.">
+                                        <LemonTag
+                                            type="warning"
+                                            className="ml-1"
+                                            data-attr="message-template-draft-tag"
+                                        >
+                                            {isSavingDraft ? 'Saving draft…' : 'Editing draft'}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
+                        ) : undefined
+                    }
                     actions={
                         <>
                             <LemonDivider vertical />
@@ -117,7 +226,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             >
                                 Send test
                             </LemonButton>
-                            {templateChanged && (
+                            {templateChanged && !draftsEnabled && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
                                     type="secondary"
@@ -132,17 +241,50 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 htmlType="submit"
                                 form="template"
                                 onClick={submitTemplate}
-                                loading={isTemplateSubmitting}
+                                loading={isTemplateSubmitting || templateLoading}
                                 disabledReason={
-                                    !templateChanged
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
+                                    draftsEnabled && isSavingDraft
+                                        ? 'Saving your draft'
+                                        : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                                          ? 'No changes to publish'
+                                          : !draftsEnabled && !templateChanged && props.id !== 'new'
+                                            ? 'No changes to save'
+                                            : !template.name
+                                              ? 'Name is required'
+                                              : undefined
                                 }
                                 size="small"
+                                sideAction={
+                                    draftsEnabled
+                                        ? {
+                                              'data-attr': 'message-template-draft-actions',
+                                              'aria-label': 'More draft actions',
+                                              dropdown: {
+                                                  placement: 'bottom-end',
+                                                  overlay: (
+                                                      <LemonMenuOverlay
+                                                          items={[
+                                                              {
+                                                                  label: 'Discard draft',
+                                                                  icon: <IconTrash />,
+                                                                  status: 'danger',
+                                                                  onClick: discardDraft,
+                                                                  disabledReason: !hasDraft
+                                                                      ? 'There is no draft to discard'
+                                                                      : isSavingDraft || isDiscardingDraft
+                                                                        ? 'Wait for the draft to finish saving'
+                                                                        : undefined,
+                                                                  'data-attr': 'message-template-discard-draft',
+                                                              },
+                                                          ]}
+                                                      />
+                                                  ),
+                                              },
+                                          }
+                                        : undefined
+                                }
                             >
-                                {props.id === 'new' ? 'Create' : 'Save'}
+                                {props.id === 'new' ? 'Create' : draftsEnabled ? 'Publish' : 'Save'}
                             </LemonButton>
                             <More
                                 size="small"
@@ -162,7 +304,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                     fullWidth
                                                     onClick={duplicateTemplate}
                                                     disabledReason={
-                                                        templateChanged
+                                                        hasUnsavedChanges
                                                             ? 'Save your changes before duplicating'
                                                             : undefined
                                                     }
@@ -215,23 +357,16 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     </LemonBanner>
                 )}
 
-                <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
-                    {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
-                    {isSyncingExternalEdit && <SpinnerOverlay />}
-                    {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
-                        <Spinner className="text-lg" />
-                    ) : (
-                        <EmailTemplater
-                            value={template?.content.email}
-                            onChange={(value) => setTemplateValue('content.email', value)}
-                            onChangeTemplating={(templating) =>
-                                setTemplateValue('content.email.templating', templating)
-                            }
-                            type="native_email_template"
-                            layout="inline"
-                        />
-                    )}
-                </div>
+                {!showTransactional ? (
+                    editor
+                ) : transactionalHogFlowId ? (
+                    // The reused workflow tabs read workflowLogic without props, so bind it to this email's workflow.
+                    <BindLogic logic={workflowLogic} props={{ id: transactionalHogFlowId }}>
+                        {tabs}
+                    </BindLogic>
+                ) : (
+                    tabs
+                )}
             </SceneContent>
         </Form>
     )

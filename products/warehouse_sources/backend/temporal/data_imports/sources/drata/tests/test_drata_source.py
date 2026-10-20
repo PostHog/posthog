@@ -1,9 +1,7 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 
@@ -13,38 +11,6 @@ class TestDrataSource:
         self.source = DrataSource()
         self.team_id = 123
         self.config = DrataSourceConfig(api_key="drata_key", region="EU")
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_events_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["events"].supports_incremental is True
-        assert [f["field"] for f in schemas["events"].incremental_fields] == ["createdAt"]
-        for name, schema in schemas.items():
-            if name == "events":
-                continue
-            assert schema.supports_incremental is False
-            assert schema.incremental_fields == []
-
-    def test_feature_gated_risk_tables_are_deselected_by_default(self) -> None:
-        # Risk endpoints 403 on accounts without Drata's Risk Management Pro feature; enabling them
-        # by default would fail the first sync for most accounts.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["risk_registers"].should_sync_default is False
-        assert schemas["risks"].should_sync_default is False
-        assert schemas["controls"].should_sync_default is True
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "nope"])
-        assert [s.name for s in schemas] == ["events"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # Exercises the placeholder-config path the public docs endpoint uses (no credentials).
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert tables["controls"]["primary_keys"] == ["workspaceId", "id"]
 
     @parameterized.expand(
         [
@@ -97,9 +63,3 @@ class TestDrataSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Drata schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

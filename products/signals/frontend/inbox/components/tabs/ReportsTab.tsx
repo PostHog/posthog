@@ -13,6 +13,7 @@ import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
@@ -29,6 +30,8 @@ import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
+import { InboxMcpBanner } from '../InboxMcpBanner'
+import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
@@ -42,7 +45,7 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -86,7 +89,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All five logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -96,6 +99,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
         dismissed: useSectionState('dismissed'),
+        'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
     }
 }
@@ -165,10 +169,12 @@ const ReportRow = memo(function ReportRow({
     report,
     sectionKey,
     rankingSortField,
+    timestampField,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
+    timestampField: 'created_at' | 'updated_at'
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -177,6 +183,7 @@ const ReportRow = memo(function ReportRow({
                 sectionKey={sectionKey}
                 selectable
                 rankingSortField={rankingSortField}
+                timestampField={timestampField}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -226,6 +233,7 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
+    const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
@@ -233,6 +241,7 @@ export function ReportsTab(): JSX.Element {
     const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
         useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
+    const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -367,9 +376,13 @@ export function ReportsTab(): JSX.Element {
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
+            <InboxMcpBanner />
+            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
 
             {inboxIsEmpty ? (
-                <ReportsEmptyState />
+                showActivation ? null : (
+                    <ReportsEmptyState />
+                )
             ) : showFirstLoadSkeleton ? (
                 // Hold the rows until every selected state's first page has settled: the states
                 // load in parallel, and painting the fastest one first would let the slower ones
@@ -399,7 +412,12 @@ export function ReportsTab(): JSX.Element {
                             {index > 0 && index === firstUnscoredIndex && (
                                 <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
                             )}
-                            <ReportRow report={report} sectionKey={sectionKey} rankingSortField={rankingSortField} />
+                            <ReportRow
+                                report={report}
+                                sectionKey={sectionKey}
+                                rankingSortField={rankingSortField}
+                                timestampField={timestampField}
+                            />
                         </Fragment>
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}

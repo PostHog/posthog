@@ -1,4 +1,3 @@
-import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
@@ -6,7 +5,11 @@ import {
     API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
+    type ScopePickerRow,
+    clampScopeLevel,
     getScopeDescription,
+    scopeGroupLevel,
+    scopeGroupTooltip,
     scopeMatchesSearch,
 } from 'lib/scopes'
 
@@ -92,6 +95,45 @@ describe('API_SCOPE_GROUPS', () => {
     })
 })
 
+describe('scope access groups', () => {
+    const row = (key: string, value: ScopePickerRow['value'], disabledReasons = {}): ScopePickerRow => ({
+        key,
+        label: key,
+        value,
+        disabledReasons,
+    })
+
+    // The clamp has to go down for a level the row refuses and up for a level the app requires,
+    // because the key modal only has the first case and the consent screen has both.
+    it.each([
+        ['stays on an allowed level', row('a', 'none'), 'write', 'write'],
+        ['drops to read when write is refused', row('a', 'none', { write: 'Not requested' }), 'write', 'read'],
+        [
+            'drops to none when read and write are refused',
+            row('a', 'none', { read: 'No', write: 'No' }),
+            'write',
+            'none',
+        ],
+        ['rises to read when none is refused', row('a', 'write', { none: 'Required' }), 'none', 'read'],
+    ])('%s', (_name, model, level, expected) => {
+        expect(clampScopeLevel(model, level as ScopePickerRow['value'])).toBe(expected)
+    })
+
+    it('never selects a level no row can take, and names each row reason in the tooltip', () => {
+        const rows = [
+            row('a', 'read', { write: 'Not requested by App' }),
+            row('b', 'read', { write: 'Not available for project scoped keys' }),
+            row('c', 'write'),
+        ]
+        expect(scopeGroupLevel(rows)).toBe('write')
+        expect(scopeGroupTooltip(rows, 'write')).toBe(
+            '1 of these permissions stays at read: Not requested by App. 1 of these permissions stays at read: Not available for project scoped keys.'
+        )
+        expect(scopeGroupLevel(rows.slice(0, 2))).toBe('read')
+        expect(scopeGroupLevel([row('a', 'read'), row('b', 'none')])).toBeUndefined()
+    })
+})
+
 describe('scopeMatchesSearch', () => {
     const featureFlag = { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' }
 
@@ -140,9 +182,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
+        it('contains :read for every readable entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+            const expected = API_SCOPES.filter(
+                ({ unprivilegedExcluded, disabledActions }) =>
+                    !unprivilegedExcluded && !disabledActions?.includes('read')
+            )
                 .map(({ key }) => `${key}:read`)
                 .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
@@ -176,14 +221,14 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
-
-        it('only includes scopes the key creation UI can render', () => {
-            const renderableScopes = getRenderableKeyCreationScopes()
-
-            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(
-                (AGENT_USE_CASE_SCOPES as readonly string[]).filter((scope) => renderableScopes.has(scope))
-            )
-            expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
-        })
     })
+
+    it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(
+        'preset %s only sets levels the key creation UI can render',
+        (value) => {
+            const renderableScopes = getRenderableKeyCreationScopes()
+            const unrenderable = findPreset(value).scopes.filter((scope) => !renderableScopes.has(scope))
+            expect(unrenderable).toEqual([])
+        }
+    )
 })

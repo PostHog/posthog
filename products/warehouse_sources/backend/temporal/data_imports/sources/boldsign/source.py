@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]):
+    codebase_detection = detect(
+        env=("^(BOLD_SIGN|BOLDSIGN)_",),
+        npm=("boldsign",),
+        pypi=("boldsign",),
+        composer=("boldsign/boldsign-php",),
+        maven=("com.boldsign:boldsign-java", "com.boldsign:boldsign-java-sdk"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"

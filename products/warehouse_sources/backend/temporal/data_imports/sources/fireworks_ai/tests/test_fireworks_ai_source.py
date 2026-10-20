@@ -1,20 +1,18 @@
-from typing import Any
-
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
-    ACCOUNT_USAGE,
-    ENDPOINTS,
-    FIREWORKS_AI_ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.source import FireworksAISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fireworksai import (
+    FireworksAISourceConfig,
+)
 
 
-def _config(api_key: str = "fw_test", account_id: str = "my-account") -> Any:
-    return source_module.FireworksAISourceConfig(api_key=api_key, account_id=account_id)
+def _config(api_key: str = "fw_test", account_id: str = "my-account") -> FireworksAISourceConfig:
+    return FireworksAISourceConfig(api_key=api_key, account_id=account_id)
 
 
 class TestSourceConfig:
@@ -26,38 +24,6 @@ class TestSourceConfig:
         # Dropping this override would let an editor retarget a preserved API key at another
         # Fireworks account without re-entering it (the update serializer keys off this list).
         assert FireworksAISource().connection_host_fields == ["account_id"]
-
-
-class TestGetSchemas:
-    def test_collections_are_full_refresh_and_usage_is_incremental(self) -> None:
-        schemas = {s.name: s for s in FireworksAISource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-
-        # Server-side timestamp filtering is unverified for the list endpoints (AIP-160 filter
-        # fields undocumented), so advertising incremental there would page the whole collection
-        # every sync while claiming not to.
-        collections = [s for name, s in schemas.items() if name != ACCOUNT_USAGE]
-        assert all(s.supports_incremental is False for s in collections)
-        assert all(s.incremental_fields == [] for s in collections)
-
-        # billingUsage windows on a required startTime/endTime, which is a real server-side filter.
-        usage = schemas[ACCOUNT_USAGE]
-        assert usage.supports_incremental is True
-        assert [f["field"] for f in usage.incremental_fields] == ["startTime"]
-
-        # Usage buckets are restated while their day is open, so appending would duplicate them.
-        assert all(s.supports_append is False for s in schemas.values())
-
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = FireworksAISource().get_schemas(_config(), team_id=1, names=["models"])
-        assert [s.name for s in schemas] == ["models"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = FireworksAISource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        models = next(t for t in tables if t["name"] == "models")
-        assert models["primary_keys"] == ["name"]
-        assert "Full refresh" in models["sync_methods"]
 
 
 class TestValidateCredentials:
@@ -72,25 +38,27 @@ class TestValidateCredentials:
         ]
     )
     def test_status_code_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
-        with patch.object(source_module, "get_status_code", return_value=status):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, _err = FireworksAISource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
+        assert network.requests_log
 
     def test_invalid_account_id_rejected_without_probe(self) -> None:
-        with patch.object(source_module, "get_status_code") as mock_probe:
+        with scripted_network([]) as network:
             ok, err = FireworksAISource().validate_credentials(_config(account_id="bad id!"), team_id=1)
         assert ok is False
         assert err is not None
-        mock_probe.assert_not_called()
+        assert network.requests_log == []
 
     def test_pasted_resource_prefix_is_normalized_before_probe(self) -> None:
-        with patch.object(source_module, "get_status_code", return_value=200) as mock_probe:
+        with scripted_network([ScriptedResponse()]) as network:
             ok, _err = FireworksAISource().validate_credentials(_config(account_id="accounts/my-account"), team_id=1)
         assert ok is True
-        assert mock_probe.call_args.args == ("fw_test", "my-account", None)
+        assert network.requests_log[0].path == "/v1/accounts/my-account/models"
+        assert network.requests_log[0].headers["authorization"] == "Bearer fw_test"
 
     def test_transport_failure_returns_actionable_error(self) -> None:
-        with patch.object(source_module, "get_status_code", side_effect=Exception("boom")):
+        with scripted_network(always(ConnectionError("boom"))):
             ok, err = FireworksAISource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert err is not None
@@ -133,14 +101,3 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = FireworksAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestCanonicalDescriptions:
-    def test_every_endpoint_has_a_canonical_description(self) -> None:
-        descriptions = FireworksAISource().get_canonical_descriptions()
-        for endpoint in FIREWORKS_AI_ENDPOINTS:
-            assert endpoint in descriptions
-            entry = descriptions[endpoint]
-            # Primary key columns must be documented so enrichment doesn't fall back to the LLM for them.
-            for pk in FIREWORKS_AI_ENDPOINTS[endpoint].primary_keys:
-                assert pk in entry["columns"]

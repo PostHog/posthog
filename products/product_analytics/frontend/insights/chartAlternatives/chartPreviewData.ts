@@ -1,3 +1,5 @@
+import { getResultOrder, getResultSeries } from 'scenes/insights/utils/resultSeries'
+
 import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
@@ -82,7 +84,10 @@ function canSumBuckets(source: TrendsQuery, results: TrendResult[]): boolean {
         (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 &&
         // The backend rounds each sampled bucket, so their sum can differ from a sampled total.
         (source.samplingFactor ?? 1) === 1 &&
-        results.every((result) => result.action != null && SUMMABLE_MATHS.has(result.action.math ?? 'total'))
+        results.every((result) => {
+            const math = getResultSeries(source, result).math
+            return math != null && SUMMABLE_MATHS.has(math.math ?? 'total')
+        })
     )
 }
 
@@ -174,6 +179,7 @@ const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
     [ChartDisplayType.BoldNumber]: { needs: 'totals', when: noBreakdown },
     [ChartDisplayType.ActionsPie]: { needs: 'totals' },
     [ChartDisplayType.ActionsDonut]: { needs: 'totals' },
+    [ChartDisplayType.ActionsProportionBar]: { needs: 'totals' },
     [ChartDisplayType.ActionsBarValue]: { needs: 'totals' },
     [ChartDisplayType.ActionsTable]: { needs: 'totals' },
     [ChartDisplayType.WorldMap]: { needs: 'totals', when: completeCountries, sampleRows: sampleWorldMapRows },
@@ -200,7 +206,7 @@ function candidateRows(
 }
 
 function seriesKey(result: TrendResult): string {
-    return JSON.stringify([result.order ?? result.action?.order, result.breakdown_value])
+    return JSON.stringify([getResultOrder(result), result.breakdown_value])
 }
 
 // Keeps whole series, so a comparison keeps the previous-period row of each series it shows.

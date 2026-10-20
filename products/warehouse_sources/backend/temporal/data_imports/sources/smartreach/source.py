@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartreachSource(ResumableSource[SmartreachSourceConfig, SmartreachResumeConfig]):
+    codebase_detection = detect(env=("^SMARTREACH_",))
+
     supported_versions = (SMARTREACH_API_V1, SMARTREACH_API_V3)
     default_version = SMARTREACH_API_V3
     api_docs_url = "https://help.smartreach.io/reference/using-the-smartreach-api"

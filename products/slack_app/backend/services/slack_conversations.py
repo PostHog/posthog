@@ -90,3 +90,20 @@ def _channel_privacy_from_slack(
     if "is_private" not in channel:
         return ConversationType.UNKNOWN
     return ConversationType.PRIVATE_CHANNEL if channel["is_private"] else ConversationType.PUBLIC_CHANNEL
+
+
+def channel_is_ext_shared(slack: SlackIntegration, channel: str) -> bool:
+    """Whether the channel is a Slack Connect channel.
+
+    Unlike events, interactivity payloads carry no ``is_ext_shared_channel`` on the
+    envelope, so this costs a ``conversations.info`` round trip. Fails closed: an
+    unreadable channel is treated as externally shared, which at worst asks the user
+    to approve a channel that did not need it.
+    """
+    try:
+        info = slack.client.conversations_info(channel=channel)
+        conversation: dict[str, Any] = info.get("channel") or {}
+        return bool(conversation.get("is_ext_shared") or conversation.get("is_pending_ext_shared"))
+    except Exception:
+        logger.warning("slack_app_channel_info_failed", channel=channel)
+        return True

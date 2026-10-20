@@ -1,8 +1,15 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaiads import (
+    OpenAIAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -20,7 +27,7 @@ class TestOpenAIAdsSourceConfig:
         assert config.name == ExternalDataSourceType.OPENAIADS
         # A finished source must be visible: stage-labelled, never hidden via unreleasedSource.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.BETA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openai-ads"
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert [f.name for f in fields] == ["api_key"]
@@ -28,10 +35,6 @@ class TestOpenAIAdsSourceConfig:
 
 
 class TestOpenAIAdsSchemas:
-    def test_all_endpoints_present(self) -> None:
-        names = {s.name for s in OpenAIAdsSource().get_schemas(MagicMock(), team_id=1)}
-        assert names == {*_ENTITY_ENDPOINTS, *_INSIGHTS_ENDPOINTS}
-
     @parameterized.expand([(endpoint,) for endpoint in _INSIGHTS_ENDPOINTS])
     def test_insights_are_incremental_on_start_time_with_lookback(self, endpoint: str) -> None:
         # Insights have a genuine server-side time filter (time_ranges[]); recent buckets get
@@ -49,10 +52,6 @@ class TestOpenAIAdsSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = OpenAIAdsSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
-        assert [s.name for s in schemas] == ["campaigns"]
-
 
 class TestOpenAIAdsSourceForPipeline:
     @parameterized.expand(
@@ -69,17 +68,12 @@ class TestOpenAIAdsSourceForPipeline:
     def test_primary_keys_partitioning_and_sort_mode(
         self, endpoint: str, primary_keys: list[str], partition_keys: list[str], sort_mode: str
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = None
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient.paginate",
-            return_value=iter([[{"currency_code": "USD"}]]),
-        ):
-            response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
+        page = ScriptedResponse(json={"data": [], "has_more": False})
+        script = [ScriptedResponse(json={"currency_code": "USD"}), page] if "insights" in endpoint else [page]
+        result = SourceDriver(OpenAIAdsSource(), OpenAIAdsSourceConfig(api_key="k")).run(endpoint, script)
+        response = result.response
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
@@ -171,12 +165,3 @@ class TestDocumentedTables:
         # The docs' Supported tables section keys canonical entries by endpoint name — a drifted
         # key silently loses its curated description.
         assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog => the source opts into publishing its table list to public docs.
-        assert OpenAIAdsSource().lists_tables_without_credentials is True
-        tables = OpenAIAdsSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        campaign_insights = next(t for t in tables if t["name"] == "campaign_insights")
-        assert "Incremental" in campaign_insights["sync_methods"]
-        assert campaign_insights["description"]

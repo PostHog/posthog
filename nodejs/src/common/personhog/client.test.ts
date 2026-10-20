@@ -149,6 +149,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),
+    ensurePersonVersionFloors: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),

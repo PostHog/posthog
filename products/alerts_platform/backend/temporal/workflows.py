@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
@@ -19,9 +19,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import NonReportableApplicationError, unwrap_temporal_cause
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.alerts_platform.backend.temporal.metrics import increment_deliveries_previewed, safe_record
+from products.alerts_platform.backend.temporal.metrics import (
+    increment_deliveries_previewed,
+    increment_discovery_omitted,
+    safe_record,
+)
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
-from products.alerts_platform.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -48,9 +51,12 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
+    from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
 
 POSTGRES_PROBE_FAILURE = "AlertsPlatformPostgresProbeFailure"
+POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT = dt.timedelta(seconds=10)
+POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(seconds=30)
 
 # A tick stops starting pages once this much of its minute is spent. The schedule's 50-second
 # execution timeout is the backstop, and it spans continued runs.
@@ -64,12 +70,8 @@ TICK_HARD_STOP_MARGIN = dt.timedelta(seconds=5)
 SOURCE_DISPATCH_TIMEOUT = dt.timedelta(seconds=30)
 # Time kept between a dispatcher's timeout and the hard stop, so the child closes first.
 SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
-# What an evaluation gets end to end: its reads, its write, and the delivery children it starts.
-# It has to hold every attempt a source's activities allow, because an attempt cut off here is a
-# batch that decided something and recorded nothing. Evaluations are abandoned rather than
-# awaited, so this does not have to fit inside the tick. It does hold the key for its duration,
-# which is what blocks a slow evaluation's own re-dispatch.
-SOURCE_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
+# The noop evaluation's ceiling. A source with an adapter takes its own from its binding.
+NOOP_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 THREAD_BUSY = "AlertsPlatformThreadBusy"
 DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=10)
@@ -92,7 +94,11 @@ class AlertsPlatformInputs:
 
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
+    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
+    for source, omitted in demand.omitted_by_source.items():
+        if omitted:
+            safe_record(increment_discovery_omitted, source.value, omitted)
+    return demand
 
 
 @activity.defn
@@ -148,6 +154,7 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         evaluation_key=request.evaluation_key,
         sent=outcome.sent,
         skipped_without_transport=outcome.skipped_without_transport,
+        emitted=outcome.emitted,
     )
 
 
@@ -157,13 +164,31 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
+        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
+
+        A part that fails does not stop the parts after it. The first failure fails the run once
+        every part has had its attempts.
+        """
+        if inputs.parts <= 1:
+            await self._deliver(inputs)
+            return
+        failures: list[ActivityError] = []
+        for part in range(inputs.parts):
+            try:
+                await self._deliver(replace(inputs, part=part))
+            except ActivityError as error:
+                failures.append(error)
+        if failures:
+            raise failures[0]
+
+    async def _deliver(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
             try:
                 await workflow.execute_activity(
                     alerts_platform_deliver_preview_activity,
-                    inputs,
+                    request,
                     start_to_close_timeout=DELIVERY_START_TO_CLOSE,
                     schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -178,6 +203,51 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
                 elif started_at >= busy_deadline:
                     raise
             await workflow.sleep(BUSY_RETRY_DELAY)
+
+
+def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
+    """The id of an evaluation's delivery. A re-run of the same occasion reuses it, so one delivery
+    runs whichever caller starts it."""
+    return f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}"
+
+
+def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
+    return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
+
+
+async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
+    """Starts one delivery workflow per request, from inside a source's evaluation workflow.
+
+    Returns how many started. The id names the configuration and the evaluation key, because the
+    key names a window or a slot but not the alert, so two alerts in one slot do not collide. A
+    re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
+    started does not stop the rest.
+
+    A request split into parts still starts one workflow, which delivers the parts in turn, so its
+    deadline is one part's times the count.
+    """
+    results = await asyncio.gather(
+        *(
+            workflow.start_child_workflow(
+                AlertsPlatformDeliverPreviewWorkflow.run,
+                delivery,
+                id=delivery_workflow_id(delivery),
+                task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=delivery_execution_timeout(delivery),
+            )
+            for delivery in deliveries
+        ),
+        return_exceptions=True,
+    )
+    started = 0
+    for result in results:
+        if isinstance(result, WorkflowAlreadyStartedError):
+            continue
+        if isinstance(result, BaseException):
+            raise result
+        started += 1
+    return started
 
 
 @workflow.defn(name="alerts-platform-deliver")
@@ -204,8 +274,8 @@ class AlertsPlatformEvaluateWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 alerts_platform_probe_postgres_activity,
                 task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-                start_to_close_timeout=dt.timedelta(seconds=10),
-                schedule_to_close_timeout=dt.timedelta(seconds=30),
+                start_to_close_timeout=POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError as error:
@@ -245,14 +315,14 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
         taken = inputs.batch_keys[:MAX_EVALUATIONS_PER_DISPATCH]
         remaining = inputs.batch_keys[MAX_EVALUATIONS_PER_DISPATCH:]
-        source_workflow = SOURCE_EVALUATION_WORKFLOWS.get(inputs.source)
+        binding = SOURCE_BINDINGS.get(inputs.source)
 
         started_ids: list[str] = []
         already_running = 0
         for key in taken:
             evaluation_workflow_id = f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}"
             try:
-                if source_workflow is None:
+                if binding is None:
                     # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
                     await workflow.start_child_workflow(
                         AlertsPlatformEvaluateWorkflow.run,
@@ -260,17 +330,17 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
                         id=evaluation_workflow_id,
                         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=SOURCE_EVALUATION_TIMEOUT,
+                        execution_timeout=NOOP_EVALUATION_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
                 else:
                     await workflow.start_child_workflow(
-                        source_workflow,
+                        binding.workflow,
                         SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
                         id=evaluation_workflow_id,
-                        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+                        task_queue=binding.task_queue,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=SOURCE_EVALUATION_TIMEOUT,
+                        execution_timeout=binding.evaluation_timeout,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
             except WorkflowAlreadyStartedError:

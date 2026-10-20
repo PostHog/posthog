@@ -61,6 +61,9 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "session_id": observation.session_id,
         "recording_distinct_id": recording_distinct_id,
         "recording_subject_email": recording_subject_email,
+        # Internal captures resolve to the worker's address, so carry the recorded session's location instead.
+        "$geoip_disable": True,
+        **(observation.session_geoip or {}),
         "triggered_by": str(observation.triggered_by),
         "triggered_by_user_id": observation.triggered_by_user_id,
         "model_used": snapshot.model,

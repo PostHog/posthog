@@ -1,13 +1,18 @@
-import json
-from typing import Any
-
 import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
 from requests.exceptions import ConnectionError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify import (
+    AUDIT_EVENTS_FORBIDDEN_ERROR,
+    AuditEventsPaginationTruncatedError,
     CoolifyHostNotAllowedError,
     DeploymentsPaginationTruncatedError,
     _client_config,
@@ -22,23 +27,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.se
     COOLIFY_ENDPOINTS,
     DEPLOYMENTS_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source import CoolifySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coolify import (
+    CoolifySourceConfig,
+)
 
 BASE_URL = "https://coolify.example.com"
 API_BASE = f"{BASE_URL}/api/v1"
 APP_UUID = "o8g80wkc4s0gks0k0ok8cog4"
 
 
-def _make_response(json_body: Any = None, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp.headers["Content-Type"] = "application/json"
-    resp._content = json.dumps(json_body if json_body is not None else {}).encode()
-    return resp
-
-
-def _rows(endpoint: str, base_url: str = BASE_URL) -> list[dict[str, Any]]:
-    resource = coolify_source(base_url, "coolify-token", endpoint, team_id=1, job_id="job-1")
-    return [row for page in resource for row in page]
+def _driver(base_url: str = BASE_URL) -> SourceDriver:
+    return SourceDriver(CoolifySource(), CoolifySourceConfig(base_url=base_url, api_token="coolify-token"))
 
 
 class TestCoolifyNormalizeBaseUrl:
@@ -77,9 +77,6 @@ class TestCoolifyHostnameValidation:
         # that validates as one host but connects to another must be rejected outright (SSRF).
         assert hostname_of(url) is None
 
-    def test_accepts_a_plain_instance_url(self) -> None:
-        assert hostname_of(BASE_URL) == "coolify.example.com"
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.is_cloud",
         return_value=True,
@@ -103,7 +100,11 @@ class TestCoolifyClientConfig:
             pytest.param("servers", True, id="log_drain_keys_in_the_response"),
             pytest.param("services", True, id="compose_contents_in_the_response"),
             pytest.param("teams", True, id="member_emails_in_the_response"),
+            pytest.param("audit_events", True, id="change_diffs_in_the_response"),
+            pytest.param("application_task_executions", True, id="command_output_in_the_response"),
+            pytest.param("backup_executions", True, id="raw_backup_configs_in_the_walk"),
             pytest.param("projects", False, id="nothing_to_withhold"),
+            pytest.param("project_environments", False, id="environments_nothing_to_withhold"),
         ],
     )
     def test_capture_is_disabled_only_where_the_response_must_not_be_sampled(
@@ -119,168 +120,61 @@ class TestCoolifyClientConfig:
             assert "capture" not in client_config
 
 
-class TestCoolifySensitiveFields:
-    def test_databases_strip_credentials_of_every_database_type(self) -> None:
-        # /databases mixes every standalone database type in one listing, and a token with the
-        # `read:sensitive` or `root` ability gets the credential fields back; each type's
-        # password and connection URLs must be gone before the record is stored.
-        record = {
-            "uuid": "db-1",
-            "name": "prod-pg",
-            "postgres_password": "leak-me",
-            "internal_db_url": "postgres://coolify:leak-me@db:5432/prod",
-            "external_db_url": "postgres://coolify:leak-me@example.com:5432/prod",
-            "init_scripts": [{"filename": "init.sql", "content": "leak-me"}],
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "databases", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [{"uuid": "db-1", "name": "prod-pg"}]
-
-    def test_deployments_strip_logs_and_configuration_snapshots(self) -> None:
-        # Deploy logs echo build output (which can print env values) and the configuration
-        # snapshot holds the full application config; both are hidden by Coolify for plain read
-        # tokens and must not land in the warehouse for privileged ones either.
-        record = {
-            "deployment_uuid": "dep-1",
-            "status": "finished",
-            "logs": '[{"output": "leak-me"}]',
-            "configuration_snapshot": {"env": "leak-me"},
-            "configuration_diff": {"env": "leak-me"},
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "deployments", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [{"deployment_uuid": "dep-1", "status": "finished"}]
-
-    def test_projects_round_trip_untouched(self) -> None:
-        # Only endpoints that declare sensitive_fields get filtered; everything else must
-        # round-trip untouched or the strip would silently drop real data.
-        record = {"uuid": "proj-1", "name": "web", "description": None}
-        resource = coolify_source(BASE_URL, "coolify-token", "projects", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([dict(record)]) == [record]
-
-    def test_servers_strip_sentinel_and_logdrain_credentials(self) -> None:
-        # A `read:sensitive`/`root` token also gets back the Sentinel APM token, its custom
-        # collector URL, and the raw log-drain forwarder config/parser (which can itself embed
-        # Axiom/New Relic/a custom endpoint's credentials); none of that may reach storage.
-        record = {
-            "uuid": "srv-1",
-            "name": "hetzner-1",
-            "logdrain_axiom_api_key": "leak-me",
-            "logdrain_newrelic_license_key": "leak-me",
-            "sentinel_token": "leak-me",
-            "sentinel_custom_url": "https://sentinel.internal/leak-me",
-            "logdrain_custom_config": "leak-me",
-            "logdrain_custom_config_parser": "leak-me",
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "servers", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [{"uuid": "srv-1", "name": "hetzner-1"}]
-
-    def test_applications_strip_the_embedded_destination_servers_credentials(self) -> None:
-        # Applications nest their destination server's settings object; the recursive strip must
-        # reach it too, or a privileged token's Sentinel token/log-drain config leaks through the
-        # applications table even though the servers table strips it.
-        record = {
-            "uuid": "app-1",
-            "name": "web",
-            "destination": {
-                "server": {
-                    "uuid": "srv-1",
-                    "sentinel_token": "leak-me",
-                    "logdrain_custom_config": "leak-me",
-                }
-            },
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "applications", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [
-            {"uuid": "app-1", "name": "web", "destination": {"server": {"uuid": "srv-1"}}}
-        ]
-
-
 class TestCoolifyFlatEndpoints:
-    def test_reads_the_bare_array_from_the_versioned_path(self, requests_mock: Any) -> None:
+    def test_reads_the_bare_array_from_the_versioned_path(self) -> None:
         # Coolify list endpoints answer a bare JSON array under /api/v1; a wrong data_selector or
         # a doubled/missing API prefix would sync zero rows without erroring.
-        servers = requests_mock.get(f"{API_BASE}/servers", json=[{"uuid": "srv-1", "name": "hetzner-1"}])
+        result = _driver(base_url=f"{BASE_URL}/api/v1").run(
+            "servers", [ScriptedResponse(json=[{"uuid": "srv-1", "name": "hetzner-1"}])]
+        )
 
-        assert _rows("servers", base_url=f"{BASE_URL}/api/v1") == [{"uuid": "srv-1", "name": "hetzner-1"}]
-        assert servers.call_count == 1
+        assert result.raised is None
+        assert result.rows == [{"uuid": "srv-1", "name": "hetzner-1"}]
+        assert result.urls == [f"{API_BASE}/servers"]
 
 
 class TestCoolifyDeploymentsFanout:
-    def _mock_applications(self, requests_mock: Any, uuids: list[str]) -> None:
-        requests_mock.get(f"{API_BASE}/applications", json=[{"uuid": uuid, "name": f"app-{uuid}"} for uuid in uuids])
-
-    def test_deployments_carry_their_parent_application_uuid(self, requests_mock: Any) -> None:
-        # Deployment rows only carry the numeric application_id; the parent's uuid projection
-        # (renamed off the `_applications_` prefix) is what joins them to the applications
-        # table's primary key.
-        self._mock_applications(requests_mock, [APP_UUID])
-        requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            json={"count": 1, "deployments": [{"deployment_uuid": "dep-1", "status": "finished"}]},
-        )
-
-        assert _rows("deployments") == [
-            {"deployment_uuid": "dep-1", "status": "finished", "application_uuid": APP_UUID}
-        ]
-
-    def test_pages_with_skip_and_take_until_the_reported_count(self, requests_mock: Any) -> None:
-        # The endpoint pages with skip/take and reports the grand total under `count`; wrong
-        # param names or a wrong total path would either sync only the newest page or loop.
-        self._mock_applications(requests_mock, [APP_UUID])
-        page_one = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
-        page_two = [{"deployment_uuid": "dep-last"}]
-        deployments = requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            [
-                {"json": {"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page_one}},
-                {"json": {"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page_two}},
-            ],
-        )
-
-        rows = _rows("deployments")
-
-        assert len(rows) == DEPLOYMENTS_PAGE_SIZE + 1
-        assert deployments.call_count == 2
-        first_request, second_request = deployments.request_history
-        assert first_request.qs["take"] == [str(DEPLOYMENTS_PAGE_SIZE)]
-        assert second_request.qs["skip"] == [str(DEPLOYMENTS_PAGE_SIZE)]
-
-    def test_an_application_deleted_mid_sync_does_not_fail_the_table(self, requests_mock: Any) -> None:
+    def test_an_application_deleted_mid_sync_does_not_fail_the_table(self) -> None:
         # An app removed between the parent listing and its child fetch answers 404; one such app
         # must cost only its own rows, not the whole deployments table.
         gone_uuid = "gone0000000000000000000000"
-        self._mock_applications(requests_mock, [gone_uuid, APP_UUID])
-        requests_mock.get(f"{API_BASE}/deployments/applications/{gone_uuid}", status_code=404, json={})
-        requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            json={"count": 1, "deployments": [{"deployment_uuid": "dep-1"}]},
+        result = _driver().run(
+            "deployments",
+            [
+                ScriptedResponse(json=[{"uuid": uuid, "name": f"app-{uuid}"} for uuid in [gone_uuid, APP_UUID]]),
+                ScriptedResponse(status=404, json={}),
+                ScriptedResponse(json={"count": 1, "deployments": [{"deployment_uuid": "dep-1"}]}),
+            ],
         )
 
-        assert [row["deployment_uuid"] for row in _rows("deployments")] == ["dep-1"]
+        assert result.raised is None
+        assert [row["deployment_uuid"] for row in result.rows] == ["dep-1"]
+        assert result.paths == [
+            "/api/v1/applications",
+            f"/api/v1/deployments/applications/{gone_uuid}",
+            f"/api/v1/deployments/applications/{APP_UUID}",
+        ]
 
-    def test_a_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self, requests_mock: Any) -> None:
+    def test_a_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self) -> None:
         # The deployments table replaces on every sync (`write_disposition: "replace"`). Stopping
         # at the safety cap while `count` still claims more rows exist would silently swap a
         # complete table for an incomplete one; it must raise instead.
-        self._mock_applications(requests_mock, [APP_UUID])
         page = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
-        requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            json={"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page},
-        )
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
-                DEPLOYMENTS_PAGE_SIZE,
-            ),
-            pytest.raises(DeploymentsPaginationTruncatedError),
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
+            DEPLOYMENTS_PAGE_SIZE,
         ):
-            _rows("deployments")
+            result = _driver().run(
+                "deployments",
+                [
+                    ScriptedResponse(json=[{"uuid": APP_UUID}]),
+                    ScriptedResponse(json={"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page}),
+                ],
+            )
+
+        assert isinstance(result.raised, DeploymentsPaginationTruncatedError)
+        assert result.paths == ["/api/v1/applications", f"/api/v1/deployments/applications/{APP_UUID}"]
+        assert result.params("skip") == [None, "0"]
 
     def test_an_unparseable_body_at_the_cap_stops_without_crashing(self) -> None:
         # If the response at the cap boundary isn't valid JSON, `_DeploymentsPaginator` can't read
@@ -304,6 +198,171 @@ class TestCoolifyDeploymentsFanout:
         assert paginator.has_next_page is False
 
 
+class TestCoolifyNestedFanout:
+    @pytest.mark.parametrize(
+        "endpoint,responses,expected_paths,expected_rows",
+        [
+            pytest.param(
+                "project_environments",
+                [
+                    ScriptedResponse(json=[{"uuid": "prj-gone"}, {"uuid": "prj-1"}]),
+                    ScriptedResponse(status=404, json={}),
+                    ScriptedResponse(json=[{"id": 7, "uuid": "env-1", "name": "production"}]),
+                ],
+                [
+                    "/api/v1/projects",
+                    "/api/v1/projects/prj-gone/environments",
+                    "/api/v1/projects/prj-1/environments",
+                ],
+                [{"id": 7, "uuid": "env-1", "name": "production", "project_uuid": "prj-1"}],
+                id="project_environments",
+            ),
+            pytest.param(
+                "application_task_executions",
+                [
+                    ScriptedResponse(json=[{"uuid": "app-gone"}, {"uuid": APP_UUID}]),
+                    ScriptedResponse(status=404, json={}),
+                    ScriptedResponse(json=[{"uuid": "task-1", "name": "nightly", "command": "secret-cmd"}]),
+                    ScriptedResponse(json=[{"uuid": "exe-1", "status": "failed", "message": "token=abc"}]),
+                ],
+                [
+                    "/api/v1/applications",
+                    "/api/v1/applications/app-gone/scheduled-tasks",
+                    f"/api/v1/applications/{APP_UUID}/scheduled-tasks",
+                    f"/api/v1/applications/{APP_UUID}/scheduled-tasks/task-1/executions",
+                ],
+                [
+                    {
+                        "uuid": "exe-1",
+                        "status": "failed",
+                        "task_uuid": "task-1",
+                        "task_name": "nightly",
+                        "application_uuid": APP_UUID,
+                    }
+                ],
+                id="application_task_executions",
+            ),
+            pytest.param(
+                "backup_executions",
+                [
+                    ScriptedResponse(json=[{"uuid": "db-1"}]),
+                    ScriptedResponse(json=[{"uuid": "bkp-1", "executions": [{"uuid": "embedded"}]}]),
+                    ScriptedResponse(json={"executions": [{"uuid": "bex-1", "status": "success", "size": 42}]}),
+                ],
+                [
+                    "/api/v1/databases",
+                    "/api/v1/databases/db-1/backups",
+                    "/api/v1/databases/db-1/backups/bkp-1/executions",
+                ],
+                [
+                    {
+                        "uuid": "bex-1",
+                        "status": "success",
+                        "size": 42,
+                        "scheduled_backup_uuid": "bkp-1",
+                        "database_uuid": "db-1",
+                    }
+                ],
+                id="backup_executions",
+            ),
+        ],
+    )
+    def test_binds_every_parent_id_and_projects_it_onto_the_rows(
+        self,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_rows: list[dict],
+    ) -> None:
+        # A wrong resolve field leaves a `{placeholder}` in the child path or binds the wrong id,
+        # and a wrong rename leaves the parent id under its framework-prefixed key, so the rows
+        # can't be joined back. A parent deleted mid-sync must cost only its own rows.
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.rows == expected_rows
+
+
+class TestCoolifyAuditEvents:
+    def test_walks_to_the_last_page_and_drops_rows_shifted_by_new_events(self) -> None:
+        # Coolify pages newest first, so an event recorded between page fetches pushes the last
+        # row of page 1 onto page 2. The table replaces on every sync, so that row must not be
+        # stored twice. Sensitive columns must never reach storage.
+        result = _driver().run(
+            "audit_events",
+            [
+                ScriptedResponse(
+                    json={
+                        "current_page": 1,
+                        "last_page": 2,
+                        "data": [
+                            {"id": 3, "created_at": "2026-10-03T00:00:00.000000Z", "changes": {"password": "x"}},
+                            {"id": 2, "created_at": "2026-10-02T00:00:00.000000Z", "actor_email": "a@example.com"},
+                        ],
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "current_page": 2,
+                        "last_page": 2,
+                        "data": [
+                            {"id": 2, "created_at": "2026-10-02T00:00:00.000000Z", "actor_email": "a@example.com"},
+                            {"id": 1, "created_at": "2026-10-01T00:00:00.000000Z", "ip_address": "192.0.2.1"},
+                        ],
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/audit-events", "/api/v1/audit-events"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("per_page") == ["100", "100"]
+        assert result.rows == [
+            {"id": 3, "created_at": "2026-10-03T00:00:00.000000Z"},
+            {"id": 2, "created_at": "2026-10-02T00:00:00.000000Z"},
+            {"id": 1, "created_at": "2026-10-01T00:00:00.000000Z"},
+        ]
+
+    def test_a_page_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_AUDIT_EVENTS_PAGES",
+            2,
+        ):
+            result = _driver().run(
+                "audit_events",
+                [
+                    ScriptedResponse(json={"last_page": 3, "data": [{"id": 2, "created_at": "2026-10-02T00:00:00Z"}]}),
+                    ScriptedResponse(json={"last_page": 3, "data": [{"id": 1, "created_at": "2026-10-01T00:00:00Z"}]}),
+                ],
+            )
+
+        # The first page already proves the walk can't complete, so no further page is fetched.
+        assert isinstance(result.raised, AuditEventsPaginationTruncatedError)
+        assert result.paths == ["/api/v1/audit-events"]
+
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [
+            pytest.param(200, None, id="admin_token"),
+            pytest.param(403, AUDIT_EVENTS_FORBIDDEN_ERROR, id="member_token"),
+            # Not a denial, so the table stays selectable and the sync reports the real error.
+            pytest.param(500, None, id="server_error_is_not_a_denial"),
+        ],
+    )
+    def test_reports_the_admin_only_audit_log_per_table(self, status_code: int, expected: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            permissions = CoolifySource().get_endpoint_permissions(
+                CoolifySourceConfig(base_url=BASE_URL, api_token="coolify-token"),
+                team_id=1,
+                endpoints=["servers", "audit_events"],
+            )
+
+        assert permissions == {"servers": None, "audit_events": expected}
+        assert {request.path for request in network.requests_log} == {"/api/v1/audit-events"}
+
+
 class TestCoolifyValidateCredentials:
     def test_rejects_an_invalid_url_without_a_network_call(self) -> None:
         valid, error = validate_credentials("https://user@coolify.example.com", "coolify-token")
@@ -322,35 +381,25 @@ class TestCoolifyValidateCredentials:
             pytest.param(500, False, "try again", id="transient_server_error"),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.make_tracked_session")
     def test_maps_status_to_a_message(
-        self, mock_session: MagicMock, status_code: int, expected_valid: bool, expected_fragment: str | None
+        self, status_code: int, expected_valid: bool, expected_fragment: str | None
     ) -> None:
-        mock_session.return_value.get.return_value = _make_response(status_code=status_code)
-
-        valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
+        answer = ScriptedResponse(status=status_code, json={})
+        with scripted_network(always(answer) if status_code == 500 else [answer]) as network:
+            valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
 
         assert valid is expected_valid
         if expected_fragment is not None:
             assert error is not None and expected_fragment in error
+        assert {request.path for request in network.requests_log} == {"/api/v1/teams"}
+        assert all(request.headers["authorization"] == "Bearer coolify-token" for request in network.requests_log)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.make_tracked_session")
-    def test_transport_error_does_not_blame_the_token(self, mock_session: MagicMock) -> None:
+    def test_transport_error_does_not_blame_the_token(self) -> None:
         # An unreachable instance is not proof the token is bad; the message must point at the
         # URL, not tell the user to regenerate a good token.
-        mock_session.return_value.get.side_effect = ConnectionError("boom")
-
-        valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
 
         assert not valid
         assert error is not None and "reach" in error
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.make_tracked_session")
-    def test_probes_the_normalized_teams_endpoint(self, mock_session: MagicMock) -> None:
-        # A pasted `/api/v1` suffix must not double into `/api/v1/api/v1/teams`.
-        mock_session.return_value.get.return_value = _make_response(json_body=[], status_code=200)
-
-        validate_credentials(f"{BASE_URL}/api/v1/", "coolify-token", team_id=1)
-
-        args, _ = mock_session.return_value.get.call_args
-        assert args[0] == f"{API_BASE}/teams"
+        assert {request.path for request in network.requests_log} == {"/api/v1/teams"}

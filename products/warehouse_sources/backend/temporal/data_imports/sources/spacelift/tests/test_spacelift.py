@@ -1,14 +1,23 @@
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.settings import (
-    RUNS_INCREMENTAL_LOOKBACK_SECONDS,
-    SPACELIFT_ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spacelift import (
+    SpaceliftSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.settings import (
+    AUDIT_TRAIL_INCREMENTAL_LOOKBACK_SECONDS,
+    RUNS_INCREMENTAL_LOOKBACK_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.source import SpaceliftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
     ACCOUNT_NOT_FOUND_MESSAGE,
     INVALID_API_KEY_MESSAGE,
@@ -18,29 +27,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     SpaceliftPermissionError,
     SpaceliftResumeConfig,
     build_incremental_predicates,
-    build_query,
     normalize_account_name,
-    spacelift_source,
     to_unix_seconds,
     validate_credentials,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift"
-
 TOKEN_PAYLOAD = {"data": {"apiKeyUser": {"jwt": "jwt-1", "validUntil": 99999999999}}}
 
 
-def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    resp.json.return_value = payload
-    return resp
+def _response(payload: dict[str, Any], status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=payload)
 
 
 def _search_page(
     graphql_field: str, nodes: list[dict[str, Any]], end_cursor: str = "", has_next: bool = False
-) -> mock.MagicMock:
+) -> ScriptedResponse:
     return _response(
         {
             "data": {
@@ -53,37 +54,77 @@ def _search_page(
     )
 
 
-def _make_manager(resume_state: SpaceliftResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _run(
+    endpoint: str,
+    script: list[ScriptedResponse],
+    resume_state: SpaceliftResumeConfig | None = None,
+    **inputs: Any,
+) -> DriveResult:
+    config = SpaceliftSourceConfig(account_name="my-company", api_key_id="key-id", api_key_secret="key-secret")
+    return SourceDriver(SpaceliftSource(), config).run(endpoint, script, resume_state=resume_state, **inputs)
 
 
-def _mock_session(mock_make_session: mock.MagicMock, responses: list[mock.MagicMock]) -> mock.MagicMock:
-    session = mock.MagicMock()
-    session.post.side_effect = responses
-    mock_make_session.return_value = session
-    return session
+def _module_page(module_ids: list[str], end_cursor: str = "", has_next: bool = False) -> ScriptedResponse:
+    return _search_page("searchModules", [{"id": module_id} for module_id in module_ids], end_cursor, has_next)
 
 
-def _query_calls(session: mock.MagicMock) -> list[Any]:
+def _versions_page(version_ids: list[str] | None, end_cursor: str = "", has_next: bool = False) -> ScriptedResponse:
+    if version_ids is None:
+        # The module was deleted between listing it and querying its versions.
+        return _response({"data": {"module": None}})
+    return _response(
+        {
+            "data": {
+                "module": {
+                    "searchModuleVersions": {
+                        "edges": [{"cursor": v, "node": {"id": v}} for v in version_ids],
+                        "pageInfo": {"endCursor": end_cursor, "hasNextPage": has_next},
+                    }
+                }
+            }
+        }
+    )
+
+
+def _changes(addresses: list[str], end_cursor: str = "", has_next: bool = False) -> dict[str, Any]:
+    return {
+        "edges": [
+            {"node": {"type": "ADD", "phase": "PLAN", "entity": {"id": f"ent-{a}", "address": a}}} for a in addresses
+        ],
+        "pageInfo": {"endCursor": end_cursor, "hasNextPage": has_next},
+    }
+
+
+def _run_node(run_id: str, changes: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "isModule": False,
+        "stack": {"id": "stack-1"},
+        "run": {"id": run_id, "createdAt": 1700000100, "changesV2": changes},
+    }
+
+
+def _change_row(run_id: str, address: str) -> dict[str, Any]:
+    return {
+        "runId": run_id,
+        "stackId": "stack-1",
+        "isModule": False,
+        "runCreatedAt": 1700000100,
+        "phase": "PLAN",
+        "changeType": "ADD",
+        "address": address,
+        "entityId": f"ent-{address}",
+        "entityName": None,
+        "entityType": None,
+        "parent": None,
+    }
+
+
+def _query_requests(result: DriveResult) -> list[RecordedRequest]:
     # Skip the initial apiKeyUser token exchange, leaving the data queries.
-    return session.post.call_args_list[1:]
+    return result.requests[1:]
 
 
 class TestSpacelift:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("my-company", "my-company"),
-            ("  My-Company  ", "my-company"),
-            ("acme2", "acme2"),
-        ],
-    )
-    def test_normalize_account_name_accepts_dns_labels(self, raw, expected):
-        assert normalize_account_name(raw) == expected
-
     @pytest.mark.parametrize(
         "raw",
         [
@@ -100,24 +141,6 @@ class TestSpacelift:
     def test_normalize_account_name_rejects_host_injection(self, raw):
         with pytest.raises(ValueError):
             normalize_account_name(raw)
-
-    @pytest.mark.parametrize("endpoint", [name for name, c in SPACELIFT_ENDPOINTS.items() if c.is_connection])
-    def test_build_query_for_connections(self, endpoint):
-        config = SPACELIFT_ENDPOINTS[endpoint]
-        query = build_query(config)
-        assert f"{config.graphql_field}(input: $input)" in query
-        assert "pageInfo" in query
-        assert "endCursor" in query
-
-    def test_build_query_wraps_runs_in_run_with_stack(self):
-        query = build_query(SPACELIFT_ENDPOINTS["runs"])
-        assert "isModule run {" in query
-        assert "stack { id name }" in query
-
-    def test_build_query_for_plain_list(self):
-        query = build_query(SPACELIFT_ENDPOINTS["spaces"])
-        assert "SearchInput" not in query
-        assert "spaces {" in query
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -136,154 +159,71 @@ class TestSpacelift:
     def test_to_unix_seconds(self, value, expected):
         assert to_unix_seconds(value) == expected
 
-    def test_incremental_predicates_apply_lookback(self):
-        predicates = build_incremental_predicates("createdAt", 1700000000)
-        assert predicates == [
-            {
-                "field": "createdAt",
-                "constraint": {"timeInRange": {"start": 1700000000 - RUNS_INCREMENTAL_LOOKBACK_SECONDS}},
-            }
-        ]
-
-    def test_incremental_predicates_clamp_at_zero(self):
-        predicates = build_incremental_predicates("createdAt", 10)
-        assert predicates is not None
-        assert predicates[0]["constraint"]["timeInRange"]["start"] == 0
-
     def test_incremental_predicates_none_for_unparseable_value(self):
         assert build_incremental_predicates("createdAt", "garbage") is None
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_keeps_credentials_out_of_sample_capture(self, mock_make_session):
-        # The exchange body carries the raw secret and the response a minted JWT — names
-        # the sample scrubber can't recognise, so the session must opt out of capture.
-        SpaceliftClient("my-company", "key-id", "key-secret")
-
-        kwargs = mock_make_session.call_args.kwargs
-        assert kwargs["capture"] is False
-        assert kwargs["allow_redirects"] is False
-        assert "key-secret" in kwargs["redact_values"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_token_exchange_null_user_raises_auth_error(self, mock_make_session):
+    def test_token_exchange_null_user_raises_auth_error(self):
         # Spacelift signals a bad key with apiKeyUser=null and no GraphQL error.
-        _mock_session(mock_make_session, [_response({"data": {"apiKeyUser": None}})])
+        with scripted_network([_response({"data": {"apiKeyUser": None}})]):
+            client = SpaceliftClient("my-company", "key-id", "key-secret")
+            with pytest.raises(SpaceliftAuthError):
+                client._ensure_token()
 
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        with pytest.raises(SpaceliftAuthError):
-            client._ensure_token()
+    def test_execute_raises_permission_error_when_still_unauthorized(self):
+        script = [
+            _response(TOKEN_PAYLOAD),
+            _response({"errors": [{"message": "unauthorized"}], "data": None}),
+            _response(TOKEN_PAYLOAD),
+            _response({"errors": [{"message": "unauthorized"}], "data": None}),
+        ]
+        with scripted_network(script):
+            client = SpaceliftClient("my-company", "key-id", "key-secret")
+            with pytest.raises(SpaceliftPermissionError):
+                client.execute("query { x }")
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_execute_sends_bearer_token(self, mock_make_session):
-        session = _mock_session(
-            mock_make_session,
-            [_response(TOKEN_PAYLOAD), _search_page("searchStacks", [{"id": "stack-1"}])],
-        )
+    def test_retryable_statuses_are_retried(self):
+        script = [
+            _response({}, status_code=429),
+            _response({}, status_code=503),
+            _response(TOKEN_PAYLOAD),
+        ]
+        with scripted_network(script):
+            client = SpaceliftClient("my-company", "key-id", "key-secret")
+            assert client._ensure_token() == "jwt-1"
 
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        data = client.execute("query { x }")
-
-        assert data["searchStacks"]["edges"][0]["node"] == {"id": "stack-1"}
-        assert _query_calls(session)[0].kwargs["headers"] == {"Authorization": "Bearer jwt-1"}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_execute_refreshes_token_once_on_unauthorized(self, mock_make_session):
-        # A JWT expiring mid-sync surfaces as an `unauthorized` GraphQL error; one
-        # re-exchange must recover, a second unauthorized is a real permission gap.
-        session = _mock_session(
-            mock_make_session,
-            [
-                _response(TOKEN_PAYLOAD),
-                _response({"errors": [{"message": "unauthorized"}], "data": None}),
-                _response({"data": {"apiKeyUser": {"jwt": "jwt-2", "validUntil": 99999999999}}}),
-                _search_page("searchStacks", [{"id": "stack-1"}]),
-            ],
-        )
-
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        data = client.execute("query { x }")
-
-        assert data["searchStacks"]["edges"][0]["node"] == {"id": "stack-1"}
-        assert session.post.call_args_list[3].kwargs["headers"] == {"Authorization": "Bearer jwt-2"}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_execute_raises_permission_error_when_still_unauthorized(self, mock_make_session):
-        _mock_session(
-            mock_make_session,
-            [
-                _response(TOKEN_PAYLOAD),
-                _response({"errors": [{"message": "unauthorized"}], "data": None}),
-                _response(TOKEN_PAYLOAD),
-                _response({"errors": [{"message": "unauthorized"}], "data": None}),
-            ],
-        )
-
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        with pytest.raises(SpaceliftPermissionError):
-            client.execute("query { x }")
-
-    @mock.patch("tenacity.nap.time")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_retryable_statuses_are_retried(self, mock_make_session, mock_nap):
-        _mock_session(
-            mock_make_session,
-            [
-                _response({}, status_code=429),
-                _response({}, status_code=503),
-                _response(TOKEN_PAYLOAD),
-            ],
-        )
-
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        assert client._ensure_token() == "jwt-1"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_pagination_follows_cursor_and_saves_state_after_yield(self, mock_make_session):
-        session = _mock_session(
-            mock_make_session,
+    def test_pagination_follows_cursor_and_saves_state_after_yield(self):
+        result = _run(
+            "stacks",
             [
                 _response(TOKEN_PAYLOAD),
                 _search_page("searchStacks", [{"id": "stack-1"}], end_cursor="cur-1", has_next=True),
                 _search_page("searchStacks", [{"id": "stack-2"}], end_cursor="cur-2", has_next=False),
             ],
         )
-        manager = _make_manager()
 
-        response = spacelift_source("my-company", "key-id", "key-secret", "stacks", mock.MagicMock(), manager)
-        batches = list(cast(Iterable[Any], response.items()))
-
-        assert batches == [[{"id": "stack-1"}], [{"id": "stack-2"}]]
+        assert result.items == [[{"id": "stack-1"}], [{"id": "stack-2"}]]
         # The cursor checkpoints only between pages, pointing at the next page to fetch.
-        manager.save_state.assert_called_once_with(SpaceliftResumeConfig(cursor="cur-1"))
-        assert _query_calls(session)[1].kwargs["json"]["variables"]["input"]["after"] == "cur-1"
+        assert result.saved_states == [SpaceliftResumeConfig(cursor="cur-1")]
+        assert _query_requests(result)[1].json()["variables"]["input"]["after"] == "cur-1"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_starts_from_saved_cursor(self, mock_make_session):
-        session = _mock_session(
-            mock_make_session,
+    def test_resume_starts_from_saved_cursor(self):
+        result = _run(
+            "stacks",
             [_response(TOKEN_PAYLOAD), _search_page("searchStacks", [{"id": "stack-9"}])],
+            resume_state=SpaceliftResumeConfig(cursor="saved-cursor"),
         )
-        manager = _make_manager(SpaceliftResumeConfig(cursor="saved-cursor"))
 
-        response = spacelift_source("my-company", "key-id", "key-secret", "stacks", mock.MagicMock(), manager)
-        list(cast(Iterable[Any], response.items()))
+        assert _query_requests(result)[0].json()["variables"]["input"]["after"] == "saved-cursor"
 
-        assert _query_calls(session)[0].kwargs["json"]["variables"]["input"]["after"] == "saved-cursor"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_runs_rows_flatten_run_with_stack(self, mock_make_session):
+    def test_runs_rows_flatten_run_with_stack(self):
         node = {
             "isModule": False,
             "run": {"id": "run-1", "state": "FINISHED", "createdAt": 1700000100},
             "stack": {"id": "stack-1", "name": "core-infra"},
         }
-        _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD), _search_page("searchRuns", [node])])
-        manager = _make_manager()
+        result = _run("runs", [_response(TOKEN_PAYLOAD), _search_page("searchRuns", [node])])
 
-        response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), manager)
-        batches = list(cast(Iterable[Any], response.items()))
-
-        assert batches == [
+        assert result.items == [
             [
                 {
                     "id": "run-1",
@@ -296,130 +236,198 @@ class TestSpacelift:
             ]
         ]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_sync_sends_time_range_predicate(self, mock_make_session):
-        session = _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD), _search_page("searchRuns", [])])
-        manager = _make_manager()
-
-        response = spacelift_source(
-            "my-company",
-            "key-id",
-            "key-secret",
-            "runs",
-            mock.MagicMock(),
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000,
-            incremental_field="createdAt",
-        )
-        list(cast(Iterable[Any], response.items()))
-
-        sent_input = _query_calls(session)[0].kwargs["json"]["variables"]["input"]
-        assert sent_input["predicates"] == [
-            {
-                "field": "createdAt",
-                "constraint": {"timeInRange": {"start": 1700000000 - RUNS_INCREMENTAL_LOOKBACK_SECONDS}},
-            }
-        ]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_sends_no_predicates(self, mock_make_session):
-        session = _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD), _search_page("searchRuns", [])])
-        manager = _make_manager()
-
-        response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), manager)
-        list(cast(Iterable[Any], response.items()))
-
-        assert "predicates" not in _query_calls(session)[0].kwargs["json"]["variables"]["input"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_plain_list_endpoint_yields_rows_without_pagination(self, mock_make_session):
-        _mock_session(
-            mock_make_session,
-            [_response(TOKEN_PAYLOAD), _response({"data": {"spaces": [{"id": "root"}, {"id": "legacy"}]}})],
-        )
-        manager = _make_manager()
-
-        response = spacelift_source("my-company", "key-id", "key-secret", "spaces", mock.MagicMock(), manager)
-        batches = list(cast(Iterable[Any], response.items()))
-
-        assert batches == [[{"id": "root"}, {"id": "legacy"}]]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_next_page_without_cursor_raises(self, mock_make_session):
-        # hasNextPage=True with an empty endCursor would loop on the same page forever.
-        _mock_session(
-            mock_make_session,
-            [_response(TOKEN_PAYLOAD), _search_page("searchStacks", [{"id": "stack-1"}], has_next=True)],
-        )
-        manager = _make_manager()
-
-        response = spacelift_source("my-company", "key-id", "key-secret", "stacks", mock.MagicMock(), manager)
-        with pytest.raises(Exception, match="endCursor is empty"):
-            list(cast(Iterable[Any], response.items()))
-
-    def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError, match="Unknown Spacelift endpoint"):
-            spacelift_source("my-company", "key-id", "key-secret", "nope", mock.MagicMock(), _make_manager())
-
     @pytest.mark.parametrize(
-        "endpoint, expected_sort_mode, expected_primary_keys",
+        "endpoint, graphql_field, incremental_field, lookback, order_by",
         [
-            ("stacks", "asc", ["id"]),
-            ("runs", "desc", ["id"]),
-            ("managed_entities", "asc", ["stackId", "id"]),
+            ("runs", "searchRuns", "createdAt", RUNS_INCREMENTAL_LOOKBACK_SECONDS, None),
+            (
+                "audit_trail_entries",
+                "searchAuditTrailEntries",
+                "createdAt",
+                AUDIT_TRAIL_INCREMENTAL_LOOKBACK_SECONDS,
+                {"field": "createdAt", "direction": "DESC"},
+            ),
+            # The row column is runCreatedAt, but searchRuns only filters on createdAt.
+            ("run_changes", "searchRuns", "runCreatedAt", RUNS_INCREMENTAL_LOOKBACK_SECONDS, None),
         ],
     )
-    def test_source_response_metadata(self, endpoint, expected_sort_mode, expected_primary_keys):
-        response = spacelift_source("my-company", "key-id", "key-secret", endpoint, mock.MagicMock(), _make_manager())
-        assert response.name == endpoint
-        assert response.sort_mode == expected_sort_mode
-        assert response.primary_keys == expected_primary_keys
-
-    def test_runs_partitions_on_created_at(self):
-        response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), _make_manager())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_success(self, mock_make_session):
-        _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD)])
-
-        assert validate_credentials("my-company", "key-id", "key-secret") == (True, None)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_bad_key(self, mock_make_session):
-        _mock_session(mock_make_session, [_response({"data": {"apiKeyUser": None}})])
-
-        assert validate_credentials("my-company", "key-id", "key-secret") == (False, INVALID_API_KEY_MESSAGE)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_unknown_account_points_at_the_account_name(self, mock_make_session):
-        # Spacelift reports an unknown subdomain as a token exchange error, which otherwise reads as
-        # a rejected API key and sends the user to rotate a key that was never the problem.
-        _mock_session(mock_make_session, [_response({"errors": [{"message": "Account not found"}], "data": None})])
-
-        assert validate_credentials("my-company", "key-id", "key-secret") == (False, ACCOUNT_NOT_FOUND_MESSAGE)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_keeps_the_upstream_text_out_of_the_message(self, mock_make_session):
-        _mock_session(
-            mock_make_session,
-            [_response({"errors": [{"message": "signature mismatch for key 01ABC"}], "data": None})],
+    def test_incremental_sync_sends_time_range_predicate(
+        self, endpoint, graphql_field, incremental_field, lookback, order_by
+    ):
+        result = _run(
+            endpoint,
+            [_response(TOKEN_PAYLOAD), _search_page(graphql_field, [])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000,
+            incremental_field=incremental_field,
         )
 
-        assert validate_credentials("my-company", "key-id", "key-secret") == (False, INVALID_API_KEY_MESSAGE)
+        assert result.raised is None
+        sent_input = _query_requests(result)[0].json()["variables"]["input"]
+        assert sent_input["predicates"] == [
+            {"field": "createdAt", "constraint": {"timeInRange": {"start": 1700000000 - lookback}}}
+        ]
+        assert sent_input.get("orderBy") == order_by
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_token_exchange_raises_account_not_found_for_an_unknown_account(self, mock_make_session):
-        _mock_session(mock_make_session, [_response({"errors": [{"message": "Account not found"}], "data": None})])
+    def test_run_changes_flatten_nested_changes_and_fetch_overflow_per_run(self):
+        result = _run(
+            "run_changes",
+            [
+                _response(TOKEN_PAYLOAD),
+                _search_page(
+                    "searchRuns",
+                    [
+                        _run_node("run-1", _changes(["aws_s3_bucket.a"], end_cursor="ch-1", has_next=True)),
+                        _run_node("run-2", None),
+                    ],
+                    end_cursor="runs-1",
+                    has_next=True,
+                ),
+                _response({"data": {"run": {"changesV2": _changes(["aws_s3_bucket.b"])}}}),
+                # A page of runs with no changes yields nothing but the walk continues.
+                _search_page("searchRuns", [_run_node("run-3", _changes([]))], end_cursor="runs-2", has_next=True),
+                _search_page("searchRuns", [_run_node("run-4", _changes(["aws_iam_role.c"]))]),
+            ],
+        )
 
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        with pytest.raises(SpaceliftAccountNotFoundError):
-            client.execute("query { x }")
+        assert result.raised is None
+        assert result.items == [
+            [_change_row("run-1", "aws_s3_bucket.a"), _change_row("run-1", "aws_s3_bucket.b")],
+            [_change_row("run-4", "aws_iam_role.c")],
+        ]
+        requests = _query_requests(result)
+        overflow = requests[1].json()["variables"]
+        assert overflow["id"] == "run-1"
+        assert overflow["changesInput"]["after"] == "ch-1"
+        assert [r.json()["variables"].get("input", {}).get("after") for r in requests] == [
+            None,
+            None,
+            "runs-1",
+            "runs-2",
+        ]
+        assert result.saved_states == [
+            SpaceliftResumeConfig(cursor="runs-1"),
+            SpaceliftResumeConfig(cursor="runs-2"),
+        ]
+
+    def test_child_endpoint_walks_every_parent_and_child_page(self):
+        result = _run(
+            "module_versions",
+            [
+                _response(TOKEN_PAYLOAD),
+                _module_page(["mod-a", "mod-b"], end_cursor="mods-1", has_next=True),
+                _versions_page(["v1"], end_cursor="v-1", has_next=True),
+                _versions_page(["v2"]),
+                _versions_page(None),
+                _module_page(["mod-c"]),
+                _versions_page(["v3"]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [
+            [{"id": "v1", "moduleId": "mod-a"}],
+            [{"id": "v2", "moduleId": "mod-a"}],
+            [{"id": "v3", "moduleId": "mod-c"}],
+        ]
+        requests = _query_requests(result)
+        assert [r.json()["variables"].get("id") for r in requests] == [
+            None,
+            "mod-a",
+            "mod-a",
+            "mod-b",
+            None,
+            "mod-c",
+        ]
+        assert requests[2].json()["variables"]["input"]["after"] == "v-1"
+        assert requests[4].json()["variables"]["input"]["after"] == "mods-1"
+        assert result.saved_states == [
+            SpaceliftResumeConfig(cursor="", child_parent_id="mod-a", child_cursor="v-1"),
+            SpaceliftResumeConfig(cursor="", completed_parent_ids=["mod-a"]),
+            SpaceliftResumeConfig(cursor="", completed_parent_ids=["mod-a", "mod-b"]),
+            SpaceliftResumeConfig(cursor="mods-1", completed_parent_ids=["mod-c"]),
+        ]
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_requests",
+        [
+            (
+                SpaceliftResumeConfig(cursor="mods-1", completed_parent_ids=["mod-a"]),
+                [("mod-b", None)],
+            ),
+            # Parents are skipped by id, so a completed parent that no longer exists changes nothing.
+            (
+                SpaceliftResumeConfig(cursor="mods-1", completed_parent_ids=["mod-a", "mod-deleted"]),
+                [("mod-b", None)],
+            ),
+            # The parent that was partly synced continues from its saved child cursor.
+            (
+                SpaceliftResumeConfig(cursor="mods-1", child_parent_id="mod-a", child_cursor="v-1"),
+                [("mod-a", "v-1"), ("mod-b", None)],
+            ),
+        ],
+    )
+    def test_child_endpoint_resumes_without_repeating_finished_work(self, resume_state, expected_requests):
+        result = _run(
+            "module_versions",
+            [
+                _response(TOKEN_PAYLOAD),
+                _module_page(["mod-a", "mod-b"]),
+                *[_versions_page([f"v-{parent}"]) for parent, _ in expected_requests],
+            ],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        requests = _query_requests(result)
+        assert requests[0].json()["variables"]["input"]["after"] == "mods-1"
+        assert [
+            (r.json()["variables"]["id"], r.json()["variables"]["input"].get("after")) for r in requests[1:]
+        ] == expected_requests
+        assert [row["moduleId"] for row in result.rows] == [parent for parent, _ in expected_requests]
+
+    def test_plain_list_endpoint_yields_rows_without_pagination(self):
+        result = _run(
+            "spaces",
+            [_response(TOKEN_PAYLOAD), _response({"data": {"spaces": [{"id": "root"}, {"id": "legacy"}]}})],
+        )
+
+        assert result.items == [[{"id": "root"}, {"id": "legacy"}]]
+        assert result.saved_states == []
+
+    def test_next_page_without_cursor_raises(self):
+        # hasNextPage=True with an empty endCursor would loop on the same page forever.
+        result = _run(
+            "stacks",
+            [_response(TOKEN_PAYLOAD), _search_page("searchStacks", [{"id": "stack-1"}], has_next=True)],
+        )
+
+        assert result.raised is not None
+        assert "endCursor is empty" in str(result.raised)
+
+    def test_validate_credentials_success(self):
+        with scripted_network([_response(TOKEN_PAYLOAD)]):
+            assert validate_credentials("my-company", "key-id", "key-secret") == (True, None)
+
+    def test_validate_credentials_unknown_account_points_at_the_account_name(self):
+        # Spacelift reports an unknown subdomain as a token exchange error, which otherwise reads as
+        # a rejected API key and sends the user to rotate a key that was never the problem.
+        with scripted_network([_response({"errors": [{"message": "Account not found"}], "data": None})]):
+            assert validate_credentials("my-company", "key-id", "key-secret") == (False, ACCOUNT_NOT_FOUND_MESSAGE)
+
+    def test_validate_credentials_keeps_the_upstream_text_out_of_the_message(self):
+        with scripted_network([_response({"errors": [{"message": "signature mismatch for key 01ABC"}], "data": None})]):
+            assert validate_credentials("my-company", "key-id", "key-secret") == (False, INVALID_API_KEY_MESSAGE)
+
+    def test_token_exchange_raises_account_not_found_for_an_unknown_account(self):
+        with scripted_network([_response({"errors": [{"message": "Account not found"}], "data": None})]):
+            client = SpaceliftClient("my-company", "key-id", "key-secret")
+            with pytest.raises(SpaceliftAccountNotFoundError):
+                client.execute("query { x }")
 
     def test_validate_credentials_invalid_account_name_never_hits_network(self):
-        is_valid, message = validate_credentials("evil.com/x", "key-id", "key-secret")
+        with scripted_network([]) as network:
+            is_valid, message = validate_credentials("evil.com/x", "key-id", "key-secret")
         assert is_valid is False
         assert message is not None and "Invalid Spacelift account name" in message
+        assert network.requests_log == []

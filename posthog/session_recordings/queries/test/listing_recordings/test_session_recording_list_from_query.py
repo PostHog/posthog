@@ -5015,6 +5015,44 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
+    def test_account_event_tag_selects_whole_sessions_not_all_sessions_of_the_person(self) -> None:
+        create_person(team=self.team, distinct_ids=["account-user"])
+        session_ids = {
+            name: str(uuid7()) for name in ["account-one-only", "account-two-only", "both-accounts", "untagged"]
+        }
+        for session_id in session_ids.values():
+            produce_replay_summary(
+                distinct_id="account-user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.pk,
+            )
+        for session_id, event_account_key in [
+            ("account-one-only", "account-one"),
+            ("account-two-only", "account-two"),
+            ("both-accounts", "account-one"),
+            ("both-accounts", "account-two"),
+            ("untagged", None),
+        ]:
+            create_event(
+                distinct_id="account-user",
+                timestamp=self.an_hour_ago,
+                team=self.team,
+                event_name="account activity",
+                properties={
+                    "$session_id": session_ids[session_id],
+                    **({"$group_0": event_account_key} if event_account_key else {}),
+                },
+            )
+        self._assert_query_matches_session_ids(
+            {
+                "properties": [{"key": "$group_0", "value": ["account-one"], "operator": "exact", "type": "event"}],
+                "event_match_scope": "session",
+            },
+            [session_ids["account-one-only"], session_ids["both-accounts"]],
+        )
+
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ordering(self):
         session_id_one = f"test_ordering-one"

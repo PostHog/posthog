@@ -2,17 +2,21 @@ import re
 import json
 import base64
 import datetime as dt
+from typing import Any
 
 from django.db import models
+from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -21,10 +25,13 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery
 
 from posthog.hogql.errors import QueryError
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -84,6 +91,7 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 MAX_ATTRIBUTE_KEYS = 100
 
@@ -194,6 +202,33 @@ class _LogPropertyFilterSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
     )
+
+
+class _LogsFilterInnerGroupSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PropertyGroupOperator.choices, help_text="How to combine the filters in `values`."
+    )
+    values = _LogPropertyFilterSerializer(many=True, help_text="Property filters in this group.")
+
+
+class _LogsFilterGroupSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PropertyGroupOperator.choices, help_text="How to combine the groups in `values`."
+    )
+    values = _LogsFilterInnerGroupSerializer(many=True, help_text="Groups of property filters.")
+
+
+# `_normalize_filter_group` accepts both forms and reads a flat list as one AND group.
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="LogsFilterGroupInput",
+        serializers=[_LogPropertyFilterSerializer(many=True), _LogsFilterGroupSerializer],
+        resource_type_field_name=None,
+        many=False,
+    )
+)
+class _LogsFilterGroupField(serializers.JSONField):
+    pass
 
 
 class _LogsAttributesQuerySerializer(serializers.Serializer):
@@ -318,11 +353,12 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         help_text="Order results by timestamp.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    filterGroup = serializers.ListField(
-        child=_LogPropertyFilterSerializer(),
+    filterGroup = _LogsFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the query.",
+        help_text=(
+            "Property filters for the query. Pass a list of filters, which are all combined with AND, "
+            "or a filter group object with nested AND/OR groups."
+        ),
     )
     limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
@@ -368,11 +404,12 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         help_text="Filter by service names.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    filterGroup = serializers.ListField(
-        child=_LogPropertyFilterSerializer(),
+    filterGroup = _LogsFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the query.",
+        help_text=(
+            "Property filters for the query. Pass a list of filters, which are all combined with AND, "
+            "or a filter group object with nested AND/OR groups."
+        ),
     )
     sparklineBreakdownBy = serializers.ChoiceField(
         choices=["severity", "service"],
@@ -500,7 +537,11 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or "
-        "facetAttribute. Its own filter is excluded so counts reflect the other active filters.",
+        "facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets "
+        "that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body "
+        "search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts "
+        "come from the logs table with the exact window and every other filter. Both paths exclude this facet's "
+        "own filter.",
     )
     facetResourceAttribute = serializers.CharField(
         required=False,
@@ -680,7 +721,6 @@ class _LogEntrySerializer(serializers.Serializer):
     span_id = serializers.CharField(
         help_text='Span ID. Returns "0000000000000000" when not set (padding, not null).',
     )
-    trace_flags = serializers.IntegerField(required=False, help_text="OpenTelemetry trace flags.")
     attributes = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
         help_text="Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
@@ -690,6 +730,19 @@ class _LogEntrySerializer(serializers.Serializer):
         help_text="Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
     )
     event_name = serializers.CharField(required=False, allow_blank=True, help_text="OpenTelemetry event name, if set.")
+    instrumentation_scope = serializers.CharField(
+        allow_blank=True, help_text="OpenTelemetry instrumentation scope name. Empty when not set."
+    )
+    resource_fingerprint = serializers.CharField(
+        help_text="Hash of the resource attributes. Logs from the same pod or host share it."
+    )
+    live_logs_checkpoint = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Latest timestamp up to which ingestion is known to be complete. The same on every row. "
+            "Logs newer than it can still arrive."
+        ),
+    )
 
 
 class _LogsQueryResponseSerializer(serializers.Serializer):
@@ -731,17 +784,10 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
         required=False,
         help_text='Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines.',
     )
-    count = serializers.IntegerField()
+    count = serializers.IntegerField(help_text="Number of log entries in the bucket.")
     bytes_uncompressed = serializers.IntegerField(
         required=False,
         help_text="Sum of uncompressed bytes for the bucket.",
-    )
-
-
-class _LogsSparklineResponseSerializer(serializers.Serializer):
-    results = _LogsSparklineBucketSerializer(
-        many=True,
-        help_text="Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown.",
     )
 
 
@@ -1312,6 +1358,7 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+    _logs_api_slot: ConcurrencySlot | None = None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
@@ -1320,6 +1367,34 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if self.action == "patterns_diff":
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+        try:
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
+        except ConcurrencyLimitExceeded as error:
+            logger.warning("logs_api_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
+            # wait sets a Retry-After header, so a polling client backs off instead of retrying the burst at once.
+            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        except RedisError:
+            # The cap protects ClickHouse capacity. A Redis outage must not also make the logs API fail.
+            logger.exception("logs_api_concurrency_limiter_unavailable", team_id=self.team_id)
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # DRF skips finalize_response when the exception handler re-raises an error, so only a finally block
+        # releases the slot on every path.
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            if self._logs_api_slot is not None:
+                try:
+                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+                except RedisError:
+                    # The slot expires after the limiter's ttl, so keep the response the query already produced.
+                    logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
+                self._logs_api_slot = None
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
@@ -1412,7 +1487,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        requested_limit = min(query_data.get("limit", 1000), 2000)
+        limit = query_data.get("limit")
+        requested_limit = min(1000 if limit is None else limit, 2000)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
@@ -1500,7 +1576,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             status=200,
         )
 
-    @extend_schema(request=_LogsSparklineRequestSerializer, responses={200: _LogsSparklineResponseSerializer})
+    @extend_schema(
+        request=_LogsSparklineRequestSerializer,
+        responses={200: _LogsSparklineBucketSerializer(many=True)},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)

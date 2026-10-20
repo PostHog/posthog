@@ -41,7 +41,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
@@ -180,13 +180,8 @@ function AttachScenePlaylistLogic({
 }
 
 function MainPanel(): JSX.Element {
-    const { tab } = useValues(sessionReplaySceneLogic)
+    const { tab, picksInList } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
-
-    const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'scene',
-        updateSearchParams: true,
-    }
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
@@ -196,11 +191,11 @@ function MainPanel(): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
+                    <AttachScenePlaylistLogic playlistLogicProps={SCENE_PLAYLIST_LOGIC_PROPS} />
                     {isRedesignEnabled ? (
-                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                        <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                        <SessionRecordingsPlaylist {...SCENE_PLAYLIST_LOGIC_PROPS} picksInList={picksInList} />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (

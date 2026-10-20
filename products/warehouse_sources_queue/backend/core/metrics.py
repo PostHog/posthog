@@ -187,6 +187,24 @@ SERIALIZED_BATCHES = Gauge(
     multiprocess_mode="liveall",
 )
 
+# A depth statement that times out must not read as an empty queue. The sampling pod
+# re-exports its last good depth sample and says how old it is here, so a panel can
+# tell a fresh 47k from a 47k that was last measured minutes ago.
+DEPTH_SAMPLE_AGE_SECONDS = Gauge(
+    "warehouse_pg_queue_depth_sample_age_seconds",
+    "Seconds since the depth gauges were last measured in full (0 = measured this round). "
+    "Rises while the depth probe times out and the gauges repeat their last good sample. "
+    "NaN when no sample exists. Aggregate with max().",
+    multiprocess_mode="liveall",
+)
+
+DEPTH_PROBE_TIMEOUTS_TOTAL = Counter(
+    "warehouse_pg_queue_depth_probe_timeouts_total",
+    "Depth probe statements that hit the statement timeout, by stage: count (the headline "
+    "claimable batch count) or breakdown (the group and slot split).",
+    labelnames=["stage"],
+)
+
 QUEUE_SAMPLE_GAUGES: tuple[Gauge, ...] = (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     BLOCKED_BATCHES,
@@ -196,6 +214,7 @@ QUEUE_SAMPLE_GAUGES: tuple[Gauge, ...] = (
     TOP_GROUPS_CLAIMABLE_SHARE,
     SLOT_WAITING_BATCHES,
     SERIALIZED_BATCHES,
+    DEPTH_SAMPLE_AGE_SECONDS,
 )
 
 

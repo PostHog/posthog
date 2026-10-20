@@ -24,7 +24,10 @@ import {
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
 
+import type { ContextSelection } from "./context-selection";
+
 interface TestableAgentServer {
+  createContextSelection(runId: string): ContextSelection;
   posthogAPI: PostHogAPIClient;
   isQuestionMeta: (value: unknown) => boolean;
   getFirstQuestionMeta: (meta: unknown) => unknown;
@@ -696,6 +699,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -741,6 +746,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -776,6 +783,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -811,6 +820,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -841,6 +852,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -877,6 +890,8 @@ describe("Question relay", () => {
 
         const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
         server.session = {
+          contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+          cancellationVersion: 0,
           payload: TEST_PAYLOAD,
           acpSessionId: "acp-session",
           clientConnection: { prompt: promptSpy },
@@ -931,6 +946,8 @@ describe("Question relay", () => {
         .spyOn(server.posthogAPI, "updateTaskRun")
         .mockResolvedValue({} as TaskRun);
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -983,6 +1000,8 @@ describe("Question relay", () => {
         .spyOn(server.posthogAPI, "updateTaskRun")
         .mockResolvedValue({} as TaskRun);
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -1032,6 +1051,8 @@ describe("Question relay", () => {
         .spyOn(server.posthogAPI, "updateTaskRun")
         .mockResolvedValue({} as TaskRun);
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -1061,6 +1082,7 @@ describe("Question relay", () => {
         {
           status: "failed",
           error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+          error_type: "upstream_connection_error",
           state: { agent_version: expect.any(String) },
         },
       );

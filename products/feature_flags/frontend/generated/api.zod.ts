@@ -139,7 +139,7 @@ export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @_
     flag_evaluations_mode: zod
         .union([zod.literal(0), zod.literal(1), zod.literal(2)])
         .describe(
-            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
         ),
     team_ids: zod
         .array(zod.number())
@@ -1015,83 +1015,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax = 400
-
-export const featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault = 0
-
-export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        archived: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
-            ),
-        version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
-
-/**
  * Serve a feature flag to every user.
  *
  * Adds a release condition with no property filters at 100% and keeps the existing
@@ -1225,10 +1148,15 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
                 .describe(
-                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
                 ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
-            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            search: zod
+                .string()
+                .optional()
+                .describe(
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
                 .describe(

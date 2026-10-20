@@ -3,7 +3,13 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { toolHrefForPath } from 'scenes/tools/toolsUtils'
+import {
+    getToolSourceItems,
+    isToolItem,
+    libraryRowProductLabels,
+    toolHrefForPath,
+    toolLabel,
+} from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
 
@@ -17,21 +23,34 @@ describe('todayShellLogic', () => {
     test.each([
         ['/project/1/home', 'home'],
         ['/project/1/home/reports/abc', 'home'],
-        ['/project/1/library', 'library'],
-        ['/project/1/library/feature_flag', 'library'],
+        ['/project/1/library', 'products'],
+        ['/project/1/library/feature_flag', 'products'],
         ['/project/1/ai', 'spaces'],
         ['/project/1/ai/history', 'spaces'],
         ['/project/1/spaces/abc', 'spaces'],
-        ['/project/1/feature_flags/920847', 'library'],
-        ['/project/1/insights/abc', 'library'],
-        ['/project/1/feature_flags', 'library'],
-        ['/project/1/data-management/destinations', 'tools'],
-        ['/project/1/sql', 'tools'],
-        ['/project/1/views', 'views'],
-        ['/project/1/canvases/abc', 'views'],
-        ['/project/1/canvases/new', 'views'],
-        ['/project/1/notebooks/abc', 'views'],
-        ['/project/1/dashboard/12', 'views'],
+        ['/project/1/feature_flags/920847', 'products'],
+        ['/project/1/insights/abc', 'analytics'],
+        ['/project/1/insights', 'analytics'],
+        ['/project/1/feature_flags', 'products'],
+        ['/project/1/data-management/destinations', 'products'],
+        ['/project/1/web', 'analytics'],
+        ['/project/1/marketing', 'analytics'],
+        ['/project/1/mcp-analytics', 'analytics'],
+        ['/project/1/sql', 'products'],
+        ['/project/1/analytics', 'analytics'],
+        ['/project/1/analytics/all', 'analytics'],
+        ['/project/1/canvases/abc', 'analytics'],
+        ['/project/1/canvases/new', 'analytics'],
+        ['/project/1/notebooks/abc', 'analytics'],
+        ['/project/1/dashboard/12', 'analytics'],
+        ['/project/1/notebooks', 'analytics'],
+        ['/project/1/dashboard', 'analytics'],
+        ['/project/1/persons', 'products'],
+        ['/project/1/activity/events', 'products'],
+        ['/project/1/settings/project-replay', 'settings'],
+        ['/organization/billing/overview', 'settings'],
+        ['/organization/legal/new/dpa', 'settings'],
+        ['/project/1/exports', 'settings'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
@@ -49,11 +68,29 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
+        ['Notebooks', false],
+        ['Dashboards', false],
+        ['Session replay', true],
+        ['Persons', true],
+        ['Activity', true],
+        ['SQL editor', true],
+        ['Feature flags', false],
+        ['Product analytics', false],
+        ['Cohorts', false],
+    ])('gives %s its own row in the Products list: %s', (label, ownRow) => {
+        const rows = getToolSourceItems().filter(isToolItem).map(toolLabel)
+        expect(rows.includes(label)).toBe(ownRow)
+    })
+
+    it('finds the Feature flags row with a search for the product name', () => {
+        expect(libraryRowProductLabels('feature_flag')).toContain('Feature flags')
+    })
+
+    test.each([
         ['home', '/home'],
-        ['spaces', '/ai'],
-        ['views', '/views/new'],
-        ['library', '/library'],
-        ['tools', '/tools'],
+        ['spaces', '/spaces/new'],
+        ['analytics', '/airplane'],
+        ['products', '/airplane'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
         const logic = todayShellLogic()
         logic.mount()
@@ -64,13 +101,43 @@ describe('todayShellLogic', () => {
         expect(logic.values.activePane).toBe(pane)
     })
 
+    test.each(['spaces', 'analytics', 'products'] as const)(
+        'a second rail click on %s hides the sidebar it opened',
+        (pane) => {
+            const logic = todayShellLogic()
+            logic.mount()
+
+            logic.actions.setSidebarOpen(false)
+            logic.actions.clickRailPane(pane)
+            expect(logic.values.sidebarVisible).toBe(true)
+
+            logic.actions.clickRailPane(pane)
+            expect(logic.values.sidebarVisible).toBe(false)
+        }
+    )
+
+    it('never shows a sidebar on Home, so the page takes the full width', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.setSidebarOpen(true)
+        logic.actions.setSidebarWidth(300)
+        logic.actions.clickRailPane('home')
+        expect(logic.values.sidebarVisible).toBe(false)
+        expect(logic.values.sidebarBreadcrumbShown).toBe(false)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+
+        logic.actions.clickRailPane('products')
+        expect(logic.values.sidebarVisible).toBe(true)
+    })
+
     it('keeps the last pane open on pages that belong to no pane', () => {
         const logic = todayShellLogic()
         logic.mount()
 
-        logic.actions.pickPane('tools')
+        logic.actions.pickPane('products')
         router.actions.push('/project/1/airplane')
-        expect(logic.values.activePane).toBe('tools')
+        expect(logic.values.activePane).toBe('products')
 
         router.actions.push('/project/1/ai')
         expect(logic.values.activePane).toBe('spaces')
@@ -80,12 +147,32 @@ describe('todayShellLogic', () => {
         const logic = todayShellLogic()
         logic.mount()
 
+        logic.actions.pickPane('products')
         logic.actions.setSidebarOpen(true)
         logic.actions.setSidebarWidth(10_000)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + TODAY_SIDEBAR_MAX_WIDTH)
 
         logic.actions.setSidebarOpen(false)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+    })
+
+    it('keeps the pinned sidebar open on a page change, and hides it once unpinned unless the rail picked the page', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        logic.actions.setSidebarOpen(true)
+        router.actions.push('/project/1/insights')
+        expect(logic.values.sidebarVisible).toBe(true)
+
+        logic.actions.toggleSidebarPinned()
+        router.actions.push('/project/1/insights?tab=all')
+        expect(logic.values.sidebarVisible).toBe(true)
+        router.actions.push('/project/1/cohorts')
+        expect(logic.values.sidebarVisible).toBe(false)
+
+        logic.actions.pickPane('analytics')
+        expect(logic.values.sidebarVisible).toBe(true)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
         const originalWidth = window.innerWidth
@@ -103,7 +190,7 @@ describe('todayShellLogic', () => {
             expect(logic.values.sidebarVisible).toBe(false)
 
             logic.actions.setSidebarOpen(false)
-            logic.actions.pickPane('library')
+            logic.actions.pickPane('products')
             expect(logic.values.sidebarVisible).toBe(true)
             expect(logic.values.sidebarOpen).toBe(false)
             expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
@@ -115,19 +202,13 @@ describe('todayShellLogic', () => {
         }
     })
 
-    it('on phone widths, drops the rail width and opens More without leaving the page', () => {
+    it('on phone widths, drops the rail width', () => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
         try {
             const logic = todayShellLogic()
             logic.mount()
             expect(logic.values.leftNavWidth).toBe(0)
-
-            router.actions.push('/project/1/airplane')
-            logic.actions.pickPane('more')
-            expect(router.values.location.pathname).toBe('/project/1/airplane')
-            expect(logic.values.activePane).toBe('more')
-            expect(logic.values.sidebarVisible).toBe(true)
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
@@ -164,20 +245,23 @@ describe('todayShellLogic', () => {
             const logic = todayShellLogic()
             logic.mount()
 
-            logic.actions.pickPane('tools')
+            logic.actions.pickPane('products')
             router.actions.push('/project/1/sql')
+            expect(logic.values.phoneCanGoBack).toBe(false)
             router.actions.push('/project/1/sql?open_query=abc')
             router.actions.push('/project/1/insights/abc')
             expect(logic.values.sidebarVisible).toBe(false)
+            expect(logic.values.phoneCanGoBack).toBe(true)
 
             logic.actions.goBackOnPhone()
             expect(router.values.location.pathname).toBe('/project/1/sql')
             expect(router.values.location.search).toBe('?open_query=abc')
             expect(logic.values.sidebarVisible).toBe(false)
+            expect(logic.values.phoneCanGoBack).toBe(false)
 
             logic.actions.goBackOnPhone()
             expect(logic.values.sidebarVisible).toBe(true)
-            expect(logic.values.activePane).toBe('tools')
+            expect(logic.values.activePane).toBe('products')
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }

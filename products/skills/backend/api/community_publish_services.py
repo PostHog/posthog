@@ -22,6 +22,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
@@ -544,6 +545,7 @@ def _publisher_app_request(
         timeout=10,
         # requests omits the body entirely when json is None
         json=json_body,
+        priority=Priority.CRITICAL,
     )
 
 
@@ -620,7 +622,7 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         sensitive_config={"access_token": token},
     )
     # The same source as the App-JWT calls above, so every publish request lands under one label.
-    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE)
+    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE, priority=Priority.CRITICAL)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:

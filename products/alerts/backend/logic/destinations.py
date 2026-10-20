@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 from uuid import UUID
@@ -15,11 +15,11 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
+from products.alerts.backend.facade.contracts import AlertInternalEvent, AlertInternalEventsNotDelivered
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
 from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
@@ -31,6 +31,11 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.cdp.backend.facade.api import create_hog_functions
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.internal_events import (
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -56,13 +61,31 @@ class AlertDestinationRow(NamedTuple):
     inputs: dict[str, Any] | None
 
 
+def stored_inputs(inputs: dict[str, Any] | None, encrypted_inputs: dict[str, Any] | None) -> dict[str, Any]:
+    """The inputs a destination was built with. A HogFunction keeps its secret inputs in a
+    separate encrypted column, and a read that tells destinations apart needs them back."""
+    return {**(inputs or {}), **(encrypted_inputs or {})}
+
+
 def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | None) -> AlertDestinationGroupKey:
     spec = SPEC_BY_TEMPLATE_ID.get(template_id)
     if spec is None:
         return AlertDestinationGroupKey(template_id, None)
     data = spec.read(inputs or {})
-    config = {key: value for key, value in data.items() if key != "type"}
+    config = {key: _hashable(value) for key, value in data.items() if key != "type"}
     return AlertDestinationGroupKey(template_id, tuple(sorted(config.items())) if config else None)
+
+
+class _FrozenMapping(tuple):
+    """A dict value, such as added webhook headers, held as sorted pairs so a group key stays hashable."""
+
+
+def _hashable(value: Any) -> Any:
+    return _FrozenMapping(sorted(value.items())) if isinstance(value, dict) else value
+
+
+def _thawed(value: Any) -> Any:
+    return dict(value) if isinstance(value, _FrozenMapping) else value
 
 
 def group_alert_destination_rows(rows: Collection[AlertDestinationRow]) -> dict[AlertDestinationGroupKey, set[UUID]]:
@@ -89,18 +112,23 @@ def list_alert_destination_groups(
     raw_rows = list(
         owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
         .order_by("created_at", "id")
-        .values_list("id", "template_id", "inputs", "enabled")
+        .values_list("id", "template_id", "inputs", "encrypted_inputs", "enabled")
     )
-    rows = [AlertDestinationRow(row_id, template_id, inputs) for row_id, template_id, inputs, _ in raw_rows]
+    rows = [
+        AlertDestinationRow(row_id, template_id, stored_inputs(inputs, encrypted_inputs))
+        for row_id, template_id, inputs, encrypted_inputs, _ in raw_rows
+    ]
     grouped_ids = group_alert_destination_rows(rows)
-    enabled_by_id = {row_id: enabled for row_id, _, _, enabled in raw_rows}
+    enabled_by_id = {row_id: enabled for row_id, _, _, _, enabled in raw_rows}
 
     groups: list[AlertDestinationGroup] = []
     for key, ids in grouped_ids.items():
         spec = SPEC_BY_TEMPLATE_ID.get(key.template_id)
         if spec is None:
             continue
-        data = cast(AlertDestinationData, {"type": spec.type, **dict(key.config or ())})
+        data = cast(
+            AlertDestinationData, {"type": spec.type, **{name: _thawed(value) for name, value in key.config or ()}}
+        )
         groups.append(
             AlertDestinationGroup(
                 hog_function_ids=tuple(sorted(ids)),
@@ -112,18 +140,22 @@ def list_alert_destination_groups(
 
 
 def owned_alert_destinations_qs(
-    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+    *,
+    team_id: int,
+    alert_ids: Collection[str],
+    allowed_event_ids: Collection[str],
+    known_templates_only: bool = True,
 ) -> QuerySet[HogFunction]:
     alert_id_filter = Q(pk__in=[])
     for alert_id in alert_ids:
         alert_id_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
-    return HogFunction.objects.filter(
+    functions = HogFunction.objects.filter(
         alert_id_filter,
         _allowed_event_filter(allowed_event_ids),
         team_id=team_id,
         deleted=False,
-        template_id__in=SPEC_BY_TEMPLATE_ID,
     )
+    return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
 
 
 def list_owned_alert_destinations(
@@ -196,11 +228,12 @@ def _raise_if_alert_already_has_these_destination_configs(
     stored_rows = (
         owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
         .filter(template_id__in={key.template_id for key in readable_keys})
-        .values_list("template_id", "inputs")
+        .values_list("template_id", "inputs", "encrypted_inputs")
     )
     if any(
-        alert_destination_group_key(template_id=template_id or "", inputs=inputs) in readable_keys
-        for template_id, inputs in stored_rows
+        alert_destination_group_key(template_id=template_id or "", inputs=stored_inputs(inputs, encrypted_inputs))
+        in readable_keys
+        for template_id, inputs, encrypted_inputs in stored_rows
     ):
         raise AlertDestinationValidationError("This destination is already configured for this alert.")
 
@@ -276,12 +309,12 @@ def soft_delete_alert_destinations(
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         owned_rows = [
-            AlertDestinationRow(*row)
-            for row in owned_alert_destinations_qs(
+            AlertDestinationRow(row_id, template_id, stored_inputs(inputs, encrypted_inputs))
+            for row_id, template_id, inputs, encrypted_inputs in owned_alert_destinations_qs(
                 team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
             )
             .select_for_update()
-            .values_list("id", "template_id", "inputs")
+            .values_list("id", "template_id", "inputs", "encrypted_inputs")
         ]
         owned_ids = {row.hog_function_id for row in owned_rows}
         invalid_ids = unique_ids - owned_ids
@@ -393,7 +426,8 @@ def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
 
     event_filter = Q()
     for event_id in allowed_event_ids:
-        event_filter |= Q(filters__events__contains=[{"id": event_id, "type": "events"}])
+        # `type` is optional in a stored filter, and the internal events consumer matches on the id alone.
+        event_filter |= Q(filters__events__contains=[{"id": event_id}])
     return event_filter
 
 
@@ -468,3 +502,33 @@ def alert_internal_event_delivered(
         ALERT_INTERNAL_EVENT_DELIVERY_FAILURES.labels(event_name=event_name).inc()
         logger.warning("Alert internal event was not delivered", error=str(error), **context)
         return False
+
+
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Produce the events and return once the broker took all of them. Raise otherwise."""
+    pending = [
+        (
+            event.event_name,
+            produce_alert_internal_event(
+                team_id=team_id,
+                event_name=event.event_name,
+                properties=event.properties,
+                timestamp=event.timestamp,
+                uuid=event.uuid,
+            ),
+        )
+        for event in events
+    ]
+    if not pending:
+        return
+    flush_alert_internal_events(flush_timeout_seconds)
+    undelivered = [
+        event_name
+        for event_name, result in pending
+        if result is None
+        or not alert_internal_event_delivered(result, team_id=team_id, alert_id=alert_id, event_name=event_name)
+    ]
+    if undelivered:
+        raise AlertInternalEventsNotDelivered(f"{len(undelivered)} of {len(pending)} alert events were not delivered")

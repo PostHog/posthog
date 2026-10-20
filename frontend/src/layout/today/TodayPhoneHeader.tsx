@@ -2,22 +2,21 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconChevronLeft, IconSidePanel } from '@posthog/icons'
-import { Button, Text } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { IconShowSidebar } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
-
-const TITLE_SCROLL_THRESHOLD = 56
 
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { onAiPage } = useValues(todayShellLogic)
-    const { goBackOnPhone } = useActions(todayShellLogic)
+    const { onAiPage, phoneCanGoBack, paneHasSidebar } = useValues(todayShellLogic)
+    const { goBackOnPhone, setMobileSidebarOpen } = useActions(todayShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const [scrolled, setScrolled] = useState(false)
     const title = [...sceneBreadcrumbs].reverse().find((breadcrumb) => !!breadcrumb.name)?.name
@@ -27,7 +26,7 @@ export function TodayPhoneHeader(): JSX.Element {
         if (!main) {
             return
         }
-        const onScroll = (): void => setScrolled(main.scrollTop > TITLE_SCROLL_THRESHOLD)
+        const onScroll = (): void => setScrolled(main.scrollTop > 0)
         onScroll()
         main.addEventListener('scroll', onScroll, { passive: true })
         return () => main.removeEventListener('scroll', onScroll)
@@ -35,20 +34,24 @@ export function TodayPhoneHeader(): JSX.Element {
 
     return (
         <header className="TodayPhoneHeader" data-scrolled={scrolled} data-quill>
-            <Button size="icon-lg" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
-                <IconChevronLeft />
-            </Button>
-            <Text
-                render={<span />}
-                weight="semibold"
-                className="TodayPhoneHeader__title min-w-0 flex-1 truncate"
-                aria-hidden={!scrolled}
-            >
-                {title}
-            </Text>
+            {phoneCanGoBack ? (
+                <Button size="icon" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
+                    <IconChevronLeft />
+                </Button>
+            ) : paneHasSidebar ? (
+                <Button
+                    size="icon"
+                    aria-label="Open sidebar"
+                    data-attr="today-phone-sidebar"
+                    onClick={() => setMobileSidebarOpen(true)}
+                >
+                    <IconShowSidebar />
+                </Button>
+            ) : null}
+            <h2 className="m-0 min-w-0 flex-1 truncate text-base font-bold text-foreground">{title}</h2>
             {!onAiPage && (
                 <Button
-                    size="icon-lg"
+                    size="icon"
                     aria-label="Open context panel"
                     data-attr="today-phone-context-panel"
                     onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}

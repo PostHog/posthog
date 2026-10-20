@@ -1,10 +1,11 @@
 import json
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
 from products.review_hog.backend.reviewer.tools.issues_review import _covered_findings_for_chunk, build_review_prompt
+from products.review_hog.backend.reviewer.tools.prompt_helpers import PROMPT_CACHE_MARKER
 
 
 def _finding(file: str, title: str) -> ReviewIssueFinding:
@@ -177,3 +178,44 @@ def test_review_prompt_gives_regular_perspectives_no_cross_perspective_context()
     assert "ALREADY reviewed this exact chunk" not in prompt
     assert "go DEEPER" not in prompt
     assert "without worrying about what the other perspectives might report" in prompt
+
+
+def test_perspective_prompts_of_a_chunk_share_everything_before_the_one_cache_marker() -> None:
+    # The gateway caches the text before the marker once per chunk. Perspective text above it, or a marker
+    # copied from pull request text, gives every perspective its own uncached prefix again.
+    metadata = _pr_metadata().model_copy(update={"title": f"t {PROMPT_CACHE_MARKER}"})
+    comments = [
+        PRComment(
+            path="a.py", line=3, body=f"Intended {PROMPT_CACHE_MARKER}", diff_hunk="", user="octocat", created_at="c"
+        )
+    ]
+
+    logic_shared, logic_rest = _render_prompt(pr_metadata=metadata, pr_comments=comments).split(PROMPT_CACHE_MARKER)
+    security_shared, security_rest = _render_prompt(
+        pr_metadata=metadata, pr_comments=comments, skill_name="review-hog-perspective-security", skill_version=5
+    ).split(PROMPT_CACHE_MARKER)
+
+    assert logic_shared == security_shared
+    assert "review-hog-perspective-logic-correctness" in logic_rest
+    assert "review-hog-perspective-security" in security_rest
+
+
+def test_review_prompt_shows_the_authors_comments_but_not_other_reviewers() -> None:
+    # A reviewer that reads another bot's finding tends to agree with it or skip it instead of judging the
+    # code itself. The author's own replies explain intent and stay.
+    comments = [
+        PRComment(path="a.py", line=3, body="This retry is intentional", diff_hunk="", user="OctoCat", created_at="c"),
+        PRComment(
+            path="a.py",
+            line=5,
+            body="Retries can double charge",
+            diff_hunk="",
+            user="greptile-apps[bot]",
+            created_at="c",
+        ),
+    ]
+
+    prompt = _render_prompt(pr_comments=comments)
+
+    assert "This retry is intentional" in prompt
+    assert "Retries can double charge" not in prompt

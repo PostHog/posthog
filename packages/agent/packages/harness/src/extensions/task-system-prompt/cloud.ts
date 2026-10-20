@@ -128,11 +128,14 @@ You have GitHub access in this session.`;
     const settingsUrl = `${this.options.apiUrl.replace(/\/$/, "")}/project/${this.options.projectId}/settings/user-personal-integrations`;
     return `
 ## GitHub access
-You do not have GitHub access in this session.
+This session has no authenticated GitHub access.
 - You can read repository content that is already in the workspace.
 - You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Read public or already cloned repository content without asking the user to connect GitHub.
 - Codebase analysis and code review require readable repository content.
-- Code changes also require publishing access.
+- Publishing changes requires authenticated GitHub access.
+
+Only when the requested work requires unavailable private repository or publishing access:
 - If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
 - Tell the user to connect GitHub at ${settingsUrl}.
 - The connection applies to a new task, not this task.
@@ -143,12 +146,14 @@ You do not have GitHub access in this session.
 - Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
+  // Keep the task id and other per-task values out of this prompt. Sibling tasks, such as the
+  // parallel sessions of one ReviewHog review, then send the same prefix, and the provider serves
+  // it from its prompt cache. A per-task value breaks the cache for every token after it.
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
     inboxReportUrl?: string | null,
   ): string {
-    const taskId = this.options.taskId;
     const shouldAutoCreatePr = this.options.shouldAutoPublish;
     const isSlack = this.options.isSlack;
     // Every instruction in this section runs through `gh`, so a sandbox holding no
@@ -244,9 +249,7 @@ hard reset is the safe one here — your work is held in the stash.
 ## Attribution
 Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
 commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
-we want:
-Generated-By: PostHog Desktop
-Task-Id: ${taskId}`;
+we want: \`Generated-By: PostHog Desktop\` and a \`Task-Id\` trailer with this task's id.`;
 
     // A stack is several PRs, so this would contradict the review-first modes.
     const stackInstructions = shouldAutoCreatePr

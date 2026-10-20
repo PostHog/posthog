@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
 
@@ -93,6 +94,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     source?: {
+        id?: string
         name: string
         url: string
     }
@@ -259,6 +261,7 @@ export type MinimalAppMetric = {
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'message_frequency_capped'
         | 'email_suppressed'
         | 'email_suspended'
         | 'email_paused'
@@ -288,6 +291,25 @@ export type MinimalAppMetric = {
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
+}
+
+/**
+ * Where an event stopped, for a record on a dead-letter topic.
+ *
+ * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
+ * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
+ * that throws while an event is being turned into invocations. Those two exist so an unanticipated
+ * bug parks the event rather than stalling the partition it arrived on.
+ */
+export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+
+export type InvocationBuildFailure = {
+    sourceId: string
+    sourceKind: 'hog_function' | 'hog_flow'
+    step: DeadLetterStep
+    error: string
+    /** Who has to act on it. Only our own classes are worth parking, see HogErrorClass. */
+    errorClass?: HogErrorClass
 }
 
 export interface HogFunctionTiming {
@@ -459,6 +481,13 @@ export type HogFlowInvocationContext = {
         // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
         // run the next step immediately, which for a "N days before X" message is worse than not sending.
         delayUntilUnresolved?: boolean
+        // Failed cohort membership lookups so far on this step. The step retries on a backoff while
+        // this stays under the limit, because a lookup timeout is usually a short stall.
+        cohortLookupAttempts?: number
+        // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
+        // on_error says, because the default 'continue' takes the continue edge, and on a branch that
+        // edge sends a member down the path for people outside the cohort.
+        cohortLookupFailed?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
@@ -553,6 +582,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'replay_vision_scan'
         | 'task_skills'
     key: string
     label?: string

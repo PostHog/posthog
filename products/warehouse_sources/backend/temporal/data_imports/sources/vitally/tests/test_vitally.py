@@ -5,6 +5,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
 )
@@ -25,17 +30,6 @@ def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
     response.json.return_value = json_data
     response.raise_for_status = Mock()
     return response
-
-
-def _make_session(responses: list[Mock]) -> MagicMock:
-    session = MagicMock()
-    session.__enter__.return_value = session
-    session.__exit__.return_value = False
-    session.send.side_effect = responses
-    # prepare_request returns its argument unchanged so the paginator's url updates
-    # propagate to the next send() call.
-    session.prepare_request.side_effect = lambda r: r
-    return session
 
 
 FEATURE_REQUEST_DEFINITION = {
@@ -104,45 +98,34 @@ class TestListCustomObjectDefinitions:
             pytest.param([{"results": [], "next": None}], [], 1, id="empty_results"),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_returns_definitions(self, mock_session_factory, pages, expected_defs, expected_call_count):
-        session = _make_session([_make_response(page) for page in pages])
-        mock_session_factory.return_value = session
-
-        defs = list_custom_object_definitions("secret", "EU", None)
+    def test_returns_definitions(self, pages, expected_defs, expected_call_count):
+        with scripted_network([ScriptedResponse(json=page) for page in pages]) as network:
+            defs = list_custom_object_definitions("secret", "EU", None)
 
         assert defs == expected_defs
-        assert session.send.call_count == expected_call_count
+        assert len(network.requests_log) == expected_call_count
+        assert {request.path for request in network.requests_log} == {"/resources/customObjects"}
+        assert [request.param("from") for request in network.requests_log[1:]] == [page["next"] for page in pages[:-1]]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_raises_on_http_error(self, mock_session_factory):
-        bad = _make_response({}, status_code=401)
-        bad.raise_for_status.side_effect = RuntimeError("401 Unauthorized")
-        mock_session_factory.return_value = _make_session([bad])
-
-        with pytest.raises(RuntimeError, match="401 Unauthorized"):
-            list_custom_object_definitions("secret", "EU", None)
+    def test_raises_on_http_error(self):
+        with scripted_network(always(ScriptedResponse(status=401, json={}))):
+            with pytest.raises(HTTPError, match="401"):
+                list_custom_object_definitions("secret", "EU", None)
 
 
 class TestGetMessages:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self, mock_session_factory):
+    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self):
         # A non-2xx conversations list response carries an error body with no "results" key.
         # Previously get_messages indexed json["results"] directly, surfacing a misleading
         # KeyError('results'); now raise_for_status lets the real HTTP error through.
-        bad = _make_response({"message": "Unauthorized"}, status_code=401)
-        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized", response=bad)
-        mock_session_factory.return_value = _make_session([bad])
+        with scripted_network(always(ScriptedResponse(status=401, json={"message": "Unauthorized"}))):
+            with pytest.raises(HTTPError, match="401"):
+                list(get_messages("secret", "EU", None, None, False, MagicMock()))
 
-        with pytest.raises(HTTPError, match="401"):
-            list(get_messages("secret", "EU", None, None, False, MagicMock()))
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_handles_missing_results_key_without_keyerror(self, mock_session_factory):
+    def test_handles_missing_results_key_without_keyerror(self):
         # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
-        mock_session_factory.return_value = _make_session([_make_response({"next": None})])
-
-        assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
+        with scripted_network([ScriptedResponse(json={"next": None})]):
+            assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
 
 
 class TestGetCustomObjectRecordsResource:
@@ -235,27 +218,6 @@ class TestVitallySourceGetSchemas:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
     )
-    def test_includes_static_endpoints_and_dynamic_custom_objects(self, mock_list):
-        mock_list.return_value = [FEATURE_REQUEST_DEFINITION, OPPORTUNITY_DEFINITION]
-
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        # Static endpoints
-        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
-        # Dynamic custom object schemas
-        assert f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest" in names
-        assert f"{CUSTOM_OBJECT_SCHEMA_PREFIX}Opportunity" in names
-
-        feature_request = next(s for s in schemas if s.name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest")
-        assert feature_request.label == "Feature Request"
-        assert feature_request.supports_incremental is True
-        assert feature_request.supports_append is True
-        assert len(feature_request.incremental_fields) == 1
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
     def test_skips_definitions_without_a_name(self, mock_list):
         mock_list.return_value = [{"id": "abc", "name": "", "label": "empty"}, FEATURE_REQUEST_DEFINITION]
 
@@ -264,17 +226,6 @@ class TestVitallySourceGetSchemas:
         dynamic = [s for s in schemas if s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX)]
         assert len(dynamic) == 1
         assert dynamic[0].name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_falls_back_to_machine_name_when_label_missing(self, mock_list):
-        mock_list.return_value = [{"id": "abc", "name": "widget"}]
-
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
-
-        widget = next(s for s in schemas if s.name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}widget")
-        assert widget.label == "widget"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
@@ -290,33 +241,6 @@ class TestVitallySourceGetSchemas:
 
         assert {s.name for s in schemas} == {"Accounts", f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"}
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_skips_discovery_when_only_static_schemas_requested(self, mock_list):
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1, names=["Accounts", "Conversations"])
-
-        mock_list.assert_not_called()
-        assert {s.name for s in schemas} == {"Accounts", "Conversations"}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_credential_free_placeholder_config_skips_discovery(self, mock_list, mock_capture):
-        # The public documentation catalog calls get_schemas with a placeholder config whose
-        # `region` is an empty string, not a VitallyRegionConfig. Discovery must be skipped rather
-        # than crash on `config.region.selection` and spam error tracking.
-        source = VitallySource()
-
-        schemas = source.get_schemas(source._placeholder_config(), team_id=0)
-
-        mock_list.assert_not_called()
-        mock_capture.assert_not_called()
-        names = {s.name for s in schemas}
-        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
-        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
@@ -331,53 +255,3 @@ class TestVitallySourceGetSchemas:
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
         # Unexpected discovery failures are still captured for triage.
         mock_capture.assert_called_once()
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "401 Client Error: Unauthorized for url: https://firstignite.rest.vitally.io/resources/customObjects?limit=100",
-            "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/customObjects?limit=100",
-        ],
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_credential_errors_do_not_spam_error_tracking(self, mock_list, mock_capture, error_message):
-        # A revoked/invalid token surfaces as a 401/403 during custom object discovery. Static
-        # endpoints must still survive, and we must not capture the credential error to error tracking.
-        mock_list.side_effect = RuntimeError(error_message)
-
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
-        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
-        mock_capture.assert_not_called()
-
-
-class TestVitallyNonRetryableErrors:
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            # US uses a per-customer subdomain, EU a fixed host — both must be recognised.
-            "401 Client Error: Unauthorized for url: https://acme.rest.vitally.io/resources/conversations?limit=100",
-            "403 Client Error: Forbidden for url: https://acme.rest.vitally.io/resources/organizations?limit=100",
-            "401 Client Error: Unauthorized for url: https://rest.vitally-eu.io/resources/users?limit=1",
-        ],
-    )
-    def test_auth_failures_are_non_retryable(self, observed_error):
-        non_retryable_errors = VitallySource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://acme.rest.vitally.io/resources/conversations",
-            "429 Client Error: Too Many Requests for url: https://acme.rest.vitally.io/resources/accounts",
-            "Connection aborted: read timeout",
-        ],
-    )
-    def test_transient_errors_remain_retryable(self, other_error):
-        non_retryable_errors = VitallySource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)

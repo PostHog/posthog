@@ -82,6 +82,7 @@ class CohortErrorCode(StrEnum):
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
+    FLAG_EVALUATION_FAILED = "flag_evaluation_failed"
     UNKNOWN = "unknown"
 
 
@@ -101,6 +102,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -163,6 +165,20 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def close_open_population_attempts(
+    cohort_id: int, *, finished_at: datetime, started_before: datetime | None = None
+) -> int:
+    """Records the cohort's open calculation history rows as interrupted and returns how many it closed."""
+    attempts = CohortCalculationHistory.objects.filter(cohort_id=cohort_id, finished_at__isnull=True)
+    if started_before is not None:
+        attempts = attempts.filter(started_at__lte=started_before)
+    return attempts.update(
+        finished_at=finished_at,
+        error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
+        error_code=CohortErrorCode.INTERRUPTED,
+    )
 
 
 def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:

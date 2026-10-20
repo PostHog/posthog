@@ -50,9 +50,16 @@ export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boole
             .filter(Boolean)
             .join(' ') || ''
 
-    // Use regex pattern matching like the backend - escape metacharacters then replace spaces with word boundary pattern
-    const escapedSearchValue = searchValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regexPattern = escapedSearchValue.replace(/\s+/g, '[\\s\\-_]*')
+    // Match the backend: spaces, hyphens, and underscores are one separator class, so MY_FLAG finds my-flag
+    // A query of only separators has no parts, so match it literally rather than with a pattern that matches every flag
+    // A leading or trailing separator stays required, so _prod does not find production
+    const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const parts = searchValue.split(/[\s\-_]+/).filter(Boolean)
+    const leadingSeparator = /^[\s\-_]/.test(searchValue) ? '[\\s\\-_]' : ''
+    const trailingSeparator = /[\s\-_]$/.test(searchValue) ? '[\\s\\-_]' : ''
+    const regexPattern = parts.length
+        ? leadingSeparator + parts.map(escapeRegex).join('[\\s\\-_]*') + trailingSeparator
+        : escapeRegex(searchValue)
 
     try {
         const regex = new RegExp(regexPattern, 'i')
@@ -76,7 +83,11 @@ export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boole
         return !flag.active
     }
     if (active === 'STALE') {
-        return flag.status === 'STALE'
+        // The server's STALE set is wider than the checker's STALE status. The `filter_stale_flags`
+        // docstring in flag_status.py lists where they diverge. The count and the "select all
+        // matching" delete use the server's set, so the list has to show the same rows, and every
+        // row in that set is active.
+        return flag.active
     }
     return true
 }

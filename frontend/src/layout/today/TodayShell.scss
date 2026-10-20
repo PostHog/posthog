@@ -1,5 +1,64 @@
+// Resolved on body, outside any quill scope, so the sidebar, the content and the cards portaled out of the layout
+// (the floating AI chat) share one corner value.
+body {
+    --today-frame-radius: var(--radius);
+}
+
 .TodayAppLayout {
+    --today-frame-inset: 4px;
+
     background: var(--today-paper);
+}
+
+.TodayAppLayout--top-bar {
+    --today-top-bar-height: 40px;
+
+    // The rail runs the full height. The top bar spans the sidebar, the content and the side panel.
+    grid-template:
+        'rail top top top' var(--today-top-bar-height)
+        'rail left content side' minmax(0, 1fr) / var(--today-rail-width) calc(
+            var(--left-nav-width) - var(--today-rail-width)
+        ) minmax(0, 1fr) var(--side-panel-width, 0);
+
+    // The shell's rail and sidebar take separate grid cells, so the shell itself drops out of the layout.
+    .TodayShell {
+        display: contents;
+    }
+
+    .TodayShell__rail {
+        grid-area: rail;
+    }
+
+    .TodayShell__sidebar--framed {
+        grid-area: left;
+    }
+
+    .TodayAppLayout__side-panel {
+        grid-area: side;
+    }
+}
+
+// Spans the sidebar and the content, so one soft shadow off their shared top-left edge lifts both above the chrome.
+// It has no fill, so it draws only the shadow outside its box.
+.TodayAppLayout__shadow {
+    position: relative;
+    grid-row: 2;
+    grid-column: 2 / span 2;
+    pointer-events: none;
+    border-top-left-radius: var(--today-frame-radius);
+    box-shadow: -20px -20px 18px -24px #00000021;
+
+    [theme='dark'] & {
+        box-shadow: -20px -20px 18px -24px #282828;
+    }
+}
+
+.TodayTopBar {
+    // Above the rail, which comes later in the grid and would otherwise paint over focus rings at the bar's left edge.
+    position: relative;
+    z-index: 1;
+    grid-area: top;
+    min-width: 0;
 }
 
 .TodayShell {
@@ -17,9 +76,63 @@
     height: 100%;
 }
 
+// The panes sit in one framed inset beside the rail. A docked sidebar starts the inset, so it owns the top-left
+// corner and the seam against the content. The content frame in Navigation.tsx draws the rest.
+.TodayShell__sidebar--framed {
+    height: auto;
+    border-top-left-radius: var(--today-frame-radius);
+
+    // An overlay, like the content frame, so the border takes no space. The pane header then starts at the same
+    // point as the scene header, and the sidebar toggle stays under the pointer when the sidebar hides.
+    &::after {
+        position: absolute;
+        inset: 0;
+        z-index: var(--z-layout-navbar-under);
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--border);
+        border-bottom: 0;
+        border-radius: inherit;
+    }
+}
+
+// Spans the content and the side panel, so the gaps around the side panel card show the chrome like the top bar.
+.TodayAppLayout__backdrop {
+    grid-row: 2;
+    grid-column: content-start / side-end;
+}
+
+.TodayAppLayout .TodayAppLayout__content {
+    &.TodayAppLayout__content--corner {
+        border-top-left-radius: var(--today-frame-radius);
+    }
+
+    // An open side panel is a card of its own, so the content rounds the corner it shares with the gap.
+    &.TodayAppLayout__content--side-panel {
+        border-top-right-radius: var(--today-frame-radius);
+    }
+}
+
+.TodayAppLayout__frame {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-layout-navbar-under);
+    pointer-events: none;
+    border-top: 1px solid var(--border);
+    border-radius: inherit;
+
+    .TodayAppLayout__content--corner > & {
+        border-left: 1px solid var(--border);
+    }
+
+    .TodayAppLayout__content--side-panel > & {
+        border-right: 1px solid var(--border);
+    }
+}
+
 .TodayShell__scrim {
     position: fixed;
-    inset: 0 0 0 var(--today-rail-width);
+    inset: var(--today-top-bar-height, 0) 0 0 var(--today-rail-width);
     z-index: var(--z-layout-navbar-under);
     visibility: hidden;
     background: rgb(21 21 21 / 18%);
@@ -40,14 +153,18 @@
 
 .TodayShell__drawer {
     position: fixed;
-    top: 0;
-    bottom: 0;
-    left: var(--today-rail-width);
+    top: calc(var(--today-top-bar-height, 0px) + var(--today-frame-inset));
+    bottom: var(--today-frame-inset);
+
+    // A gap off the rail, so the floating sidebar reads as a separate layer.
+    left: calc(var(--today-rail-width) + var(--today-frame-inset) * 2);
     z-index: var(--z-layout-navbar);
-    max-width: calc(100vw - var(--today-rail-width) - 3rem);
+    max-width: calc(100vw - var(--today-rail-width) - var(--today-frame-inset) * 2 - 3rem);
+    height: auto;
+    overflow: hidden;
     visibility: hidden;
     background: var(--today-paper);
-    border-right: 1px solid var(--today-line);
+    border-radius: var(--today-frame-radius);
     box-shadow: 24px 0 48px -24px rgb(0 0 0 / 28%);
     opacity: 0;
     transition:
@@ -61,10 +178,22 @@
         opacity: 1;
         transform: none;
     }
+
+    // An overlay border, like the docked frame, so the pane header starts where the scene header does.
+    &::after {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--border);
+        border-radius: inherit;
+    }
 }
 
 .TodayAppLayout--phone {
-    --today-phone-header-height: 52px;
+    // Matches the pane header, so the top bar and the sidebar page share one height.
+    --today-phone-header-height: 42px;
     --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
 
     padding-top: var(--today-phone-header-height);
@@ -85,7 +214,7 @@
     gap: 4px;
     align-items: center;
     height: var(--today-phone-header-height);
-    padding: 0 12px 0 8px;
+    padding: 0 8px;
     color: var(--today-ink);
     background: var(--today-paper);
     border-bottom: 1px solid transparent;
@@ -93,19 +222,6 @@
 
     &[data-scrolled='true'] {
         border-bottom-color: var(--today-line);
-    }
-}
-
-.TodayPhoneHeader__title {
-    opacity: 0;
-    transition:
-        opacity 200ms var(--today-ease),
-        transform 200ms var(--today-ease);
-    transform: translateY(4px);
-
-    .TodayPhoneHeader[data-scrolled='true'] & {
-        opacity: 1;
-        transform: none;
     }
 }
 
@@ -183,8 +299,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     .TodayShell__scrim,
     .TodayShell__drawer,
     .TodayShell__page,
-    .TodayPhoneHeader,
-    .TodayPhoneHeader__title {
+    .TodayPhoneHeader {
         transition: none;
     }
 }
@@ -197,11 +312,14 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 }
 
 .TodayPane {
+    // The pane sits on the shell's chrome, not the app background.
+    --quill-icon-stack-ring: var(--chrome);
+
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    padding: 8px 8px 0;
+    padding: 0 8px;
 }
 
 .TodayPane__filters {
@@ -234,4 +352,62 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 // While the keyboard highlights a row, a row under a resting pointer would look active too, so its hover tint drops.
 .TodayPaneSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
     background: transparent;
+}
+
+// A context panel tab fills the card. Switching tabs fades the new one in with a short slide from the side of
+// the tab that was picked, so the order of the header icons reads as a direction.
+.TodayContextPanelContent {
+    --today-context-panel-slide: 0.5rem;
+
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+
+    &[data-direction] {
+        animation: TodayContextPanelContent__switch 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)) both;
+    }
+
+    &[data-direction='backward'] {
+        --today-context-panel-slide: -0.5rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &[data-direction] {
+            animation: none;
+        }
+    }
+}
+
+@keyframes TodayContextPanelContent__switch {
+    from {
+        opacity: 0;
+        transform: translateX(var(--today-context-panel-slide));
+    }
+}
+
+// The floating button sinks away when the panel docks and rises back when it closes, so the hand-off reads.
+// Leaving is a little quicker than coming back.
+.TodayContextPanelButton {
+    transition:
+        opacity 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+        transform 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+        visibility 0s;
+
+    &[data-hidden] {
+        visibility: hidden;
+        opacity: 0;
+        transition:
+            opacity 160ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+            transform 160ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+            visibility 0s 160ms;
+        transform: translateY(0.5rem);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &,
+        &[data-hidden] {
+            transition: none;
+        }
+    }
 }

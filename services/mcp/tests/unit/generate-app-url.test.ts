@@ -51,6 +51,16 @@ describe('generate-app-url', () => {
         expect(result.url).toBe('https://us.posthog.com/project/354703/events/evt_1/2026-06-01T15%3A48%3A00Z')
     })
 
+    it.each([
+        ['/error_tracking/{id}', { id: 'issue-1' }, '/error-tracking/issue-1'],
+        ['/error-tracking/{id}', { id: 'issue-1' }, '/error-tracking/issue-1'],
+        ['/error_tracking/fingerprint/{fingerprint}', { fingerprint: 'fp' }, '/error-tracking/fingerprint/fp'],
+        ['/error_tracking', {}, '/error-tracking'],
+    ])('builds the canonical error tracking link for the template %s', async (url, params, path) => {
+        const result = await generateAppUrlHandler(ctx, { url, params })
+        expect(result.url).toBe(`https://us.posthog.com/project/354703${path}`)
+    })
+
     it('uses the bare host (no project prefix) for global-scope pages', async () => {
         const result = await generateAppUrlHandler(ctx, { url: '/instance/status', params: {} })
         expect(result.url).toBe('https://us.posthog.com/instance/status')

@@ -9,9 +9,8 @@ from rest_framework.exceptions import Throttled
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
-    get_app_org_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method
 from posthog.constants import AvailableFeature
@@ -38,12 +37,7 @@ def query_concurrency_slots(team: Team) -> Iterator[None]:
                 team_id=team.pk,
                 limit=_api_key_concurrency_limit(team) if is_api_key_access else None,
             ),
-            get_app_org_rate_limiter().run(
-                org_id=team.organization_id,
-                team_id=team.pk,
-                is_api=is_api_key_access,
-                limit=get_org_app_concurrency_limit(team.organization_id),
-            ),
+            app_org_concurrency_slot(team),
         ):
             yield
     except ConcurrencyLimitExceeded as error:

@@ -12,6 +12,7 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     ResultValueField,
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
+from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
@@ -25,6 +26,7 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineResultCellQuery,
 )
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
+from products.ai_observability.backend.resource_tags import TagMatch
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
 if TYPE_CHECKING:
@@ -108,6 +110,14 @@ class OfflineResultCellQuerySerializer(_OfflineQuerySerializer[OfflineResultCell
 
 
 class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
+    tags = ResourceTagFilterField()
+    tag_match = serializers.ChoiceField(
+        choices=TagMatch.choices,
+        required=False,
+        default=TagMatch.ANY,
+        help_text="Match any selected tag (OR) or all selected tags (AND).",
+    )
+
     date_from = serializers.DateTimeField(
         required=False, help_text="Inclusive execution start time, in ISO 8601 format."
     )
@@ -146,6 +156,8 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
     class Meta(OfflineResultQuerySerializer.Meta):
         fields = [
             *OfflineResultQuerySerializer.Meta.fields,
+            "tags",
+            "tag_match",
             "date_from",
             "date_to",
             "search",
@@ -159,6 +171,9 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
             "model_version",
             "prompt_version",
         ]
+
+    def validate_tags(self, value: list[str]) -> tuple[str, ...]:
+        return tuple(value)
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(value.split(","))
@@ -187,6 +202,9 @@ class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(), help_text="Project tag names assigned to this experiment."
+    )
     id = serializers.UUIDField(help_text="Stable experiment UUID.")
     name = serializers.CharField(help_text="Experiment name.")
     run_source = serializers.ChoiceField(

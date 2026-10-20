@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { lightenDarkenColor } from 'lib/utils/colors'
@@ -28,6 +28,7 @@ interface TableProps {
     context: QueryContext<VisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
     embedded?: boolean
+    onInspect?: (record: Record<string, unknown>) => void
 }
 
 export const DEFAULT_PAGE_SIZE = 500
@@ -154,6 +155,7 @@ export const Table = (props: TableProps): JSX.Element => {
         tabularData,
         tabularColumns,
         sourceTabularColumns,
+        sourceTabularData,
         conditionalFormattingRules,
         responseLoading,
         responseError,
@@ -302,6 +304,31 @@ export const Table = (props: TableProps): JSX.Element => {
                             >
                                 {renderedSourceColumnTitle}
                             </div>
+                        )
+                    }
+
+                    if (props.onInspect) {
+                        const sourceRow = isTransposed ? sourceTabularData[index - 1] : data
+                        const sourceColumns = isTransposed ? sourceTabularColumns : tabularColumns
+                        return (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                className="max-w-full !text-inherit"
+                                tooltip="Explore this result"
+                                onClick={() =>
+                                    props.onInspect?.(
+                                        Object.fromEntries(
+                                            sourceColumns.map((column, index) => [
+                                                column.column.name,
+                                                sourceRow[index]?.value,
+                                            ])
+                                        )
+                                    )
+                                }
+                            >
+                                <span className="truncate">{String(cell.formattedValue ?? '—')}</span>
+                            </LemonButton>
                         )
                     }
 

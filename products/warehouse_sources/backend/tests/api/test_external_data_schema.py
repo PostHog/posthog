@@ -50,7 +50,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.source import SharePointSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
@@ -157,7 +159,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "xmin_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": True,
+            "supports_webhooks": False,
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
@@ -500,9 +502,99 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["xmin_available"] is expected_xmin_available
 
-    def test_incremental_fields_matches_schema_by_name(self):
+    @parameterized.expand(
+        [
+            (
+                # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
+                # element is an unrelated table; the endpoint must pick the one matching instance.name.
+                "name_match_when_names_filter_ignored",
+                StripeSource,
+                {"stripe_secret_key": "test_key"},
+                None,
+                False,
+                [["C123"]],
+                [
+                    SourceSchema(name="$channels", supports_incremental=False, supports_append=False),
+                    SourceSchema(
+                        name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True
+                    ),
+                ],
+            ),
+            (
+                "resource_id_match_after_rename",
+                GoogleSheetsSource,
+                {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
+                {"schema_metadata": {"source_resource_id": "123"}},
+                True,
+                [["C123"], None],
+                [
+                    SourceSchema(
+                        name="other_sheet",
+                        supports_incremental=False,
+                        supports_append=False,
+                        schema_metadata={"source_resource_id": "456"},
+                    ),
+                    SourceSchema(
+                        name="new_title",
+                        supports_incremental=False,
+                        supports_append=False,
+                        supports_webhooks=True,
+                        schema_metadata={"source_resource_id": "123"},
+                    ),
+                ],
+            ),
+            (
+                "name_filter_kept_when_name_still_matches_resource_id",
+                GoogleSheetsSource,
+                {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
+                {"schema_metadata": {"source_resource_id": "123"}},
+                True,
+                [["C123"]],
+                [
+                    SourceSchema(
+                        name="other_sheet",
+                        supports_incremental=False,
+                        supports_append=False,
+                        schema_metadata={"source_resource_id": "456"},
+                    ),
+                    SourceSchema(
+                        name="C123",
+                        supports_incremental=False,
+                        supports_append=False,
+                        supports_webhooks=True,
+                        schema_metadata={"source_resource_id": "123"},
+                    ),
+                ],
+            ),
+            (
+                # A SharePoint endpoint table has no resource id, so discovery keeps the name filter
+                # and skips the file crawl.
+                "name_filter_kept_without_stored_resource_id",
+                SharePointSource,
+                {"tenant_id": "tenant", "client_id": "client", "client_secret": "secret"},
+                None,
+                True,
+                [["C123"]],
+                [
+                    SourceSchema(
+                        name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True
+                    ),
+                ],
+            ),
+        ]
+    )
+    def test_incremental_fields_matches_discovered_schema(
+        self,
+        _name,
+        source_class,
+        job_inputs,
+        sync_type_config,
+        honors_names_filter,
+        expected_names_per_call,
+        discovered_schemas,
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team, source_type=source_class().source_type, job_inputs=job_inputs
         )
         schema = ExternalDataSchema.objects.create(
             name="C123",
@@ -511,25 +603,25 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            sync_type_config=sync_type_config or {},
         )
 
-        # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
-        # element is an unrelated table; the endpoint must pick the one matching instance.name.
-        all_schemas = [
-            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
-            SourceSchema(name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True),
-        ]
+        def get_schemas(*args, names=None, **kwargs):
+            if names is None or not honors_names_filter:
+                return discovered_schemas
+            return [s for s in discovered_schemas if s.name in names]
 
         with (
-            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(StripeSource, "get_schemas", return_value=all_schemas),
+            mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(source_class, "get_schemas", side_effect=get_schemas) as mock_get_schemas,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["supports_webhooks"] is True
+        assert [call.kwargs["names"] for call in mock_get_schemas.call_args_list] == expected_names_per_call
 
     @parameterized.expand(
         [
@@ -709,6 +801,11 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=initial_sync_type,
             sync_type_config={
                 **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
+                **(
+                    {"incremental_field": "created_at", "incremental_field_type": "datetime"}
+                    if initial_sync_type == "incremental"
+                    else {}
+                ),
                 "schema_metadata": {"columns": columns},
             },
         )
@@ -917,6 +1014,85 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 400, response.json()
         schema.refresh_from_db()
         assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+    @parameterized.expand(
+        [
+            ("switch_to_incremental_without_field", "full_refresh", None, True, {"sync_type": "incremental"}, 400),
+            (
+                "switch_to_append_with_null_field",
+                "full_refresh",
+                None,
+                True,
+                {"sync_type": "append", "incremental_field": None},
+                400,
+            ),
+            ("clear_field_on_incremental", "incremental", "created", True, {"incremental_field": None}, 400),
+            ("enable_schema_without_field", "incremental", None, False, {"should_sync": True}, 400),
+            (
+                "unrelated_edit_on_schema_without_field",
+                "incremental",
+                None,
+                True,
+                {"sync_type": "incremental", "incremental_field": None, "should_sync": False},
+                200,
+            ),
+            (
+                "switch_to_incremental_with_field",
+                "full_refresh",
+                None,
+                True,
+                {"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+                200,
+            ),
+        ]
+    )
+    def test_update_schema_requires_incremental_field_for_cursor_sync_types(
+        self,
+        _name: str,
+        stored_sync_type: str,
+        stored_field: str | None,
+        stored_should_sync: bool,
+        request_data: dict[str, Any],
+        expected_status: int,
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=stored_should_sync,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=stored_sync_type,
+            sync_type_config={"incremental_field": stored_field, "incremental_field_type": "integer"}
+            if stored_field
+            else {},
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=request_data,
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        if expected_status == 400:
+            assert "needs an incremental field" in response.json()["detail"]
+            assert schema.should_sync == stored_should_sync
+            assert schema.sync_type == stored_sync_type
+            assert schema.sync_type_config.get("incremental_field") == stored_field
 
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(
@@ -4654,6 +4830,44 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for this source type" in str(response.json())
+
+    def _create_shopify_schema(self, name: str) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.SHOPIFY,
+            job_inputs={"shopify_store_id": "store", "auth_method": {"selection": "access_token"}},
+        )
+        return ExternalDataSchema.objects.create(name=name, team=self.team, source=source)
+
+    @parameterized.expand(
+        [
+            ("declared_column", "orders", [{"column": "created_at", "operator": ">=", "value": "2024-01-01"}], 200),
+            ("other_column", "orders", [{"column": "updated_at", "operator": ">=", "value": "2024-01-01"}], 400),
+            ("other_operator", "orders", [{"column": "created_at", "operator": "!=", "value": "2024-01-01"}], 400),
+            (
+                "schema_without_columns",
+                "collections",
+                [{"column": "created_at", "operator": ">=", "value": "2024-01-01"}],
+                400,
+            ),
+        ]
+    )
+    def test_row_filters_limited_to_columns_the_source_declares(self, _name, schema_name, row_filters, expected):
+        schema = self._create_shopify_schema(schema_name)
+        response = self._patch(schema, row_filters)
+        assert response.status_code == expected, response.json()
+        schema.refresh_from_db()
+        assert schema.row_filters == (row_filters if expected == 200 else None)
+
+    def test_row_filter_columns_returned_in_serializer(self):
+        shopify_schema = self._create_shopify_schema("orders")
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{shopify_schema.id}/")
+        assert response.json()["row_filter_columns"] == [
+            {"name": "created_at", "data_type": "timestamp", "operators": [">", ">=", "<", "<="]}
+        ]
+        # A SQL source filters on any discovered column, which the API reports as null.
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{self._create().id}/")
+        assert response.json()["row_filter_columns"] is None
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

@@ -16,7 +16,7 @@ import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
 import { SuggestedNextStepsCard } from './cards/SuggestedNextStepsCard'
 import { TeamMembersCard } from './cards/TeamMembersCard'
-import { wasWelcomeDismissed, welcomeDialogLogic } from './welcomeDialogLogic'
+import { welcomeDialogLogic } from './welcomeDialogLogic'
 
 // The welcome dialog is allowed to auto-open only on these scenes. The welcome flow's purpose
 // is to orient an invitee on the home of the product — opening it as an overlay over a deep-link
@@ -25,23 +25,18 @@ import { wasWelcomeDismissed, welcomeDialogLogic } from './welcomeDialogLogic'
 // primary dashboard when one is configured, so first-visit invitees land there instead of home.
 const WELCOME_DIALOG_ALLOWED_SCENES = new Set<Scene>([Scene.ProjectHomepage, Scene.Dashboard])
 
-/** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it.
- * Lives in GlobalModals so it can render regardless of which scene the user lands on after
- * signup (project home, primary dashboard, etc.). Scene gating ensures the dialog only auto-opens
- * on the home / primary-dashboard scenes, not over deep-linked settings/billing/replay pages.
+/** Only render the welcome dialog when it is due. Lives in GlobalModals so it can render regardless
+ * of which scene the user lands on after signup (project home, primary dashboard, etc.). Scene
+ * gating ensures the dialog only auto-opens on the home / primary-dashboard scenes, not over
+ * deep-linked settings/billing/replay pages.
  *
  * This must stay the only mount of the dialog. Two mounts give two react-modal instances at the
  * same z-index, and the overlay of the one on top covers the buttons of the one below, so the
  * user clicks a button that receives nothing. */
 export function MaybeWelcomeDialog(): JSX.Element | null {
-    const { user, isProvisionedUser } = useValues(userLogic)
+    const { shouldShowDialog } = useValues(welcomeDialogLogic)
     const { sceneId } = useValues(sceneLogic)
-    // Invitees see it as before; partner-provisioned accounts (no inviter) get it too.
-    const eligible = !!user && (user.is_organization_first_user === false || isProvisionedUser)
-    if (!eligible || !user || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
-        return null
-    }
-    if (!sceneId || !WELCOME_DIALOG_ALLOWED_SCENES.has(sceneId as Scene)) {
+    if (!shouldShowDialog || !sceneId || !WELCOME_DIALOG_ALLOWED_SCENES.has(sceneId as Scene)) {
         return null
     }
     return <WelcomeDialog />

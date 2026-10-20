@@ -114,9 +114,24 @@ def _delta_table_identity(delta_table: deltalake.DeltaTable, table_ref: "DeltaTa
 
 
 def _committed_version(stats: Any) -> int | None:
-    """The table version a deltalite ``UpsertStats`` reports, or None from a double without one."""
-    version = getattr(stats, "version", None)
+    """The table version a deltalite ``UpsertStats`` reports, or None when it cannot be read."""
+    try:
+        version = getattr(stats, "version", None)
+    except Exception:  # noqa: BLE001 - stats are read after the write has committed
+        return None
     return version if isinstance(version, int) else None
+
+
+def _committed_file_count_change(stats: Any) -> int | None:
+    """Files a deltalite commit added minus files it removed, or None when the stats cannot say."""
+    try:
+        added = getattr(stats, "files_added", None)
+        removed = getattr(stats, "files_removed", None)
+    except Exception:  # noqa: BLE001 - stats are read after the write has committed
+        return None
+    if not isinstance(added, int) or not isinstance(removed, int):
+        return None
+    return added - removed
 
 
 def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
@@ -144,6 +159,10 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
 def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
     """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
     return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
+
+
+_MAINTENANCE_OPERATIONS = frozenset({"OPTIMIZE", "VACUUM START", "VACUUM END"})
+_MAX_HISTORY_SCAN = 2000
 
 
 def commit_covers_batch(commit: dict[str, Any], run_uuid: str, batch_index: int) -> bool:
@@ -182,6 +201,14 @@ class DeltaWriter:
     def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
+        self._deltalite_file_count_change: int | None = None
+
+    @property
+    def deltalite_file_count_change(self) -> int | None:
+        """The change in the table's file count from the deltalite commit of the last `write`, or
+        None when deltalite did not commit that write. The handle `write` returns is one commit
+        behind after a deltalite commit, so this is what its file list is off by."""
+        return self._deltalite_file_count_change
 
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
@@ -309,6 +336,7 @@ class DeltaWriter:
         # here: that costs a log listing per batch, and most batches never read the handle's version
         # or file list again. The ref refreshes it on the next `get_delta_table` call instead.
         self._table.note_deltalite_commit(_committed_version(stats))
+        self._deltalite_file_count_change = _committed_file_count_change(stats)
 
         # NOTHING past this point may raise into the caller: an exception here would leave
         # `deltalite_wrote` unset and either fail/retry the sync or re-run the delta-rs MERGE on top of
@@ -371,6 +399,7 @@ class DeltaWriter:
         # share we can actually attribute.
         report_phase("merge")
         report_buffer_bytes(data.nbytes)
+        self._deltalite_file_count_change = None
 
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
         # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
@@ -382,7 +411,11 @@ class DeltaWriter:
         # nullability that matches its data (see relax_batch_nullability).
         data = relax_batch_nullability(data)
 
-        delta_table = await self._table.get_delta_table()
+        # A write that overwrites the table gives the same result with or without a table there, so
+        # a probe that the caller made through the same ref a moment ago is enough. Any other write
+        # looks again: a table that another writer created since then must be appended to, not
+        # replaced.
+        delta_table = await self._table.get_delta_table(allow_known_missing=should_overwrite_table)
 
         if delta_table:
             delta_table = await evolve_delta_schema(delta_table, data.schema)
@@ -581,6 +614,7 @@ class DeltaWriter:
                     mode="ignore",
                     configuration=DELTA_TABLE_PROPERTIES,
                 )
+                self._table.adopt_created_table(delta_table)
 
             if mode == "append":
                 # Each batch of a full_refresh (or first incremental sync) infers its own decimal
@@ -638,6 +672,7 @@ class DeltaWriter:
                     mode="ignore",
                     configuration=DELTA_TABLE_PROPERTIES,
                 )
+                self._table.adopt_created_table(delta_table)
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
                 # column that outgrew decimal128 arrives here as text (decimal256 renders to string),
@@ -676,6 +711,31 @@ class DeltaWriter:
 
         return delta_table
 
+    async def restore(self, version: int, commit_metadata: dict[str, str] | None = None) -> dict[str, Any]:
+        """Put the table back to the data and schema it had at `version`.
+
+        The restore is one commit that removes the files added after `version` and adds back the
+        files removed after it. It reads and writes the log only. It fails when a file of `version`
+        is gone, which a vacuum can cause.
+        """
+        delta_table = await self._table.get_delta_table()
+        if delta_table is None:
+            return {}
+        commit_properties: deltalake.CommitProperties | None = (
+            deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
+        )
+        restore_target = delta_table
+        restore_metrics = await execute_with_conflict_retry(
+            delta_table,
+            lambda: restore_target.restore(version, commit_properties=commit_properties),
+            "restore",
+            self._logger,
+            conflict_retries=0,
+        )
+        # The deltalite handle of this table still describes the files that the restore removed.
+        self._table.invalidate_cached_table()
+        return restore_metrics
+
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
         """Check whether any recent delta commit has custom metadata matching all entries in `match`.
 
@@ -703,10 +763,21 @@ class DeltaWriter:
 
     async def has_batch_been_committed(self, run_uuid: str, batch_index: int, *, scan_limit: int = 50) -> bool:
         """Check whether a specific (run_uuid, batch_index) has already been committed to delta,
-        on its own or as a member of a coalesced write (see `commit_covers_batch`)."""
+        on its own or as a member of a coalesced write (see `commit_covers_batch`).
+
+        The scan covers the last `scan_limit` commits that wrote data. A chunked compaction can commit
+        many times after the batch write, so compaction and vacuum commits do not use up the window.
+        """
         delta_table = await self._table.get_delta_table()
         if delta_table is None:
             return False
 
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
-        return any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history)
+        limit = scan_limit
+        while True:
+            history = await asyncio.to_thread(delta_table.history, limit=limit)
+            if any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history):
+                return True
+            data_commits = sum(1 for commit in history if commit.get("operation") not in _MAINTENANCE_OPERATIONS)
+            if len(history) < limit or data_commits >= scan_limit or limit >= _MAX_HISTORY_SCAN:
+                return False
+            limit = min(limit * 2, _MAX_HISTORY_SCAN)

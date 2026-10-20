@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)\n            SELECT DISTINCT $1::integer, p.person_id, f.flag_key, $2::text\n            FROM posthog_persondistinctid p\n            CROSS JOIN UNNEST($4::text[]) AS f(flag_key)\n            WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false\n              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)\n              AND NOT EXISTS (\n                  SELECT 1 FROM posthog_featureflaghashkeyoverride o\n                  WHERE o.team_id = p.team_id AND o.person_id = p.person_id\n                    AND o.feature_flag_key = f.flag_key AND o.hash_key <> $5\n              )\n            ORDER BY p.person_id, f.flag_key\n            ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE\n                SET hash_key = EXCLUDED.hash_key\n                WHERE posthog_featureflaghashkeyoverride.hash_key = $5\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f9ce28fe309e1d448f06edbb11ccf6288d6151ee629163c9631b79bd4dc6602"
+}

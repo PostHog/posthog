@@ -5,8 +5,7 @@ from enum import Enum, auto
 from functools import lru_cache
 from typing import Optional, cast
 
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
+from django.db.models import F
 
 from posthog.schema import (
     AutocompleteCompletionItem,
@@ -20,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
+from posthog.hogql.database.lazy_join_tags import GROUP_N
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -36,6 +36,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
@@ -61,7 +62,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.taxonomy.taxonomy import QUERY_DEPRECATED_EVENT_PROPERTIES
 
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    effective_project_id_expr,
+    group_type_index_key_expr,
+)
 from products.product_analytics.backend.facade.api import insight_variables_for_team
 
 from common.hogvm.python.stl import STL
@@ -728,7 +733,7 @@ def _suggest_unshadowed_globals(*, query_globals: dict, response: HogQLAutocompl
 
 
 def _property_definition_type(table: Table, field: StringJSONDatabaseField) -> Optional[PropertyDefinition.Type]:
-    if isinstance(table, EventsPersonSubTable):
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         return PropertyDefinition.Type.PERSON
     if isinstance(table, EventsGroupSubTable):
         return PropertyDefinition.Type.GROUP
@@ -744,10 +749,30 @@ def _property_definition_type(table: Table, field: StringJSONDatabaseField) -> O
     return None
 
 
+def _group_type_index_key(
+    table: Table, property_type: PropertyDefinition.Type, joined_group_index: Optional[int]
+) -> Optional[int]:
+    if property_type != PropertyDefinition.Type.GROUP:
+        return -1
+    if isinstance(table, EventsGroupSubTable):
+        return table.group_index
+    # `groups` holds every group type. Without a join that names one, suggest the properties of all of them.
+    return joined_group_index
+
+
+def _joined_group_index(field: FieldOrTable) -> Optional[int]:
+    # `events.group_N` joins the whole `groups` table. Only the join's resolver params name the group type.
+    if isinstance(field, LazyJoin) and field.resolver == GROUP_N:
+        group_index = field.resolver_params.get("group_index")
+        return group_index if isinstance(group_index, int) else None
+    return None
+
+
 def _suggest_property_names(
     *,
     table: Table,
     field: StringJSONDatabaseField,
+    joined_group_index: Optional[int],
     match_term: str,
     context: HogQLContext,
     timings: HogQLTimings,
@@ -759,23 +784,38 @@ def _suggest_property_names(
 
     with timings.measure("property_filter"):
         property_query = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+            effective_project_id=effective_project_id_expr(),
+            group_type_index_key=group_type_index_key_expr(),
         ).filter(
             effective_project_id=context.team.project_id,  # type: ignore
             name__contains=match_term,
             type=property_type,
         )
+        group_type_index_key = _group_type_index_key(table, property_type, joined_group_index)
+        if group_type_index_key is not None:
+            property_query = property_query.filter(group_type_index_key=group_type_index_key)
 
     if property_type == PropertyDefinition.Type.EVENT:
         property_query = property_query.exclude(name__in=QUERY_DEPRECATED_EVENT_PROPERTIES)
 
     # One row past the limit sets `incomplete_list` without an unbounded COUNT(*):
     # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
-    # project's whole taxonomy. `posthog_propdef_proj_uniq` is keyed on (project,
-    # name, ...), so ordering by name reads it in index order and stops at the limit.
+    # project's whole taxonomy.
+    # The order is the key of `index_property_def_query_proj`, which leads with (project, type,
+    # group type). Postgres reads only the rows of this type in index order and stops at the limit.
+    # Do not order by name. That walks `posthog_propdef_proj_uniq`, which leads with (project, name),
+    # through every type in the project, and a type with fewer rows than the limit never stops it.
+    # A non-empty match_term filters on top of the walk, so a rare term still reads every row of the type.
+    # The editor sorts suggestions by label, so this order only selects which rows fit in the limit.
     with timings.measure("property_get_values"):
         properties = list(
-            property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type")
+            property_query.order_by(
+                "effective_project_id",
+                "type",
+                "group_type_index_key",
+                F("query_usage_30_day").desc(nulls_last=True),
+                "name",
+            )[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type")
         )
     response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
     properties = properties[:PROPERTY_DEFINITION_LIMIT]
@@ -827,6 +867,7 @@ def _suggest_select_fields(
     table_has_alias = select_from.alias is not None
     chain_len = len(node.chain)
     last_table: Table = table
+    joined_group_index: Optional[int] = None
     for index, chain_part in enumerate(node.chain):
         # Return just the table alias
         if table_has_alias and index == 0 and chain_len == 1:
@@ -873,6 +914,7 @@ def _suggest_select_fields(
                 _suggest_property_names(
                     table=last_table,
                     field=field,
+                    joined_group_index=joined_group_index,
                     match_term=match_term,
                     context=context,
                     timings=timings,
@@ -885,6 +927,7 @@ def _suggest_select_fields(
             break
         else:
             field = last_table.fields[str(chain_part)]
+            joined_group_index = _joined_group_index(field)
             if isinstance(field, Table):
                 last_table = field
             elif isinstance(field, LazyJoin):

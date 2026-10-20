@@ -5,13 +5,14 @@ import hashlib
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Response
-
-from posthog.cdp.validation import compile_hog
-
+from products.cdp.backend.validation import compile_hog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paymongo import (
     PaymongoSourceConfig,
 )
@@ -22,12 +23,7 @@ from common.hogvm.python.execute import execute_bytecode
 
 @pytest.mark.parametrize("operation", ["create_webhook", "delete_webhook"])
 def test_webhook_failures_do_not_expose_vendor_body(operation: str) -> None:
-    response = Response()
-    response.status_code = 403
-    response.reason = "Forbidden"
-    response.url = "https://api.paymongo.com/v1/webhooks"
-    response._content = b'{"errors": [{"detail": "fake-sensitive-response"}]}'
-    with patch("requests.sessions.Session.send", return_value=response):
+    with scripted_network([ScriptedResponse(status=403, json={"errors": [{"detail": "fake-sensitive-response"}]})]):
         result = getattr(PaymongoSource(), operation)(
             PaymongoSourceConfig(api_key="fake"), "https://example.com/hook", 1
         )
@@ -37,10 +33,10 @@ def test_webhook_failures_do_not_expose_vendor_body(operation: str) -> None:
 
 
 def test_unknown_schema_fails_before_network() -> None:
-    with patch("requests.sessions.Session.send") as send:
+    with scripted_network([]) as network:
         with pytest.raises(UnknownResourceError, match="missing_table"):
             PaymongoSource().validate_credentials(PaymongoSourceConfig(api_key="fake"), 1, schema_name="missing_table")
-        send.assert_not_called()
+    assert network.requests_log == []
 
 
 @pytest.fixture(scope="module")

@@ -11,6 +11,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -20,7 +21,7 @@ import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole
 import {
     clearSQLEditorDraftFromStorageEvent,
     clearSQLEditorDrafts,
-} from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
+} from 'products/data_warehouse/frontend/sqlEditorDraftCleanup'
 
 import type { BillingFeatureType } from '../types'
 import { urls } from './urls'
@@ -78,6 +79,7 @@ export interface userLogicValues {
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
     isImpersonationUpgradeInProgress: boolean
     isProvisionedUser: boolean
+    isSwitchingOrganization: boolean
     isUserDetailsSubmitting: boolean
     isUserDetailsValid: boolean
     isUserNonTechnical: boolean
@@ -168,10 +170,12 @@ export interface userLogicActions {
     }
     logout: (
         preserveLocation?: any,
-        nextUrl?: string
+        nextUrl?: string,
+        reason?: string
     ) => {
         nextUrl: string | undefined
         preserveLocation: any
+        reason: string | undefined
     }
     resetUserDetails: (values?: Record<string, any>) => {
         values?: Record<string, any>
@@ -257,6 +261,9 @@ export interface userLogicActions {
     ) => {
         destination: string | undefined
         organizationId: string
+    }
+    updateCurrentOrganizationFailure: () => {
+        value: true
     }
     updateDataPipelineErrorThreshold: (threshold: number) => {
         threshold: number
@@ -433,7 +440,12 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        logout: (preserveLocation = false, nextUrl?: string) => ({ preserveLocation, nextUrl }),
+        updateCurrentOrganizationFailure: true,
+        logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
+            preserveLocation,
+            nextUrl,
+            reason,
+        }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void, failureCallback?: () => void) => ({
             user,
@@ -621,6 +633,13 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
+        isSwitchingOrganization: [
+            false,
+            {
+                updateCurrentOrganization: () => true,
+                updateCurrentOrganizationFailure: () => false,
+            },
+        ],
         isImpersonationUpgradeInProgress: [
             false,
             {
@@ -648,7 +667,7 @@ export const userLogic = kea<userLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        logout: ({ preserveLocation, nextUrl }) => {
+        logout: ({ preserveLocation, nextUrl, reason }) => {
             if (cache.loggingOut) {
                 return
             }
@@ -676,6 +695,15 @@ export const userLogic = kea<userLogicType>([
             csrfInput.name = 'csrfmiddlewaretoken'
             csrfInput.value = getCookie('posthog_csrftoken') || ''
             form.appendChild(csrfInput)
+
+            // The server turns a known reason into the message the login page shows.
+            if (reason) {
+                const reasonInput = document.createElement('input')
+                reasonInput.type = 'hidden'
+                reasonInput.name = 'reason'
+                reasonInput.value = reason
+                form.appendChild(reasonInput)
+            }
 
             if (preserveLocation || nextUrl) {
                 const { pathname, search, hash } = window.location
@@ -712,45 +740,10 @@ export const userLogic = kea<userLogicType>([
                     })
                 }
 
-                if (posthog) {
-                    posthog.identify(user.distinct_id)
-                    posthog.people.set({
-                        email: user.anonymize_data ? null : user.email,
-                        realm: user.realm,
-                    })
-
-                    posthog.register({
-                        is_demo_project: user.team?.is_demo,
-                    })
-
-                    if (user.team) {
-                        posthog.group('project', user.team.uuid, {
-                            id: user.team.id,
-                            uuid: user.team.uuid,
-                            name: user.team.name,
-                            ingested_event: user.team.ingested_event,
-                            is_demo: user.team.is_demo,
-                            timezone: user.team.timezone,
-                            instance_tag: user.organization?.metadata?.instance_tag,
-                        })
-                    }
-
-                    if (user.organization) {
-                        posthog.group('organization', user.organization.id, {
-                            id: user.organization.id,
-                            name: user.organization.name,
-                            slug: user.organization.slug,
-                            created_at: user.organization.created_at,
-                            available_product_features: user.organization.available_product_features,
-                            member_count: user.organization.member_count,
-                            project_count: user.organization.teams.length,
-                            ...user.organization.metadata,
-                        })
-
-                        if (user.organization.customer_id) {
-                            posthog.group('customer', user.organization.customer_id)
-                        }
-                    }
+                // loadPostHogJS already identified the user in the page and loaded flags for them, so
+                // flags reload here only for a user that changed without a page load.
+                if (posthog && identifyUserInPostHog(posthog, user)) {
+                    posthog.reloadFeatureFlags()
                 }
 
                 // First-login interstitial: route users with unreviewed pre-existing API keys
@@ -764,7 +757,8 @@ export const userLogic = kea<userLogicType>([
                     !values.credentialReviewDismissedInSession &&
                     !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    const { pathname, search, hash } = router.values.location
+                    router.actions.push(urls.credentialReview(`${pathname}${search}${hash}`))
                 }
             }
         },
@@ -796,8 +790,14 @@ export const userLogic = kea<userLogicType>([
                 return
             }
             await breakpoint(10)
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
+                await api.update('api/users/@me/', { set_current_organization: organizationId })
+            } catch {
+                actions.updateCurrentOrganizationFailure()
+                lemonToast.error('Could not switch organization. Try again.')
+                return
+            }
 
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 

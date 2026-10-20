@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,15 @@ _MANAGEMENT_ACCOUNT_HINT = (
 
 @SourceRegistry.register
 class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOrganizationsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_ORGANIZATIONS|AWSORGANIZATIONS)_",),
+        npm=("@aws-sdk/client-organizations",),
+        cargo=("aws-sdk-organizations",),
+        go=("github.com/aws/aws-sdk-go-v2/service/organizations",),
+        maven=("software.amazon.awssdk:organizations", "com.amazonaws:aws-java-sdk-organizations"),
+        rubygems=("aws-sdk-organizations",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = (ORGANIZATIONS_API_VERSION,)
     default_version = ORGANIZATIONS_API_VERSION
@@ -58,7 +68,7 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
             "AWS Organizations request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
             "AWS Organizations request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "AWS Organizations request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-            "AWS Organizations request failed: AccessDeniedException": f"These AWS credentials are missing AWS Organizations read permissions. Grant organizations:DescribeOrganization, organizations:ListAccounts, organizations:ListRoots, organizations:ListOrganizationalUnitsForParent, organizations:ListPolicies and organizations:ListTagsForResource to the IAM user or role. {_MANAGEMENT_ACCOUNT_HINT}",
+            "AWS Organizations request failed: AccessDeniedException": f"These AWS credentials are missing AWS Organizations read permissions. Grant organizations:DescribeOrganization, organizations:ListAccounts, organizations:ListParents, organizations:ListRoots, organizations:ListOrganizationalUnitsForParent, organizations:ListPolicies, organizations:ListTargetsForPolicy, organizations:ListTagsForResource, organizations:ListDelegatedAdministrators and organizations:ListDelegatedServicesForAccount to the IAM user or role. {_MANAGEMENT_ACCOUNT_HINT}",
             "AWS Organizations request failed: AWSOrganizationsNotInUseException": "This AWS account isn't a member of an organization. Connect a key from an account in an AWS organization.",
             "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }
@@ -140,7 +150,7 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
             label="AWS Organizations",
             caption="""Sync your AWS organization structure into the PostHog Data warehouse, so cost and usage data can be read by account name, organizational unit, and tag.
 
-Create an IAM user or role with the `organizations:DescribeOrganization`, `organizations:ListAccounts`, `organizations:ListRoots`, `organizations:ListOrganizationalUnitsForParent`, `organizations:ListPolicies` and `organizations:ListTagsForResource` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `organizations:DescribeOrganization`, `organizations:ListAccounts`, `organizations:ListParents`, `organizations:ListRoots`, `organizations:ListOrganizationalUnitsForParent`, `organizations:ListPolicies`, `organizations:ListTargetsForPolicy`, `organizations:ListTagsForResource`, `organizations:ListDelegatedAdministrators` and `organizations:ListDelegatedServicesForAccount` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 Use a key from the management account or from a member account that is a delegated administrator. Keys from other member accounts can only read the organization table.
 

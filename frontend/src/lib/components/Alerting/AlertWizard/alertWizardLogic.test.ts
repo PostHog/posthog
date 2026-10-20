@@ -1,18 +1,34 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import {
     HEALTH_ALERT_DESTINATIONS,
     HEALTH_ALERT_SUB_TEMPLATE_IDS,
     HEALTH_ALERT_TRIGGERS,
 } from 'scenes/health-alerts/healthAlertsWizardConfig'
+import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CyclotronJobFilterPropertyFilter,
+    CyclotronJobFiltersType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
-import { alertWizardLogic, applyKindFilter, decorateAlertName, testInvocationFailureMessage } from './alertWizardLogic'
+import {
+    AlertWizardLogicProps,
+    alertWizardLogic,
+    applyKindFilter,
+    applyPresetFilters,
+    buildAlertHogFunctionConfiguration,
+    decorateAlertName,
+    testInvocationFailureMessage,
+} from './alertWizardLogic'
 
 describe('alertWizardLogic', () => {
     describe('applyKindFilter', () => {
@@ -76,6 +92,57 @@ describe('alertWizardLogic', () => {
         })
     })
 
+    describe('applyPresetFilters', () => {
+        const baseFilters: CyclotronJobFiltersType = {
+            events: [{ id: '$data_warehouse_sync_failed', type: 'events' }],
+        }
+        const sourceFilter: CyclotronJobFilterPropertyFilter = {
+            key: 'source_id',
+            value: ['source-1'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it.each([
+            ['undefined', undefined],
+            ['an empty array', [] as CyclotronJobFilterPropertyFilter[]],
+        ])('matches applyKindFilter when presetPropertyFilters is %s', (_, preset) => {
+            expect(applyPresetFilters(baseFilters, ['job_failed'], preset)).toEqual(
+                applyKindFilter(baseFilters, ['job_failed'])
+            )
+            expect(applyPresetFilters(baseFilters, null, preset)).toBe(baseFilters)
+        })
+
+        it.each([
+            ['no kinds', null, ['source_id']],
+            ['kinds', ['job_failed'], ['kind', 'source_id']],
+        ])('merges the preset filters beside %s', (_, kinds, expectedKeys) => {
+            const result = applyPresetFilters(baseFilters, kinds, [sourceFilter])
+            expect(result?.properties?.map((p) => ('key' in p ? p.key : null))).toEqual(expectedKeys)
+            expect(result?.events).toEqual(baseFilters.events)
+        })
+
+        it('returns undefined when base filters are undefined', () => {
+            expect(applyPresetFilters(undefined, null, [sourceFilter])).toBeUndefined()
+        })
+    })
+
+    describe('buildAlertHogFunctionConfiguration', () => {
+        const base = { templateId: 'template-slack', name: 'n', description: 'd', filters: null, inputs: {} }
+
+        it.each([
+            ['omitted', undefined, null],
+            ['null', null, null],
+            [
+                'set',
+                { hash: '{event.properties.schema_id}', ttl: 3600, threshold: null },
+                { hash: '{event.properties.schema_id}', ttl: 3600, threshold: null },
+            ],
+        ])('passes masking through when it is %s', (_, masking, expected) => {
+            expect(buildAlertHogFunctionConfiguration({ ...base, masking }).masking).toEqual(expected)
+        })
+    })
+
     describe('decorateAlertName', () => {
         const baseName = 'Email when a Health check fires'
 
@@ -97,10 +164,121 @@ describe('alertWizardLogic', () => {
             )
         })
 
+        it.each([
+            ['without kinds', null, 'Email when a Health check fires for Stripe'],
+            ['after the kinds', ['sdk_outdated'], 'Email when a Health check fires (SDK outdated) for Stripe'],
+        ])('appends the name suffix %s', (_, kinds, expected) => {
+            expect(decorateAlertName(baseName, kinds, 'for Stripe')).toBe(expected)
+        })
+
         it('falls back to the raw kind when no label is registered', () => {
             expect(decorateAlertName(baseName, ['some_future_kind'])).toBe(
                 'Email when a Health check fires (some_future_kind)'
             )
+        })
+    })
+
+    describe('creating an alert', () => {
+        const template = { id: 'template-slack', name: 'Slack', code: '', inputs_schema: [] }
+        const sourceFilter: CyclotronJobFilterPropertyFilter = {
+            key: 'source_id',
+            value: ['source-1'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        const healthSlackName = HOG_FUNCTION_SUB_TEMPLATES['health-check-firing'].find(
+            (t) => t.template_id === 'template-slack'
+        )?.name
+        const dwhTriggers = [
+            {
+                key: 'data-warehouse-sync-completed',
+                name: 'Sync completed',
+                description: 'A table finished syncing',
+            },
+        ] as const
+
+        async function createAlert(
+            logicProps: Partial<AlertWizardLogicProps>,
+            triggerKey: 'health-check-firing' | 'data-warehouse-sync-completed'
+        ): Promise<{ payload: Record<string, any>; captureSpy: jest.SpyInstance }> {
+            const createSpy = jest.spyOn(api.hogFunctions, 'create').mockResolvedValue({} as any)
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined)
+            jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+
+            const logic = alertWizardLogic({
+                logicKey: 'create-test',
+                subTemplateIds: HEALTH_ALERT_SUB_TEMPLATE_IDS,
+                triggers: HEALTH_ALERT_TRIGGERS,
+                destinations: HEALTH_ALERT_DESTINATIONS,
+                ...logicProps,
+            })
+            logic.mount()
+            logic.actions.setDestinationKey('slack')
+            logic.actions.setTriggerKey(triggerKey)
+            await expectLogic(logic, () => logic.actions.loadTemplate('template-slack')).toDispatchActions([
+                'loadTemplateSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.submitConfiguration()).toDispatchActions([
+                'createAlertSuccess',
+            ])
+            return { payload: createSpy.mock.calls[0][0] as Record<string, any>, captureSpy }
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_functions/': { count: 0, results: [] },
+                    '/api/projects/:team_id/hog_functions/': { count: 0, results: [] },
+                    '/api/environments/:team_id/hog_function_templates/template-slack/': template,
+                    '/api/projects/:team_id/hog_function_templates/template-slack/': template,
+                },
+            })
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('keeps the payload and event name unchanged when no new props are set', async () => {
+            const { payload, captureSpy } = await createAlert({ contextId: 'health-alerts' }, 'health-check-firing')
+
+            expect(payload.masking).toBeNull()
+            expect(payload.filters.properties).toBeUndefined()
+            expect(payload.name).toBe(healthSlackName)
+            expect(captureSpy).toHaveBeenCalledWith('error_tracking_alert_created', expect.any(Object))
+        })
+
+        it('applies the preset filters, name suffix and event name', async () => {
+            const { payload, captureSpy } = await createAlert(
+                {
+                    presetTriggerKinds: ['sdk_outdated'],
+                    presetPropertyFilters: [sourceFilter],
+                    nameSuffix: 'for Stripe',
+                    createdEventName: 'custom_alert_created',
+                },
+                'health-check-firing'
+            )
+
+            expect(
+                payload.filters.properties.map((p: CyclotronJobFilterPropertyFilter) => 'key' in p && p.key)
+            ).toEqual(['kind', 'source_id'])
+            expect(payload.name).toBe(`${healthSlackName} (SDK outdated) for Stripe`)
+            expect(captureSpy).toHaveBeenCalledWith('custom_alert_created', expect.any(Object))
+            expect(captureSpy).not.toHaveBeenCalledWith('error_tracking_alert_created', expect.any(Object))
+        })
+
+        it('passes the sub-template masking through', async () => {
+            const { payload } = await createAlert(
+                {
+                    subTemplateIds: ['data-warehouse-sync-completed'],
+                    triggers: [...dwhTriggers],
+                },
+                'data-warehouse-sync-completed'
+            )
+
+            expect(payload.masking).toMatchObject({ ttl: 3600 })
+            expect(payload.masking.hash).toContain('event.properties.schema_id')
         })
     })
 

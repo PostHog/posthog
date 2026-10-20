@@ -26,6 +26,7 @@ from ..types import (
     RasterizationActivityInput,
     RasterizationActivityOutput,
     compute_params_fingerprint,
+    navigation_from_export_context,
 )
 
 logger = structlog.get_logger(__name__)
@@ -219,6 +220,7 @@ def _try_synthesize_cached_output(
         footer_height_px=int(ctx.get("footer_height_px") or 0),
         truncated=bool(ctx["truncated"]),
         inactivity_periods=inactivity_periods,
+        navigation=navigation_from_export_context(ctx),
         file_size_bytes=int(ctx["file_size_bytes"]),
     )
 
@@ -251,6 +253,9 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                 }
             )
         )
+        # The URLs a session visited stay on system renders, which the exports API never lists to users.
+        if asset.is_system:
+            asset.export_context["navigation"] = [change.model_dump() for change in result.navigation]
         asset.export_context[_RENDER_FINGERPRINT_KEY] = inputs.render_fingerprint
 
         asset.exception = None

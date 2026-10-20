@@ -5,7 +5,7 @@ import pytest
 import time_machine
 from unittest.mock import MagicMock, Mock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 import requests
 from parameterized import parameterized
@@ -293,7 +293,7 @@ def _hostname(status: CustomHostnameStatus, ssl_status=CustomHostnameSSLStatus.A
     )
 
 
-class TestCheckCloudflareCertificateStatus(TestCase):
+class TestCheckCloudflareCertificateStatus(SimpleTestCase):
     @parameterized.expand(
         [
             ("blocked", CustomHostnameStatus.BLOCKED),

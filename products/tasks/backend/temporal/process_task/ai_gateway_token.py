@@ -19,6 +19,7 @@ import requests
 from prometheus_client import Counter
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.security.outbound_proxy import internal_requests
 
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
@@ -27,7 +28,6 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     _team_credit_refusal,
     _valid_cap,
     desktop_limit_tier,
-    desktop_rollout_enabled,
     posthog_code_plan,
     valid_caps,
 )
@@ -40,6 +40,7 @@ from products.tasks.backend.logic.services.run_actor import is_slack_interaction
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 
 if TYPE_CHECKING:
+    from posthog.llm.gateway_client import AIGatewayConfig
     from posthog.models.team.team import Team
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,9 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 # Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
+    "metrics_import": "posthog_ai",
     "onboarding": "onboarding",
+    "account_audit": "account_audit",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
@@ -90,6 +93,7 @@ _SCOUT_STAGE_PREFIX = "scout:"
 MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
+        "account_audit",
         "posthog_code",
         "review_hog",
         "slack_app",
@@ -130,6 +134,9 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
     # reservation; only the server-stamped `internal` flag admits the mintable product.
     if gateway_product == "review_hog" and not internal:
         logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
+    if origin_product == "account_audit" and not internal:
+        logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
@@ -183,15 +190,13 @@ def _posthog_code_team(team_id: int) -> "Team | None":
     return Team.objects.select_related("organization").filter(id=team_id).first()
 
 
-def _posthog_code_refusal(team_id: int, model: str | None, distinct_id: str | None) -> str | None:
-    """The rollout flag is the switch for the product; a free plan's pin has no model an
-    unpinned or paid-model run could fall back to."""
+def _posthog_code_refusal(team_id: int, model: str | None) -> str | None:
+    """A free plan's pin has no model an unpinned or paid-model run could fall back to."""
     team = _posthog_code_team(team_id)
-    # The run's user, so a person-targeted flag moves cloud runs with that person's desktop sessions.
-    if team is None or not desktop_rollout_enabled(team.organization, team, distinct_id, _account_email(distinct_id)):
-        return "not_rolled_out"
+    if team is None:
+        return "team_not_found"
     if posthog_code_plan(team) == "free" and not model_allowed_by_pin(FREE_TIER_MODELS, model):
-        return "model_outside_pin"
+        return "model_outside_free_pin"
     return None
 
 
@@ -230,19 +235,21 @@ def mint_refusal(
     runtime: str | None,
     internal: bool = False,
     prior_slack_run: bool = False,
-    distinct_id: str | None = None,
+    origin_product: str | None = None,
 ) -> str | None:
-    """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    """Why a routed run must not mint."""
+    if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
+        return "no_account_audit_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):
         return "no_slack_provenance"
     if ai_product == POSTHOG_CODE_PRODUCT:
-        refusal = _posthog_code_refusal(team_id, model, distinct_id)
+        refusal = _posthog_code_refusal(team_id, model)
         if refusal:
             return refusal
-    # The Pi harness reads only LLM_GATEWAY_URL.
-    if runtime == "pi":
+    # Pi reaches Go only for posthog_code.
+    elif runtime == "pi":
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
@@ -308,14 +315,16 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
     return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
 
 
-def revoke_scoped_token(token: str) -> None:
-    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
-    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" = None) -> None:
+    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
+    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         raise GatewayNotConfiguredError("The AI gateway mint configuration is required to revoke a private token")
+    post = internal_requests.post if gateway_config is not None else requests.post
     for attempt in range(_MINT_ATTEMPTS):
         try:
-            response = requests.post(
+            response = post(
                 f"{base_url}/v1/tokens/revoke",
                 json={"token": token},
                 headers={"Authorization": f"Bearer {mint_key}"},
@@ -348,6 +357,7 @@ def mint_scoped_token(
     limit_tier: str | None = None,
     capture_mode: Literal["none"] | None = None,
     expires_in_seconds: int | None = None,
+    gateway_config: "AIGatewayConfig | None" = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -357,10 +367,12 @@ def mint_scoped_token(
     Retries mint rate limits (429) and transient upstream errors with jittered
     backoff. Private callers require an acknowledged capture pin and fail closed on None.
     """
-    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
-    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
+    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         return None
+    post = internal_requests.post if gateway_config is not None else requests.post
 
     body: dict[str, Any] = {
         "cap_usd": token_cap_usd(team_id, ai_product),
@@ -382,7 +394,7 @@ def mint_scoped_token(
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
-            response = requests.post(
+            response = post(
                 f"{base_url}/v1/tokens",
                 json=body,
                 headers={"Authorization": f"Bearer {mint_key}"},
@@ -402,7 +414,7 @@ def mint_scoped_token(
                 if isinstance(token, str) and token:
                     if capture_mode is not None and payload.get("capture_mode") != capture_mode:
                         # Older gateways ignore unknown fields; never use their unprotected token.
-                        revoke_scoped_token(token)
+                        revoke_scoped_token(token, gateway_config=gateway_config)
                         last_error = "mint response did not acknowledge capture suppression"
                         break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()

@@ -10,11 +10,13 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from opentelemetry import trace
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import (
@@ -25,12 +27,23 @@ from products.tasks.backend.constants import (
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
+from products.tasks.backend.feature_flags import (
+    agent_otel_telemetry_enabled_for_state,
+    is_agent_otel_telemetry_enabled,
+    is_native_steering_signals_enabled,
+)
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.dev_stack_image_refresh import reconcile_dev_stack_image
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_INITIAL_GENERATION,
+    get_task_run_stream_generation,
+)
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.constants import (
@@ -39,12 +52,14 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
+from products.tasks.backend.temporal.run_trace import run_trace_context
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
-    pass
+    from temporalio.client import Client
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +70,19 @@ _BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
     ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
     ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
 )
+
+
+def tag_startup_dispatch(task_run: TaskRun | None) -> None:
+    if task_run is not None and not task_run.task.is_scout_experiment:
+        posthoganalytics.tag("run_id", str(task_run.id))
+        posthoganalytics.tag("origin_product", task_run.task.origin_product)
+        posthoganalytics.tag("run_environment", task_run.environment)
+        trace.get_current_span().set_attributes(
+            {
+                "run_id": str(task_run.id),
+                "origin_product": task_run.task.origin_product or "unknown",
+            }
+        )
 
 
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
@@ -107,17 +135,6 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         },
     )
 
-    # A run that never starts its workflow never reaches the update_task_run_status activity, so
-    # loop bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
-    # Swallowed so a bookkeeping failure never masks the start failure being reported.
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
-        handle_loop_run_terminal,
-    )
-
-    try:
-        handle_loop_run_terminal(task_run)
-    except Exception:
-        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
     resume_workflow_step_for_run(task_run)
     return True
 
@@ -160,18 +177,25 @@ def _evaluate_boot_rollout_flag(
         return False
 
 
-def _capture_run_feature_flags(run_id: str) -> None:
+@StepTimer("capture_dispatch_flags")
+def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
     Idempotent per key, so retries and resumes keep the decision the run started with.
+    Returns the run state after stamping, or an empty state when the run is missing.
     """
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except Exception:
         logger.exception("run_feature_flag_capture_run_missing", extra={"run_id": run_id})
-        return
+        return {}
 
     state = task_run.state or {}
+    generation = get_task_run_stream_generation(run_id, run_uses_dedicated_stream(state))
+    if state.get("stream_generation") != generation:
+        TaskRun.update_state_atomic(run_id, updates={"stream_generation": generation})
+        state = {**state, "stream_generation": generation}
+
     need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
     need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
     pending_boot_flags = [
@@ -180,7 +204,7 @@ def _capture_run_feature_flags(run_id: str) -> None:
         if not isinstance(state.get(state_key), bool)
     ]
     if not need_event_ingest and not need_otel_telemetry and not pending_boot_flags:
-        return
+        return state
 
     task = task_run.task
     organization_id = str(task.team.organization_id)
@@ -246,6 +270,33 @@ def _capture_run_feature_flags(run_id: str) -> None:
             **{state_key: captured_state.get(state_key) for state_key, _ in _BOOT_ROLLOUT_FLAGS},
         },
     )
+    return captured_state
+
+
+async def start_process_task_workflow(
+    client: "Client",
+    workflow_input: ProcessTaskInput,
+    *,
+    workflow_id: str,
+    id_reuse_policy: WorkflowIDReusePolicy,
+    run_state: dict[str, Any],
+    rpc_timeout: timedelta | None = None,
+) -> None:
+    if workflow_input.stream_generation is None:
+        generation = run_state.get("stream_generation")
+        workflow_input.stream_generation = (
+            generation if isinstance(generation, str) else TASK_RUN_STREAM_INITIAL_GENERATION
+        )
+    with run_trace_context(workflow_input.run_id, enabled=agent_otel_telemetry_enabled_for_state(run_state)):
+        await client.start_workflow(
+            "process-task",
+            workflow_input,
+            id=workflow_id,
+            id_reuse_policy=id_reuse_policy,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+            rpc_timeout=rpc_timeout,
+        )
 
 
 async def _aget_task_run_for_metrics(run_id: str) -> TaskRun | None:
@@ -255,6 +306,8 @@ async def _aget_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
+@scoped_temporal(fresh=True, capture_exceptions=False)
+@StepTimer("dispatch", status_tag="dispatch_status")
 async def execute_task_processing_workflow_async(
     task_id: str,
     run_id: str,
@@ -287,9 +340,10 @@ async def execute_task_processing_workflow_async(
     task_run_for_metrics: TaskRun | None = None
     try:
         task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
+        tag_startup_dispatch(task_run_for_metrics)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
-        await sync_to_async(_capture_run_feature_flags)(run_id)
+        run_state = await sync_to_async(_capture_run_feature_flags)(run_id)
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
         if workflow_id_prefix:
@@ -310,17 +364,18 @@ async def execute_task_processing_workflow_async(
             extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
         )
 
-        client = await async_connect()
-        await client.start_workflow(
-            "process-task",
+        with StepTimer("temporal_connect"):
+            client = await async_connect()
+        await start_process_task_workflow(
+            client,
             workflow_input,
-            id=workflow_id,
+            workflow_id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            run_state=run_state,
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        posthoganalytics.tag("dispatch_status", "COMPLETED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
@@ -334,6 +389,7 @@ async def execute_task_processing_workflow_async(
             f"Failed to start task workflow: permission validation failed: {e}",
         )
     except WorkflowAlreadyStartedError:
+        posthoganalytics.tag("dispatch_status", "BLOCKED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",
@@ -353,6 +409,8 @@ async def execute_task_processing_workflow_async(
         )
 
 
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
+@StepTimer("dispatch", status_tag="dispatch_status")
 def execute_task_processing_workflow(
     task_id: str,
     run_id: str,
@@ -379,6 +437,7 @@ def execute_task_processing_workflow(
     task_run_for_metrics: TaskRun | None = None
     try:
         task_run_for_metrics = _get_task_run_for_metrics(run_id)
+        tag_startup_dispatch(task_run_for_metrics)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         logger.info(
             "execute_task_processing_workflow_called",
@@ -386,7 +445,7 @@ def execute_task_processing_workflow(
         )
 
         Team.objects.get(id=team_id)
-        _capture_run_feature_flags(run_id)
+        run_state = _capture_run_feature_flags(run_id)
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
         if workflow_id_prefix:
@@ -407,7 +466,8 @@ def execute_task_processing_workflow(
             extra={"task_id": task_id, "task_queue": settings.TASKS_TASK_QUEUE},
         )
 
-        client = sync_connect()
+        with StepTimer("temporal_connect"):
+            client = sync_connect()
 
         logger.info(
             "task_processing_temporal_connected",
@@ -415,17 +475,17 @@ def execute_task_processing_workflow(
         )
 
         asyncio.run(
-            client.start_workflow(
-                "process-task",
+            start_process_task_workflow(
+                client,
                 workflow_input,
-                id=workflow_id,
+                workflow_id=workflow_id,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                run_state=run_state,
             )
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        posthoganalytics.tag("dispatch_status", "COMPLETED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
@@ -439,6 +499,7 @@ def execute_task_processing_workflow(
             f"Failed to start task workflow: permission validation failed: {e}",
         )
     except WorkflowAlreadyStartedError:
+        posthoganalytics.tag("dispatch_status", "BLOCKED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",
@@ -504,40 +565,24 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
     if workflow_id_prefix:
         _record_prefixed_workflow_id(run_id, workflow_id)
-    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
-    # other run keeps the historical True default.
-    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
     workflow_input = ProcessTaskInput(
         run_id=run_id,
-        create_pr=dispatch_params.get("create_pr", default_create_pr),
+        create_pr=dispatch_params.get("create_pr", True),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
         posthog_mcp_scopes=dispatched_run_scopes(task, task_run.state),
     )
 
-    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
-    # this sweep recovers from, so dispatching without re-seeding would silently start
-    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
-    # is treated like any other transient recovery error: retried next sweep, with the
-    # 24h killer as the terminal backstop.
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
-        ensure_loop_skill_bundles_seeded,
-    )
-
-    if not ensure_loop_skill_bundles_seeded(task_run):
-        return "error"
-
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
-    _capture_run_feature_flags(run_id)
+    run_state = _capture_run_feature_flags(run_id)
     try:
         client = sync_connect()
         asyncio.run(
-            client.start_workflow(
-                "process-task",
+            start_process_task_workflow(
+                client,
                 workflow_input,
-                id=workflow_id,
+                workflow_id=workflow_id,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                run_state=run_state,
             )
         )
     except WorkflowAlreadyStartedError:
@@ -557,19 +602,18 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
-    _capture_run_feature_flags(run_id)
+    run_state = _capture_run_feature_flags(run_id)
     client = sync_connect()
     asyncio.run(
-        client.start_workflow(
-            "process-task",
+        start_process_task_workflow(
+            client,
             ProcessTaskInput(run_id=run_id),
-            id=workflow_id,
+            workflow_id=workflow_id,
             # TERMINATE_IF_RUNNING closes any prior workflow under this ID
             # atomically before starting the new one, avoiding the async-cancel
             # race where a best-effort cancel signal hasn't landed yet.
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-            task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            run_state=run_state,
         )
     )
 
@@ -582,6 +626,10 @@ def execute_bake_dev_stack_image_workflow(
     TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
     fresh one instead of blocking it.
     """
+    target = DevStackImageState.target(publish_name)
+    if target is not None:
+        reconcile_dev_stack_image(target, trigger=trigger)
+        return
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
@@ -674,6 +722,7 @@ def execute_posthog_code_agent_relay_workflow(
     reaction_emoji: str | None = None,
     message_id: str | None = None,
     trace_id: str | None = None,
+    offer_reply_suggestions: bool = False,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -691,6 +740,7 @@ def execute_posthog_code_agent_relay_workflow(
                 reaction_emoji=reaction_emoji,
                 message_id=message_id,
                 trace_id=trace_id,
+                offer_reply_suggestions=offer_reply_suggestions,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

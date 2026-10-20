@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
@@ -32,6 +33,8 @@ export function AccountViewTile({
     const { tileSaving, tileConfigReloads } = useValues(logic)
     const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
     const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
+    // Match the sidebar's property inset.
+    const insetClassName = component.kind === 'properties' ? 'px-4' : 'px-2'
     const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
 
     const confirmRemove = (): void => {
@@ -53,7 +56,15 @@ export function AccountViewTile({
                 {
                     label: 'Edit',
                     icon: <IconPencil />,
-                    onClick: () => openTileEditor(view.id, component.nodeId, title),
+                    onClick: () =>
+                        openTileEditor(
+                            view.id,
+                            component.nodeId,
+                            title,
+                            component.kind === 'properties'
+                                ? { propertiesConfig: component.config ?? {}, accountId }
+                                : undefined
+                        ),
                     disabledReason: menuDisabledReason,
                 },
                 {
@@ -70,7 +81,7 @@ export function AccountViewTile({
 
     return (
         <LemonCard hoverEffect={false} className={`col-span-12 min-w-0 overflow-hidden p-0 ${spanClassName}`}>
-            <div className="flex items-center gap-2 border-b px-2 py-1">
+            <div className={clsx('flex items-center gap-2 border-b py-1', insetClassName)}>
                 <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary">{title}</span>
                 <LemonMenu items={items}>
                     <LemonButton
@@ -84,10 +95,16 @@ export function AccountViewTile({
                     />
                 </LemonMenu>
             </div>
-            <div className="min-w-0 px-2 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]">
+            <div
+                className={clsx(
+                    'min-w-0 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]',
+                    insetClassName
+                )}
+            >
                 <AccountViewComponent
                     kind={component.kind}
                     accountId={accountId}
+                    projectId={projectId}
                     externalId={externalId}
                     instanceId={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
                     initialConfig={component.config}

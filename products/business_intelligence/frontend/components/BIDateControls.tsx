@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
+import { getBIComparisonDisabledReason } from '../biComparison'
 import { biEditorLogic } from '../biEditorLogic'
 import { BI_DATE_OPTIONS } from '../biEditorOptions'
 import { isDateTimeBIField } from '../biEditorTypes'
@@ -12,7 +14,7 @@ import { getBIDateField } from '../biQueryFilters'
 
 export function BIDateControls(): JSX.Element {
     const { config, dataPaneFields } = useValues(biEditorLogic)
-    const { setDateField, setDateRange } = useActions(biEditorLogic)
+    const { setDateField, setDateRange, setCompareFilter } = useActions(biEditorLogic)
     const dateField = getBIDateField(config)
     const dateFields = dataPaneFields.dimensions.filter(isDateTimeBIField)
     if (dateField && !dateFields.some((field) => field.expression === dateField.expression)) {
@@ -22,7 +24,7 @@ export function BIDateControls(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1" data-attr="bi-editor-date-controls">
             <LemonSelect
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 value={dateField?.expression ?? null}
                 options={[
@@ -33,12 +35,12 @@ export function BIDateControls(): JSX.Element {
                     setDateField(dateFields.find((field) => field.expression === expression) ?? null)
                 }
                 renderButtonContent={(option) => `Date: ${option?.label}`}
-                tooltip="The dashboard date range applies to this column and overrides the worksheet range."
+                tooltip="This column filters source rows by the selected date range. Set grouping granularity on a date pill. Dashboard date ranges override this range."
                 aria-label="Dashboard date column"
                 data-attr="bi-editor-date-field"
             />
             <DateFilter
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 dateFrom={config.dateRange?.date_from ?? 'all'}
                 dateTo={config.dateRange?.date_to ?? null}
@@ -56,6 +58,19 @@ export function BIDateControls(): JSX.Element {
                         <span>{label}</span>
                     </>
                 )}
+            />
+            <LemonSwitch
+                label="Compare previous period"
+                checked={!!config.compareFilter?.compare && !config.compareFilter.compare_to}
+                onChange={(compare) => setCompareFilter({ compare })}
+                disabledReason={getBIComparisonDisabledReason(config)}
+                size="small"
+            />
+            <CompareFilter
+                size="xsmall"
+                compareFilter={config.compareFilter}
+                updateCompareFilter={setCompareFilter}
+                disableReason={getBIComparisonDisabledReason(config)}
             />
         </div>
     )

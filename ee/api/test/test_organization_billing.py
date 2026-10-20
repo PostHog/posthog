@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
@@ -852,3 +853,131 @@ class TestOrganizationBillingInvoicesAndLimits(OrganizationBillingTestMixin, API
             response = self.client.get(self._url(path))
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
         mock_get.assert_not_called()
+
+
+class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.other_team = Team.objects.create(organization=self.organization, name="Other project")
+
+    def _project_url(self, path: str) -> str:
+        return f"/api/projects/{self.team.id}/billing/{path}"
+
+    def _personal_key(self, scoped_teams: list[int] | None) -> dict[str, Any]:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="billing",
+            secure_value=hash_key_value(raw),
+            scopes=["billing:read"],
+            scoped_teams=scoped_teams,
+        )
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {raw}"}
+
+    def _project_secret_key(self, team: Team) -> dict[str, Any]:
+        token = "phs_" + "a" * 35 + str(team.id)
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="billing",
+            mask_value="phs_...",
+            secure_value=hash_key_value(token),
+            scopes=["billing:read"],
+        )
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _credential(self, name: str) -> dict[str, Any]:
+        if name == "session":
+            return {}
+        if name == "organization_oauth_token":
+            return {"HTTP_AUTHORIZATION": f"Bearer {self._oauth_token('billing:read')}"}
+        if name == "personal_key_for_this_project":
+            return self._personal_key([self.team.id])
+        if name == "personal_key_for_another_project":
+            return self._personal_key([self.other_team.id])
+        if name == "project_secret_key_for_this_project":
+            return self._project_secret_key(self.team)
+        return self._project_secret_key(self.other_team)
+
+    @parameterized.expand(
+        [
+            ("session", True),
+            ("organization_oauth_token", True),
+            ("personal_key_for_this_project", True),
+            ("personal_key_for_another_project", False),
+            ("project_secret_key_for_this_project", True),
+            ("project_secret_key_for_another_project", False),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_series_read_only_the_project_a_credential_covers(self, credential, allowed, mock_get):
+        mock_get.return_value = _response(SERIES)
+        headers = self._credential(credential)
+        # A request naming another project still reads only the project in the path.
+        response = self.client.get(
+            self._project_url(
+                f"spend/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=%5B{self.other_team.id}%5D"
+            ),
+            **headers,
+        )
+        if not allowed:
+            self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+            mock_get.assert_not_called()
+            return
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(json.loads(mock_get.call_args.kwargs["params"]["team_ids"]), [self.team.id])
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    async def test_project_export_sends_billing_only_the_project_in_the_path(self, kind, mock_get):
+        upstream = MagicMock()
+        upstream.status_code = 200
+        upstream.headers = {"Content-Type": "text/csv"}
+        upstream.iter_content.return_value = iter([b"Product,Total\n"])
+        mock_get.return_value = upstream
+        await self.async_client.aforce_login(self.user)
+        # A request naming another project still exports only the project in the path.
+        response = await self.async_client.get(
+            self._project_url(
+                f"{kind}/export/?start_date=2026-09-01&end_date=2026-09-14&team_ids=%5B{self.other_team.id}%5D"
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "content", b"")[:200])
+        sent = mock_get.call_args
+        self.assertTrue(sent.args[0].endswith(f"/api/v2/billing/{kind}/export/"), sent.args[0])
+        self.assertEqual(json.loads(sent.kwargs["params"]["team_ids"]), [self.team.id])
+
+    @parameterized.expand([("billing_period_read", 0), ("usage_read", 1)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_timeout_tells_the_person_to_ask_for_less(self, _name, timed_out_call, mock_get):
+        answers: list[Any] = [_response(SUBSCRIPTION), _response(SERIES)]
+        answers[timed_out_call] = requests.Timeout()
+        mock_get.side_effect = answers
+        response = self.client.get(self._project_url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "usage_query_timeout")
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_sums_the_series_since_the_billing_period_began(self, mock_get):
+        series = {
+            **SERIES,
+            "results": [
+                {
+                    "id": 0,
+                    "label": "Events",
+                    "data": [1.0, 2.0],
+                    "dates": ["2026-09-01", "2026-09-02"],
+                    "breakdown_type": "type",
+                    "breakdown_value": "event_count_in_period",
+                }
+            ],
+        }
+        mock_get.side_effect = [_response(SUBSCRIPTION), _response(series)]
+        response = self.client.get(self._project_url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            response.json()["results"], [{"usage_key": "event_count_in_period", "name": "Events", "usage": 3.0}]
+        )
+        sent = mock_get.call_args.kwargs["params"]
+        self.assertEqual((sent["start_date"], json.loads(sent["team_ids"])), ("2026-09-01", [self.team.id]))

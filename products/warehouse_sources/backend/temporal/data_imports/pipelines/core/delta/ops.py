@@ -5,6 +5,7 @@ from typing import TypedDict, TypeVar
 from django.conf import settings
 
 import deltalake
+import botocore.exceptions
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -44,6 +45,14 @@ OBJECT_STORE_PERMISSION_DENIED_ERRORS = (
     "The AWS Access Key Id you provided does not exist in our records.",
 )
 
+# Codes s3fs also maps onto PermissionError (see ERROR_CODE_TO_EXCEPTION in its errors module) but
+# whose s3fs-translated message isn't the fixed, matchable text the needles above rely on — our
+# backend returns a generic "Invalid argument." Message for SignatureDoesNotMatch instead of AWS's
+# usual signature-mismatch sentence. The code itself still names a definitive, non-racy refusal
+# (unlike a bodyless 403, see is_object_store_permission_denied), so it's read off the chained
+# ClientError instead of guessed from message text.
+_PERMISSION_DENIED_CLIENT_ERROR_CODES = ("SignatureDoesNotMatch",)
+
 # Reaches the customer as the sync run's error text, so it names neither the bucket nor the object
 # key. The data warehouse bucket is PostHog's own and the worker authenticates to it with its own
 # role, which means a refusal here is never caused by the customer's source or credentials.
@@ -71,6 +80,13 @@ class ObjectStorePermissionDeniedError(Exception):
 
 
 def is_object_store_permission_denied(error: BaseException) -> bool:
+    cause = error.__cause__
+    if (
+        isinstance(error, OSError)
+        and isinstance(cause, botocore.exceptions.ClientError)
+        and cause.response.get("Error", {}).get("Code") in _PERMISSION_DENIED_CLIENT_ERROR_CODES
+    ):
+        return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in OBJECT_STORE_PERMISSION_DENIED_ERRORS
     )
@@ -114,6 +130,8 @@ async def execute_with_conflict_retry(
     operation_fn: Callable[[], T],
     operation_name: str,
     logger: FilteringBoundLogger,
+    *,
+    conflict_retries: int = DELTA_MERGE_CONFLICT_RETRIES,
 ) -> T:
     """Run a Delta operation that commits (merge, overwrite, append, optimize.compact, vacuum, ...),
     refreshing the table and re-running it on a commit conflict.
@@ -150,12 +168,12 @@ async def execute_with_conflict_retry(
                 raise
             if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
                 raise
-            if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
+            if attempt >= conflict_retries:
                 raise
             attempt += 1
             await logger.awarning(
                 f"{operation_name}: commit conflict, retrying with refreshed table "
-                f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
+                f"(attempt {attempt}/{conflict_retries})"
             )
             await asyncio.to_thread(table.update_incremental)
 

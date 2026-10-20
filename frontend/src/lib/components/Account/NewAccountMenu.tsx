@@ -73,7 +73,7 @@ export function NewAccountMenu({
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationProjectCount } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -169,7 +169,7 @@ export function NewAccountMenu({
                                                         setAccountMenuOpen(false)
                                                         showCreateProjectModal()
                                                     },
-                                                    { currentUsage: currentOrganization?.teams?.length }
+                                                    { currentUsage: currentOrganizationProjectCount }
                                                 )
                                             }}
                                         >

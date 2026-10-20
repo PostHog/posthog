@@ -1,12 +1,17 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, featureFlagLogicValues } from 'lib/logic/featureFlagLogic'
+import { teamLogic, teamLogicActions } from 'scenes/teamLogic'
 import {
     marketingAnalyticsLogic,
     marketingAnalyticsLogicActions,
     marketingAnalyticsLogicValues,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
+    ConversionGoalFilter,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchRow,
     MarketingAnalyticsSearchSource,
@@ -15,23 +20,34 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import {
+    SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
     SearchMetrics,
     SearchPlatform,
     selectedSearchSources,
     searchPerformanceSource,
+    searchPerformanceSourceNotice,
 } from './searchPerformance'
 
 export interface searchPerformanceLogicValues extends Pick<
     marketingAnalyticsLogicValues,
-    'dataWarehouseSources' | 'dataWarehouseSourcesLoading' | 'dateFilter' | 'compareFilter' | 'integrationFilter'
+    | 'dataWarehouseSources'
+    | 'dataWarehouseSourcesLoading'
+    | 'dateFilter'
+    | 'compareFilter'
+    | 'integrationFilter'
+    | 'includeConversionGoals'
+    | 'conversion_goals'
 > {
+    featureFlags: featureFlagLogicValues['featureFlags']
+    searchConversionsEnabled: boolean
+    includeSearchConversionGoals: boolean
+    wrapText: boolean
     metrics: SearchMetrics
     hasPaidSources: boolean
+    conversionsDisabledReason: string | null
     displayMetrics: SearchMetrics
-    showPosition: boolean
-    canShowPosition: boolean
     breakdown: SearchBreakdown
     channel: SearchChannel
     selectedRow: MarketingAnalyticsSearchRow | null
@@ -40,22 +56,26 @@ export interface searchPerformanceLogicValues extends Pick<
     missingSources: SearchPlatform[]
     hasActiveFilters: boolean
     hasSearchConsole: boolean
-    hasSelectedBingSource: boolean
     search: string
     querySearch: string
     sourcesError: boolean
     sources: ExternalDataSource[]
-    pendingSources: ExternalDataSource[]
+    sourceNotices: { sourceId: string; message: string }[]
+    detailSourceNotices: { sourceId: string; message: string }[]
+    detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
     query: MarketingAnalyticsSearchQuery
 }
 
-export interface searchPerformanceLogicActions extends Pick<
-    marketingAnalyticsLogicActions,
-    'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
-> {
+export interface searchPerformanceLogicActions
+    extends
+        Pick<
+            marketingAnalyticsLogicActions,
+            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
+        >,
+        Pick<teamLogicActions, 'updateCurrentTeamSuccess'> {
+    setWrapText: (wrapText: boolean) => { wrapText: boolean }
     clearFilters: () => { value: true }
-    setShowPosition: (showPosition: boolean) => { showPosition: boolean }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
     setBreakdown: (breakdown: SearchBreakdown) => { breakdown: SearchBreakdown }
     setChannel: (channel: SearchChannel) => { channel: SearchChannel }
@@ -70,18 +90,30 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     path(['products', 'marketingAnalytics', 'searchPerformanceLogic']),
     connect(() => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             marketingAnalyticsLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'dateFilter', 'compareFilter', 'integrationFilter'],
+            [
+                'dataWarehouseSources',
+                'dataWarehouseSourcesLoading',
+                'dateFilter',
+                'compareFilter',
+                'integrationFilter',
+                'includeConversionGoals',
+                'conversion_goals',
+            ],
         ],
         actions: [
             marketingAnalyticsLogic,
             ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter', 'setDates'],
+            teamLogic,
+            ['updateCurrentTeamSuccess'],
         ],
     })),
     actions({
+        setWrapText: (wrapText: boolean) => ({ wrapText }),
         clearFilters: true,
         setMetrics: (metrics: SearchMetrics) => ({ metrics }),
-        setShowPosition: (showPosition: boolean) => ({ showPosition }),
         setBreakdown: (breakdown: SearchBreakdown) => ({ breakdown }),
         setChannel: (channel: SearchChannel) => ({ channel }),
         selectRow: (row: MarketingAnalyticsSearchRow | null) => ({ row }),
@@ -89,13 +121,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         setQuerySearch: (search: string) => ({ search }),
     }),
     reducers({
+        wrapText: [false, { setWrapText: (_, { wrapText }) => wrapText }],
         breakdown: ['keyword' as SearchBreakdown, { setBreakdown: (_, { breakdown }) => breakdown }],
         channel: ['all' as SearchChannel, { setChannel: (_, { channel }) => channel }],
         selectedRow: [
             null as MarketingAnalyticsSearchRow | null,
             { selectRow: (_, { row }) => row, setBreakdown: () => null, setChannel: () => null },
         ],
-        showPosition: [false, { setShowPosition: (_, { showPosition }) => showPosition }],
         metrics: ['traffic' as SearchMetrics, { setMetrics: (_, { metrics }) => metrics }],
         search: ['', { setSearch: (_, { search }) => search }],
         querySearch: ['', { setQuerySearch: (_, { search }) => search }],
@@ -135,29 +167,22 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: ExternalDataSource[]): boolean =>
                 sources.some((source) => source.source_type === 'GoogleSearchConsole'),
         ],
-        hasSelectedBingSource: [
-            (s) => [s.allSearchSources, s.integrationFilter],
-            (sources: ExternalDataSource[], integrationFilter): boolean =>
-                selectedSearchSources(sources, integrationFilter.integrationSourceIds ?? []).some(
-                    (source) => source.source_type === 'BingAds'
-                ),
-        ],
         sources: [
-            (s) => [s.allSearchSources, s.integrationFilter, s.channel, s.breakdown],
-            (allSources, integrationFilter, channel, breakdown): ExternalDataSource[] =>
+            (s) => [s.allSearchSources, s.integrationFilter, s.channel],
+            (allSources, integrationFilter, channel): ExternalDataSource[] =>
                 selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? []).filter(
                     (source) =>
-                        (channel === 'all' ||
-                            (source.source_type === 'GoogleSearchConsole'
-                                ? channel === 'organic'
-                                : channel === 'paid')) &&
-                        (breakdown !== 'page' || source.source_type !== 'BingAds')
+                        channel === 'all' ||
+                        (source.source_type === 'GoogleSearchConsole' ? channel === 'organic' : channel === 'paid')
                 ),
         ],
-        pendingSources: [
+        sourceNotices: [
             (s) => [s.sources, s.breakdown],
-            (sources: ExternalDataSource[], breakdown): ExternalDataSource[] =>
-                sources.filter((source) => !searchPerformanceSource(source, breakdown)),
+            (sources: ExternalDataSource[], breakdown): { sourceId: string; message: string }[] =>
+                sources.flatMap((source) => {
+                    const message = searchPerformanceSourceNotice(source, breakdown)
+                    return message ? [{ sourceId: source.id, message }] : []
+                }),
         ],
         readySources: [
             (s) => [s.sources, s.breakdown],
@@ -172,46 +197,106 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: MarketingAnalyticsSearchSource[]): boolean =>
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
-        displayMetrics: [
-            (s) => [s.hasPaidSources, s.metrics],
-            (hasPaidSources: boolean, metrics: SearchMetrics): SearchMetrics => (hasPaidSources ? metrics : 'traffic'),
+        searchConversionsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS],
         ],
-        canShowPosition: [
-            (s) => [s.readySources, s.metrics],
-            (sources: MarketingAnalyticsSearchSource[], metrics: SearchMetrics): boolean =>
-                metrics === 'traffic' &&
-                sources.some((source) => source.sourceType === 'GoogleSearchConsole') &&
-                sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
+        includeSearchConversionGoals: [
+            (s) => [s.searchConversionsEnabled, s.includeConversionGoals],
+            (enabled, includeConversionGoals): boolean => enabled && includeConversionGoals,
+        ],
+        conversionsDisabledReason: [
+            (s) => [
+                s.hasPaidSources,
+                s.breakdown,
+                s.includeSearchConversionGoals,
+                s.conversion_goals,
+                s.searchConversionsEnabled,
+            ],
+            (
+                hasPaidSources: boolean,
+                breakdown: SearchBreakdown,
+                includeConversionGoals: boolean,
+                conversionGoals: ConversionGoalFilter[],
+                enabled: boolean
+            ): string | null => {
+                if (hasPaidSources || (breakdown === 'page' && includeConversionGoals)) {
+                    return null
+                }
+                if (!enabled || breakdown !== 'page') {
+                    return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
+                }
+                return conversionGoals.length > 0
+                    ? 'Turn on "Include conversion goals" to see PostHog conversions for organic landing pages.'
+                    : 'Configure a conversion goal in marketing analytics settings to see PostHog conversions for organic landing pages.'
+            },
+        ],
+        displayMetrics: [
+            (s) => [s.conversionsDisabledReason, s.metrics],
+            (conversionsDisabledReason: string | null, metrics: SearchMetrics): SearchMetrics =>
+                conversionsDisabledReason ? 'traffic' : metrics,
         ],
         query: [
-            (s) => [s.readySources, s.dateFilter, s.querySearch, s.compareFilter, s.breakdown],
-            (sources, dateFilter, search, compareFilter, breakdown): MarketingAnalyticsSearchQuery => ({
+            (s) => [
+                s.readySources,
+                s.dateFilter,
+                s.querySearch,
+                s.compareFilter,
+                s.breakdown,
+                s.includeSearchConversionGoals,
+                s.displayMetrics,
+            ],
+            (
+                sources: MarketingAnalyticsSearchSource[],
+                dateFilter,
+                search,
+                compareFilter,
+                breakdown,
+                includeConversionGoals,
+                metrics
+            ): MarketingAnalyticsSearchQuery => ({
                 kind: NodeKind.MarketingAnalyticsSearchQuery,
                 sources,
                 breakdown,
                 compareFilter,
+                includePostHogConversions:
+                    metrics === 'conversions' &&
+                    includeConversionGoals &&
+                    (breakdown === 'page' || sources.some((source) => source.sourceType !== 'GoogleSearchConsole')),
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
             }),
         ],
+        detailSources: [
+            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow],
+            (allSources: ExternalDataSource[], integrationFilter, row): ExternalDataSource[] =>
+                (row?.platform === 'GoogleSearchConsole'
+                    ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
+                    : allSources
+                ).filter((source) => source.source_type === 'GoogleSearchConsole'),
+        ],
+        detailSourceNotices: [
+            (s) => [s.detailSources],
+            (sources: ExternalDataSource[]): { sourceId: string; message: string }[] =>
+                sources.flatMap((source) => {
+                    const message = searchPerformanceSourceNotice(source, 'keyword', true)
+                    return message ? [{ sourceId: source.id, message }] : []
+                }),
+        ],
         detailQuery: [
-            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow, s.query],
-            (allSources: ExternalDataSource[], integrationFilter, row, query): MarketingAnalyticsSearchQuery | null => {
+            (s) => [s.detailSources, s.selectedRow, s.query],
+            (sources: ExternalDataSource[], row, query): MarketingAnalyticsSearchQuery | null => {
                 if (!row || !(row.page || row.keyword)) {
                     return null
                 }
-                const sources =
-                    row.platform === 'GoogleSearchConsole'
-                        ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
-                        : allSources
-                const detailSources = sources
-                    .filter((source) => source.source_type === 'GoogleSearchConsole')
-                    .flatMap((source) => {
-                        const detailSource = searchPerformanceSource(source, row.page ? 'keyword' : 'page', true)
-                        return detailSource ? [detailSource] : []
-                    })
+                const detailSources = sources.flatMap((source) => {
+                    const detailSource = searchPerformanceSource(source, row.page ? 'keyword' : 'page', true)
+                    return detailSource ? [detailSource] : []
+                })
                 return {
                     ...query,
+                    includePostHogConversions: false,
+                    normalizePageUrls: query.includePostHogConversions,
                     sources: detailSources,
                     search: undefined,
                     breakdown: row.page ? 'keyword' : 'page',
@@ -232,6 +317,17 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(300)
             actions.setQuerySearch(search)
+        },
+        updateCurrentTeamSuccess: ({ payload }) => {
+            // The backend reads the saved test-account setting, which the query does not carry, so a
+            // changed setting leaves the cached goal columns stale until the table reloads past the cache.
+            if (
+                values.query.includePostHogConversions &&
+                payload?.marketing_analytics_config &&
+                'filter_test_accounts' in payload.marketing_analytics_config
+            ) {
+                dataNodeLogic.findMounted({ key: SEARCH_PERFORMANCE_QUERY_KEY })?.actions.loadData('force_async')
+            }
         },
     })),
     afterMount(({ values, actions }) => {

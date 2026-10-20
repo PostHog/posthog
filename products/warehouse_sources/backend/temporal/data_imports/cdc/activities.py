@@ -27,6 +27,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -180,8 +181,11 @@ class CDCExtractActivity:
     level steps; private methods implement individual phases.
     """
 
-    def __init__(self, inputs: CDCExtractInput) -> None:
+    def __init__(self, inputs: CDCExtractInput, should_stop: Callable[[], bool] | None = None) -> None:
         self.inputs = inputs
+        # Asks the read to stop at the next page boundary, for example because the worker shuts down.
+        self._should_stop = should_stop
+        self.stopped_before_backlog_drained: bool = False
         self.log: structlog.types.FilteringBoundLogger = logger.bind(
             team_id=inputs.team_id, source_id=str(inputs.source_id)
         )
@@ -835,7 +839,20 @@ class CDCExtractActivity:
             # page that returns rows always commits something and advances. Were that ever to not
             # hold, grow the window so an oversized single transaction can complete in one peek (or
             # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
-            if not self._drain_and_advance_page():
+            advanced = self._drain_and_advance_page()
+
+            # Checked after the page advance, so the slot is already past every change this run wrote
+            # to the buffer and the next run starts at the first unread change.
+            if self._should_stop is not None and self._should_stop():
+                self.stopped_before_backlog_drained = True
+                self.log.info(
+                    "cdc_read_stopped_for_worker_shutdown",
+                    events_so_far=self.event_count,
+                    position=self.last_confirmed_lsn,
+                )
+                return
+
+            if not advanced:
                 limit = min(limit * 2, CDC_MAX_CHANGES_LIMIT_CAP)
 
     def _drain_and_advance_page(self) -> bool:
@@ -1271,10 +1288,13 @@ class CDCExtractActivity:
         # Outside an activity nothing retries, so every failure there is terminal.
         retries_left = activity.in_activity() and activity.info().attempt < CDC_MAX_EXTRACTION_ATTEMPTS
         terminal = not info.retryable or not retries_left
+        newly_failed_schema_ids: list[str] = []
         for schema in self.cdc_schemas:
             # Only a terminal failure paints the schema. A later successful attempt never repaints it,
             # because its status belongs to the scheduled sync that consumes the buffer.
             if terminal and not marked_broken:
+                if schema.status != ExternalDataSchema.Status.FAILED:
+                    newly_failed_schema_ids.append(str(schema.id))
                 schema.status = ExternalDataSchema.Status.FAILED
                 schema.latest_error = friendly
                 schema.save(update_fields=["status", "latest_error", "updated_at"])
@@ -1308,6 +1328,10 @@ class CDCExtractActivity:
         # here, mirroring what update_external_job_status does for non-CDC syncs.
         if terminal and not marked_broken:
             self._schedule_failure_digest()
+            # A paused schedule runs no more, so each schema it stops sends the alert once.
+            paused = not info.retryable
+            alert_schema_ids = [str(schema.id) for schema in self.cdc_schemas] if paused else newly_failed_schema_ids
+            self._emit_sync_alerts(alert_schema_ids, paused=paused)
         # An unclassified failure stays retryable and never pauses the schedule, so a deterministic
         # one re-fails every scheduled run indefinitely. Only _capture_non_retryable emits analytics,
         # so these never reach error triage — capture the terminal case so the taxonomy can be taught
@@ -1316,6 +1340,24 @@ class CDCExtractActivity:
             self._capture_unclassified(exc)
         self._emit_run_duration("failed")
         return info
+
+    def _emit_sync_alerts(self, schema_ids: list[str], *, paused: bool) -> None:
+        # An unclassified failure fails every scheduled run again. Only the schemas this run moved
+        # to Failed send an alert, so a failure that persists sends one alert, not one for each run.
+        # Deferred: the data_warehouse facade imports this pipeline back.
+        from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+            SyncAlertEvent,
+            SyncAlertKind,
+            emit_sync_alert,
+        )
+
+        for schema_id in schema_ids:
+            emit_sync_alert(
+                team_id=self.inputs.team_id,
+                schema_id=schema_id,
+                event=SyncAlertEvent.FAILED,
+                kind=SyncAlertKind.SCHEMA_PAUSED if paused else SyncAlertKind.JOB_FAILED,
+            )
 
     def _schedule_failure_digest(self) -> None:
         try:
@@ -1471,7 +1513,14 @@ class CDCExtractActivity:
 @activity.defn
 def cdc_extract_activity(inputs: CDCExtractInput) -> None:
     """Core CDC extraction activity. Thin wrapper around CDCExtractActivity."""
-    CDCExtractActivity(inputs).run()
+    with ShutdownMonitor() as shutdown_monitor:
+        extraction = CDCExtractActivity(inputs, should_stop=shutdown_monitor.is_worker_shutdown)
+        extraction.run()
+        # The run ended cleanly at a page boundary with its position saved, but with backlog left.
+        # Raise so that Temporal continues the read on another worker now. Without a retry left the
+        # raise would fail the workflow, so the next scheduled run reads the remaining backlog.
+        if extraction.stopped_before_backlog_drained and activity.info().attempt < CDC_MAX_EXTRACTION_ATTEMPTS:
+            raise WorkerShuttingDownError.from_activity_context()
 
 
 @activity.defn

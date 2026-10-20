@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MotionSource(ResumableSource[MotionSourceConfig, MotionResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.usemotion.com/api-reference"
@@ -55,11 +58,11 @@ class MotionSource(ResumableSource[MotionSourceConfig, MotionResumeConfig]):
             name=ExternalDataSourceType.MOTION,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Motion",
-            caption="""Enter your Motion API key to sync your workspaces, users, projects, and tasks into the PostHog Data warehouse.
+            caption="""Enter your Motion API key to sync your workspaces, users, projects, tasks, recurring tasks, comments, and custom fields into the PostHog Data warehouse.
 
 Create an API key in Motion under Settings, then API. Motion shows the key once, so copy it before closing the dialog.
 
-Motion rate limits API keys, and individual accounts get a much smaller allowance than teams, so a first sync of a large workspace can take a while.""",
+Motion rate limits API keys, and individual accounts get a much smaller allowance than teams, so a first sync of a large workspace can take a while. The comments table makes one request for each task, so it is the slowest table to sync.""",
             iconPath="/static/services/motion.png",
             docsUrl="https://posthog.com/docs/cdp/sources/motion",
             keywords=["usemotion", "calendar", "tasks"],
