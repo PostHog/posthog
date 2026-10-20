@@ -43,6 +43,26 @@ export const emptyRunView: RunView = {
   error: null,
 };
 
+// A Claude Code log is mostly tool-call progress and usage ticks that fold into a row or draw nothing, so a window
+// counted in entries can hold a few lines; the window counts the entries that can draw a row of their own.
+export function draws(entry: StoredLogEntry): boolean {
+  const update = (
+    entry.notification?.params as
+      | { update?: { sessionUpdate?: string } }
+      | undefined
+  )?.update?.sessionUpdate;
+  return update !== "tool_call_update" && update !== "usage_update";
+}
+
+// The index of the oldest of the last `count` drawing entries, or 0 once the log holds fewer.
+function startOfLast(entries: StoredLogEntry[], count: number): number {
+  let left = count;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    if (draws(entries[index]) && --left === 0) return index;
+  }
+  return 0;
+}
+
 // A view over a local agent's full log that hands the pane only its tail, as a cloud watch does: the transcript is
 // rebuilt on every event, and a long log made that cost a frame. `loadOlder` pages kept entries back in above.
 export function windowed(
@@ -52,11 +72,9 @@ export function windowed(
   let full = emptyRunView;
   // How far back the pane has paged; the window never shrinks below it as the log grows.
   let windowStart: number | null = null;
+  const tailStart = (): number => startOfLast(full.entries, tail);
   const show = (): void => {
-    const start = Math.min(
-      windowStart ?? Math.max(0, full.entries.length - tail),
-      Math.max(0, full.entries.length - tail),
-    );
+    const start = Math.min(windowStart ?? tailStart(), tailStart());
     onView({ ...full, entries: full.entries.slice(start), windowStart: start });
   };
   return {
@@ -65,9 +83,9 @@ export function windowed(
       show();
     },
     loadOlder: () => {
-      const current = windowStart ?? Math.max(0, full.entries.length - tail);
+      const current = windowStart ?? tailStart();
       if (current === 0) return;
-      windowStart = Math.max(0, current - page);
+      windowStart = startOfLast(full.entries.slice(0, current), page);
       show();
     },
   };

@@ -294,6 +294,46 @@ describe("windowed", () => {
     expect(seen.at(-1)?.entries).toHaveLength(11);
   });
 
+  it("sizes the window by the entries that draw, so tool-call progress never fills it", () => {
+    const progress = (id: string): StoredLogEntry => ({
+      type: "acp_message",
+      id,
+      notification: {
+        method: "session/update",
+        params: { update: { sessionUpdate: "tool_call_update" } },
+      },
+    });
+    const log: RunView = {
+      ...emptyRunView,
+      loaded: true,
+      entries: [
+        entry("e0"),
+        entry("e1"),
+        progress("p0"),
+        progress("p1"),
+        progress("p2"),
+        entry("e2"),
+        progress("p3"),
+        entry("e3"),
+      ],
+    };
+    const seen: RunView[] = [];
+    const window = windowed((view) => seen.push(view), { tail: 2, page: 1 });
+    window.publish(log);
+    expect(ids(seen.at(-1) as RunView)).toEqual(["e2", "p3", "e3"]);
+
+    window.loadOlder();
+    expect(ids(seen.at(-1) as RunView)).toEqual([
+      "e1",
+      "p0",
+      "p1",
+      "p2",
+      "e2",
+      "p3",
+      "e3",
+    ]);
+  });
+
   it("passes a short log through whole", () => {
     const seen: RunView[] = [];
     windowed((view) => seen.push(view), { tail: 3, page: 2 }).publish(full(2));
