@@ -1,7 +1,6 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 import io
-from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -30,7 +29,6 @@ from products.exports.backend.models.exported_asset import (
     save_content as _save_content,
     save_content_from_file as _save_content_from_file,
 )
-from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
@@ -121,42 +119,6 @@ def save_export_asset_content_from_file(
     max_database_bytes: int | None = None,
 ) -> None:
     _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
-
-
-def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
-    # nosemgrep: environment-model-scoped-by-project -- insights are project-level, so deleting one removes its subscriptions in every environment
-    for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
-        subscription.delete()
-
-
-def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
-    """Which of the given insights have a subscription that has not been deleted.
-
-    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
-    to deliver this insight again.
-    """
-    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list("insight_id", flat=True)
-    )
-
-
-def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
-    """Which of the given dashboards have a subscription that has not been deleted.
-
-    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
-    to deliver this dashboard again.
-    """
-    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
-            "dashboard_id", flat=True
-        )
-    )
 
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.

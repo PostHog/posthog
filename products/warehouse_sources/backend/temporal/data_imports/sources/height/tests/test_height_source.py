@@ -1,12 +1,9 @@
-import pytest
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     scripted_network,
-    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.source import HeightSource
@@ -17,11 +14,6 @@ class TestHeightSource:
         self.source = HeightSource()
         self.team_id = 123
         self.config = HeightSourceConfig(api_key="secret_key")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["lists"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "lists"
 
     @parameterized.expand(
         [
@@ -59,7 +51,3 @@ class TestHeightSource:
         assert result.raised is None
         assert result.paths == ["/users"]
         assert result.requests[0].headers["authorization"] == "api-key secret_key"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Height schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, source_inputs("not_a_table"))

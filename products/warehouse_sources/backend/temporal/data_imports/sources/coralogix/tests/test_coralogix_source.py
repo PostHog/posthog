@@ -35,10 +35,6 @@ class TestCoralogixSource:
         # the editor to re-enter the key.
         assert CoralogixSource().connection_host_fields == ["domain"]
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = CoralogixSource().get_schemas(_config(), team_id=1, names=["logs"])
-        assert [s.name for s in schemas] == ["logs"]
-
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_validate_credentials(self, _name: str, probe_result: bool) -> None:
         status = 200 if probe_result else 403

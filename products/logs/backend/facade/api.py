@@ -13,17 +13,30 @@ from products.logs.backend.natural_language_query import (
     translate_natural_language_query,
 )
 from products.logs.backend.platform_alert_backfill import logs_state_of_platform
+from products.logs.backend.platform_alert_event_history import (
+    MAX_MERGED_EVENT_ROWS,
+    PlatformCheckRow,
+    PlatformCheckRows,
+    platform_check_rows,
+)
+from products.logs.backend.platform_source_config import ALLOWED_WINDOW_MINUTES, has_any_filter
 from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 __all__ = [
+    "ALLOWED_WINDOW_MINUTES",
+    "MAX_MERGED_EVENT_ROWS",
     "NaturalLanguageQueryFailed",
     "NaturalLanguageQueryUnavailable",
+    "PlatformCheckRow",
+    "PlatformCheckRows",
     "close_incident_before_delete",
     "close_incident_on_commit",
     "follow_logs_alert",
+    "has_any_filter",
     "is_valid_date",
     "logs_state_of_platform",
     "next_allowed_check_at",
+    "platform_check_rows",
     "translate_natural_language_query",
 ]
 

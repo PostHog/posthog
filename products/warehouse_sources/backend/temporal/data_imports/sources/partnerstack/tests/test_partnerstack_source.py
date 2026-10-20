@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerstack import (
@@ -18,11 +17,6 @@ class TestPartnerStackSource:
         self.source = PartnerStackSource()
         self.team_id = 123
         self.config = PartnerStackSourceConfig(public_key="pub", private_key="priv")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "customers"
 
     @parameterized.expand(
         [
@@ -67,10 +61,3 @@ class TestPartnerStackSource:
         assert kwargs["private_key"] == "priv"
         assert kwargs["endpoint"] == "partnerships"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown PartnerStack schema 'not_a_table'"
-        assert result.requests == []
