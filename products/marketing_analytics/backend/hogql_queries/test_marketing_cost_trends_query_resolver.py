@@ -274,7 +274,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             trend_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
             execute.reset_mock()
             warmer = MarketingAnalyticsTableQueryRunner(
-                query=MarketingAnalyticsTableQuery(properties=[]), team=self.team, user=self.user
+                query=MarketingAnalyticsTableQuery(properties=[]), team=self.team
             )
             warmer.__dict__["_shared_hogql_database"] = runner.get_database()
             for date_range in (runner.date_ranges[0], runner.date_ranges[1]):
