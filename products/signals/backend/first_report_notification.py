@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
@@ -20,6 +19,7 @@ from posthog.transactional_email import (
 from posthog.utils import absolute_uri
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.constants import SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport
 from products.signals.backend.report_access import may_read_reports
 
@@ -104,7 +104,7 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
 
 
 def deliver_first_report_email(team_id: int) -> None:
-    if not is_cloud() or not is_transactional_email_configured() or not settings.SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID:
+    if not is_cloud() or not is_transactional_email_configured():
         return
     notification = _claim(team_id)
     if notification is None:
@@ -113,7 +113,7 @@ def deliver_first_report_email(team_id: int) -> None:
     record = SignalFirstReportNotification.objects.for_team(team_id).filter(pk=notification.pk)
     try:
         message_id = send_transactional_email(
-            settings.SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID,
+            SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID,
             to=notification.activated_by.email,
             distinct_id=str(notification.activated_by.distinct_id),
             message_data=notification.message_data,
