@@ -2093,7 +2093,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # key this request reads even when its instance-setting snapshot differs. A legacy payload stays unchanged,
         # so workers from the previous deploy, which key on the raw query, still write the same key.
         query_json = self.query.model_dump()
-        if not self.modifiers.useNewEventsSchema:
+        # A direct-connection query reads no events table, and pure Trino rejects modifiers the caller did not set.
+        if not self.modifiers.useNewEventsSchema or getattr(self.query, "connectionId", None):
             return query_json
         node: dict[str, Any] | None = query_json
         while isinstance(node, dict) and "modifiers" not in node:
