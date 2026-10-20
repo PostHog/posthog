@@ -20,7 +20,9 @@ class TransactionalEmailDeliveryUncertain(Exception):
 
 
 def is_transactional_email_configured() -> bool:
-    return bool(settings.POSTHOG_HOST and settings.POSTHOG_PROJECT_ID > 0 and settings.POSTHOG_PROJECT_SECRET_API_KEY)
+    return bool(
+        settings.POSTHOG_HOST and settings.POSTHOG_PROJECT_ID > 0 and settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY
+    )
 
 
 def _send_url(template_id: str) -> str:
@@ -66,7 +68,7 @@ def send_transactional_email(
     try:
         response = requests.post(
             url,
-            headers={"Authorization": f"Bearer {settings.POSTHOG_PROJECT_SECRET_API_KEY}"},
+            headers={"Authorization": f"Bearer {settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY}"},
             json=payload,
             timeout=(3, 10),
             allow_redirects=False,
