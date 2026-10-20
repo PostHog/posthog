@@ -2253,6 +2253,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            self._fill_cached_result_order(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
@@ -3285,6 +3286,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         elif isinstance(self.query, FunnelsQuery):
             return self._apply_funnels_custom_names(cached_response)
         return cached_response, False
+
+    def _fill_cached_result_order(self, cached_response: CR) -> None:
+        """Copy `action.order` to the top level of cached trends, stickiness and lifecycle rows that lack it.
+
+        Stickiness, lifecycle and calendar heatmap rows cached before those runners emitted a top-level `order`
+        carry it only on `action`, and readers take a row's series from the top-level `order`.
+        """
+        if not isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return
+        results = getattr(cached_response, "results", None)
+        if not isinstance(results, list):
+            return
+        for result in results:
+            if not isinstance(result, dict) or "order" in result:
+                continue
+            action = result.get("action")
+            if isinstance(action, dict) and isinstance(action.get("order"), int):
+                result["order"] = action["order"]
 
     def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """Apply custom_name values to TrendsQuery results (nested under action)."""
