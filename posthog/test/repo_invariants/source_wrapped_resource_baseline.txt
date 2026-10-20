@@ -37,7 +37,6 @@ newsdata/newsdata.py::get_rows
 noaa_cdo/noaa_cdo.py::noaa_cdo_source.items
 okendo/okendo.py::okendo_source.items
 okta/okta.py::okta_source.items
-pagerduty/pagerduty.py::pagerduty_source.items
 paymongo/paymongo.py::pull_rows
 pipeliner/pipeliner.py::pipeliner_source.items
 plunk/plunk.py::plunk_source.items
