@@ -33,6 +33,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.recalculation import build_job_payload
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -1161,6 +1162,77 @@ class TestCalculateActivity(BaseTest):
         row = rows.get()
         assert row.id == existing.id
         assert row.result == {"already": "computed"}
+
+    @parameterized.expand(
+        [
+            # name, trigger, stopped, row fingerprint matches, prior run recorded the error, retriable, expect query
+            ("stopped_heal_reuses_retriable", "heal_latest_run", True, True, True, True, False),
+            ("stopped_metric_change_reuses_permanent", "metric_config_change", True, True, True, False, False),
+            ("stopped_manual_reuses", "manual", True, True, True, True, False),
+            ("stopped_manual_retry_runs", "manual_retry", True, True, True, True, True),
+            ("running_heal_runs", "heal_latest_run", False, True, True, True, True),
+            ("stopped_changed_fingerprint_runs", "metric_config_change", True, False, True, True, True),
+            ("stopped_without_prior_error_runs", "heal_latest_run", True, True, False, True, True),
+        ]
+    )
+    def test_known_failure_on_stopped_experiment(
+        self,
+        name: str,
+        trigger: str,
+        stopped: bool,
+        fingerprint_matches: bool,
+        prior_error_recorded: bool,
+        retriable: bool,
+        expect_query: bool,
+    ):
+        exp = self._experiment(flag_key=f"calc-known-failure-{name}", metrics=[_mean_metric("m1")])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        if stopped:
+            exp.end_date = query_to
+            exp.save(update_fields=["end_date"])
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp if fingerprint_matches else "fingerprint-before-metric-edit",
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.FAILED,
+            error_message="The query timed out.",
+        )
+        prior = self._recalc(exp, metric_uuids=["m1"])
+        prior.status = ExperimentMetricsRecalculation.Status.FAILED
+        prior.completed_at = query_to
+        if prior_error_recorded:
+            prior.metric_errors = {
+                "m1": {
+                    "step": "calculation",
+                    "message": "The query timed out.",
+                    "error_type": "timeout",
+                    "retriable": retriable,
+                    "timestamp": _QUERY_TO,
+                }
+            }
+        prior.save()
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        recalc.trigger = trigger
+        recalc.status = ExperimentMetricsRecalculation.Status.IN_PROGRESS
+        recalc.save(update_fields=["trigger", "status"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        assert mock_runner.called is expect_query
+        if expect_query:
+            return
+        assert result.success is False
+        recalc.refresh_from_db()
+        assert recalc.metric_errors["m1"]["retriable"] is retriable
+        assert recalc.metric_errors["m1"]["error_type"] == "timeout"
+        payload = build_job_payload(recalc)
+        assert (payload["completed_metrics"], payload["failed_metrics"]) == (0, 1)
+        assert ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1").status == "failed"
 
     def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
         # A config change yields a different recalc fingerprint, so the existing row does not match and the
