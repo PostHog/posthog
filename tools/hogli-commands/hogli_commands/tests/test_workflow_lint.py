@@ -697,6 +697,68 @@ class TestPrConcurrencyCheck:
         )
         assert (PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []) is exempted
 
+    @pytest.mark.parametrize(
+        "group,select_step,marker,flagged",
+        [
+            (
+                "${{ github.workflow }}-${{ github.head_ref || github.ref }}",
+                "uses: ./.github/actions/paths-filter",
+                "",
+                True,
+            ),
+            (
+                "${{ github.workflow }}-${{ github.head_ref || github.ref }}",
+                "run: git diff ${{ github.event.before }}",
+                "",
+                True,
+            ),
+            (
+                "${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}",
+                "uses: ./.github/actions/paths-filter",
+                "",
+                False,
+            ),
+            # A selector named only in a comment does not make the workflow pick builds from the push diff.
+            ("${{ github.workflow }}-${{ github.head_ref || github.ref }}", "run: echo ok  # paths-filter", "", False),
+            (
+                "${{ github.workflow }}-${{ github.head_ref || github.ref }}",
+                "uses: ./.github/actions/paths-filter",
+                "# hogli-lint: allow-shared-push-group -- a cron rebuilds drift",
+                False,
+            ),
+            (
+                "${{ github.workflow }}-${{ github.head_ref || github.ref }}",
+                "uses: ./.github/actions/paths-filter",
+                "# hogli-lint: allow-shared-push-group",
+                True,
+            ),
+        ],
+    )
+    def test_shared_push_group_flagged_when_it_drops_selected_builds(
+        self, tmp_path: Path, group: str, select_step: str, marker: str, flagged: bool
+    ) -> None:
+        _write(
+            tmp_path,
+            "publish.yml",
+            f"""
+            name: Publish
+            on: [pull_request, push]
+            concurrency:
+              {marker}
+              group: {group}
+              cancel-in-progress: ${{{{ github.event_name == 'pull_request' }}}}
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - {select_step}
+                  - uses: depot/build-push-action@v1
+            """,
+        )
+        issues = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
+        assert bool(issues) is flagged
+
 
 # ---------------------------------------------------------------------------
 # PrEventFanoutCheck

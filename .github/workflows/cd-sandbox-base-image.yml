@@ -26,6 +26,7 @@ on:
     workflow_dispatch:
 
 concurrency:
+    # hogli-lint: allow-shared-push-group -- the half-hourly cron compares the :master images with HEAD's inputs and rebuilds a change a replaced push dropped. Per-SHA runs would let an older build move :master back.
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

@@ -110,6 +110,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
   ```
 
+  This matters most when the workflow picks what to build from each push's own diff (a paths filter, `github.event.before`).
+  A shared group keeps one pending run, a newer push replaces it, and the replacing run's diff may not include the change, so that change never builds or deploys.
+  `WF002` fails that shape. Where something else rebuilds the dropped change, say so with `# hogli-lint: allow-shared-push-group -- <reason>`.
+
 ## Required-check gates
 
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
