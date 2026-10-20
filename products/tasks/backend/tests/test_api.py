@@ -11206,6 +11206,29 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("live_gated_run_is_marked", TaskRun.Status.IN_PROGRESS, True, True),
+            ("finished_gated_run_is_not_marked", TaskRun.Status.COMPLETED, True, False),
+            ("live_ungated_run_is_not_marked", TaskRun.Status.IN_PROGRESS, False, False),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_marks_live_gated_stream_watched(
+        self, _name: str, run_status: str, gated: bool, expected_watched: bool, mock_read
+    ):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, state={"stream_presence_gated": gated}
+        )
+        mock_read.side_effect = lambda path, missing_ok=False: '{"line":"x"}\n' if path == run.log_url else None
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        watched_key = get_task_run_stream_watched_key(get_task_run_stream_key(str(run.id)))
+        self.assertEqual(bool(get_tasks_stream_redis_sync(False).exists(watched_key)), expected_watched)
+
+    @parameterized.expand(
+        [
             ("earlier_run_in_session", "same", -1, ["earlier", "target"]),
             ("run_in_another_session", "other", -1, ["target"]),
             ("later_run_in_session", "same", 1, ["target"]),
