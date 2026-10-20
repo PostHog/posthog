@@ -58,7 +58,7 @@ class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]
             name=ExternalDataSourceType.PROFOUND,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Profound",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Profound answer engine data into the PostHog Data warehouse, so you can join brand visibility and citations to your product and web analytics.
 
 Create an API key under **Settings** then **API keys** in Profound. The API is available on Enterprise plans, and Profound has to enable it for your organization first.""",
