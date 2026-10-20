@@ -4,13 +4,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
-import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import {
   AgentServiceEvent,
   type StartSessionInput,
 } from "@posthog/workspace-server/services/agent/schemas";
+import { type Attachment, isImage, withFilePaths } from "./images";
 import type { LocalAgent } from "./local";
 import type { AcpLog } from "./localChats";
 import type { PiControl } from "./models";
@@ -316,14 +316,14 @@ export class ClaudeLocalSession implements LocalAgent {
     this.publish({ ...this.view, entries: [...this.view.entries, entry] });
   }
 
-  async prompt(message: string, images: ImageContent[] = []): Promise<void> {
+  async prompt(message: string, attachments: Attachment[] = []): Promise<void> {
     const sessionId = this.sessionId ?? (await this.connect());
     const steer = this.turn !== null;
     const sent = this.agent.prompt(
       sessionId,
       [
-        { type: "text", text: message },
-        ...images.map(({ data, mimeType }) => ({
+        { type: "text", text: withFilePaths(message, attachments) },
+        ...attachments.filter(isImage).map(({ data, mimeType }) => ({
           type: "image" as const,
           data,
           mimeType,

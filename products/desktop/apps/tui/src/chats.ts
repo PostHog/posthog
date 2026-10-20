@@ -2,8 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { ExecutionMode, Task } from "@posthog/shared";
 import type { CloudHarness } from "./billing";
-import { savedImage } from "./images";
-import type { SentImage } from "./transcript";
+import { type Attachment, fileOf } from "./images";
 
 export type SendMessage = (
   taskId: string,
@@ -66,8 +65,8 @@ export interface ImageUploads {
   toRun(taskId: string, runId: string, filePaths: string[]): Promise<string[]>;
 }
 
-// The uploader reads files, so each image goes up from the copy the TUI keeps of it.
-const filesOf = (images: SentImage[]): string[] => images.map(savedImage);
+// The uploader reads files: a dropped file from where it sits, an image from the copy the TUI keeps of it.
+const filesOf = (images: Attachment[]): string[] => images.map(fileOf);
 const pendingArtifacts = (artifactIds: string[]) =>
   artifactIds.length > 0 ? { pendingUserArtifactIds: artifactIds } : {};
 
@@ -135,7 +134,7 @@ export class PiChats {
   // `repositories` are the ones the sandbox clones; by default, the repository of the folder the TUI started in.
   async start(
     prompt: string,
-    images: SentImage[] = [],
+    images: Attachment[] = [],
     repositories: string[] = this.repository ? [this.repository] : [],
     harness: CloudHarness = "pi",
     pick: StartPick = {},
@@ -284,7 +283,7 @@ export class PiChats {
   async reply(
     task: Task,
     prompt: string,
-    images: SentImage[] = [],
+    images: Attachment[] = [],
     onReopen?: (resumed?: Task) => void,
     // The run's sandbox stopped answering (its log says a delivery got a 502) while the server still counts the run
     // as live: a send would land in the same hole, so the run is brought back first.

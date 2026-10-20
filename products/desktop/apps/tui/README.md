@@ -37,7 +37,7 @@ Picking a plan that lacks its login runs the sign-in on a sheet. Settings (Ctrl+
 - Sidebar: Today opens the day's briefing. Workspaces draw as trees above the chat list, which has two tabs: My chats, and All chats across the team (each named for who started it). ← and → on a chat in the list switch tabs, or click one. A spinner is a chat mid-turn, orange a turn that finished while you were elsewhere, a cross a failed run.
 - Panes: split, nest, focus by key or click. The header shows where the chat runs, its repo and its PR.
 - Chats: a reply to a finished cloud run brings the same run back. Tool calls collapse into clickable rows, links open, a drag copies.
-- Composer: `/` for commands, `!` for a shell command where the agent runs, Ctrl+V or a file drop for images. A message sent mid-turn steers the agent.
+- Composer: `/` for commands, `!` for a shell command where the agent runs, Ctrl+V for an image, or drop any file on the chat: an image is sent as one, anything else by path (a cloud run gets it uploaded). A message sent mid-turn steers the agent.
 - Search: Ctrl+K, full screen or in an empty split pane, where the pick fills that pane.
 - MCP: `/mcp` lists your servers, adds one, and can relay local servers into cloud runs.
 

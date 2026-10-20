@@ -1,8 +1,23 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
+
+// A file dropped on a chat that is not an image: sent by path, since the agent reads it from disk or the sandbox
+// gets it uploaded, so its bytes never pass through the composer.
+export interface DroppedFile {
+  type: "file";
+  path: string;
+  name: string;
+}
+export type Attachment = ImageContent | DroppedFile;
 
 const PASTE_START = "\u001b[200~";
 const PASTE_END = "\u001b[201~";
@@ -47,21 +62,47 @@ export function droppedPaths(sequence: string): string[] {
   return paths.length > 0 && paths.every(isAbsolute) ? paths : [];
 }
 
-export function droppedImages(sequence: string): ImageContent[] {
-  const images: ImageContent[] = [];
+// Every file in a drop: an image by its bytes, anything else by its path. A folder is skipped.
+export function droppedAttachments(sequence: string): Attachment[] {
+  const attachments: Attachment[] = [];
   for (const path of droppedPaths(sequence)) {
     const mimeType = MIME_TYPES[extname(path).toLowerCase()];
-    if (!mimeType) continue;
     try {
-      images.push({
-        type: "image",
-        data: readFileSync(path).toString("base64"),
-        mimeType,
-      });
+      if (!statSync(path).isFile()) continue;
+      attachments.push(
+        mimeType
+          ? {
+              type: "image",
+              data: readFileSync(path).toString("base64"),
+              mimeType,
+            }
+          : { type: "file", path, name: basename(path) },
+      );
     } catch {}
   }
-  return images;
+  return attachments;
 }
+
+// A local agent reads a dropped file where it sits, so the message names its path in place of the marker.
+export function withFilePaths(
+  message: string,
+  attachments: Attachment[],
+): string {
+  const files = attachments.filter((a): a is DroppedFile => a.type === "file");
+  if (files.length === 0) return message;
+  let index = 0;
+  return message.replace(
+    /\[File #\d+: [^\]]*\]/g,
+    (marker) => files[index++]?.path ?? marker,
+  );
+}
+
+export const isImage = (attachment: Attachment): attachment is ImageContent =>
+  attachment.type === "image";
+
+// The path a cloud upload reads an attachment from: a dropped file's own, or the copy the TUI keeps of an image.
+export const fileOf = (attachment: Attachment): string =>
+  isImage(attachment) ? savedImage(attachment) : attachment.path;
 
 // Sent images are kept with the TUI's other state, by a hash of their bytes, so a click can open one after its source is gone.
 export const IMAGES_DIR = join(homedir(), ".config", "posthog-tui", "images");

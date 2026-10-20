@@ -1,4 +1,3 @@
-import type { ImageContent } from "@earendil-works/pi-ai";
 import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import {
   CombinedAutocompleteProvider,
@@ -13,6 +12,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { inverseCells } from "./highlight";
+import { type Attachment, isImage } from "./images";
 import type { RunCommand } from "./models";
 import type { Click } from "./mouse";
 import { wordAt } from "./selection";
@@ -139,18 +139,22 @@ const before = (a: Position, b: Position): boolean =>
 const RULE = (text: string): string => `\u001b[2;90m${text}\u001b[22;39m`;
 
 // pi's editor, hosted in a pane: it asks this stub to repaint instead of owning the terminal.
+// An attachment's marker in the composer's text: an image by number, a file by number and name.
+const MARKER = /\[(?:Image #\d+|File #\d+: [^\]]*)\]/g;
+
 export class Composer {
   private readonly editor: Editor;
   private shellMode = false;
-  // Images waiting to be sent, by their marker; the numbers run on across messages.
-  private readonly images = new Map<string, ImageContent>();
+  // Attachments waiting to be sent, by their marker; the numbers run on across messages.
+  private readonly images = new Map<string, Attachment>();
   private imageCount = 0;
+  private fileCount = 0;
   private suggestions: CombinedAutocompleteProvider | undefined;
   private selection: { from: Position; to: Position } | null = null;
 
   constructor(
     private readonly repaint: () => void,
-    submit: (text: string, images: ImageContent[]) => void,
+    submit: (text: string, images: Attachment[]) => void,
   ) {
     const host = {
       requestRender: repaint,
@@ -193,18 +197,20 @@ export class Composer {
     this.editor.setAutocompleteProvider(this.suggestions);
   }
 
-  // An image shows as a marker in the text; deleting the marker before sending drops the image.
-  attach(image: ImageContent): void {
-    const marker = `[Image #${++this.imageCount}]`;
-    this.images.set(marker, image);
+  // An attachment shows as a marker in the text; deleting the marker before sending drops it.
+  attach(attachment: Attachment): void {
+    const marker = isImage(attachment)
+      ? `[Image #${++this.imageCount}]`
+      : `[File #${++this.fileCount}: ${attachment.name}]`;
+    this.images.set(marker, attachment);
     this.editor.insertTextAtCursor(marker);
     this.repaint();
   }
 
-  // Puts back a message that could not be sent, with its images under the markers its text already carries.
-  putBack(text: string, images: ImageContent[]): void {
+  // Puts back a message that could not be sent, with its attachments under the markers its text already carries.
+  putBack(text: string, images: Attachment[]): void {
     this.setText(text);
-    const markers = text.match(/\[Image #\d+\]/g) ?? [];
+    const markers = text.match(MARKER) ?? [];
     images.forEach((image, index) => {
       const marker = markers[index];
       if (marker) this.images.set(marker, image);
