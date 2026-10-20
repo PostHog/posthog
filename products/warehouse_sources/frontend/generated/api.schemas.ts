@@ -850,6 +850,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Square` - Square
  * * `Zoom` - Zoom
  * * `Trello` - Trello
+ * * `TrafficStars` - TrafficStars
  * * `Monday` - Monday
  * * `ClickUp` - ClickUp
  * * `Confluence` - Confluence
@@ -2255,6 +2256,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Square: 'Square',
     Zoom: 'Zoom',
     Trello: 'Trello',
+    TrafficStars: 'TrafficStars',
     Monday: 'Monday',
     ClickUp: 'ClickUp',
     Confluence: 'Confluence',
@@ -3802,6 +3804,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -5714,6 +5717,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -7199,6 +7203,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -8608,6 +8613,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -10071,6 +10077,7 @@ export interface SourcePreviewRequestApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -11515,6 +11522,7 @@ export interface SourceSetupApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -12966,6 +12974,7 @@ export interface SourceCredentialCreateApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
