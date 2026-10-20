@@ -536,21 +536,6 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "Query input is invalid",
                 None,
             ),
-            (
-                "server_fault_without_copy",
-                None,
-                "keeper_exception",
-                "The query failed because of an internal error",
-                "keeper_exception",
-            ),
-            (
-                "uppercase_cached_code",
-                None,
-                "UNKNOWN_EXCEPTION",
-                "The query failed because of an internal error",
-                "unknown_exception",
-            ),
-            ("no_message_or_code", None, None, "The query failed because of an internal error", None),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -686,6 +671,36 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             self.assertEqual(context.exception.error_type, "validation")
             self.assertEqual(context.exception.error_code, expected_code)
             self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
+
+    @parameterized.expand(
+        [
+            ("keeper_exception", "keeper_exception"),
+            ("syntax_error", "syntax_error"),
+            ("UNKNOWN_EXCEPTION", "unknown_exception"),
+            (None, None),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_server_fault_stays_unknown(
+        self, error_code, expected_code, mock_get_query_status, mock_process_query
+    ):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": None,
+                "error_code": error_code,
+            }
+        )
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+        self.assertEqual(str(context.exception), "The query failed because of an internal error")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
