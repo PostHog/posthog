@@ -49,6 +49,8 @@ class TestSolarwindsServiceDeskSource:
             # At create only the token is probed; per-schema validation probes that endpoint's path.
             ("at_create", None, None),
             ("for_schema", "incidents", "/incidents.json"),
+            # A fan-out child path needs a parent id, so its probe reads the parent list instead.
+            ("fanout_schema", "time_tracks", "/incidents.json"),
             ("unknown_schema", "not_a_table", None),
         ]
     )
