@@ -187,6 +187,18 @@ describe('preserveGroupTargetingFilters', () => {
         ],
     }
 
+    const existingPersonSetWithGroupPropertyFlag = {
+        groups: [
+            {
+                properties: [
+                    { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
+                    { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                ],
+                rollout_percentage: 100,
+            },
+        ],
+    }
+
     it('preserves aggregation_group_type_index when omitted on update', () => {
         const incoming = {
             groups: [
@@ -621,20 +633,15 @@ describe('preserveGroupTargetingFilters', () => {
             name: 'the agent echoes the property with its group type and index',
             region: { type: 'group', group_type_index: 1 },
         },
+        {
+            name: 'a changed key leaves the set with no source and the agent echoes the group property',
+            email: { key: 'country' },
+            region: { type: 'group', group_type_index: 1 },
+        },
     ])(
         'keeps a stored group property in a person-aggregated set when $name',
         ({ flag = {}, email = {}, region = {} }) => {
-            const existing = {
-                groups: [
-                    {
-                        properties: [
-                            { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
-                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
-                        ],
-                        rollout_percentage: 100,
-                    },
-                ],
-            }
+            const existing = existingPersonSetWithGroupPropertyFlag
 
             const merged = preserveGroupTargetingFilters(existing, {
                 ...flag,
@@ -689,6 +696,32 @@ describe('preserveGroupTargetingFilters', () => {
 
         expect(merged?.groups?.[0]?.aggregation_group_type_index ?? null).toBeNull()
         expect(merged?.groups?.[0]?.properties?.map((prop) => prop.group_type_index)).toEqual([1, 0])
+    })
+
+    // The oracle needs a stored set at the same index to accept a group property. An appended set has none.
+    it('keeps an appended set on persons when it repeats a group property that a stored set holds', () => {
+        const existing = existingPersonSetWithGroupPropertyFlag
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                ...existing.groups,
+                {
+                    properties: [{ key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'eu' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]?.properties).toEqual(existing.groups[0]?.properties)
+        expect(merged?.groups?.[0]?.aggregation_group_type_index ?? null).toBeNull()
+        expect(merged?.groups?.[1]?.properties?.[0]).toEqual({
+            key: 'region',
+            type: 'group',
+            group_type_index: 1,
+            operator: 'exact',
+            value: 'eu',
+        })
+        expect(merged?.groups?.[1]?.aggregation_group_type_index ?? null).toBeNull()
     })
 
     it('moves a person set to group aggregation when no single stored set holds every typed group property', () => {
@@ -1421,6 +1454,60 @@ describe('preserveGroupTargetingFilters', () => {
                 ],
             },
             expected: [[2, 'group', 2]],
+        },
+        {
+            name: 'a person set drops a key and moves its group property to another group type',
+            existing: existingPersonSetWithGroupPropertyFlag,
+            incoming: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 2, operator: 'exact', value: 'eu' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [[2, 'group', 2]],
+        },
+        {
+            name: 'a set appended to a mixed flag repeats the group property of its person set',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                    { properties: [{ key: 'region', operator: 'exact', value: 'eu' }], rollout_percentage: 100 },
+                    {
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'ca' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [
+                [0, 'group', 0],
+                [undefined, 'group', 1],
+                [1, 'group', 1],
+            ],
         },
         {
             name: 'a stored set that inherits a group flag level moves to persons',

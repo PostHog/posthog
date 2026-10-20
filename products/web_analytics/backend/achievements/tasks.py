@@ -55,6 +55,8 @@ ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
 RECOMPUTE_INTERVAL = timedelta(hours=20)
 RECOMPUTE_EXPIRES_SECONDS = 5 * 60
+RETRY_BACKOFF_BASE = timedelta(minutes=15)
+RETRY_BACKOFF_MAX = timedelta(hours=24)
 TRANSIENT_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
 TEAM_QUERY_TRACK_KEYS = [str(track.key) for track in TRACKS.values() if track.evaluator_key in INCREMENTAL_EVALUATORS]
 
@@ -185,6 +187,8 @@ def persist_progress(
     if bump_last_computed_at:
         progress.last_computed_at = timezone.now()
     progress.state = state
+    progress.failed_attempts = 0
+    progress.retry_after = None
     progress.save()
 
 
@@ -216,14 +220,45 @@ def evaluate_track(
     return incremental_evaluator(ctx, prior)
 
 
+def _retry_backoff(failed_attempts: int) -> timedelta:
+    return min(RETRY_BACKOFF_BASE * 2 ** min(failed_attempts - 1, 10), RETRY_BACKOFF_MAX)
+
+
+def _due_q(now: datetime) -> Q:
+    return (Q(last_computed_at__isnull=True) | Q(last_computed_at__lte=now - RECOMPUTE_INTERVAL)) & (
+        Q(retry_after__isnull=True) | Q(retry_after__lte=now)
+    )
+
+
+def _claim_attempt(progress: WebAnalyticsAchievementProgress) -> bool:
+    now = timezone.now()
+    failed_attempts = progress.failed_attempts + 1
+    return bool(
+        WebAnalyticsAchievementProgress.objects.for_team(progress.team_id, canonical=True)
+        .filter(_due_q(now), pk=progress.pk, failed_attempts=progress.failed_attempts)
+        .update(failed_attempts=failed_attempts, retry_after=now + _retry_backoff(failed_attempts))
+    )
+
+
+def _release_attempt(progress: WebAnalyticsAchievementProgress) -> None:
+    WebAnalyticsAchievementProgress.objects.for_team(progress.team_id, canonical=True).filter(pk=progress.pk).update(
+        failed_attempts=progress.failed_attempts, retry_after=progress.retry_after
+    )
+
+
 def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     progress = get_or_create_progress(ctx, track)
     if progress.current_stage >= len(track.stages):
         return
-    if track.evaluator_key in INCREMENTAL_EVALUATORS and not is_due(progress):
+    incremental = track.evaluator_key in INCREMENTAL_EVALUATORS
+    if incremental and (not is_due(progress) or not _claim_attempt(progress)):
         return
     try:
         evaluation = evaluate_track(ctx, track, progress)
+    except ConcurrencyLimitExceeded:
+        if incremental:
+            _release_attempt(progress)
+        raise
     except TRANSIENT_ACHIEVEMENT_ERRORS:
         raise
     except Exception as e:
@@ -330,7 +365,8 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
 
 
 def due_team_ids(limit: int) -> list[int]:
-    active_since = timezone.now().date() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
+    now = timezone.now()
+    active_since = now.date() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
     active_team_ids = (
         WebAnalyticsVisit.objects.unscoped().filter(visit_date__gte=active_since).values("team_id").distinct()
     )
@@ -342,7 +378,7 @@ def due_team_ids(limit: int) -> list[int]:
             current_stage__lt=STAGE_COUNT,
             team_id__in=active_team_ids,
         )
-        .filter(Q(last_computed_at__isnull=True) | Q(last_computed_at__lte=timezone.now() - RECOMPUTE_INTERVAL))
+        .filter(_due_q(now))
         .values("team_id")
         .annotate(oldest_computed_at=Min("last_computed_at"))
         .order_by(F("oldest_computed_at").asc(nulls_first=True), "team_id")

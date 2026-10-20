@@ -300,6 +300,12 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
             "The AppsFlyer app id looks invalid. Use your app's identifier from the dashboard "
             "(e.g. 'id123456789' for iOS or the package name for Android)."
         ) from None
+    # http.client encodes headers as latin-1, so a smart quote pasted with the token would crash the request.
+    if not _normalize_token(api_token).isascii():
+        raise AppsFlyerCredentialsError(
+            "The AppsFlyer API token contains an unsupported character, such as a smart quote pasted along with it. "
+            "Paste only the API token (V2) and try again."
+        )
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     response = _get_session(api_token).get(
         f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/daily_report/v5"
