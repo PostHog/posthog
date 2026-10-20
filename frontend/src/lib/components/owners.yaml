@@ -7,8 +7,10 @@ rules:
       owners: team-web-analytics
     - match: '/MarkdownNotebook/'
       owners: team-data-tools
+    # Growth runs the sidebar promotion slot, so every change to it goes to Growth, however small.
     - match: '/NavPanelAdvertisement/'
       owners: team-growth
+      sensitive: true
     - match: '/ProductEmptyState/'
       owners: team-growth
     - match: '/ReverseProxyChecker/'

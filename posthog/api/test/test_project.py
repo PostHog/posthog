@@ -26,6 +26,7 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
@@ -168,6 +169,41 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         duplicate_project.refresh_from_db()
         self.assertEqual(duplicate_project.product_description, "still saveable")
+
+    @parameterized.expand(
+        [
+            ("this_environment", "this_environment", status.HTTP_200_OK),
+            ("other_environment_of_this_project", "other_environment", status.HTTP_200_OK),
+            ("other_project_in_organization", "other_project", status.HTTP_400_BAD_REQUEST),
+            ("project_in_other_organization", "other_organization", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_logo_media_must_be_uploaded_to_this_project(self, _name: str, uploaded_to: str, expected_status: int):
+        if uploaded_to == "this_environment":
+            team = self.team
+        elif uploaded_to == "other_environment":
+            team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        elif uploaded_to == "other_project":
+            _, team = Project.objects.create_with_team(
+                organization=self.organization, name="Other project", initiating_user=self.user
+            )
+        else:
+            other_organization = Organization.objects.create(name="Other organization")
+            _, team = Project.objects.create_with_team(
+                organization=other_organization, name="Other project", initiating_user=None
+            )
+        media = UploadedMedia.objects.create(team=team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.project.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["logo_media_id"], str(media.id))
+            self.assertEqual(self.project.logo_media_id, media.id)
+        else:
+            self.assertEqual(response.json()["attr"], "logo_media_id")
+            self.assertIsNone(self.project.logo_media_id)
 
     def test_cannot_create_second_demo_project(self):
         # Create first demo project
@@ -1446,26 +1482,20 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("default_experiment_stats_method", response.json())
 
-    def test_experiments_config_precomputation_toggle_stamps_manual_provenance(self):
-        # A missing stamp would let the auto-enrollment job override a human's disable
-        # on its next run. Other settings must not stamp it.
+    def test_experiments_config_ignores_precomputation_toggle(self):
+        # A write here would stamp the row as manual and stop the auto-enrollment job from
+        # managing the team, so the field is read-only for project admins.
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"default_cuped_enabled": True},
+            {"experiment_precomputation_enabled": True, "default_cuped_enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertFalse(response.json()["experiment_precomputation_enabled"])
         config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertFalse(config.experiment_precomputation_enabled)
         self.assertIsNone(config.precomputation_enabled_set_by)
-
-        response = self.client.patch(
-            f"/api/projects/{self.project.id}/experiments_config/",
-            {"experiment_precomputation_enabled": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+        self.assertTrue(config.default_cuped_enabled)
 
     def test_experiments_config_changes_are_logged_as_team_activity(self):
         # The first read creates the config row with defaults, which is not a change anyone made.
@@ -1550,6 +1580,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("zero", 0, status.HTTP_400_BAD_REQUEST),
+            ("one", 1, status.HTTP_400_BAD_REQUEST),
+            ("above_one", 1.5, status.HTTP_400_BAD_REQUEST),
+            ("negative", -0.5, status.HTTP_400_BAD_REQUEST),
+            ("ninety_percent", 0.9, status.HTTP_200_OK),
+        ]
+    )
+    def test_experiments_config_confidence_level_must_be_between_zero_and_one(self, _name, level, expected_status):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_experiment_confidence_level": level},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "default_experiment_confidence_level")
+        else:
+            self.assertEqual(response.json()["default_experiment_confidence_level"], "0.90")
 
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's

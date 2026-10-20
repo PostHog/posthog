@@ -3,13 +3,11 @@ import { useActions, useValues } from 'kea'
 import { type ChangeEvent, type KeyboardEvent, useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { Text, Textarea } from '@posthog/quill'
+import { Button, Text, Textarea } from '@posthog/quill'
 
 import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-
-import { TodayActionButton } from './TodayActionButton'
 
 const NOTE_MAX_LENGTH = 4000
 
@@ -55,7 +53,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     </span>
                 </Text>
                 <span className="relative inline-flex">
-                    <TodayActionButton
+                    <Button
                         size="icon-sm"
                         aria-label="This report was useful"
                         aria-pressed={isPositive}
@@ -69,10 +67,10 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         data-attr="today-report-feedback-up"
                     >
                         {isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                    </TodayActionButton>
+                    </Button>
                     {celebration}
                 </span>
-                <TodayActionButton
+                <Button
                     size="icon-sm"
                     aria-label="This report was not useful"
                     aria-pressed={isNegative}
@@ -86,7 +84,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     data-attr="today-report-feedback-down"
                 >
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                </TodayActionButton>
+                </Button>
             </div>
             {/* The question lives under the row so it never pushes the thumbs sideways. */}
             {askingWhy && (
@@ -98,14 +96,14 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         <Text size="xs" weight="medium" render={<span />} className="grow">
                             {isPositive ? 'What made it useful?' : 'What was off?'}
                         </Text>
-                        <TodayActionButton
+                        <Button
                             size="icon-sm"
                             aria-label="Dismiss"
                             onClick={() => setQuestionDismissed(true)}
                             data-attr="today-report-feedback-question-dismiss"
                         >
                             <IconX />
-                        </TodayActionButton>
+                        </Button>
                     </div>
                     <div className="flex items-end gap-1.5">
                         <Textarea
@@ -130,7 +128,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         />
                         {/* Shown only once there is text, so there is never a disabled button to look at. */}
                         {feedbackNoteDraft.trim() && (
-                            <TodayActionButton
+                            <Button
                                 variant="primary"
                                 size="sm"
                                 loading={feedbackNoteSubmitting}
@@ -138,7 +136,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                                 data-attr="today-report-feedback-note-send"
                             >
                                 Send
-                            </TodayActionButton>
+                            </Button>
                         )}
                     </div>
                 </div>

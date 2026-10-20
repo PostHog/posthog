@@ -45,7 +45,7 @@ function RankingHoverCard({ ranking, active }: { ranking: Ranking; active: Inbox
             (rankingLift(ranking, score.head) !== null || rankingProbability(ranking, score.head) !== null)
     )
     return (
-        <div className="flex max-w-80 min-w-72 flex-col gap-2 text-xs">
+        <div className="flex max-w-96 min-w-80 flex-col gap-2 text-xs">
             <div>
                 <div className="font-semibold">
                     <span>{active.name}</span>:{' '}
@@ -70,6 +70,9 @@ function RankingHoverCard({ ranking, active }: { ranking: Ranking; active: Inbox
                             <span className="w-16 shrink-0">{score.name}</span>
                             <span className="flex-1">
                                 <RankingLiftBar lift={scoreLift} />
+                            </span>
+                            <span className="w-9 shrink-0 text-right tabular-nums">
+                                {scoreLift !== null ? formatRankingLift(scoreLift) : null}
                             </span>
                             <span className="w-24 shrink-0 text-right whitespace-nowrap">
                                 {scoreLift !== null ? RANKING_STRENGTH_LABELS[rankingStrength(scoreLift)] : null}

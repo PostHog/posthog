@@ -41,6 +41,8 @@ class CutoverSkip(StrEnum):
     CHECK_DUE = "check_due"
     # A team on live delivery can have the platform copy inside a firing of its own.
     PLATFORM_FIRING = "platform_firing"
+    # The copy lives on the project, and the platform does not store which environment it checks.
+    ENVIRONMENT = "environment"
 
 
 @frozen
@@ -82,33 +84,15 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
         at = now or timezone.now()
         if alert.platform_owned:
             return CutoverSkip.ALREADY_MOVED
+        if in_an_environment(alert):
+            return CutoverSkip.ENVIRONMENT
         if alert.state in FIRING_STATES:
             return CutoverSkip.FIRING
         if _logs_check_owed(alert.id, at):
             return CutoverSkip.CHECK_DUE
 
-        savepoint = transaction.savepoint()
-        upsert_configuration(platform_upsert_of(alert))
-        taken = take_ownership(
-            PlatformOwnershipHandover(
-                legacy_configuration_id=alert.id,
-                team_id=alert.team_id,
-                state=PLATFORM_HANDOVER_STATE[alert.state],
-                last_notified_at=alert.last_notified_at,
-                consecutive_failures=alert.consecutive_failures,
-                next_check_at=alert.next_check_at or at,
-                at=at,
-            )
-        )
-        if not taken:
-            # The copy stays as live delivery left it. A copy disabled here would drop out of
-            # discovery and never resolve the firing it is inside.
-            transaction.savepoint_rollback(savepoint)
+        if not hand_over(alert, at):
             return CutoverSkip.PLATFORM_FIRING
-        transaction.savepoint_commit(savepoint)
-        LogsAlertConfiguration.objects.filter(id=alert.id).update(
-            owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
-        )
     return None
 
 
@@ -175,3 +159,42 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
         alert.next_check_at = handback.next_check_at
         alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
+
+
+def in_an_environment(alert: LogsAlertConfiguration) -> bool:
+    """Whether the alert belongs to a child environment, whose copy would live on its project."""
+    return alert.team.parent_team_id is not None
+
+
+def hand_over(alert: LogsAlertConfiguration, at: datetime) -> bool:
+    """Copies a logs alert locked by the caller onto the platform and makes the platform its owner,
+    on both rows. False, changing nothing, when the platform copy is inside a firing of its own."""
+    savepoint = transaction.savepoint()
+    upsert_configuration(platform_upsert_of(alert))
+    taken = take_ownership(
+        PlatformOwnershipHandover(
+            legacy_configuration_id=alert.id,
+            team_id=alert.team_id,
+            state=PLATFORM_HANDOVER_STATE[alert.state],
+            last_notified_at=alert.last_notified_at,
+            consecutive_failures=alert.consecutive_failures,
+            next_check_at=alert.next_check_at or at,
+            at=at,
+        )
+    )
+    if not taken:
+        # The copy stays as live delivery left it. A copy disabled here would drop out of
+        # discovery and never resolve the firing it is inside.
+        transaction.savepoint_rollback(savepoint)
+        return False
+    transaction.savepoint_commit(savepoint)
+    # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    LogsAlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
+    alert.owner = PlatformAlertOwner.PLATFORM
+    alert.owner_changed_at = at
+    return True
+
+
+def has_begun_cutover(team_id: int) -> bool:
+    """Whether the platform owns any of the team's logs alerts, which makes it the owner of new ones."""
+    return LogsAlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
