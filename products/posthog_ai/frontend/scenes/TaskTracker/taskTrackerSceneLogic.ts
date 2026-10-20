@@ -69,7 +69,7 @@ import type { TaskListParams } from '../../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
 import type { PendingAttachment } from '../../utils/attachments'
-import { type CloudTargetIds, cloudTargetAvailability, cloudTargetIds } from '../../utils/cloudTargets'
+import { type CloudTargetIds, cloudTargetIds, isMissingCloudTarget } from '../../utils/cloudTargets'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -781,7 +781,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     return null
                 }
                 const picked = newTaskData.cloudTarget !== undefined ? newTaskData.cloudTarget : favoriteCloudTarget
-                return picked && cloudTargetAvailability(picked, environments, images) !== 'missing' ? picked : null
+                return picked && !isMissingCloudTarget(picked, environments, images) ? picked : null
             },
         ],
         selectedCloudTargetIds: [

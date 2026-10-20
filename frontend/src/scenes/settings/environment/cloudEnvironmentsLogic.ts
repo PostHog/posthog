@@ -32,6 +32,19 @@ const NEW_ENVIRONMENT: CloudEnvironmentDraft = {
     custom_image_id: null,
 }
 
+export async function listAllPages<T>(
+    fetchPage: (params: { limit: number; offset: number }) => Promise<{ count: number; results: T[] }>
+): Promise<T[]> {
+    const items: T[] = []
+    let count = Infinity
+    while (items.length < count) {
+        const page = await fetchPage({ limit: 100, offset: items.length })
+        items.push(...page.results)
+        count = page.results.length > 0 ? page.count : items.length
+    }
+    return items
+}
+
 function isNetworkAccessLevel(value: string): value is SandboxEnvironmentNetworkAccessLevelEnumApi {
     return (Object.values(SandboxEnvironmentNetworkAccessLevelEnumApi) as string[]).includes(value)
 }
@@ -142,17 +155,8 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
                     if (values.currentProjectId == null) {
                         return null
                     }
-                    const environments: SandboxEnvironmentDTOApi[] = []
-                    let count = Infinity
-                    while (environments.length < count) {
-                        const page = await sandboxList(String(values.currentProjectId), {
-                            limit: 100,
-                            offset: environments.length,
-                        })
-                        environments.push(...page.results)
-                        count = page.results.length > 0 ? page.count : environments.length
-                    }
-                    return environments
+                    const projectId = String(values.currentProjectId)
+                    return await listAllPages((params) => sandboxList(projectId, params))
                 },
             },
         ],

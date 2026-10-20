@@ -40,11 +40,8 @@ export interface taskDefaultsLogicActions {
         cloudTarget: string | null
         previous: string | null
     }
-    saveDefaultCloudTargetDone: () => {
-        value: true
-    }
-    saveDefaultCloudTargetFailure: (previous: string | null) => {
-        previous: string | null
+    saveDefaultCloudTargetDone: (cloudTarget: string | null) => {
+        cloudTarget: string | null
     }
     saveTaskDefaults: (changes: TasksTaskDefaultsUpdateApi) => {
         changes: TasksTaskDefaultsUpdateApi
@@ -85,8 +82,7 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
         saveTaskDefaults: (changes: TasksTaskDefaultsUpdateApi) => ({ changes }),
         saveTaskDefaultsDone: (saved: TasksTaskDefaultsApi | null) => ({ saved }),
         saveDefaultCloudTarget: (cloudTarget: string | null, previous: string | null) => ({ cloudTarget, previous }),
-        saveDefaultCloudTargetDone: true,
-        saveDefaultCloudTargetFailure: (previous: string | null) => ({ previous }),
+        saveDefaultCloudTargetDone: (cloudTarget: string | null) => ({ cloudTarget }),
     }),
     reducers({
         // A failed reload clears myConfig, so keep the last values the server returned.
@@ -97,8 +93,8 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
                 saveTaskDefaultsDone: (state, { saved }) => saved ?? state,
                 saveDefaultCloudTarget: (state, { cloudTarget }) =>
                     state ? { ...state, default_cloud_target: cloudTarget } : state,
-                saveDefaultCloudTargetFailure: (state, { previous }) =>
-                    state ? { ...state, default_cloud_target: previous } : state,
+                saveDefaultCloudTargetDone: (state, { cloudTarget }) =>
+                    state ? { ...state, default_cloud_target: cloudTarget } : state,
             },
         ],
         defaultCloudTargetSaving: [
@@ -142,20 +138,18 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
         },
         saveDefaultCloudTarget: async ({ cloudTarget, previous }) => {
             if (values.currentProjectId == null) {
-                actions.saveDefaultCloudTargetDone()
+                actions.saveDefaultCloudTargetDone(previous)
                 return
             }
             try {
-                actions.saveTaskDefaultsDone(
-                    await tasksMeConfigTaskDefaultsCreate(String(values.currentProjectId), {
-                        default_cloud_target: cloudTarget,
-                    })
-                )
+                const saved = await tasksMeConfigTaskDefaultsCreate(String(values.currentProjectId), {
+                    default_cloud_target: cloudTarget,
+                })
+                actions.saveDefaultCloudTargetDone(saved.default_cloud_target)
             } catch {
                 lemonToast.error('Your default environment did not save. Try again.')
-                actions.saveDefaultCloudTargetFailure(previous)
+                actions.saveDefaultCloudTargetDone(previous)
             }
-            actions.saveDefaultCloudTargetDone()
         },
     })),
 ])

@@ -1,57 +1,39 @@
 import type { SandboxCustomImageDTOApi, SandboxEnvironmentDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export type CloudTargetKind = 'environment' | 'image'
-
 export interface CloudTargetIds {
     sandbox_environment_id?: string
     custom_image_id?: string
 }
 
-export function cloudTargetKey(kind: CloudTargetKind, id: string): string {
+export function cloudTargetKey(kind: 'environment' | 'image', id: string): string {
     return `${kind}:${id}`
 }
 
 export function cloudTargetIds(key: string | null): CloudTargetIds {
     const [kind, id] = key?.split(':') ?? []
-    if (!id) {
-        return {}
-    }
-    if (kind === 'environment') {
+    if (kind === 'environment' && id) {
         return { sandbox_environment_id: id }
     }
-    if (kind === 'image') {
+    if (kind === 'image' && id) {
         return { custom_image_id: id }
     }
     return {}
 }
 
-export function readyImages(images: SandboxCustomImageDTOApi[] | null): SandboxCustomImageDTOApi[] | null {
-    return images === null ? null : images.filter((image) => image.status === 'ready')
-}
-
-export function standaloneReadyImages(
+export function unattachedImages(
     images: SandboxCustomImageDTOApi[] | null,
     environments: SandboxEnvironmentDTOApi[] | null
 ): SandboxCustomImageDTOApi[] {
     const attached = new Set((environments ?? []).flatMap((environment) => environment.custom_image_id ?? []))
-    return (images ?? []).filter((image) => image.status === 'ready' && !attached.has(image.id))
+    return (images ?? []).filter((image) => !attached.has(image.id))
 }
 
-export type CloudTargetAvailability = 'available' | 'missing' | 'unknown'
-
-export function cloudTargetAvailability(
-    key: string | null,
+export function isMissingCloudTarget(
+    key: string,
     environments: SandboxEnvironmentDTOApi[] | null,
     images: SandboxCustomImageDTOApi[] | null
-): CloudTargetAvailability {
+): boolean {
     const { sandbox_environment_id, custom_image_id } = cloudTargetIds(key)
-    const [list, id] = sandbox_environment_id
-        ? [environments, sandbox_environment_id]
-        : custom_image_id
-          ? [images, custom_image_id]
-          : [[], null]
-    if (list === null) {
-        return 'unknown'
-    }
-    return list.some((target) => target.id === id) ? 'available' : 'missing'
+    const list = sandbox_environment_id ? environments : custom_image_id ? images : []
+    return list !== null && !list.some((target) => target.id === (sandbox_environment_id ?? custom_image_id))
 }
