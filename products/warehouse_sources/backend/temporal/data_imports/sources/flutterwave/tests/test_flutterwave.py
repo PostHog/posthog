@@ -121,8 +121,10 @@ class TestFanOut:
                 {
                     "/balances": [_balances("USD", "NGN")],
                     "/wallet/statement": [
-                        _statement_page([{"reference": "a", "currency": "NGN"}], total_pages=2),
-                        _statement_page([{"reference": "b", "currency": "NGN"}], total_pages=2),
+                        _statement_page([{"reference": "a", "currency": "NGN", "type": "C"}], total_pages=2),
+                        _statement_page([{"reference": "b", "currency": "NGN", "type": "C"}], total_pages=2),
+                        _statement_page([{"reference": "c", "currency": "NGN", "type": "D"}], total_pages=1),
+                        _statement_page([], total_pages=0),
                         _statement_page([], total_pages=0),
                     ],
                 }
@@ -130,20 +132,24 @@ class TestFanOut:
         )
 
         assert result.raised is None
-        assert [row["reference"] for row in result.rows] == ["a", "b"]
+        assert [row["reference"] for row in result.rows] == ["a", "b", "c"]
         statements = [request for request in result.requests if request.path == "/v3/wallet/statement"]
-        assert [(r.param("currency"), r.param("page")) for r in statements] == [
-            ("NGN", "1"),
-            ("NGN", "2"),
-            ("USD", "1"),
+        assert [(r.param("currency"), r.param("type"), r.param("page")) for r in statements] == [
+            ("NGN", "C", "1"),
+            ("NGN", "C", "2"),
+            ("NGN", "D", "1"),
+            ("USD", "C", "1"),
+            ("USD", "D", "1"),
         ]
         assert {r.param("from") for r in statements} == {"2016-01-01"}
         assert result.saved_states == [
-            FlutterwaveResumeConfig(next_page=2, fan_out_value="NGN"),
-            FlutterwaveResumeConfig(fan_out_value="USD"),
+            FlutterwaveResumeConfig(next_page=2, fan_out_value="NGN|C"),
+            FlutterwaveResumeConfig(fan_out_value="NGN|D"),
+            FlutterwaveResumeConfig(fan_out_value="USD|C"),
+            FlutterwaveResumeConfig(fan_out_value="USD|D"),
         ]
 
-    def test_wallet_statement_resumes_at_the_saved_currency_and_page(self) -> None:
+    def test_wallet_statement_resumes_at_the_saved_currency_direction_and_page(self) -> None:
         result = _run_v3(
             "wallet_statement",
             route(
@@ -152,12 +158,12 @@ class TestFanOut:
                     "/wallet/statement": [_statement_page([{"reference": "c", "currency": "USD"}], total_pages=3)],
                 }
             ),
-            resume_state=FlutterwaveResumeConfig(next_page=3, fan_out_value="USD"),
+            resume_state=FlutterwaveResumeConfig(next_page=3, fan_out_value="USD|D"),
         )
 
         assert result.raised is None
         statements = [request for request in result.requests if request.path == "/v3/wallet/statement"]
-        assert [(r.param("currency"), r.param("page")) for r in statements] == [("USD", "3")]
+        assert [(r.param("currency"), r.param("type"), r.param("page")) for r in statements] == [("USD", "D", "3")]
 
     def test_banks_reads_each_country_and_stamps_it_on_the_rows(self) -> None:
         result = _run_v3(

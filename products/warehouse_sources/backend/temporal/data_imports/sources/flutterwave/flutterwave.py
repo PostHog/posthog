@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwav
     FLUTTERWAVE_API_V4,
     FLUTTERWAVE_ENDPOINTS,
     FLUTTERWAVE_V4_ENDPOINTS,
+    WALLET_STATEMENT_TYPES,
     FlutterwaveV4EndpointConfig,
 )
 
@@ -195,17 +196,17 @@ def validate_credentials(
     return False, "Could not reach the Flutterwave API. Try again in a few minutes."
 
 
-def _v3_endpoint_config(endpoint: str, fan_out_value: Optional[str] = None) -> Endpoint:
+def _v3_endpoint_config(endpoint: str, fan_out: Optional[dict[str, str]] = None) -> Endpoint:
     config = FLUTTERWAVE_ENDPOINTS[endpoint]
 
     path = config.path
     params: dict[str, Any] = dict(config.params)
-    if config.fan_out_param is not None and fan_out_value is not None:
-        placeholder = f"{{{config.fan_out_param}}}"
+    for name, value in (fan_out or {}).items():
+        placeholder = f"{{{name}}}"
         if placeholder in path:
-            path = path.replace(placeholder, fan_out_value)
+            path = path.replace(placeholder, value)
         else:
-            params[config.fan_out_param] = fan_out_value
+            params[name] = value
     if config.requires_date_window:
         # /transactions requires `from`/`to`, so a full refresh sends the whole history window: the
         # earliest-possible floor through today (padded a day for timezones ahead of UTC).
@@ -248,15 +249,24 @@ def _wallet_currencies(client: ClientConfig, team_id: int, job_id: str) -> list[
     return sorted(currencies)
 
 
-def _v3_fan_out_values(endpoint: str, client: ClientConfig, team_id: int, job_id: str) -> list[Optional[str]]:
-    fan_out_param = FLUTTERWAVE_ENDPOINTS[endpoint].fan_out_param
-    if fan_out_param == "country":
-        return list(BANK_COUNTRIES)
-    if fan_out_param == "status":
-        return list(BILL_PAYMENT_STATUSES)
-    if fan_out_param == "currency":
-        return list(_wallet_currencies(client, team_id, job_id))
-    return [None]
+def _v3_fan_out_values(endpoint: str, client: ClientConfig, team_id: int, job_id: str) -> list[dict[str, str]]:
+    fan_out_params = FLUTTERWAVE_ENDPOINTS[endpoint].fan_out_params
+    if fan_out_params == ("country",):
+        return [{"country": country} for country in BANK_COUNTRIES]
+    if fan_out_params == ("status",):
+        return [{"status": status} for status in BILL_PAYMENT_STATUSES]
+    if fan_out_params == ("currency", "type"):
+        return [
+            {"currency": currency, "type": statement_type}
+            for currency in _wallet_currencies(client, team_id, job_id)
+            for statement_type in WALLET_STATEMENT_TYPES
+        ]
+    return [{}]
+
+
+def _fan_out_key(fan_out: dict[str, str]) -> Optional[str]:
+    # Identifies a combination in resume state; none of the values contain the separator.
+    return "|".join(fan_out.values()) or None
 
 
 def _v4_endpoint_config(config: FlutterwaveV4EndpointConfig) -> Endpoint:
@@ -332,28 +342,29 @@ def get_rows(
     fan_out_values = _v3_fan_out_values(endpoint, client, team_id, job_id)
     first_index = 0
     initial_paginator_state = None
-    if resume is not None and resume.fan_out_value in fan_out_values:
-        first_index = fan_out_values.index(resume.fan_out_value)
+    resume_keys = [_fan_out_key(values) for values in fan_out_values]
+    if resume is not None and resume.fan_out_value in resume_keys:
+        first_index = resume_keys.index(resume.fan_out_value)
         if resume.next_page > 1:
             initial_paginator_state = {"page": resume.next_page}
 
     for index in range(first_index, len(fan_out_values)):
-        fan_out_value = fan_out_values[index]
+        fan_out = fan_out_values[index]
+        fan_out_key = _fan_out_key(fan_out)
         if index > first_index:
             # Every row of the previous value is yielded, so a hand-off here can start this value
             # from its first page. This also keeps a run of empty values from holding the worker.
-            resumable_source_manager.save_state(FlutterwaveResumeConfig(fan_out_value=fan_out_value))
+            resumable_source_manager.save_state(FlutterwaveResumeConfig(fan_out_value=fan_out_key))
             resumable_source_manager.safe_point()
-        resource: EndpointResource = {"name": endpoint, "endpoint": _v3_endpoint_config(endpoint, fan_out_value)}
-        fan_out_param = FLUTTERWAVE_ENDPOINTS[endpoint].fan_out_param
-        if fan_out_param is not None and fan_out_value is not None:
-            resource["data_map"] = _stamp_field(fan_out_param, fan_out_value)
+        resource: EndpointResource = {"name": endpoint, "endpoint": _v3_endpoint_config(endpoint, fan_out)}
+        if fan_out:
+            resource["data_map"] = _stamp_fields(fan_out)
         yield from rest_api_resource(
             {"client": client, "resources": [resource]},
             team_id,
             job_id,
             db_incremental_field_last_value,
-            resume_hook=_checkpoint_hook(resumable_source_manager, fan_out_value),
+            resume_hook=_checkpoint_hook(resumable_source_manager, fan_out_key),
             initial_paginator_state=initial_paginator_state if index == first_index else None,
         )
 
@@ -376,9 +387,10 @@ def _checkpoint_hook(
     return save_checkpoint
 
 
-def _stamp_field(name: str, value: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def _stamp_fields(values: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def stamp(row: dict[str, Any]) -> dict[str, Any]:
-        row.setdefault(name, value)
+        for name, value in values.items():
+            row.setdefault(name, value)
         return row
 
     return stamp

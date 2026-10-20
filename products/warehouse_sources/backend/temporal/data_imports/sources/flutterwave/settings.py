@@ -30,8 +30,8 @@ class FlutterwaveEndpointConfig:
     # None marks an endpoint that returns its whole list in one response.
     total_pages_path: Optional[str] = "meta.page_info.total_pages"
     params: dict[str, Any] = field(default_factory=dict)
-    # The endpoint is queried once per value of this parameter, and each row carries the value.
-    fan_out_param: Optional[str] = None
+    # The endpoint is queried once per combination of values of these parameters, and each row carries them.
+    fan_out_params: tuple[str, ...] = ()
 
 
 FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
@@ -66,11 +66,11 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
         partition_key=None,
         total_pages_path=None,
         params={"include_provider_type": 1},
-        fan_out_param="country",
+        fan_out_params=("country",),
     ),
     # Credits and debits on the merchant wallet. `from`, `to` and `currency` are all required, so the
-    # endpoint is queried once per wallet currency over the full history window. A statement line has
-    # no id: one reference can show up as a debit and later as its reversal credit.
+    # endpoint is queried once per wallet currency and direction over the full history window. A
+    # statement line has no id: one reference can show up as a debit and later as its reversal credit.
     "wallet_statement": FlutterwaveEndpointConfig(
         name="wallet_statement",
         path="/wallet/statement",
@@ -80,7 +80,7 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
         data_selector="data.transactions",
         total_pages_path="data.page_info.total_pages",
         params={"include_transaction_type": "true", "include_payout_id": "true"},
-        fan_out_param="currency",
+        fan_out_params=("currency", "type"),
     ),
     # Airtime, data, cable and utility bills bought through the account. The endpoint defaults
     # `status` to Successful, so it is queried once per status to also capture failed and reversed bills.
@@ -89,12 +89,15 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
         path="/bills/history",
         partition_key="transaction_date",
         requires_date_window=True,
-        fan_out_param="status",
+        fan_out_params=("status",),
     ),
 }
 
 # The payout countries the v3 banks reference documents.
 BANK_COUNTRIES = ("NG", "GH", "KE", "UG", "ZA", "TZ")
+
+# The wallet statement `type` filter documents credit and debit, and its reference defaults it to credit.
+WALLET_STATEMENT_TYPES = ("C", "D")
 
 # The statuses the v3 bill payment history filter documents.
 BILL_PAYMENT_STATUSES = ("Successful", "Failed", "Reversed")
