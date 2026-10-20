@@ -63,13 +63,29 @@ class _GroupFieldFinder(TraversingVisitor):
             self.found = str(node.chain[0])
         super().visit_field(node)
 
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        # Bracket notation reaches the same property as the dotted form: group_0['properties'] parses
+        # as an ArrayAccess around a bare group_0 field, which visit_field alone would let through.
+        if (
+            self.found is None
+            and isinstance(node.array, ast.Field)
+            and len(node.array.chain) == 1
+            and isinstance(node.property, ast.Constant)
+            and node.property.value == "properties"
+            and self._is_group_root(str(node.array.chain[0]))
+        ):
+            self.found = str(node.array.chain[0])
+        super().visit_array_access(node)
+
+    def _is_group_root(self, root: str) -> bool:
+        return root not in self.bound and bool(GROUP_FIELD_RE.match(root))
+
     def _reads_group_property(self, node: ast.Field) -> bool:
         # A group property is always read as group_<index>.properties.<key>, so a bare name is a
         # local or an unrelated identifier rather than the group the matcher cannot observe.
         if len(node.chain) < 2 or str(node.chain[1]) != "properties":
             return False
-        root = str(node.chain[0])
-        return root not in self.bound and bool(GROUP_FIELD_RE.match(root))
+        return self._is_group_root(str(node.chain[0]))
 
 
 def find_group_field(condition_expr: ast.Expr) -> Optional[str]:
