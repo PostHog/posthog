@@ -1,5 +1,7 @@
 import json
 from threading import Event
+from time import monotonic
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +12,10 @@ from parameterized import parameterized
 
 import posthog.tasks.tasks
 from posthog.clickhouse.metadata_worker import run_metadata_job
-from posthog.clickhouse.native_metadata import metadata_connection
+from posthog.clickhouse.native_metadata import (
+    _run_metadata_process as run_metadata_process,
+    metadata_connection,
+)
 from posthog.clickhouse.workload import Workload
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_HOST
@@ -52,8 +57,9 @@ class TestPollQueryPerformance(SimpleTestCase):
 
     @override_settings(CLICKHOUSE_USE_HTTP=True)
     def test_legacy_probe_keeps_the_http_transport(self) -> None:
-        job = {"operation": "poll", "sql": "SELECT 1", "cluster": "c", "log_comment": ""}
+        job: dict[str, Any] = {"operation": "poll", "sql": "SELECT 1", "cluster": "c", "log_comment": ""}
         job["connection"] = metadata_connection(polling=True)
+        self.assertEqual(run_metadata_process(json.dumps(job), monotonic() + 10), [[1]])
         with (
             patch("clickhouse_connect.get_client") as get_client,
             patch("posthog.clickhouse.metadata_worker.Client") as tcp,
