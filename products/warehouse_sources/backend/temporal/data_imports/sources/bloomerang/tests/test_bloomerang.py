@@ -212,6 +212,81 @@ class TestBloomerangSourceTransport:
         assert result.rows[0]["LastModifiedDate"] == "2026-01-02T00:00:00Z"
         assert "AuditTrail" not in result.rows[0]
 
+    def test_relationships_fan_out_reads_every_child_page_and_skips_missing_parents(self) -> None:
+        child_first_page = [{"Id": i, "AccountId1": 102} for i in range(1, 51)]
+        result = self._driver().run(
+            "Relationships",
+            [
+                _response([{"Id": 101}, {"Id": 102}, {"Id": 103}], total_filtered=3),
+                ScriptedResponse(status=404),
+                _response(child_first_page, total_filtered=51),
+                _response([{"Id": 51, "AccountId1": 102}], total_filtered=51),
+                _response([], total_filtered=0),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/constituents",
+            "/v2/constituent/101/relationships",
+            "/v2/constituent/102/relationships",
+            "/v2/constituent/102/relationships",
+            "/v2/constituent/103/relationships",
+        ]
+        assert result.requests[0].param("orderBy") == "Id"
+        assert [row["Id"] for row in result.rows] == list(range(1, 52))
+        assert {row["ConstituentId"] for row in result.rows} == {102}
+        # While constituent 102 has a child page left, a resume reads it again from its first page.
+        assert result.saved_states == [
+            BloomerangResumeConfig(next_offset=0, parent_index=1),
+            BloomerangResumeConfig(next_offset=0, parent_index=2),
+        ]
+
+    def test_pledge_payment_failures_fan_out_over_pledge_designations_only(self) -> None:
+        result = self._driver().run(
+            "PledgePaymentFailures",
+            [
+                _response(
+                    [
+                        {"Id": 1, "Designations": [{"Id": 11, "Type": "Pledge"}, {"Id": 12, "Type": "Donation"}]},
+                        {"Id": 2, "Designations": [{"Id": 21, "Type": "Pledge"}]},
+                        {"Id": 3, "Designations": None},
+                    ],
+                    total_filtered=3,
+                ),
+                _response([{"Id": 900, "Date": "2026-01-05", "Amount": 25.0}], total_filtered=1),
+                _response([{"Id": 901, "Date": "2026-02-05", "Amount": 10.0}], total_filtered=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/transactions",
+            "/v2/pledge/11/paymentFailures",
+            "/v2/pledge/21/paymentFailures",
+        ]
+        assert result.requests[0].param("type") == "Pledge"
+        assert [(row["PledgeId"], row["Id"]) for row in result.rows] == [(11, 900), (21, 901)]
+        assert result.saved_states == [
+            BloomerangResumeConfig(next_offset=0, parent_index=1),
+            BloomerangResumeConfig(next_offset=50, parent_index=0),
+        ]
+
+    def test_fan_out_resumes_at_saved_parent_page_and_parent(self) -> None:
+        result = self._driver().run(
+            "Relationships",
+            [
+                _response([{"Id": 151}, {"Id": 152}], total_filtered=52),
+                _response([{"Id": 7}], total_filtered=1),
+            ],
+            resume_state=BloomerangResumeConfig(next_offset=50, parent_index=1),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/constituents", "/v2/constituent/152/relationships"]
+        assert result.params("skip") == ["50", "0"]
+        assert result.rows == [{"Id": 7, "ConstituentId": 152}]
+
     @parameterized.expand(
         [
             ("Constituents", "merge"),
