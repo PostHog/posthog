@@ -1,6 +1,6 @@
 from dataclasses import field
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -8,6 +8,9 @@ from posthog.dataclasses import frozen
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 MAX_READ_SCORER_VERSIONS = 20
 MAX_RESULT_CELL_ITEMS = 50
@@ -21,6 +24,8 @@ class OfflineReadQuery:
     date_to: datetime | None = None
     search: str | None = None
     run_source: str | None = None
+    created_by: int | None = None
+    created_by_is_null: bool = False
     run_source_is_null: bool = False
     statuses: tuple[str, ...] | None = None
     suite_key: str | None = None
@@ -65,6 +70,7 @@ class OfflineResultCellQuery:
 @frozen
 class OfflineExperimentRead:
     tags: tuple[str, ...] = ()
+    created_by: "User | None" = None
     id: UUID
     name: str
     run_source: str | None

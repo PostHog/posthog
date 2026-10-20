@@ -29,7 +29,7 @@ describe('OfflineOverviewTrend', () => {
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValue({
             results,
             count: partial ? 200 : results.length,
-            next_cursor: partial ? 'older-results' : null,
+            next_cursor: null,
         })
 
         render(

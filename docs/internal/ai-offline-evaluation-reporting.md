@@ -51,6 +51,14 @@ Provide the API key through the environment before running the suite:
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
 
+Experiments submitted with a personal API key are attributed to that user. Project secret API key submissions
+have no author. Attribution is recorded on the first accepted submission and stays unchanged on retries.
+The offline evaluations overview shows the author and supports filtering experiments and score trends by author,
+including experiments with no author. Choose "Any author" to clear the filter.
+Each scorer chart displays the versions with results in the selected date range and filters as separate series,
+while the summary defaults to the latest matching version. The version arrows change only the summary.
+The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
+
 The suite uses these existing scorers:
 
 | Metric name                          | Scorer kind                      |

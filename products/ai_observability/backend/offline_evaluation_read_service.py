@@ -101,7 +101,7 @@ class OfflineEvaluationReadService:
         self.can_read_scores = can_read_scores
 
     def _experiments(self) -> QuerySet[OfflineExperiment]:
-        return OfflineExperiment.objects.for_team(self.team_id)
+        return OfflineExperiment.objects.for_team(self.team_id).select_related("created_by")
 
     def _items(self) -> QuerySet[OfflineExperimentItem]:
         return OfflineExperimentItem.objects.for_team(self.team_id)
@@ -164,6 +164,10 @@ class OfflineEvaluationReadService:
             experiments = experiments.filter(started_at__lt=query.date_to)
         if query.search:
             experiments = experiments.filter(name__icontains=query.search)
+        if query.created_by is not None:
+            experiments = experiments.filter(created_by_id=query.created_by)
+        if query.created_by_is_null:
+            experiments = experiments.filter(created_by__isnull=True)
         if query.run_source_is_null:
             experiments = experiments.filter(run_source__isnull=True)
         elif query.run_source is not None:
@@ -288,6 +292,7 @@ class OfflineEvaluationReadService:
             output.append(
                 OfflineExperimentRead(
                     tags=tuple(ResourceTags.names(experiment)),
+                    created_by=experiment.created_by,
                     id=experiment.id,
                     name=experiment.name,
                     run_source=experiment.run_source,
