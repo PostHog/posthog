@@ -26,7 +26,6 @@ from django.conf import settings
 
 import structlog
 
-from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
@@ -201,6 +200,9 @@ def readmit_retried_check(
     would run beside it. The retry then moves the slot to its own token, so the pool never counts
     the two attempts as one check that either can release.
     """
+    # Imported here: at module level it changes how many queries the access-control tests count.
+    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
+
     try:
         cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
     except Exception:
