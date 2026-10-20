@@ -1843,3 +1843,83 @@ export const BISourcePreviewLargeSample: Story = {
         await body.findByText('Example source row 1')
     },
 }
+
+const BI_WIDE_TABLE_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
+    filters: [],
+    limit: 10000,
+}
+
+export const BIWideTransposedResults: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}#${new URLSearchParams({
+            q: JSON.stringify({
+                ...buildBIQuery(BI_WIDE_TABLE_CONFIG)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config: BI_WIDE_TABLE_CONFIG,
+            }),
+        })}`,
+        testOptions: {
+            waitForSelector: '.DataVisualizationTable [aria-colcount="1801"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters!.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'Float64'],
+                        results: Array.from({ length: 1800 }, (_, index) => [
+                            new Date(Date.UTC(2020, 0, index + 1)).toISOString(),
+                            10000 + index,
+                        ]),
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await canvas.findByText('10000', { exact: true }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: 'Visualization settings' }))
+        const transpose = await canvas.findByLabelText('Transpose results')
+        await userEvent.click(transpose)
+        const table = canvasElement.querySelector<HTMLElement>('.DataVisualizationTable')!
+        await waitFor(() => expect(table.querySelector('table')).toHaveAttribute('aria-colcount', '1801'))
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollLeft = scroll.scrollWidth
+        await within(table).findByText('11799', { exact: true })
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        await userEvent.click(transpose)
+        await waitFor(() => expect(table.querySelector('table')).not.toHaveAttribute('aria-colcount'))
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(transpose)
+        scroll.scrollLeft = 0
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(canvas.getByRole('button', { name: 'Visualization settings' }))
+        await stabilizeQueryElapsedTime()
+    },
+}
