@@ -21,7 +21,7 @@ TEMPLATE_ID = "12345678-1234-5678-9abc-123456789abc"
 @override_settings(
     POSTHOG_HOST="https://us.posthog.com/",
     POSTHOG_PROJECT_ID=2,
-    POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_fake_transactional_key",
+    POSTHOG_PROJECT_SECRET_API_KEY="phs_fake_transactional_key",
 )
 class TestTransactionalEmail(SimpleTestCase):
     def test_task_sends_to_configured_project_and_returns_queue_receipt(self) -> None:
@@ -63,7 +63,7 @@ class TestTransactionalEmail(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("POSTHOG_TRANSACTIONAL_EMAIL_API_KEY", ""),
+            ("POSTHOG_PROJECT_SECRET_API_KEY", ""),
             ("POSTHOG_PROJECT_ID", 0),
             ("POSTHOG_HOST", ""),
             ("POSTHOG_HOST", "http://example.com"),
