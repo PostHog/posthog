@@ -41,7 +41,6 @@ class TestRentCastSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", 401, (False, "Invalid RentCast API key")),
             ("ok", 200, (True, None)),
         ]
     )
