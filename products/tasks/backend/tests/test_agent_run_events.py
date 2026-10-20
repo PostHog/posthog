@@ -161,7 +161,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
         response = self._report({"type": "failed", "error_type": "agent_reported", "cause": "boom"})
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        signal.assert_called_with(self.task_run.id, TaskRun.Status.FAILED, "boom", "agent_reported")
+        signal.assert_called_once_with(str(self.task_run.id), TaskRun.Status.FAILED, "boom", "agent_reported")
 
     @parameterized.expand(
         [

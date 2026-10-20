@@ -3498,6 +3498,7 @@ def report_task_run_event(
         validated_data=update,
         only_if_non_terminal=not accepted_after_end,
         caller_is_agent=True,
+        signal_completion=False,
     )
     if run is None:
         return "not_found"
@@ -3558,6 +3559,7 @@ def update_task_run(
     only_if_not_started: bool = False,
     caller_is_agent: bool = False,
     user_id: int | None = None,
+    signal_completion: bool = True,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -3740,9 +3742,10 @@ def update_task_run(
         observe_prewarmed_unused_if_never_activated(
             run, reason="released" if new_status == TaskRun.Status.CANCELLED else "other"
         )
-        signal_workflow_completion(
-            run.id, new_status, validated_data.get("error_message"), validated_data.get("error_type")
-        )
+        if signal_completion:
+            signal_workflow_completion(
+                run.id, new_status, validated_data.get("error_message"), validated_data.get("error_type")
+            )
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
                 notify_task_run_cancelled,
