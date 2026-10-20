@@ -158,6 +158,24 @@ class TestTimeTracksFanout:
         ]
         assert result.requests[1].param("page") == "2"
 
+    def test_retries_a_child_response_that_is_not_a_list(self) -> None:
+        # A 200 error object carries no X-Total-Pages header; wrapped as a row it would keep the
+        # crawl paging, so it must be retried instead.
+        result = _run(
+            route(
+                {
+                    "/incidents.json": [_response([{"id": 1}], total_pages=1)],
+                    "/incidents/1/time_tracks.json": [
+                        ScriptedResponse(json={"error": "temporarily unavailable"}),
+                        _response([{"id": 10}], total_pages=1),
+                    ],
+                }
+            ),
+            endpoint="time_tracks",
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 10, "incident_id": 1}]
+
 
 class TestFormatUpdatedFrom:
     @parameterized.expand(

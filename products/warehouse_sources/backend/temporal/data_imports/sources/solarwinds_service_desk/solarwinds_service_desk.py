@@ -1,10 +1,11 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 from dateutil import parser as dateutil_parser
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -43,7 +44,7 @@ DEFAULT_PROBE_PATH = "/users.json"
 TOTAL_PAGES_HEADER = "X-Total-Pages"
 
 
-@dataclasses.dataclass
+@frozen
 class SolarwindsServiceDeskResumeConfig:
     # Next 1-indexed page to fetch. None means start from page 1.
     next_page: int | None = None
@@ -262,7 +263,10 @@ def _fanout_source_response(
             "paginator": SolarwindsPageNumberPaginator(base_page=1),
             "data_selector_malformed_retryable": True,
         },
-        child_endpoint_extra={"paginator": SolarwindsPageNumberPaginator(base_page=1)},
+        child_endpoint_extra={
+            "paginator": SolarwindsPageNumberPaginator(base_page=1),
+            "data_selector_malformed_retryable": True,
+        },
         parent_data_map=lambda item: _unwrap_row(item, parent_wrapper_key),
         page_size_param="per_page",
         resume_hook=save_checkpoint,

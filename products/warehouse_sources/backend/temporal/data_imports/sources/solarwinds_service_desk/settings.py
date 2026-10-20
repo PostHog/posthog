@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -23,7 +25,7 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class SolarwindsServiceDeskEndpointConfig:
     name: str
     path: str  # Path on the regional API host, e.g. "/incidents.json"
