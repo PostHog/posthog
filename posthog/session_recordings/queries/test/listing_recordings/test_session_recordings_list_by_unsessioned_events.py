@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.schema import PersonsOnEventsMode, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.group.util import create_group
 from posthog.session_recordings.queries.sub_queries.events_subquery import (
     UNSESSIONED_EVENTS_FLAG,
     ReplayFiltersEventsSubQuery,
@@ -20,6 +21,7 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
 RECORDING_START = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)
@@ -34,6 +36,13 @@ ORDER_PAID_EXCLUDING_TEST_PLANS = {
 ORDER_PAID_BY_HOGQL_DISTINCT_ID = {
     **ORDER_PAID,
     "properties": [{"key": "distinct_id = 'user-1' AND person_id IS NOT NULL", "type": "hogql"}],
+}
+FINANCE_ORGANIZATIONS = {
+    "key": "industry",
+    "value": ["finance"],
+    "operator": "exact",
+    "type": "group",
+    "group_type_index": 0,
 }
 REFUND_EXCLUDED = {"id": "order refunded", "type": "events", "order": 1, "name": "order refunded", "negation": True}
 
@@ -223,24 +232,59 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             query_overrides={"date_from": None, "session_ids": ["recording-of-user-1"]},
         )
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
-    def test_matching_events_include_events_without_session_id_inside_the_window(
-        self, _name: str, flag_enabled: bool
+    @parameterized.expand(
+        [("same_personless_distinct_id", "personless-1", True), ("other_personless_distinct_id", "personless-2", False)]
+    )
+    def test_personless_distinct_id_matches_by_time(
+        self, _name: str, event_distinct_id: str, expected_match: bool
     ) -> None:
+        self._produce_recording("recording-of-personless-1", "personless-1")
+        self._create_order_paid(event_distinct_id, uuid4(), INSIDE_WINDOW)
+        flush_persons_and_events()
+
+        self._assert_matches([ORDER_PAID], ["recording-of-personless-1"] if expected_match else [])
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, [], ["sessioned", "backend_finance", "backend_retail"]),
+            ("flag_off", False, [], ["sessioned"]),
+            ("flag_on_with_group_filter", True, [FINANCE_ORGANIZATIONS], ["sessioned", "backend_finance"]),
+        ]
+    )
+    def test_matching_events_include_events_without_session_id_inside_the_window(
+        self, _name: str, flag_enabled: bool, properties: list, expected: list[str]
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={"industry": "retail"})
         person = create_person(team=self.team, distinct_ids=["user-1", "anon-1"])
         other = create_person(team=self.team, distinct_ids=["user-2"])
         self._produce_recording("recording-of-user-1", "user-1")
-        sessioned = self._create_order_paid(
-            "user-1", person.uuid, RECORDING_START + timedelta(minutes=1), "recording-of-user-1"
-        )
-        backend = self._create_order_paid("anon-1", person.uuid, INSIDE_WINDOW)
+        uuids = {
+            "sessioned": self._create_order_paid(
+                "user-1",
+                person.uuid,
+                RECORDING_START + timedelta(minutes=1),
+                "recording-of-user-1",
+                properties={"$group_0": "org:1"},
+            ),
+            "backend_finance": self._create_order_paid(
+                "anon-1", person.uuid, INSIDE_WINDOW, properties={"$group_0": "org:1"}
+            ),
+            "backend_retail": self._create_order_paid(
+                "anon-1", person.uuid, INSIDE_WINDOW, properties={"$group_0": "org:2"}
+            ),
+        }
         self._create_order_paid("anon-1", person.uuid, RECORDING_END + timedelta(hours=2))
         self._create_order_paid("user-2", other.uuid, INSIDE_WINDOW)
         flush_persons_and_events()
 
-        query = RecordingsQuery.model_validate({"session_ids": ["recording-of-user-1"], "events": [ORDER_PAID]})
+        query = RecordingsQuery.model_validate(
+            {"session_ids": ["recording-of-user-1"], "events": [ORDER_PAID], "properties": properties}
+        )
         with self._flag(flag_enabled):
             result = ReplayFiltersEventsSubQuery(team=self.team, query=query).get_event_ids_for_session()
 
-        expected = [sessioned, backend] if flag_enabled else [sessioned]
-        assert sorted(str(row[0]) for row in result.results) == sorted(str(uuid) for uuid in expected)
+        assert sorted(str(row[0]) for row in result.results) == sorted(str(uuids[name]) for name in expected)
