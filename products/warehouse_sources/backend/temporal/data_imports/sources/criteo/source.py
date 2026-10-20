@@ -84,7 +84,7 @@ class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
             label="Criteo",
             iconPath="/static/services/criteo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/criteo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Use a Marketing Solutions application with client credentials. "
             "Grant advertiser consent and read access to Campaign, Creative, Audience, and Analytics in the Criteo Partners Portal.",
             fields=cast(
