@@ -127,7 +127,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(ctx.exception.error_type, "validation")
         self.assertEqual(ctx.exception.error_code, "unknown_type")
         self.assertIn("type AggregateFunction(argMin, String", str(ctx.exception))
-        self.assertIn("Use argMin() instead of argMinState()", str(ctx.exception))
+        self.assertIn("without the State suffix", str(ctx.exception))
 
     @parameterized.expand(
         [

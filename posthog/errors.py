@@ -91,8 +91,6 @@ BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
 )
 
-AGGREGATE_STATE_TYPE_PATTERN = re.compile(r"AggregateFunction\((?P<function>[A-Za-z_][A-Za-z0-9_]{0,63})")
-
 BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check function parameters and type conversions."
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
@@ -127,9 +125,8 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
 
 def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnreadableResultType":
     unreadable_type = err.message.removeprefix("Unknown type ")
-    if match := AGGREGATE_STATE_TYPE_PATTERN.match(unreadable_type):
-        function = match.group("function")
-        advice = f"Use {function}() instead of {function}State(). To combine stored states, use {function}Merge()."
+    if unreadable_type.startswith("AggregateFunction("):
+        advice = "Call the aggregate function without the State suffix. To combine stored states, use its -Merge form."
     else:
         advice = "Convert the column with toString()."
     return CHQueryErrorUnreadableResultType(
