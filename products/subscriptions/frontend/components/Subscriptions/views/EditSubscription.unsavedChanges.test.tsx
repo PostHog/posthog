@@ -149,7 +149,7 @@ describe('EditSubscription unsaved changes', () => {
                 </Provider>
             )
 
-            await screen.findByText(/still selected in this subscription/, {}, { timeout: 10000 })
+            await screen.findByText(/selected insights? (?:is|are) no longer on this dashboard/, {}, { timeout: 10000 })
             expect(isClean()).toBe(true)
             const name = screen.getByPlaceholderText('e.g. Weekly team report')
             await userEvent.type(name, ' corrected')
@@ -169,7 +169,9 @@ describe('EditSubscription unsaved changes', () => {
             await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))
             expect(savedIds).toEqual([11])
             await waitFor(() => expect(isClean()).toBe(true))
-            expect(screen.queryByText(/still selected in this subscription/)).not.toBeInTheDocument()
+            expect(
+                screen.queryByText(/selected insights? (?:is|are) no longer on this dashboard/)
+            ).not.toBeInTheDocument()
         },
         30000
     )

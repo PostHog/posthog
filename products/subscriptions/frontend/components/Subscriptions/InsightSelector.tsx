@@ -111,16 +111,17 @@ export function InsightSelector({
                 )}
             </div>
             {unavailableSelectedIds.length > 0 && (
-                <div className="space-y-2 text-sm">
-                    <p className="mb-0 text-danger">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+                    <p className="mb-0 text-secondary">
                         {unavailableSelectedIds.length === 1
-                            ? '1 insight is no longer on this dashboard but is still selected in this subscription.'
-                            : `${unavailableSelectedIds.length} insights are no longer on this dashboard but are still selected in this subscription.`}
+                            ? '1 selected insight is no longer on this dashboard.'
+                            : `${unavailableSelectedIds.length} selected insights are no longer on this dashboard.`}
                     </p>
                     <LemonButton
                         size="small"
                         type="tertiary"
                         status="danger"
+                        noPadding
                         data-attr="subscription-remove-all-unavailable-insights"
                         onClick={() => {
                             setUserHasInteracted()

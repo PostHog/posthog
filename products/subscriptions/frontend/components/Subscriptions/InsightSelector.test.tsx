@@ -123,7 +123,7 @@ describe('InsightSelector', () => {
             onChange,
         })
 
-        expect(screen.getByText(/still selected in this subscription/)).toBeInTheDocument()
+        expect(screen.getByText(/selected insights? (?:is|are) no longer on this dashboard/)).toBeInTheDocument()
         expect(onChange).not.toHaveBeenCalled()
         const labels = screen.getAllByRole('checkbox').map((input) => input.nextElementSibling?.textContent)
         expect(labels).toEqual(['Pageviews', 'Sessions', 'Users'])
@@ -139,7 +139,7 @@ describe('InsightSelector', () => {
         })
 
         expect(screen.getAllByRole('checkbox')).toHaveLength(3)
-        expect(screen.getByText(new RegExp(`^${ids.length - 1} insights? `))).toBeInTheDocument()
+        expect(screen.getByText(new RegExp(`^${ids.length - 1} selected insights? `))).toBeInTheDocument()
         expect(screen.queryByText('Remove from subscription')).not.toBeInTheDocument()
         await userEvent.click(screen.getByText('Remove all missing insights'))
         expect(onChange).toHaveBeenLastCalledWith([101])
@@ -177,10 +177,8 @@ describe('InsightSelector', () => {
 
     it('shows unavailable selections even when the dashboard is empty', () => {
         renderInsightSelector({ tiles: [], selectedInsightIds: [999], onChange: jest.fn() })
-        expect(screen.getByText(/still selected in this subscription/)).toBeInTheDocument()
-        expect(
-            screen.getByText('1 insight is no longer on this dashboard but is still selected in this subscription.')
-        ).toBeInTheDocument()
+        expect(screen.getByText(/selected insights? (?:is|are) no longer on this dashboard/)).toBeInTheDocument()
+        expect(screen.getByText('1 selected insight is no longer on this dashboard.')).toBeInTheDocument()
     })
 
     it('shows max limit message when at capacity', () => {
