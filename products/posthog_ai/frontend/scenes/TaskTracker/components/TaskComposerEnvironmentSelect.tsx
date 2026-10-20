@@ -10,7 +10,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
     const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
     const composerEnvironments = composerSandboxEnvironmentsLogic({ panelId })
     const { createEnvironment, retryCloudTargets } = useActions(composerEnvironments)
-    const { imagesFailed, imagesLoading } = useValues(composerEnvironments)
+    const { imagesFailed, imagesLoading, awaitingCreatedEnvironment } = useValues(composerEnvironments)
     const { environmentsLoading, environmentsFailed } = useValues(cloudEnvironmentsLogic)
     const {
         selectedCloudTarget,
@@ -19,6 +19,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
         customImages,
         isSubmittingTask,
         defaultCloudTargetSaving,
+        taskDefaults,
     } = useValues(taskTrackerSceneLogic)
     const { pickCloudTarget, toggleFavoriteCloudTarget } = useActions(taskTrackerSceneLogic)
 
@@ -34,7 +35,8 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
             onRetry={retryCloudTargets}
             loading={(environmentsLoading && !sandboxEnvironments) || (imagesLoading && !customImages)}
             failed={environmentsFailed || imagesFailed}
-            favoriteSaving={defaultCloudTargetSaving}
+            favoriteSaving={defaultCloudTargetSaving || !taskDefaults}
+            ownsEnvironmentForm={awaitingCreatedEnvironment}
             disabled={isSubmittingTask}
         />
     )

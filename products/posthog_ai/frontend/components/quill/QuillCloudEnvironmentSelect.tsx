@@ -39,6 +39,7 @@ export interface QuillCloudEnvironmentSelectProps {
     loading: boolean
     failed: boolean
     favoriteSaving: boolean
+    ownsEnvironmentForm: boolean
     disabled?: boolean
 }
 
@@ -128,6 +129,7 @@ export function QuillCloudEnvironmentSelect({
     loading,
     failed,
     favoriteSaving,
+    ownsEnvironmentForm,
     disabled,
 }: QuillCloudEnvironmentSelectProps): JSX.Element {
     const { draft } = useValues(cloudEnvironmentsLogic)
@@ -295,7 +297,7 @@ export function QuillCloudEnvironmentSelect({
                     ) : null}
                 </DropdownMenuContent>
             </DropdownMenu>
-            {draft && <CloudEnvironmentModal />}
+            {draft && ownsEnvironmentForm && <CloudEnvironmentModal />}
         </>
     )
 }

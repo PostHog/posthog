@@ -83,6 +83,8 @@ import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
 export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
+class CloudTargetUnresolvedError extends Error {}
+
 export interface TaskCreateForm {
     description: string
     seedContextItems?: AttachedContextItem[]
@@ -220,6 +222,7 @@ export interface taskTrackerSceneLogicValues {
     overrideHeadlines: string[] | null // welcomeOverrideLogic
     activeSuggestionGroup: SuggestionGroup | null
     autoPublishCloudRuns: boolean
+    cloudTargetEnabled: boolean
     composerAdapter: string
     consentBlocked: boolean
     customImages: SandboxCustomImageDTOApi[] | null
@@ -461,9 +464,12 @@ export interface taskTrackerSceneLogicMeta {
         ) => RepositoryConfig
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
         favoriteCloudTarget: (taskDefaults: TasksTaskDefaultsApi | null) => string | null
-        selectedCloudTarget: (
+        cloudTargetEnabled: (
             featureFlags: FeatureFlagsSet,
-            effectiveComposerOverride: ComposerOverride | null,
+            effectiveComposerOverride: ComposerOverride | null
+        ) => boolean
+        selectedCloudTarget: (
+            cloudTargetEnabled: boolean,
             newTaskData: TaskCreateForm,
             favoriteCloudTarget: string | null,
             sandboxEnvironments: SandboxEnvironmentDTOApi[] | null,
@@ -756,26 +762,22 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             (s) => [s.taskDefaults],
             (taskDefaults: TasksTaskDefaultsApi | null): string | null => taskDefaults?.default_cloud_target ?? null,
         ],
+        cloudTargetEnabled: [
+            (s) => [s.featureFlags, s.effectiveComposerOverride],
+            (featureFlags: FeatureFlagsSet, composerOverride: ComposerOverride | null): boolean =>
+                (!!featureFlags[FEATURE_FLAGS.PHAI_QUILL] || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) &&
+                !composerOverride?.hideRepositorySelector,
+        ],
         selectedCloudTarget: [
-            (s) => [
-                s.featureFlags,
-                s.effectiveComposerOverride,
-                s.newTaskData,
-                s.favoriteCloudTarget,
-                s.sandboxEnvironments,
-                s.customImages,
-            ],
+            (s) => [s.cloudTargetEnabled, s.newTaskData, s.favoriteCloudTarget, s.sandboxEnvironments, s.customImages],
             (
-                featureFlags: FeatureFlagsSet,
-                composerOverride: ComposerOverride | null,
+                cloudTargetEnabled: boolean,
                 newTaskData: TaskCreateForm,
                 favoriteCloudTarget: string | null,
                 environments: SandboxEnvironmentDTOApi[] | null,
                 images: SandboxCustomImageDTOApi[] | null
             ): string | null => {
-                const quillComposer =
-                    !!featureFlags[FEATURE_FLAGS.PHAI_QUILL] || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
-                if (!quillComposer || composerOverride?.hideRepositorySelector) {
+                if (!cloudTargetEnabled) {
                     return null
                 }
                 const picked = newTaskData.cloudTarget !== undefined ? newTaskData.cloudTarget : favoriteCloudTarget
@@ -807,6 +809,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.startsInPlanMode && !values.permissionModePicked) {
                 actions.applyDefaultPermissionMode()
             }
+            actions.noteNewTaskDraft()
         },
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
@@ -842,6 +845,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const next = values.favoriteCloudTarget === cloudTarget ? null : cloudTarget
             posthog.capture('task composer environment starred', { starred: next !== null })
             actions.saveDefaultCloudTarget(next, values.favoriteCloudTarget)
+            actions.noteNewTaskDraft()
         },
         setCloudTargets: () => {
             actions.noteNewTaskDraft()
@@ -922,7 +926,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
             const composerAdapter = values.composerAdapter
-            const cloudTarget = values.selectedCloudTargetIds
 
             if (!description) {
                 lemonToast.error('Description is required')
@@ -1017,6 +1020,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     }
                 }
 
+                if (values.cloudTargetEnabled && values.newTaskData.cloudTarget === undefined && !values.taskDefaults) {
+                    await taskRunDefaultsLogic.asyncActions.loadMyConfig()
+                    if (!values.taskDefaults) {
+                        throw new CloudTargetUnresolvedError('Default environment is not resolved')
+                    }
+                }
+                const cloudTarget = values.selectedCloudTargetIds
                 const pendingUserMessage = wrapWithPosthogContext(description, seededContext)
                 const autoPublish = values.autoPublishCloudRuns ? { auto_publish: true } : {}
                 const runPayload = {
@@ -1225,6 +1235,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
+                }
+                if (error instanceof CloudTargetUnresolvedError) {
+                    lemonToast.error("Couldn't load your default environment. Please try again.")
                 }
                 if (error instanceof CodexBillingUnresolvedError) {
                     lemonToast.error("Couldn't confirm your ChatGPT plan for this run. Please try again.")

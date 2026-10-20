@@ -424,19 +424,28 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it.each([
-        ['a picked environment', 'environment:env-1', null, true, { sandbox_environment_id: 'env-1' }],
-        ['a picked image', 'image:img-1', null, true, { custom_image_id: 'img-1' }],
-        ['the starred environment', undefined, 'environment:env-1', true, { sandbox_environment_id: 'env-1' }],
+        ['a picked environment', 'environment:env-1', null, true, true, { sandbox_environment_id: 'env-1' }],
+        ['a picked image', 'image:img-1', null, true, true, { custom_image_id: 'img-1' }],
+        ['the starred environment', undefined, 'environment:env-1', true, true, { sandbox_environment_id: 'env-1' }],
         [
             'the starred environment while the lists load',
             undefined,
             'environment:env-1',
             false,
+            true,
             { sandbox_environment_id: 'env-1' },
         ],
-        ['no deleted starred environment', undefined, 'environment:env-gone', true, {}],
-        ['no environment once the default is picked', null, 'environment:env-1', true, {}],
-    ])('sends %s with the task and its run', async (_case, picked, starred, listsLoaded, expected) => {
+        [
+            'the starred environment when the task goes out before the config loads',
+            undefined,
+            'environment:env-1',
+            true,
+            false,
+            { sandbox_environment_id: 'env-1' },
+        ],
+        ['no deleted starred environment', undefined, 'environment:env-gone', true, true, {}],
+        ['no environment once the default is picked', null, 'environment:env-1', true, true, {}],
+    ])('sends %s with the task and its run', async (_case, picked, starred, listsLoaded, configFirst, expected) => {
         useMocks({
             get: {
                 '/api/projects/:team/tasks/@me/config/': {
@@ -448,7 +457,9 @@ describe('taskTrackerSceneLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
         logic.mount()
-        await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        if (configFirst) {
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        }
         if (listsLoaded) {
             logic.actions.setCloudTargets(
                 [{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi],
