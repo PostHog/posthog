@@ -43,6 +43,9 @@ class TestGetSchemas:
                     "subscriptions",
                     "subaccounts",
                     "beneficiaries",
+                    "banks",
+                    "wallet_statement",
+                    "bill_payments",
                 },
             ),
             (
