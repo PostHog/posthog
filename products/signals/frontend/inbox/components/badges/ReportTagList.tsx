@@ -1,5 +1,3 @@
-import clsx from 'clsx'
-
 import { LemonTag } from '@posthog/lemon-ui'
 
 /**
@@ -9,17 +7,15 @@ import { LemonTag } from '@posthog/lemon-ui'
 export function ReportTagList({
     tags,
     onTagClick,
-    className,
 }: {
     tags?: string[]
     onTagClick?: (tag: string) => void
-    className?: string
 }): JSX.Element | null {
     if (!tags || tags.length === 0) {
         return null
     }
     return (
-        <div className={clsx('flex flex-wrap items-center gap-1', className)}>
+        <div className="flex flex-wrap items-center gap-1">
             {tags.map((tag) => (
                 <LemonTag
                     key={tag}
