@@ -630,11 +630,21 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             internal_users.missed_by_filter,
         ) == expected
 
-    def test_internal_users_suggested_rule_removes_the_emails_it_names_whatever_their_case(self) -> None:
+    @parameterized.expand(
+        [
+            ("persons_are_on_events", "person_id_override_properties_on_events"),
+            ("persons_are_not_on_events", "disabled"),
+            ("persons_are_joined", "person_id_override_properties_joined"),
+        ]
+    )
+    def test_internal_users_suggested_rule_removes_the_emails_it_names(
+        self, _name: str, persons_on_events_mode: str
+    ) -> None:
         _create_person(team=self.team, distinct_ids=["qa"], properties={"email": "QA@Example.com"})
-        self._events(60, distinct_id="qa", person_properties={"email": "QA@Example.com"})
+        self._events(60, distinct_id="qa", person_properties={"email": "Test@Example.com"})
         flush_persons_and_events()
-        rule = self._internal_users(self._check(self._query())).filter_to_add
+        modifiers = {"personsOnEventsMode": persons_on_events_mode}
+        rule = self._internal_users(self._check(self._query(modifiers=modifiers))).filter_to_add
         assert rule is not None
         self.team.test_account_filters = [
             *self.team.test_account_filters,
@@ -642,7 +652,9 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        assert self._internal_users(self._check(self._query(filterTestAccounts=True))).missed_by_filter == 0
+        result = self._check(self._query(filterTestAccounts=True, modifiers=modifiers))
+
+        assert self._internal_users(result).missed_by_filter == 0
 
     @parameterized.expand(
         [

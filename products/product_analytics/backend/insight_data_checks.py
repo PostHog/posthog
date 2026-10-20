@@ -129,10 +129,11 @@ _LOCAL_EVENTS_QUERY = """
 
 _IS_LOCAL_HOST = "match(toString(properties.$host), {local_host_pattern})"
 
-# Without persons on events, `person` is an inner join that drops events with no person, so read the event's copy.
-_EMAIL = "lower(toString(poe.properties.email))"
+# The suggested rule is a person rule, so the check reads the email from the same person, which is the event's copy
+# or the current person depending on the persons-on-events mode.
 # An `is_not` rule compares case-sensitively, so the suggested rule names each email as it is stored.
-_STORED_EMAIL = "toString(poe.properties.email)"
+_STORED_EMAIL = "toString(person.properties.email)"
+_EMAIL = "lower({stored_email})"
 _IS_TEAM_EMAIL = "match({email}, {team_email_pattern})"
 
 _SAMPLED_EVENTS_QUERY = """
@@ -351,13 +352,17 @@ def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo
 class _InternalUsersMatch:
     passes_filter: ast.Expr
     email: ast.Expr
+    stored_email: ast.Expr
     is_team_email: ast.Expr
-    # The person fields `passes_filter` reads from the current person join, or None when it needs no join.
+    # The person fields the match reads from the current person join, or None when it needs no join.
     person_fields: frozenset[str] | None = None
 
 
 _NO_INTERNAL_USERS = _InternalUsersMatch(
-    passes_filter=ast.Constant(value=True), email=ast.Constant(value=None), is_team_email=ast.Constant(value=False)
+    passes_filter=ast.Constant(value=True),
+    email=ast.Constant(value=None),
+    stored_email=ast.Constant(value=None),
+    is_team_email=ast.Constant(value=False),
 )
 
 
@@ -405,19 +410,27 @@ class _PersonFromLeftJoin(CloningVisitor):
         return super().visit_field(node)
 
 
+def _read_person_keeping_personless_events(
+    events: ChartEvents, expr: ast.Expr
+) -> tuple[ast.Expr, frozenset[str] | None]:
+    # Without persons on events, the person comes from an inner join that drops the events with no person, which
+    # the insight counts. A left join on the same table reads the same person and keeps those events.
+    if events.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+        return expr, None
+    person_from_left_join = _PersonFromLeftJoin()
+    expr = person_from_left_join.visit(expr)
+    if person_from_left_join.person_fields is None:
+        return expr, None
+    return expr, frozenset(person_from_left_join.person_fields)
+
+
 def _passes_internal_users_filter(events: ChartEvents, team: Team) -> tuple[ast.Expr, frozenset[str] | None]:
     # An insight that applies the filter has already dropped the events it removes.
     if events.filters_test_accounts or not team.test_account_filters:
         return ast.Constant(value=True), None
-    project_filter = property_to_expr(team.test_account_filters, team)
-    person_fields: frozenset[str] | None = None
-    # Without persons on events, the person comes from an inner join that drops the events with no person, which
-    # the insight counts. A left join on the same table reads the same person and keeps those events.
-    if events.modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
-        person_from_left_join = _PersonFromLeftJoin()
-        project_filter = person_from_left_join.visit(project_filter)
-        if person_from_left_join.person_fields is not None:
-            person_fields = frozenset(person_from_left_join.person_fields)
+    project_filter, person_fields = _read_person_keeping_personless_events(
+        events, property_to_expr(team.test_account_filters, team)
+    )
     # The insight's own WHERE drops an event whose filter is NULL, so NULL counts as removed.
     return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)]), person_fields
 
@@ -473,17 +486,21 @@ def _internal_users_match(
         return Skipped(reason=InsightDataCheckSkipReason.HIDDEN_PROPERTY)
 
     team_emails = team_emails_of(reader.team, reader.user, email_access)
-    passes_filter, person_fields = _passes_internal_users_filter(events, reader.team)
+    passes_filter, filter_person_fields = _passes_internal_users_filter(events, reader.team)
+    stored_email, email_person_fields = _read_person_keeping_personless_events(events, parse_expr(_STORED_EMAIL))
+    person_fields: frozenset[str] | None = None
+    if filter_person_fields is not None or email_person_fields is not None:
+        person_fields = (filter_person_fields or frozenset()) | (email_person_fields or frozenset())
+
+    email = parse_expr(_EMAIL, placeholders={"stored_email": stored_email})
     return _InternalUsersMatch(
         passes_filter=passes_filter,
         person_fields=person_fields,
-        email=parse_expr(_EMAIL),
+        email=email,
+        stored_email=stored_email,
         is_team_email=parse_expr(
             _IS_TEAM_EMAIL,
-            placeholders={
-                "email": parse_expr(_EMAIL),
-                "team_email_pattern": ast.Constant(value=team_email_pattern(team_emails)),
-            },
+            placeholders={"email": email, "team_email_pattern": ast.Constant(value=team_email_pattern(team_emails))},
         ),
     )
 
@@ -497,7 +514,7 @@ def _count_every_event(
         where=where,
         passes_filter=match.passes_filter,
         email=match.email,
-        stored_email=parse_expr(_STORED_EMAIL),
+        stored_email=match.stored_email,
         is_team_email=match.is_team_email,
     )
     if match.person_fields is not None:
