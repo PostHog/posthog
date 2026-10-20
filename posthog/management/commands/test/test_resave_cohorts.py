@@ -209,7 +209,7 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         # cohort would pull the deprecated taxonomy columns (which TOAST out to megabytes per team)
         # back once per cohort. The command already holds the team object, so the cohort SELECT must
         # not JOIN and hydrate `posthog_team`. A query-count guard would miss a re-added
-        # `select_related("team")`, so assert the SQL directly, as `test_list_cohorts_does_not_hydrate_team`
+        # `select_related("team")`, so assert the SQL directly, as `test_list_cohorts_does_not_join_team`
         # does.
         team: Team = self.team
         for i in range(3):

@@ -33,6 +33,10 @@ class CalendlyEndpointConfig:
     # Read by the shared fan-out helper for the `count` param and the incremental cursor.
     page_size: int = PAGE_SIZE
     default_incremental_field: Optional[str] = None
+    primary_keys: list[str] = field(default_factory=lambda: ["uri"])
+    # Set on a fan-out child that returns one object under `resource` rather than a paginated
+    # `collection`, so the child request carries no `count` param and reads no `next_page`.
+    single_resource: bool = False
 
 
 CALENDLY_ENDPOINTS: dict[str, CalendlyEndpointConfig] = {
@@ -122,6 +126,61 @@ CALENDLY_ENDPOINTS: dict[str, CalendlyEndpointConfig] = {
         path="/contacts",
         scope_param=None,
         sort="created_at:asc",
+    ),
+    "group_relationships": CalendlyEndpointConfig(
+        name="group_relationships",
+        path="/group_relationships",
+    ),
+    # Needs an Enterprise plan. Entries are immutable and carry no `created_at`, so they partition
+    # and advance on `occurred_at`, which `min_occurred_at` filters on server-side.
+    "activity_log_entries": CalendlyEndpointConfig(
+        name="activity_log_entries",
+        path="/activity_log_entries",
+        partition_key="occurred_at",
+        incremental_filter_param="min_occurred_at",
+        sort="occurred_at:asc",
+        default_incremental_field="occurred_at",
+        incremental_fields=[
+            {
+                "label": "occurred_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "occurred_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Needs an Enterprise plan. The rows carry no `uri` or other id, so the key combines the
+    # fields that tell two messages apart. The endpoint accepts `min_created_at` but no `sort`,
+    # and its order is undocumented, so it stays full refresh.
+    "outgoing_communications": CalendlyEndpointConfig(
+        name="outgoing_communications",
+        path="/outgoing_communications",
+        primary_keys=["type", "to", "event_uri", "created_at"],
+    ),
+    # Account-scoped like `/contacts`. The API returns only recaps whose status is `available`
+    # unless a `status` is passed, which is the set that has a transcript.
+    "meeting_recaps": CalendlyEndpointConfig(
+        name="meeting_recaps",
+        path="/meeting_recaps",
+        scope_param=None,
+    ),
+    # Fanned out over `meeting_recaps`, one transcript per recap. A transcript has no timestamp
+    # to partition on, so it carries the recap URI instead for the join back.
+    "meeting_recap_transcripts": CalendlyEndpointConfig(
+        name="meeting_recap_transcripts",
+        path="/meeting_recaps/{uuid}/transcript",
+        scope_param=None,
+        partition_key=None,
+        single_resource=True,
+        fanout=DependentEndpointConfig(
+            parent_name="meeting_recaps",
+            resolve_param="uuid",
+            resolve_field=PARENT_UUID_FIELD,
+            include_from_parent=["uri"],
+            parent_field_renames={"uri": "meeting_recap"},
+            # Calendly can list a recap before its transcript is ready; skip it until then.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

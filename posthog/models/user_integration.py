@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -305,6 +305,13 @@ class UserGitHubIntegration(GitHubIntegrationBase):
     def needs_reauthorization(self) -> bool:
         """Whether the stored user tokens were stripped and the person has to reconnect."""
         return bool((self.integration.config or {}).get(NEEDS_REAUTHORIZATION_AT_CONFIG_KEY))
+
+    @property
+    def needs_reauthorization_at(self) -> datetime | None:
+        flagged_at = (self.integration.config or {}).get(NEEDS_REAUTHORIZATION_AT_CONFIG_KEY)
+        if not isinstance(flagged_at, int | float):
+            return None
+        return datetime.fromtimestamp(flagged_at, tz=UTC)
 
     def refresh_user_access_token(self) -> None:
         """Exchange the refresh token for a fresh user-to-server access token.

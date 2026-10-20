@@ -3168,7 +3168,7 @@ _FLAG_CHANGE_KIND_HELP = (
 class ExperimentHealthInputsFlagChangeSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=ExperimentHealthFlagChangeKind.choices, help_text=_FLAG_CHANGE_KIND_HELP)
     changed_at = serializers.DateTimeField(help_text="When the flag changed.")
-    changed = serializers.CharField(help_text="What changed: 'Split', or the name of the setting, such as 'Key'.")
+    changed = serializers.CharField(help_text="What changed, as the staff view names it, such as 'Split' or 'Key'.")
     before = serializers.CharField(
         help_text="The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset."
     )
@@ -3205,7 +3205,8 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Every change since launch that can move exposed people, of every kind, in time order. A bucketing change "
-            "is one per setting and save. Empty for 'no_history_access', which does not read them."
+            "is one per setting and save. A rollout change alone is no release-condition change. Empty for "
+            "'no_history_access', which does not read them."
         ),
     )
     exposed_before_first = serializers.BooleanField(
@@ -3237,6 +3238,13 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
             "server SDK and a bootstrapped value name none."
         )
     )
+    people_assigned_outside = serializers.IntegerField(
+        help_text=(
+            "The people who got a variant from a call without a flag version that is no local evaluation in a server "
+            "SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% "
+            "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
+        )
+    )
 
 
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
@@ -3249,8 +3257,8 @@ class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     denied_event_properties = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "Event properties the reader is denied. The forced-variant check skips its scan when one of them is a "
-            "flag call property it reads."
+            "Event properties the reader is denied. The forced-variant and release-condition checks skip their scan "
+            "when one of them is a flag call property it reads."
         ),
     )
 
@@ -3343,7 +3351,8 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         help_text=(
             "Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the "
             "experiment is launched and some but not all release conditions pin a variant that has a share of the "
-            "split and is not excluded from the analysis."
+            "split and is not excluded from the analysis. The release-condition check needs it when such an "
+            "override was removed after launch."
         ),
     )
     condition_set_traffic = ExperimentHealthInputsConditionSetTrafficSerializer(

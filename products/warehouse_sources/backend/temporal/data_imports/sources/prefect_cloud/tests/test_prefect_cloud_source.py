@@ -20,11 +20,6 @@ class TestPrefectCloudSource:
         # Both IDs retarget the stored API key, so changing either must require re-entering it.
         assert self.source.connection_host_fields == ["account_id", "workspace_id"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flow_runs"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "flow_runs"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

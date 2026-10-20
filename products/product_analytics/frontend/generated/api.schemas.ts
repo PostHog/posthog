@@ -3973,6 +3973,8 @@ export interface HogQLMetadataResponseApi {
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5872,6 +5874,8 @@ export interface HogQLFiltersApi {
 export interface HogQLQueryResponseApi {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -9492,6 +9496,11 @@ export interface BulkUpdateTagsResponseApi {
 export interface InsightDataChecksRequestApi {
     /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
     query: _InsightQuerySchemaApi
+    /**
+     * An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to `query/{client_query_id}/`.
+     * @maxLength 128
+     */
+    client_query_id?: string
 }
 
 /**
