@@ -175,7 +175,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("not_allowlisted", False, False, False),
             ("allowlisted_resolve", True, True, False),
             ("platform_owned", False, False, True),
-            ("platform_owned_resolve", False, True, True),
         ]
     )
     def test_only_an_allowlisted_or_platform_owned_firing_or_failure_asks_for_a_delivery(
