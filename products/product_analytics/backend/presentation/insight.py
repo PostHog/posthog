@@ -1786,8 +1786,7 @@ class InsightDataCheckSerializer(serializers.Serializer):
         help_text=(
             "The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's "
             "query. `open_filter_settings`: change the project's internal and test users filter, for example by "
-            "adding `filter_to_add`. `exclude_local_hosts`: add `filter_to_add` to the project's internal and test "
-            "users filter. Null when there is no single change."
+            "adding `filter_to_add`. Null when there is no single change."
         ),
     )
     top_events = serializers.ListField(

@@ -178,7 +178,7 @@ def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
         method=InsightDataCheckMethod.COUNTED,
         events=local.count,
         share=share,
-        action=InsightDataCheckAction.EXCLUDE_LOCAL_HOSTS if is_finding else None,
+        action=InsightDataCheckAction.OPEN_FILTER_SETTINGS if is_finding else None,
         top_events=local.top_events,
         top_hosts=local.top_hosts,
         distinct_hosts=local.distinct_hosts,

@@ -9273,7 +9273,6 @@ export const InsightDataCheckMethodEnumApi = {
 /**
  * * `filter_internal_users` - Turn on the internal and test users filter for the insight
  * * `open_filter_settings` - Change the project's internal and test users filter
- * * `exclude_local_hosts` - Add a rule for the local hosts found to the project's filter
  */
 export type InsightDataCheckActionEnumApi =
     (typeof InsightDataCheckActionEnumApi)[keyof typeof InsightDataCheckActionEnumApi]
@@ -9281,7 +9280,6 @@ export type InsightDataCheckActionEnumApi =
 export const InsightDataCheckActionEnumApi = {
     FilterInternalUsers: 'filter_internal_users',
     OpenFilterSettings: 'open_filter_settings',
-    ExcludeLocalHosts: 'exclude_local_hosts',
 } as const
 
 export interface InsightDataCheckFilterApi {
@@ -9338,11 +9336,10 @@ export interface InsightDataCheckApi {
     share: number | null
     /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
     scaled: boolean
-    /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter, for example by adding `filter_to_add`. `exclude_local_hosts`: add `filter_to_add` to the project's internal and test users filter. Null when there is no single change.
+    /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter, for example by adding `filter_to_add`. Null when there is no single change.
      *
      * * `filter_internal_users` - Turn on the internal and test users filter for the insight
-     * * `open_filter_settings` - Change the project's internal and test users filter
-     * * `exclude_local_hosts` - Add a rule for the local hosts found to the project's filter */
+     * * `open_filter_settings` - Change the project's internal and test users filter */
     action: InsightDataCheckActionEnumApi | null
     /** The event names the check found most often, most affected first. */
     top_events: string[]

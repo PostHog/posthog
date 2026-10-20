@@ -50,7 +50,6 @@ class InsightDataCheckSkipReason(LabeledStrEnum):
 class InsightDataCheckAction(LabeledStrEnum):
     FILTER_INTERNAL_USERS = "filter_internal_users", "Turn on the internal and test users filter for the insight"
     OPEN_FILTER_SETTINGS = "open_filter_settings", "Change the project's internal and test users filter"
-    EXCLUDE_LOCAL_HOSTS = "exclude_local_hosts", "Add a rule for the local hosts found to the project's filter"
 
 
 class InsightDataChecksStatus(LabeledStrEnum):

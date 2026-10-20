@@ -111,7 +111,7 @@ _COUNTED_EVENTS_QUERY = """
         topK(3)(if(NOT {passes_filter} OR {is_team_email}, event, NULL)) AS top_internal_events,
         uniqIf({email}, {passes_filter} AND {is_team_email}) AS distinct_missed_emails,
         topK(3)(if({passes_filter} AND {is_team_email}, {email}, NULL)) AS top_missed_emails,
-        groupUniqArrayIf(50)({email}, {passes_filter} AND {is_team_email}) AS missed_emails
+        groupUniqArrayIf(50)({stored_email}, {passes_filter} AND {is_team_email}) AS missed_emails
     FROM events
 """
 
@@ -131,6 +131,8 @@ _IS_LOCAL_HOST = "match(toString(properties.$host), {local_host_pattern})"
 
 # Without persons on events, `person` is an inner join that drops events with no person, so read the event's copy.
 _EMAIL = "lower(toString(poe.properties.email))"
+# An `is_not` rule compares case-sensitively, so the suggested rule names each email as it is stored.
+_STORED_EMAIL = "toString(poe.properties.email)"
 _IS_TEAM_EMAIL = "match({email}, {team_email_pattern})"
 
 _SAMPLED_EVENTS_QUERY = """
@@ -495,6 +497,7 @@ def _count_every_event(
         where=where,
         passes_filter=match.passes_filter,
         email=match.email,
+        stored_email=parse_expr(_STORED_EMAIL),
         is_team_email=match.is_team_email,
     )
     if match.person_fields is not None:

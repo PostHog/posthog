@@ -61418,7 +61418,6 @@ export namespace Schemas {
     /**
      * * `filter_internal_users` - Turn on the internal and test users filter for the insight
      * * `open_filter_settings` - Change the project's internal and test users filter
-     * * `exclude_local_hosts` - Add a rule for the local hosts found to the project's filter
      */
     export type InsightDataCheckActionEnum = typeof InsightDataCheckActionEnum[keyof typeof InsightDataCheckActionEnum];
 
@@ -61426,7 +61425,6 @@ export namespace Schemas {
     export const InsightDataCheckActionEnum = {
       FilterInternalUsers: 'filter_internal_users',
       OpenFilterSettings: 'open_filter_settings',
-      ExcludeLocalHosts: 'exclude_local_hosts',
     } as const;
 
     export interface InsightDataCheckFilter {
@@ -61483,11 +61481,10 @@ export namespace Schemas {
       share: number | null;
       /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
       scaled: boolean;
-      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter, for example by adding `filter_to_add`. `exclude_local_hosts`: add `filter_to_add` to the project's internal and test users filter. Null when there is no single change.
+      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter, for example by adding `filter_to_add`. Null when there is no single change.
        *
        * * `filter_internal_users` - Turn on the internal and test users filter for the insight
-       * * `open_filter_settings` - Change the project's internal and test users filter
-       * * `exclude_local_hosts` - Add a rule for the local hosts found to the project's filter */
+       * * `open_filter_settings` - Change the project's internal and test users filter */
       action: InsightDataCheckActionEnum | null;
       /** The event names the check found most often, most affected first. */
       top_events: string[];

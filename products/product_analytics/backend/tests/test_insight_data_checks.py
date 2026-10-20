@@ -630,6 +630,20 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             internal_users.missed_by_filter,
         ) == expected
 
+    def test_internal_users_suggested_rule_removes_the_emails_it_names_whatever_their_case(self) -> None:
+        _create_person(team=self.team, distinct_ids=["qa"], properties={"email": "QA@Example.com"})
+        self._events(60, distinct_id="qa", person_properties={"email": "QA@Example.com"})
+        flush_persons_and_events()
+        rule = self._internal_users(self._check(self._query())).filter_to_add
+        assert rule is not None
+        self.team.test_account_filters = [
+            *self.team.test_account_filters,
+            {"key": rule.key, "type": rule.type, "operator": rule.operator, "value": rule.value},
+        ]
+        self.team.save()
+
+        assert self._internal_users(self._check(self._query(filterTestAccounts=True))).missed_by_filter == 0
+
     @parameterized.expand(
         [
             ("suggested_rule_with_the_insight_filter_off", {}),
