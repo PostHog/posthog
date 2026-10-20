@@ -27,6 +27,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.profiles import Repository, RunOptions, get_task_profile
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -38,6 +39,7 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+from products.tasks.backend.task_profiles import USER
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -1699,9 +1701,9 @@ class TestFacadeReadsAndMappers(TestCase):
             team=self.team,
             title="Created via facade",
             description="desc",
-            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            profile=USER,
             user_id=self.user.id,
-            repository="posthog/posthog",
+            options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
         )
         self.assertIsInstance(created, contracts.CreatedTaskDTO)
         self.assertEqual(created.team_id, self.team.id)
@@ -1723,7 +1725,7 @@ class TestFacadeReadsAndMappers(TestCase):
             team=self.team,
             title="Started from a Slack thread",
             description="desc",
-            origin_product=facade.TaskOriginProduct.SLACK,
+            profile=get_task_profile("slack"),
             user_id=self.user.id,
         )
         for _ in range(2):
@@ -1782,11 +1784,10 @@ class TestFacadeReadsAndMappers(TestCase):
             team=self.team,
             title="Created via facade",
             description="desc",
-            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            profile=USER,
             user_id=self.user.id,
-            repository="posthog/posthog",
+            options=RunOptions(repositories=(Repository(name="posthog/posthog"),), mcp_scopes="full"),
             create_pr=False,
-            posthog_mcp_scopes="full",
         )
         assert created.latest_run is not None
         run = TaskRun.objects.get(id=created.latest_run.id)
@@ -1831,9 +1832,9 @@ class TestFacadeReadsAndMappers(TestCase):
             team=self.team,
             title="Created via facade",
             description="desc",
-            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            profile=USER,
             user_id=self.user.id,
-            repository="posthog/posthog",
+            options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             channel_id=channel_id,
         )
         task = Task.objects.select_related("channel").get(id=created.task_id)
@@ -2229,9 +2230,9 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 team=self.team,
                 title="Implementation: t",
                 description="d",
-                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=self.user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
         # The facade gate keeps its own stage: its main caller is the auto-start pipeline, whose
@@ -2250,9 +2251,9 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 team=self.team,
                 title="Research: t",
                 description="d",
-                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=self.user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
                 create_pr=False,
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
@@ -2275,9 +2276,9 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 team=self.team,
                 title="Implementation: t",
                 description="d",
-                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=self.user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
@@ -2292,9 +2293,9 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 team=self.team,
                 title="User task",
                 description="d",
-                origin_product=facade.TaskOriginProduct.USER_CREATED,
+                profile=USER,
                 user_id=self.user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
@@ -2753,9 +2754,9 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
                 team=self.team,
                 title="Implementation: t",
                 description="d",
-                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=self.user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
@@ -2768,7 +2769,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
                 team=self.team,
                 title="Implementation: t",
                 description="d",
-                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=self.user.id,
                 free_trial_enabled=False,
                 start_workflow=False,

@@ -105,6 +105,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     trial_capabilities,
 )
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
+from products.signals.backend.task_profiles import SCOUT
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     EvaluateScoutPrecheckOutput,
     RunSignalsScoutInput,
@@ -2209,7 +2210,7 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert captured["mcp_builtin_agent_key"] == "scout"
+    assert captured["profile"] == SCOUT
     assert captured.get("mcp_credential_owner_id") is None
     assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
 

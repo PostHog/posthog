@@ -31,6 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.task_profiles import IMPORTED, IMPORTED_INTERNAL
 from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
@@ -333,9 +334,9 @@ def _ensure_import_target(
         created = tasks_facade.create_imported_task(
             team.id,
             user.id,
+            profile=IMPORTED_INTERNAL if conversation.is_internal else IMPORTED,
             title=conversation.title or "(no title)",
             origin_key=origin_key,
-            internal=bool(conversation.is_internal),
             created_at=created_at,
         )
         task_id = created.id

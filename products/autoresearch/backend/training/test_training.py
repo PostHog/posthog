@@ -357,7 +357,7 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
         ]
     )
     def test_dispatch_grants_only_training_scopes_and_stamps_the_run(
-        self, facade: MagicMock, _name: str, flag_on: bool, expected_scopes: list[str]
+        self, facade: MagicMock, _name: str, flag_on: bool, expected_scopes: tuple[str, ...]
     ) -> None:
         self._dispatched(facade)
 
@@ -368,10 +368,10 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
         assert flag.call_args.args[0] == self.user
         kwargs = facade.create_and_run_task.call_args.kwargs
-        assert kwargs["posthog_mcp_scopes"] == expected_scopes
+        assert kwargs["options"].mcp_scopes == expected_scopes
         assert ("notebooks-create-markdown" in kwargs["description"]) is flag_on
         assert "No realized results yet" in kwargs["description"]
-        assert "user:read" in kwargs["posthog_mcp_scopes"]
+        assert "user:read" in kwargs["options"].mcp_scopes
         assert kwargs["extra_run_state"] == {
             "autoresearch_training_run_id": str(training_run.id),
             "config_snapshot": {"connectors": {"mcp_installation_ids": []}},

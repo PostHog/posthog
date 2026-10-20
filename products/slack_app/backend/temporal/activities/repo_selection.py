@@ -129,7 +129,7 @@ async def discover_posthog_code_repository_via_agent_activity(
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.api import post_quota_exhausted_denial
-    from products.tasks.backend.facade import api as tasks_facade
+    from products.slack_app.backend.task_profiles import REPO_SELECTION
     from products.tasks.backend.facade.repo_selection import (
         RepoSelectionRejectedError,
         RepoSelectionUnavailableError,
@@ -172,7 +172,7 @@ async def discover_posthog_code_repository_via_agent_activity(
                 team_id=integration.team_id,
                 user_id=user_id,
                 context=context_block,
-                origin_product=tasks_facade.TaskOriginProduct.SLACK,
+                profile=REPO_SELECTION,
                 # A person waits in the Slack thread for the answer.
                 priority=Priority.NORMAL,
                 on_research_session=_capture_research_session,

@@ -15,6 +15,7 @@ from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.facade.profiles import profile_for_task
 from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
@@ -614,11 +615,13 @@ def _refresh_sandbox_mcp(
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_from_state(state),
     )
+    profile = profile_for_task(task_run.task)
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=not task_run.task.internal,
+        include_personal=profile.personal_mcp,
+        mcp_store_servers=profile.mcp_store_servers,
         interaction_origin=(state or {}).get("interaction_origin"),
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from products.tasks.backend.facade.profiles import (
     AccessGate,
     DrivePolicy,
@@ -69,6 +71,10 @@ SCOUT = TaskProfile(
     oauth_app=OAuthApp.SIGNALS,
 )
 
+SCOUT_FIRST_REPORT = replace(
+    SCOUT, key="signals.scout_first_report", listed=False, inherit_user_defaults=False, personal_mcp=False
+)
+
 SCOUT_SUGGESTIONS = TaskProfile(
     key="signals.scout_suggestions",
     origin_product="scout_suggestions",
@@ -82,4 +88,14 @@ SCOUT_SUGGESTIONS = TaskProfile(
     github_resolution=GithubResolution.WITH_REPOSITORY,
 )
 
-PROFILES = (INBOX, IMPLEMENTATION, RESEARCH, CUSTOM_AGENT, REPO_SELECTION, CHAT, SCOUT, SCOUT_SUGGESTIONS)
+PROFILES = (
+    INBOX,
+    IMPLEMENTATION,
+    RESEARCH,
+    CUSTOM_AGENT,
+    REPO_SELECTION,
+    CHAT,
+    SCOUT,
+    SCOUT_FIRST_REPORT,
+    SCOUT_SUGGESTIONS,
+)

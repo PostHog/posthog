@@ -34,6 +34,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
+from products.tasks.backend.facade.profiles import profile_for_task
 from products.tasks.backend.logic.services.connection_token import (
     create_codex_subscription_run_token,
     create_sandbox_event_ingest_token,
@@ -430,7 +431,7 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
-    return not task.internal
+    return profile_for_task(task).personal_mcp
 
 
 def _start_protected_base_branch_lookup(
@@ -539,6 +540,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         team_id=ctx.team_id,
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
+        mcp_store_servers=profile_for_task(task).mcp_store_servers,
         interaction_origin=ctx.interaction_origin,
         slack_reply_context=ctx.slack_reply_context,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),

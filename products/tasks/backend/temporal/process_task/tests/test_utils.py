@@ -515,20 +515,17 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
-    @parameterized.expand([(None, True), ("account_audit", False)])
+    @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_builds_configs_from_facade_results(
-        self, origin_product: str | None, mounts_store: bool, mock_facade, mock_api_url
-    ) -> None:
+    def test_builds_configs_from_facade_results(self, mounts_store: bool, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
         mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product
+            self.TOKEN, self.TEAM_ID, self.USER_ID, mcp_store_servers=mounts_store
         ).configs
-
         if not mounts_store:
             assert configs == []
             return
@@ -1560,6 +1557,8 @@ def _gateway_ctx_task() -> tuple[MagicMock, MagicMock]:
     ctx.distinct_id = "distinct-1"
     ctx.sandbox_environment_id = None
     task = MagicMock()
+    task.origin_product = "signals_scout"
+    task.profile = None
     task.internal = False
     return ctx, task
 

@@ -31,6 +31,7 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.suggestions import find_suggestion
+from products.signals.backend.task_profiles import CHAT
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import usage_limit_response
 
@@ -311,9 +312,8 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             team=self.team,
             title=title,
             description=prompt,
-            origin_product=tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
+            profile=CHAT,
             user_id=request.user.id,
-            repository=None,
             create_pr=False,
             mode="interactive",
             pending_user_message=prompt,

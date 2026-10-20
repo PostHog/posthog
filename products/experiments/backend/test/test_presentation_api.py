@@ -70,6 +70,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.tasks.backend.facade.profiles import Repository
 
 from ee.api.test.base import APILicensedTest
 
@@ -6691,7 +6692,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
+        self.assertEqual(mock_create_task.call_args.kwargs["options"].repositories, (Repository(name="Acme/Web"),))
         self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     @patch("products.experiments.backend.experiment_service.report_user_action")

@@ -106,6 +106,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
@@ -136,6 +137,7 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import Repository, RunOptions
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -2707,9 +2709,9 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        profile=CLEANUP,
                         user_id=user_id,
-                        repository=repository,
+                        options=RunOptions(repositories=(Repository(name=repository),)),
                         create_pr=True,
                         interaction_origin="experiments",
                         ai_stage="implementation",

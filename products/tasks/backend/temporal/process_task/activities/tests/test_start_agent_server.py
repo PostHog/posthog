@@ -629,17 +629,19 @@ def _mock_github_integration(mocker, pr_base: str | None):
 
 
 @pytest.mark.parametrize(
-    "internal,expected",
+    "profile_key,expected",
     [
         # Internal/autonomous runs (support reply, signals) get shared team
         # connections only — never a resolved member's personal MCP creds.
-        (True, False),
+        ("conversations.support_reply", False),
+        ("signals.implementation", False),
         # User-initiated Code runs get shared + the creator's personal installs.
-        (False, True),
+        ("user", True),
+        ("slack", True),
     ],
 )
-def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
-    task = mocker.Mock(internal=internal)
+def test_include_personal_mcp_for_task(mocker, profile_key, expected) -> None:
+    task = mocker.Mock(profile=profile_key)
     assert _include_personal_mcp_for_task(task) is expected
 
 
@@ -1155,6 +1157,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         team_id=1,
         user_id=None,
         include_personal=False,
+        mcp_store_servers=True,
         interaction_origin=None,
         slack_reply_context=False,
         allowed_installation_ids=None,

@@ -21,6 +21,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
+from products.tasks.backend.facade.profiles import Repository, RunOptions, get_task_profile
 from products.tasks.backend.models import (
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
@@ -106,9 +107,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Create and Run",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         self.assertIsNotNone(task.id)
@@ -149,7 +150,7 @@ class TestTask(TestCase):
                         team=self.team,
                         title="Task creation capture",
                         description="Test description",
-                        origin_product=Task.OriginProduct.USER_CREATED,
+                        profile=get_task_profile("user"),
                         user_id=user.id,
                         start_workflow=False,
                         before_task_dispatch=before_dispatch,
@@ -183,7 +184,7 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Stream routing task",
                 description="Test description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
                 start_workflow=False,
                 extra_run_state=extra_state,
@@ -206,9 +207,11 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Multi-repo run",
                 description="Test Description",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                profile=get_task_profile("signals.scout"),
                 user_id=user.id,
-                repositories=["PostHog/PostHog", "posthog/posthog-js"],
+                options=RunOptions(
+                    repositories=(Repository(name="PostHog/PostHog"), Repository(name="posthog/posthog-js"))
+                ),
             )
 
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/posthog-js"])
@@ -230,7 +233,7 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Scout run",
                 description="repo-less run wanting gh evidence access",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=user.id,
                 github_read_access=True,
             )
@@ -256,7 +259,7 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Plain run",
                 description="no gh access requested",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=user.id,
             )
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
@@ -272,11 +275,13 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Slack Task",
                 description="Slack Description",
-                origin_product=Task.OriginProduct.SLACK,
+                profile=get_task_profile("slack"),
                 user_id=user.id,
-                repository="posthog/posthog",
-                runtime=Task.Runtime.PI,
-                initial_permission_mode="bypassPermissions",
+                options=RunOptions(
+                    runtime=Task.Runtime.PI,
+                    permission_mode="bypassPermissions",
+                    repositories=(Repository(name="posthog/posthog"),),
+                ),
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
@@ -287,13 +292,15 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("unknown", {"sandbox_template": "no_such_template"}),
-            ("vm", {"sandbox_template": "vm_base"}),
-            ("vm_via_extra_run_state", {"extra_run_state": {"sandbox_template": "vm_base"}}),
+            ("unknown", "no_such_template", None),
+            ("vm", "vm_base", None),
+            ("vm_via_extra_run_state", None, {"sandbox_template": "vm_base"}),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_rejects_a_template_a_caller_may_not_select(self, _name, kwargs, mock_execute_workflow):
+    def test_create_and_run_rejects_a_template_a_caller_may_not_select(
+        self, _name, sandbox_template, extra_run_state, mock_execute_workflow
+    ):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
@@ -302,10 +309,12 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Slack Task",
                 description="Slack Description",
-                origin_product=Task.OriginProduct.SLACK,
+                profile=get_task_profile("slack"),
                 user_id=user.id,
-                repository="posthog/posthog",
-                **kwargs,
+                options=RunOptions(
+                    sandbox_template=sandbox_template, repositories=(Repository(name="posthog/posthog"),)
+                ),
+                extra_run_state=extra_run_state,
             )
 
         mock_execute_workflow.assert_not_called()
@@ -321,10 +330,11 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Slack Task",
                 description="Slack Description",
-                origin_product=Task.OriginProduct.SLACK,
+                profile=get_task_profile("slack"),
                 user_id=user.id,
-                repository="posthog/posthog",
-                sandbox_template="autoresearch_base",
+                options=RunOptions(
+                    sandbox_template="autoresearch_base", repositories=(Repository(name="posthog/posthog"),)
+                ),
                 extra_run_state={"sandbox_template": None},
             )
 
@@ -333,16 +343,16 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_CHAT,),
-            (Task.OriginProduct.SIGNAL_REPORT,),
-            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
-            (Task.OriginProduct.AUTORESEARCH,),
-            (Task.OriginProduct.ACCOUNT_AUDIT,),
+            ("signals.chat",),
+            ("signals.inbox",),
+            ("signals.scout_suggestions",),
+            ("autoresearch.training",),
+            ("account_audit",),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_attaches_no_github_integration_to_a_repo_less_restricted_origin(
-        self, origin_product, mock_execute_workflow
+    def test_create_and_run_attaches_no_github_integration_to_a_repo_less_restricted_profile(
+        self, profile_key, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -352,7 +362,7 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Repo-less task",
                 description="No repository",
-                origin_product=origin_product,
+                profile=get_task_profile(profile_key),
                 user_id=user.id,
             )
 
@@ -369,10 +379,11 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Slack Task",
                 description="Slack Description",
-                origin_product=Task.OriginProduct.SLACK,
+                profile=get_task_profile("slack"),
                 user_id=user.id,
-                repository="posthog/posthog",
-                sandbox_template="autoresearch_base",
+                options=RunOptions(
+                    sandbox_template="autoresearch_base", repositories=(Repository(name="posthog/posthog"),)
+                ),
             )
         first_run = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
         self.assertEqual(first_run.state["sandbox_template"], "autoresearch_base")
@@ -401,9 +412,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Signal Task",
                 description="Signal Description",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
                 ai_stage="research",
                 ai_agent_name="signals-scout-errors",
             )
@@ -423,9 +434,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Plain Task",
                 description="Plain Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
@@ -519,9 +530,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Plain Task",
                 description="Plain Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
@@ -538,9 +549,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Task",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/posthog-js",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog-js"),)),
             )
 
         self.assertEqual(task.repository, "posthog/posthog-js")
@@ -557,9 +568,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Task",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="invalid-format",
+                options=RunOptions(repositories=(Repository(name="invalid-format"),)),
             )
 
         self.assertIn("Format for repository is organization/repo", str(cm.exception))
@@ -574,9 +585,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Task",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/hedgebox",
+                options=RunOptions(repositories=(Repository(name="posthog/hedgebox"),)),
             )
 
         self.assertEqual(task.repository, "posthog/hedgebox")
@@ -594,9 +605,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Task",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repositories=["posthog/hedgebox", "acme/private"],
+                options=RunOptions(repositories=(Repository(name="posthog/hedgebox"), Repository(name="acme/private"))),
             )
 
         mock_execute_workflow.assert_not_called()
@@ -610,9 +621,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Task",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         self.assertIn("does not have a GitHub integration", str(cm.exception))
@@ -628,9 +639,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Test Task",
                 description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         self.assertEqual(task.github_integration, integration)
@@ -662,9 +673,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Signal Report",
                 description="Research",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         self.assertIsNone(task.github_integration)
@@ -700,7 +711,7 @@ class TestTask(TestCase):
                 team=self.team,
                 title="PostHog AI",
                 description="Repo-less",
-                origin_product=Task.OriginProduct.POSTHOG_AI,
+                profile=get_task_profile("posthog_ai"),
                 user_id=user.id,
             )
 
@@ -719,9 +730,9 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Signal Report",
                 description="Research",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=get_task_profile("signals.inbox"),
                 user_id=user.id,
-                repository="posthog/posthog",
+                options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             )
 
         self.assertIn("does not have a GitHub integration", str(cm.exception))
@@ -822,39 +833,25 @@ class TestTask(TestCase):
         task.refresh_from_db()
         self.assertIsNotNone(task.id)
 
+    @parameterized.expand([("listed_profile", "user", False), ("unlisted_profile", "context_layer.dream", True)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_internal_defaults_to_false(self, mock_execute_workflow):
+    def test_create_and_run_marks_the_task_internal_from_its_profile(
+        self, _name, profile_key, expected_internal, mock_execute_workflow
+    ):
         user = User.objects.create(email="internal_default@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
         task = Task.create_and_run(
             team=self.team,
-            title="Non-internal Task",
+            title="Profile Task",
             description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
+            profile=get_task_profile(profile_key),
             user_id=user.id,
-            repository="posthog/posthog",
-        )
-
-        self.assertFalse(task.internal)
-
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_with_internal_true(self, mock_execute_workflow):
-        user = User.objects.create(email="internal_true@test.com")
-        Integration.objects.create(team=self.team, kind="github", config={})
-
-        task = Task.create_and_run(
-            team=self.team,
-            title="Internal Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-            internal=True,
+            options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
         )
 
         task.refresh_from_db()
-        self.assertTrue(task.internal)
+        self.assertEqual(task.internal, expected_internal)
 
 
 class TestTaskActivityClock(TestCase):

@@ -48,6 +48,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile, profile_for_origin, profile_for_task
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -111,6 +112,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    profile_key: str | None = None
     startup_requested_at: str | None = None
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
@@ -291,18 +293,15 @@ class TaskProcessingContext:
         value = (self.state or {}).get("wizard_config")
         return value if isinstance(value, dict) else None
 
+    @property
+    def task_profile(self) -> TaskProfile:
+        if self.profile_key:
+            return get_task_profile(self.profile_key)
+        return profile_for_origin(self.origin_product or Task.OriginProduct.USER_CREATED.value)
+
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
-        return resolve_inactivity_timeout(
-            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
-        )
-
-    def _is_user_origin(self) -> bool:
-        return not self.origin_product or self.origin_product in (
-            Task.OriginProduct.USER_CREATED.value,
-            Task.OriginProduct.IMAGE_BUILDER.value,
-            Task.OriginProduct.SPACE_SETUP.value,
-        )
+        return resolve_inactivity_timeout(idle_minutes=self.task_profile.idle_minutes, state=self.state)
 
     def max_run_duration(self) -> timedelta | None:
         """Hard wall-clock cap on total run time, or None when the run is exempt.
@@ -314,7 +313,7 @@ class TaskProcessingContext:
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
         the cap as a safety net unless the setting disables it deployment-wide.
         """
-        if self.mode == "interactive" or self._is_user_origin():
+        if self.mode == "interactive" or self.task_profile.max_wake_minutes is None:
             if self.interactive_max_run_duration_seconds:
                 return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
@@ -1278,6 +1277,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        profile_key=profile_for_task(task).key if task.profile else None,
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,

@@ -76,6 +76,7 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.signal_metadata import SignalSourceReference
+from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.skills.backend.models.skills import LLMSkill
@@ -723,12 +724,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     assert second is False
     assert mock_create.call_count == 1
     call_kwargs = mock_create.call_args.kwargs
-    assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+    assert call_kwargs["profile"] == IMPLEMENTATION
     assert call_kwargs["ai_stage"] == "implementation"
-    assert call_kwargs["internal"] is True
     # The description's memory protocol is rendered from this same posture, so a posture that stops
     # granting the scratchpad would leave the run told to remember with no tool to remember with.
-    assert grants_scratchpad_write(call_kwargs["posthog_mcp_scopes"])
+    assert grants_scratchpad_write(call_kwargs["options"].mcp_scopes)
     # The server-generated head branch is the unforgeable end of the run->PR link the review
     # carve-out matches on; dropping the stamp or the description instruction silently kills
     # self-driving reviews (the agent pushes to a name the server never stamped).
@@ -852,9 +852,8 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
         _create_implementation_task_if_absent(**kwargs)
 
     call_kwargs = mock_create.call_args.kwargs
-    assert call_kwargs["runtime_adapter"] == "codex"
-    assert call_kwargs["model"] == "gpt-5.6-terra"
-    assert call_kwargs["reasoning_effort"] == "medium"
+    options = call_kwargs["options"]
+    assert (options.adapter, options.model, options.reasoning_effort) == ("codex", "gpt-5.6-terra", "medium")
 
 
 @pytest.mark.asyncio

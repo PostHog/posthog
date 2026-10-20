@@ -25,6 +25,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import rank_assignee_candidates
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_team
+from products.signals.backend.task_profiles import CUSTOM_AGENT
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -680,9 +681,8 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 prompt=prompt,
                 context=context,
                 step_name=label,
-                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=CUSTOM_AGENT,
                 ai_stage=STEP_CUSTOM_AGENT,
-                internal=True,
             )
             self._session = session
             return raw_text

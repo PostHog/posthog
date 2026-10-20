@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -6,18 +8,13 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 
+from products.tasks.backend.facade.profiles import WarmPolicy, get_task_profile
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import Task, TaskRun
 
 WARM = "products.tasks.backend.logic.services.warm"
-_CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
-
-
-def test_code_cloud_warm_pool_caps():
-    caps = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.USER_CREATED]
-
-    assert caps.per_user == 10
-    assert caps.per_org == 100
+_PROFILE = get_task_profile("posthog_ai")
+_CAPS = cast(WarmPolicy, _PROFILE.warm)
 
 
 class TestSandboxWarmerWarm(APIBaseTest):
@@ -57,7 +54,7 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert kwargs["create_pr"] is False
         assert kwargs["posthog_mcp_scopes"] == "full"
 
-    @parameterized.expand([("empty_pool", 0), ("full_pool", _CAPS.per_user)])
+    @parameterized.expand([("empty_pool", 0), ("full_pool", _CAPS.per_user_cap)])
     def test_idempotent_when_non_terminal_run_exists(self, _name, other_warm_runs):
         task = self._task()
         existing = task.create_run(mode="interactive", extra_state={"await_user_message": True})
@@ -167,14 +164,13 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert task.runs.count() == 0
 
     def test_unregistered_origin_product_is_rejected(self):
-        # Fail-closed: only origin products with a registered quota gate may warm.
         task = self._task(origin=Task.OriginProduct.ERROR_TRACKING)
         with self.assertRaises(PermissionDenied):
             SandboxWarmer(task, user=self.user).warm()
         assert task.runs.count() == 0
 
     def test_over_cap_raises_throttled(self):
-        for _ in range(_CAPS.per_user):
+        for _ in range(_CAPS.per_user_cap):
             self._warm_run_on_new_task()
 
         task = self._task()
@@ -206,28 +202,26 @@ class TestSandboxWarmerAtCapacity(APIBaseTest):
         return run
 
     def test_counts_only_warm_non_terminal_runs(self):
-        origin = Task.OriginProduct.POSTHOG_AI
 
         # Terminal warm runs drop from the count via the status filter.
-        for _ in range(_CAPS.per_user):
+        for _ in range(_CAPS.per_user_cap):
             self._warm_run_on_new_task(status=TaskRun.Status.CANCELLED)
-        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is False
+        assert SandboxWarmer.at_capacity(_PROFILE, self.team, self.user) is False
 
         # Activated (await_user_message cleared) non-terminal runs drop via the state filter.
-        for _ in range(_CAPS.per_user):
+        for _ in range(_CAPS.per_user_cap):
             self._warm_run_on_new_task(warm=False)
-        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is False
+        assert SandboxWarmer.at_capacity(_PROFILE, self.team, self.user) is False
 
         # Genuine warm runs do count.
-        for _ in range(_CAPS.per_user):
+        for _ in range(_CAPS.per_user_cap):
             self._warm_run_on_new_task()
-        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is True
+        assert SandboxWarmer.at_capacity(_PROFILE, self.team, self.user) is True
 
     def test_per_org_cap_counts_across_users(self):
-        origin = Task.OriginProduct.POSTHOG_AI
         other = self._create_user("warmer@posthog.com")
-        for _ in range(_CAPS.per_org):
+        for _ in range(_CAPS.per_org_cap):
             self._warm_run_on_new_task(created_by=other)
 
         # The requesting user holds no warm runs, but the org cap is full.
-        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is True
+        assert SandboxWarmer.at_capacity(_PROFILE, self.team, self.user) is True

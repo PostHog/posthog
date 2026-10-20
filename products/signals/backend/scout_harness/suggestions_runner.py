@@ -40,6 +40,7 @@ from products.signals.backend.scout_harness.suggestions import (
     mark_generation_failed,
     persist_suggestion_batch,
 )
+from products.signals.backend.task_profiles import SCOUT_SUGGESTIONS
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -245,12 +246,10 @@ async def arun_scout_suggestions(
             context=context,
             model=ScoutSuggestionBatch,
             step_name="scout_suggestions",
-            origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             # Not a user's task: hidden from the task tracker and never mounts personal MCP grants.
-            internal=True,
+            profile=SCOUT_SUGGESTIONS,
             # Runs as the Scout agent with an empty server allowlist, so nothing from the MCP Store
             # is mounted; the scan needs only the PostHog MCP.
-            mcp_builtin_agent_key="scout",
             mcp_gateway_server_ids=[],
             ai_stage=SUGGESTIONS_AI_STAGE,
             max_poll_seconds=settings.max_runtime_s,

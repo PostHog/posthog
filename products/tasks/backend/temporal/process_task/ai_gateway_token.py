@@ -22,6 +22,7 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.security.outbound_proxy import internal_requests
 
 from products.tasks.backend.exceptions import GatewayTokenUnavailableError, ProcessTaskTransientError
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
     PRODUCT_CREDIT_BUCKET,
@@ -52,23 +53,6 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
     "Scoped-token mint attempts for gateway-routed sandbox runs",
     labelnames=["result"],
 )
-
-# Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
-_ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
-    "loop": "posthog_code",
-    "metrics_import": "posthog_ai",
-    "onboarding": "onboarding",
-    "account_audit": "account_audit",
-    "posthog_ai": "posthog_ai",
-    "review_hog": "review_hog",
-    "scout_suggestions": "signals",
-    "signal_report": "signals",
-    "signals_chat": "signals",
-    "signals_scout": "signals",
-    "slack": "slack_app",
-    "support_reply": "conversations",
-    "workflow": "workflows",
-}
 
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
 _SIGNALS_STAGE_PRODUCTS = frozenset(
@@ -129,19 +113,9 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
+def resolve_sandbox_ai_product(profile: TaskProfile, ai_stage: str | None) -> str:
     """The `ai_product` the agent server will resolve for this run."""
-    gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
-    # Stored rows may carry a caller-set review_hog origin predating its
-    # reservation; only the server-stamped `internal` flag admits the mintable product.
-    if gateway_product == "review_hog" and not internal:
-        logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
-        return "posthog_code"
-    if origin_product == "account_audit" and not internal:
-        logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
-        return "posthog_code"
-    if gateway_product is None:
-        gateway_product = "background_agents" if internal else "posthog_code"
+    gateway_product = profile.billing_product
     if gateway_product == "signals" and ai_stage:
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:
@@ -166,7 +140,7 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
 
 def is_slack_origin(origin_product: str | None) -> bool:
     """Whether this origin is the reserved one the Slack app's server flows set."""
-    return _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "") == "slack_app"
+    return origin_product == "slack"
 
 
 def has_slack_provenance(

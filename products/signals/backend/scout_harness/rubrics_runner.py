@@ -33,6 +33,7 @@ from products.signals.backend.scout_harness.rubrics import (
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, resolve_report_channel_variant
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY
+from products.signals.backend.task_profiles import SCOUT_SUGGESTIONS
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -459,9 +460,7 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
                 context=context,
                 step_name="scout_rubrics",
                 # Reuse the suggestions origin's inference routing for this internal session.
-                origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-                internal=True,
-                mcp_builtin_agent_key="scout",
+                profile=SCOUT_SUGGESTIONS,
                 mcp_gateway_server_ids=[],
                 ai_stage="scout_suggestions",
                 on_task_run_created=link_task,

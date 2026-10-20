@@ -136,6 +136,7 @@ class TestRefreshSandboxMcp:
             team_id=7,
             user_id=42,
             include_personal=False,
+            mcp_store_servers=True,
             interaction_origin=None,
             slack_reply_context=False,
             allowed_installation_ids=None,

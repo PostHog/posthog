@@ -47,8 +47,8 @@ _MODAL_TEXT_BLOCK_ID = "feedback_text"
 _MODAL_TEXT_ACTION_ID = "text"
 
 # What the run's own generations are already tagged with, so a rating joins them: a
-# Slack-origin run resolves to this gateway product (`_ORIGIN_TO_GATEWAY_PRODUCT` in
-# `products/tasks/backend/temporal/process_task/ai_gateway_token.py`) and the gateway
+# Slack-origin run resolves to this gateway product (the `slack` task profile's `billing_product`
+# in `products/slack_app/backend/task_profiles.py`) and the gateway
 # stamps it onto every `$ai_generation`. The other clients make the same match — desktop
 # sends `posthog_code`, web sends `posthog_ai` — which is what puts all PostHog AI
 # feedback on one metric, split by this property.

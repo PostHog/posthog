@@ -46,6 +46,7 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.task_profiles import TRAINING
 from products.autoresearch.backend.training.agent_model import agent_run_config_for
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.autoresearch.backend.training.realized_context import (
@@ -58,6 +59,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
 )
+from products.tasks.backend.facade.profiles import RunOptions
 from products.tasks.backend.facade.sandbox import SandboxTemplate
 
 logger = structlog.get_logger(__name__)
@@ -87,12 +89,12 @@ MAX_PENDING_SUGGESTIONS = 10
 # the autoresearch tools. The PostHog MCP server reads /api/users/@me/ to start a session,
 # so without user:read it refuses the connection and the agent gets none of those tools.
 # The brief carries user-authored text, so the token grants nothing beyond that.
-TRAINING_MCP_SCOPES = ["query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write"]
+TRAINING_MCP_SCOPES = ("query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write")
 
 # Added only when the report notebook flag is on for the user who starts the run.
 # notebook:write also exposes notebooks-partial-update and notebooks-destroy, so the brief
 # limits the agent to the notebook it creates in this run.
-REPORT_NOTEBOOK_MCP_SCOPES = ["notebook:read", "notebook:write"]
+REPORT_NOTEBOOK_MCP_SCOPES = ("notebook:read", "notebook:write")
 
 # Task.title is a 255-character column, and a pipeline name and target event can each
 # take all of it.
@@ -1016,23 +1018,23 @@ def run_training(
             team=pipeline.team,
             title=title[:_TASK_TITLE_MAX_CHARS],
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.AUTORESEARCH,
+            profile=TRAINING,
             user_id=user_id,
-            repository=None,
+            options=RunOptions(
+                # Internal tasks skip team and user run preferences, so without these the run would
+                # take whatever the Tasks default is.
+                adapter=agent_config.runtime_adapter,
+                model=agent_config.model,
+                reasoning_effort=agent_config.reasoning_effort,
+                mcp_scopes=mcp_scopes,
+                # The autoresearch image is the agent-capable base plus pandas/numpy/
+                # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the
+                # notebook image has the libs but cannot host the agent server — only this
+                # image has both, which the agent's training loop needs.
+                sandbox_template=SandboxTemplate.AUTORESEARCH_BASE.value,
+            ),
             create_pr=False,
             mode="background",
-            internal=True,
-            # Internal tasks skip team and user run preferences, so without these the run would
-            # take whatever the Tasks default is.
-            runtime_adapter=agent_config.runtime_adapter,
-            model=agent_config.model,
-            reasoning_effort=agent_config.reasoning_effort,
-            posthog_mcp_scopes=mcp_scopes,
-            # The autoresearch image is the agent-capable base plus pandas/numpy/
-            # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the
-            # notebook image has the libs but cannot host the agent server — only this
-            # image has both, which the agent's training loop needs.
-            sandbox_template=SandboxTemplate.AUTORESEARCH_BASE.value,
             extra_run_state={
                 # Written with the run, so the completion handler can find the training run
                 # of a TaskRun that ends before this function returns.

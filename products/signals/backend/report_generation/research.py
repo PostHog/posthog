@@ -55,6 +55,7 @@ from products.signals.backend.report_metrics import (
     ReportMetric,
 )
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
+from products.signals.backend.task_profiles import RESEARCH
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
@@ -1616,7 +1617,6 @@ async def run_multi_turn_research(
     Only server-verified automatic implementations are candidates for replacement.
     """
     own_pr_url = "\n".join(target.pr_url for target in implementation_context.candidates) or None
-    from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.agents import MultiTurnSession, turn_failure_error_type
 
     total = len(signals)
@@ -1659,10 +1659,9 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
-        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        profile=RESEARCH,
         signal_report_id=signal_report_id,
         ai_stage=AI_STAGE_RESEARCH,
-        internal=True,
         analytics_query_context=(
             [
                 check.get("stored_query") or check.get("config", {}).get("query")

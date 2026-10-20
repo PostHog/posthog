@@ -112,6 +112,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.profiles import TaskProfile, profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
     RunSource,
@@ -315,20 +316,6 @@ def _agent_run_rate_limited_response(code: str, detail: str) -> Response:
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
 
-
-TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
-
-WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
-    tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
-}
-
-# Origins that warm for every user, with no flag left to evaluate.
-WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
-    {
-        tasks_facade.TaskOriginProduct.POSTHOG_AI,
-        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
-    }
-)
 
 # Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
 # matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
@@ -1704,17 +1691,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_agent_run_starts.AGENT_PARENT_RUN_ID_STATE_KEY: str(starter.parent_run_id),
         }
 
-    def _warm_enabled(self, origin_product: str) -> bool:
+    def _warm_enabled(self, profile: TaskProfile) -> bool:
         """Person + org level gate for the sandbox-warming feature. Fail-closed on any error.
 
-        An origin in neither the ungated set nor the flag map cannot warm, which keeps the endpoint
-        fail-closed for products that never opted in.
+        A profile with no warm policy cannot warm, which keeps the endpoint fail-closed for products
+        that never opted in. A warm policy with no flag warms for every user.
         """
-        if origin_product in WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS:
-            return True
-        flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
-        if flag is None:
+        if profile.warm is None:
             return False
+        flag = profile.warm.feature_flag
+        if flag is None:
+            return True
         user = self.request.user
         distinct_id = getattr(user, "distinct_id", None) or str(getattr(user, "uuid", ""))
         organization_id = str(getattr(self.team, "organization_id", "") or "")
@@ -1767,7 +1754,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_sandbox_origin_request(request):
             return _sandbox_run_disabled_response()
         origin_product = request.validated_data["origin_product"]
-        if not self._warm_enabled(origin_product):
+        profile = profile_for_origin(origin_product)
+        if not self._warm_enabled(profile):
             return Response(status=status.HTTP_200_OK)
 
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
@@ -1806,7 +1794,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
             client_provenance=get_task_client_provenance(request),
-            origin_product=request.validated_data["origin_product"],
+            profile=profile,
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
             signal_report_id=signal_report.id if signal_report is not None else None,
             code_access_allowed=code_access_allowed,
@@ -1855,7 +1843,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run_id=str(request.validated_data["resume_from_run_id"]),
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
-        if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
+        if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(
+            profile_for_origin(gate.origin_product)
+        ):
             return Response(status=status.HTTP_200_OK)
         if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=pk)

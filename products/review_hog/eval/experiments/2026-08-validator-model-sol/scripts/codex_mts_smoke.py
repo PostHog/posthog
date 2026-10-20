@@ -23,8 +23,8 @@ django.setup()
 from pydantic import BaseModel  # noqa: E402
 
 from products.review_hog.backend.reviewer.constants import REVIEW_MCP_SCOPES  # noqa: E402
+from products.review_hog.backend.task_profiles import REVIEW  # noqa: E402
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession  # noqa: E402
-from products.tasks.backend.facade.api import TaskOriginProduct  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -116,8 +116,7 @@ async def main() -> int:
         model=Turn1,
         step_name="codex-mts-smoke",
         output_fn=out,
-        origin_product=TaskOriginProduct.REVIEW_HOG,
-        internal=True,
+        profile=REVIEW,
         ai_stage="codex-mts-smoke",
     )
     print(f"task={session.task.id} run={session.task_run.id} log_url={session.task_run.log_url}", flush=True)

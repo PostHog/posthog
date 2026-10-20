@@ -186,6 +186,7 @@ LEGACY_PROFILE_KEYS: dict[tuple[str, bool], str] = {
     ("signal_report", True): "signals.implementation",
     ("signals_chat", False): "signals.chat",
     ("signals_scout", False): "signals.scout",
+    ("signals_scout", True): "signals.scout_first_report",
     ("scout_suggestions", True): "signals.scout_suggestions",
     ("metrics_import", True): "metrics.dashboard_import",
     ("autoresearch", True): "autoresearch.training",

@@ -137,7 +137,7 @@ class TestOnboardingSessionIdempotency(TestCase):
         def succeed(**kwargs):
             self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
-            self.assertEqual(kwargs["model"], expected_model)
+            self.assertEqual(kwargs["options"].model, expected_model)
             self.assertTrue(kwargs["title_manually_set"])
             self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
             self.assertIn("use `docs-search` before answering", kwargs["description"])
@@ -145,11 +145,11 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertIn("info channel-instructions-retrieve", kwargs["description"])
             self.assertIn("call channel-instructions-retrieve", kwargs["description"])
             self.assertIn("info channel-instructions-update", kwargs["description"])
-            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write", "inbox:write"})
+            self.assertEqual(set(kwargs["options"].mcp_scopes), {*MCP_READ_SCOPES, "task:write", "inbox:write"})
             self.assertFalse(
                 any(
                     scope.endswith(":write") and scope not in {"task:write", "inbox:write"}
-                    for scope in kwargs["posthog_mcp_scopes"]
+                    for scope in kwargs["options"].mcp_scopes
                 )
             )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
@@ -185,8 +185,8 @@ class TestOnboardingSessionIdempotency(TestCase):
             )
 
         self.assertEqual(started, task_id)
-        self.assertEqual(create.call_args.kwargs["model"], model)
-        self.assertEqual(create.call_args.kwargs["runtime_adapter"], runtime_adapter)
+        self.assertEqual(create.call_args.kwargs["options"].model, model)
+        self.assertEqual(create.call_args.kwargs["options"].adapter, runtime_adapter)
 
     def test_seeding_the_tour_failing_does_not_block_the_session(self) -> None:
         task_id = uuid4()

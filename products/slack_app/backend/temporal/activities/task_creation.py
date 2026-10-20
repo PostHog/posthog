@@ -604,7 +604,9 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.slack_app.backend.task_profiles import SLACK
     from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.profiles import Repository, RunOptions
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
     integration = Integration.objects.select_related("team", "team__organization").get(
@@ -771,19 +773,21 @@ def create_posthog_code_task_for_repo_activity(
             team=integration.team,
             title=title,
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SLACK,
+            profile=SLACK,
             user_id=user_id,
-            repository=repository,
+            options=RunOptions(
+                repositories=(Repository(name=repository),) if repository else (),
+                adapter=run_prefs.runtime_adapter,
+                model=run_prefs.model,
+                reasoning_effort=run_prefs.reasoning_effort,
+                permission_mode="bypassPermissions",
+                mcp_scopes="full",
+            ),
             create_pr=allow_pr_creation,
             mode="interactive",
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
-            posthog_mcp_scopes="full",
-            initial_permission_mode="bypassPermissions",
-            runtime_adapter=run_prefs.runtime_adapter,
-            model=run_prefs.model,
-            reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
             extra_run_state=own_plan_state,
         )

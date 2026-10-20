@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.egress.limiter.policies import Priority
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.repo_selection.agent import (
     PINNED_REPOSITORY_REASON,
     RepoSelectionUsageLimitError,
@@ -16,7 +17,6 @@ from products.tasks.backend.logic.repo_selection.agent import (
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task
 
 _AGENT = "products.tasks.backend.logic.repo_selection.agent"
 
@@ -114,7 +114,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack.repo_selection"),
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -202,7 +202,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack.repo_selection"),
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -233,7 +233,7 @@ def test_select_repository_reports_a_usage_limit_refusal() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack.repo_selection"),
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -259,7 +259,7 @@ def test_pinned_repository_answers_without_running_the_agent(pinned: str, expect
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack.repo_selection"),
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -287,7 +287,7 @@ def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack.repo_selection"),
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a"],

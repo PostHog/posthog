@@ -8,11 +8,10 @@ one implementation rather than reimplementing provisioning, quota, and idempoten
 
 The trigger (when to warm) and Task ownership (birth + linking to the product's own
 entity) stay per-product: ``SandboxWarmer`` operates on an *existing* Task behind the
-warming facade. The registries below are fail-closed, so a product must opt in with a
-quota gate before it can warm.
+warming facade. Warming is fail-closed, so a task profile must declare a warm policy
+before its tasks can warm.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -26,6 +25,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.facade.profiles import TaskProfile, WarmQuota, profile_for_task
 from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from products.tasks.backend.models import Task, TaskRun
@@ -75,23 +75,6 @@ class SandboxWarmer:
     # A warm Run is non-terminal and idling; these are the statuses it can hold before activation.
     _NON_TERMINAL_STATUSES: frozenset[str] = frozenset({TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS})
 
-    # Maps an origin product to its pre-warm quota gate. A checker returns None or raises a DRF
-    # APIException (the in-process caller can't return an HTTP Response, so the contract is exception-
-    # based and DRF renders the status from any depth). ``None`` means the origin may warm with no
-    # billing quota — gated only by enablement + the warm-pool caps (e.g. USER_CREATED, the Code-app
-    # origin: gated by the ``tasks-prewarm-sandbox`` flag at the endpoint, not an AI-credit budget).
-    # Fail-closed: an origin absent from this registry cannot warm at all.
-    ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None] | None] = {
-        Task.OriginProduct.POSTHOG_AI: _ai_credits_checker,
-        Task.OriginProduct.USER_CREATED: None,
-        Task.OriginProduct.SIGNAL_REPORT: _ai_credits_checker,
-    }
-
-    ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
-        Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
-        Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=10, per_org=100),
-        Task.OriginProduct.SIGNAL_REPORT: WarmPoolCaps(per_user=10, per_org=100),
-    }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
 
     def __init__(self, task: "Task", *, user: User) -> None:
@@ -99,22 +82,23 @@ class SandboxWarmer:
         self.user = user
 
     @classmethod
-    def enforce_quota(cls, origin_product: str, team: Team, user: User) -> None:
-        """Raise if ``team`` may not warm a Run for ``origin_product`` (over quota, or origin not registered).
+    def enforce_quota(cls, profile: TaskProfile, team: Team, user: User) -> None:
+        """Raise if ``team`` may not warm a Run for ``profile`` (over quota, or the profile cannot warm).
 
-        Fail-closed: an origin absent from the registry is denied. A registered origin whose gate is
-        ``None`` is allowed with no billing quota (enablement + caps gate it elsewhere).
+        Fail-closed: a profile without a warm policy is denied. A policy with no quota is allowed with
+        no billing quota (enablement + caps gate it elsewhere). A checker raises a DRF APIException
+        (the in-process caller can't return an HTTP Response, so the contract is exception-based and
+        DRF renders the status from any depth).
         """
-        if origin_product not in cls.ORIGIN_PRODUCT_QUOTA:
-            raise PermissionDenied(f"Warming is not enabled for origin product '{origin_product}'.")
+        if profile.warm is None:
+            raise PermissionDenied(f"Warming is not enabled for origin product '{profile.origin_product}'.")
         if organization_deactivated(team.id):
             raise PermissionDenied("Your organization has been deactivated.")
-        checker = cls.ORIGIN_PRODUCT_QUOTA[origin_product]
-        if checker is not None:
-            checker(team, user)
+        if profile.warm.quota == WarmQuota.AI_CREDITS:
+            _ai_credits_checker(team, user)
 
     @classmethod
-    def at_capacity(cls, origin_product: str, team: Team, user: User) -> bool:
+    def at_capacity(cls, profile: TaskProfile, team: Team, user: User) -> bool:
         """True if the user or org already holds the max concurrent *warm* Runs.
 
         Counts only Runs still awaiting their first message (``state.await_user_message`` set) — so the
@@ -124,11 +108,15 @@ class SandboxWarmer:
         serialized by the per-Task lock, so it may overshoot slightly under heavy concurrency — acceptable
         for a best-effort resource guard.
         """
-        caps = cls.ORIGIN_PRODUCT_CAPS.get(origin_product, cls._DEFAULT_CAPS)
+        caps = (
+            WarmPoolCaps(per_user=profile.warm.per_user_cap, per_org=profile.warm.per_org_cap)
+            if profile.warm is not None
+            else cls._DEFAULT_CAPS
+        )
         # `await_user_message` is stored literally (the field is alias-free in PostHogAIRunState); see the
         # comment there before adding an alias, which would silently break this filter and open the cap.
         warm_runs = TaskRun.objects.filter(
-            task__origin_product=origin_product,
+            task__origin_product=profile.origin_product,
             status__in=cls._NON_TERMINAL_STATUSES,
             state__await_user_message=True,
         ).exclude(task__deleted=True)
@@ -160,10 +148,10 @@ class SandboxWarmer:
         (429) when the warm pool is full.
         """
         # Quota is a gateway/cache call — check it before taking the row lock, never while holding it.
-        origin_product = self.task.origin_product
+        profile = profile_for_task(self.task)
         team = self.task.team
-        self.enforce_quota(origin_product, team, self.user)
-        pool_full = self.at_capacity(origin_product, team, self.user)
+        self.enforce_quota(profile, team, self.user)
+        pool_full = self.at_capacity(profile, team, self.user)
 
         new_run: TaskRun
         with transaction.atomic():

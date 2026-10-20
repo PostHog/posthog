@@ -28,6 +28,7 @@ from products.tasks.backend.facade.api import (
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
 )
+from products.tasks.backend.facade.profiles import RunOptions, get_task_profile
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
@@ -525,12 +526,12 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Deferred start",
             description="Created without starting the workflow",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack"),
             user_id=creator_id,
+            options=RunOptions(mcp_scopes="full"),
             create_pr=False,
             mode="interactive",
             start_workflow=False,
-            posthog_mcp_scopes="full",
         )
 
         assert created.latest_run is not None
@@ -549,13 +550,11 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Scheduled follow-up",
             description="Review the report after more data arrives",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=get_task_profile("signals.inbox"),
             user_id=creator_id,
+            options=RunOptions(adapter="codex", model="gpt-5.6-terra", reasoning_effort="high"),
             create_pr=False,
             scheduled_at=scheduled_at,
-            runtime_adapter="codex",
-            model="gpt-5.6-terra",
-            reasoning_effort="high",
             pending_user_message="Revisit the report",
         )
 

@@ -5,6 +5,7 @@ from django.test import override_settings
 
 from posthog.models import Organization, Team, User
 
+from products.tasks.backend.facade.profiles import profile_for_origin
 from products.tasks.backend.logic.services.compute_quota import (
     ComputeQuotaDenialReason,
     get_compute_quota_denial_reason,
@@ -102,4 +103,6 @@ class TestComputeQuota:
         assert is_task_billable_compute(self.task(origin_product=origin, client_provenance=provenance))
 
     def test_unknown_origin_is_ineligible(self):
-        assert not is_billable_compute(origin_product=None, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        assert not is_billable_compute(
+            profile=profile_for_origin(None), client_provenance=TaskClientProvenance.POSTHOG_DESKTOP
+        )

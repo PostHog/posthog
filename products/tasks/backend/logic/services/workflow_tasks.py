@@ -28,6 +28,7 @@ from products.slack_app.backend.facade.api import slack_artifact_delivery_state_
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.profiles import Repository, RunOptions
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 from products.tasks.backend.logic.services.run_actor import (
@@ -42,6 +43,7 @@ from products.tasks.backend.logic.services.workflow_task_skills import (
 )
 from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.task_profiles import WORKFLOW
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
 from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget
@@ -374,21 +376,23 @@ def create_workflow_task(
                 team=team,
                 title=(title or "").strip() or prompt[:255],
                 description=prompt,
-                origin_product=Task.OriginProduct.WORKFLOW,
+                profile=WORKFLOW,
                 user_id=owner_id,
                 channel=channel,
-                repository=repository,
+                options=RunOptions(
+                    adapter=runtime_adapter_for(model),
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    repositories=(Repository(name=repository),) if repository else (),
+                    output_schema=output_schema,
+                    mcp_scopes=posthog_mcp_scopes,
+                ),
                 mode="background",
                 # A task with no repository has nothing to open a PR from.
                 create_pr=bool(repository),
-                posthog_mcp_scopes=posthog_mcp_scopes,
                 hog_flow_id=hog_flow_id,
                 origin_key=origin_key,
-                output_schema=output_schema,
                 extra_run_state=extra_run_state,
-                runtime_adapter=runtime_adapter_for(model),
-                model=model,
-                reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
                 interaction_origin=interaction_origin,
                 # The run mounts MCP servers as the workflow agent, like a scout does. No
@@ -396,7 +400,6 @@ def create_workflow_task(
                 # its runs reach only the connections members shared with the whole project,
                 # never the creator's personal ones, and the selection means the same thing
                 # no matter who saved it.
-                mcp_builtin_agent_key="workflow",
                 mcp_credential_owner_id=None,
                 mcp_gateway_server_ids=gateway_server_ids,
             )

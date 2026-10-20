@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
@@ -52,6 +52,7 @@ from products.tasks.backend.dev_stack_image_models import (
     DevStackImageTarget as DevStackImageTarget,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.facade.profiles import GithubResolution, RunOptions, TaskProfile, profile_for_task
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
@@ -98,12 +99,13 @@ PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 # gateway product. Keyed by origin value.
 INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
 
-MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
-    "support_reply": "support",
-    "signals_scout": "scout",
-    "scout_suggestions": "scout",
-    "workflow": "workflow",
-}
+
+def task_source_fields(*, signal_report_id: str | None, hog_flow_id: uuid.UUID | None) -> dict[str, str]:
+    if signal_report_id:
+        return {"source_kind": "signal_report", "source_id": str(signal_report_id)}
+    if hog_flow_id:
+        return {"source_kind": "hog_flow", "source_id": str(hog_flow_id)}
+    return {}
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -442,6 +444,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
+    profile = models.CharField(max_length=64, null=True, blank=True)
+    source_kind = models.CharField(max_length=32, null=True, blank=True)
+    source_id = models.CharField(max_length=64, null=True, blank=True)
+    idempotency_key = models.CharField(max_length=128, null=True, blank=True)
     client_provenance = models.CharField(
         max_length=32,
         choices=task_client_provenance_choices,
@@ -621,7 +627,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
-        expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
+        expected_key = cast(MCPBuiltInAgentKey | None, profile_for_task(self).mcp_agent)
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
         return expected_key if marker == expected_key else None
 
@@ -772,7 +778,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         explicitly set `reasoning_effort` survives injection; the default triple's effort
         only fills a gap.
         """
-        if self.internal or self.runtime == Task.Runtime.PI:
+        if not profile_for_task(self).inherit_user_defaults or self.runtime == Task.Runtime.PI:
             return
 
         from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — breaks the circular import with ai_run_defaults, which imports this module
@@ -1154,7 +1160,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: "Task.OriginProduct",
+        profile: "TaskProfile",
         user_id: int,
         title_manually_set: bool = False,
         repository: str | None = None,
@@ -1169,7 +1175,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         runtime: str = "acp",
@@ -1189,7 +1194,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
@@ -1222,7 +1226,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             parse_requested_sandbox_template(sandbox_template) if sandbox_template is not None else None
         )
         from products.tasks.backend.temporal.process_task.utils import (
-            USER_AUTHORABLE_ORIGIN_PRODUCTS,
             PrAuthorshipMode,
             RunSource,
             apply_runtime_adapter_run_state,
@@ -1230,19 +1233,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
+        origin_product = profile.origin_product
         # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
         # credential. Provisioning injects any attached integration; these runs read member-authored
         # text, so an attached token turns planted text into repository access.
-        github_resolution_allowed = origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
-            bool(repository)
-            or origin_product
-            not in (
-                Task.OriginProduct.SIGNALS_CHAT,
-                Task.OriginProduct.SIGNAL_REPORT,
-                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-                Task.OriginProduct.AUTORESEARCH,
-                Task.OriginProduct.METRICS_IMPORT,
-            )
+        github_resolution_allowed = profile.github_resolution != GithubResolution.NEVER and (
+            bool(repository) or profile.github_resolution == GithubResolution.ALWAYS
         )
         github_integration = None
         if github_resolution_allowed:
@@ -1262,9 +1258,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             github_integration=github_integration,
             runtime=runtime,
         )
-        authorship_mode = (
-            PrAuthorshipMode.USER if origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
-        )
+        authorship_mode = PrAuthorshipMode.USER if profile.user_authorable_prs else PrAuthorshipMode.BOT
         if not github_resolution_allowed:
             pass
         elif authorship_mode == PrAuthorshipMode.USER:
@@ -1303,13 +1297,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
-        expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
-        if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
-            raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
-
         initial_state: dict[str, Any] = {}
-        if mcp_builtin_agent_key:
-            initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = mcp_builtin_agent_key
+        if profile.mcp_agent:
+            initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = profile.mcp_agent
             # Only ever recorded alongside the agent marker: without one there is no agent
             # run to delegate to, and a stray owner id must not be able to ride on a task.
             if mcp_credential_owner_id is not None:
@@ -1325,6 +1315,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
+            profile=profile.key,
             client_provenance=client_provenance,
             created_by=created_by,
             github_integration=github_integration,
@@ -1332,12 +1323,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             repository=repository,
             repositories=resolved_repositories,
             channel=channel,
-            internal=internal,
+            internal=not profile.listed,
             runtime=runtime,
             json_schema=resolve_schema(output_schema) if output_schema else None,
             state=initial_state,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
+            idempotency_key=origin_key,
+            **task_source_fields(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id),
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -1352,10 +1345,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             extra_state["interaction_origin"] = interaction_origin
         elif slack_thread_context:
             extra_state["interaction_origin"] = "slack"
-        if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        if profile.source_kind == "signal_report":
             extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
             extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
-        elif origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        elif profile.user_authorable_prs:
             extra_state["pr_authorship_mode"] = (
                 PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
             )
@@ -1478,22 +1471,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: "Task.OriginProduct",
+        profile: "TaskProfile",
         user_id: int,
-        repository: str | None = None,
-        repositories: list[str] | None = None,
+        options: "RunOptions | None" = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool = False,
-        output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        model: str | None = None,
-        initial_permission_mode: str | None = None,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
@@ -1504,26 +1491,24 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
+        options = options or RunOptions()
         task, _ = Task._build_task(
             team=team,
             title=title,
             description=description,
-            origin_product=origin_product,
+            profile=profile,
             user_id=user_id,
-            repository=repository,
-            repositories=repositories,
+            repositories=[repository.name for repository in options.repositories],
             channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
             signal_report_id=signal_report_id,
             sandbox_environment_id=sandbox_environment_id,
-            internal=internal,
-            output_schema=output_schema,
+            output_schema=options.output_schema,
             interaction_origin=interaction_origin,
-            model=model,
-            initial_permission_mode=initial_permission_mode,
-            mcp_builtin_agent_key=mcp_builtin_agent_key,
+            model=options.model,
+            initial_permission_mode=options.permission_mode,
             client_provenance=client_provenance,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
@@ -1537,35 +1522,25 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: "Task.OriginProduct",
+        profile: "TaskProfile",
         user_id: int,
+        options: "RunOptions | None" = None,
         title_manually_set: bool = False,
-        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
-        repositories: list[str] | None = None,
         channel: Channel | None = None,
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         start_workflow: bool = True,
-        posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool = False,
         client_provenance: TaskClientProvenance | None = None,
-        output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        runtime: str = "acp",
-        runtime_adapter: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
         service_tier: str | None = None,
-        initial_permission_mode: str | None = None,
-        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -1581,12 +1556,20 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
+        options = options or RunOptions()
+        sandbox_template = options.sandbox_template
+        posthog_mcp_scopes: PosthogMcpScopes = (
+            "full"
+            if options.mcp_scopes is None
+            else list(options.mcp_scopes)
+            if isinstance(options.mcp_scopes, tuple)
+            else options.mcp_scopes
+        )
         startup_requested_at = django_timezone.now()
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1607,11 +1590,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             team=team,
             title=title,
             description=description,
-            origin_product=origin_product,
+            profile=profile,
             user_id=user_id,
             title_manually_set=title_manually_set,
-            repository=repository,
-            repositories=repositories,
+            repositories=[repository.name for repository in options.repositories],
             channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -1620,16 +1602,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
             sandbox_environment_id=sandbox_environment_id,
-            internal=internal,
             client_provenance=client_provenance,
-            output_schema=output_schema,
+            output_schema=options.output_schema,
             interaction_origin=interaction_origin,
-            runtime=runtime,
-            runtime_adapter=runtime_adapter,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            runtime=options.runtime or "acp",
+            runtime_adapter=options.adapter,
+            model=options.model,
+            reasoning_effort=options.reasoning_effort,
             service_tier=service_tier,
-            initial_permission_mode=initial_permission_mode,
+            initial_permission_mode=options.permission_mode,
             sandbox_template=sandbox_template,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
@@ -1643,7 +1624,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
-            mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             mcp_tool_allowlist=mcp_tool_allowlist,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import time_machine
@@ -30,6 +30,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.facade.profiles import get_task_profile, profile_for_origin
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
 from products.tasks.backend.logic.services.gateway_model_pin import (
     DESKTOP_AGENT_MODELS,
@@ -58,12 +59,21 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     sandbox_product_routed,
     token_cap_usd,
 )
-from products.tasks.backend.temporal.process_task.utils import ai_gateway_env_vars
+from products.tasks.backend.temporal.process_task.utils import ai_gateway_env_vars as _ai_gateway_env_vars
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import Settings
 
     from products.tasks.backend.models import TaskRun
+
+
+def _resolve_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
+    return resolve_sandbox_ai_product(profile_for_origin(origin_product, internal), ai_stage)
+
+
+def ai_gateway_env_vars(**kwargs: Any) -> dict[str, str]:
+    kwargs.setdefault("profile", profile_for_origin(kwargs.get("origin_product"), kwargs.get("internal", False)))
+    return _ai_gateway_env_vars(**kwargs)
 
 
 class TestResolveSandboxAiProduct:
@@ -72,51 +82,51 @@ class TestResolveSandboxAiProduct:
     routed run mint no token (degrades to Python) or mint an unused token."""
 
     @pytest.mark.parametrize(
-        "origin_product,ai_stage,expected",
+        "origin_product,internal,ai_stage,expected",
         [
-            ("signals_scout", "scout", "signals_scout"),
-            ("signals_scout", "scout:web-analytics", "signals_scout"),
-            ("scout_suggestions", "scout_suggestions", "signals_scout_suggestions"),
-            ("signal_report", "inbox", "signals_inbox"),
-            ("signals_chat", "chat", "signals_chat"),
-            ("signals_chat", None, "signals"),
-            ("signal_report", "research", "signals_research"),
-            ("signal_report", "implementation", "signals_implementation"),
-            ("signal_report", "repo_selection", "signals_repo_selection"),
-            ("signal_report", "custom_agent", "signals_custom_agent"),
-            ("signal_report", None, "signals"),
-            ("signal_report", "match", "signals"),
-            ("loop", None, "posthog_code"),
-            ("slack", None, "slack_app"),
-            ("workflow", None, "workflows"),
-            ("support_reply", None, "conversations"),
-            ("onboarding", None, "onboarding"),
-            ("posthog_ai", None, "posthog_ai"),
-            ("metrics_import", None, "posthog_ai"),
+            ("signals_scout", False, "scout", "signals_scout"),
+            ("signals_scout", False, "scout:web-analytics", "signals_scout"),
+            ("scout_suggestions", True, "scout_suggestions", "signals_scout_suggestions"),
+            ("signal_report", False, "inbox", "signals_inbox"),
+            ("signals_chat", False, "chat", "signals_chat"),
+            ("signals_chat", False, None, "signals"),
+            ("signal_report", True, "research", "signals_research"),
+            ("signal_report", True, "implementation", "signals_implementation"),
+            ("signal_report", True, "repo_selection", "signals_repo_selection"),
+            ("signal_report", True, "custom_agent", "signals_custom_agent"),
+            ("signal_report", False, None, "signals"),
+            ("signal_report", False, "match", "signals"),
+            ("loop", False, None, "posthog_code"),
+            ("slack", False, None, "slack_app"),
+            ("workflow", False, None, "workflows"),
+            ("support_reply", True, None, "conversations"),
+            ("onboarding", False, None, "onboarding"),
+            ("posthog_ai", False, None, "posthog_ai"),
+            ("metrics_import", True, None, "posthog_ai"),
         ],
     )
-    def test_mapping(self, origin_product, ai_stage, expected):
-        assert resolve_sandbox_ai_product(origin_product, ai_stage) == expected
+    def test_mapping(self, origin_product, internal, ai_stage, expected):
+        assert _resolve_product(origin_product, ai_stage, internal=internal) == expected
 
     def test_review_hog_requires_the_server_stamped_internal_flag(self):
-        assert resolve_sandbox_ai_product("review_hog", "validation-c1", internal=True) == "review_hog"
-        assert resolve_sandbox_ai_product("review_hog", None, internal=True) == "review_hog"
-        assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
-        assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
+        assert _resolve_product("review_hog", "validation-c1", internal=True) == "review_hog"
+        assert _resolve_product("review_hog", None, internal=True) == "review_hog"
+        assert _resolve_product("review_hog", "validation-c1") == "posthog_code"
+        assert _resolve_product("review_hog", None, internal=False) == "posthog_code"
 
     def test_account_audit_requires_the_server_stamped_internal_flag(self):
-        assert resolve_sandbox_ai_product("account_audit", None, internal=True) == "account_audit"
-        assert resolve_sandbox_ai_product("account_audit", None, internal=False) == "posthog_code"
+        assert _resolve_product("account_audit", None, internal=True) == "account_audit"
+        assert _resolve_product("account_audit", None, internal=False) == "posthog_code"
 
     def test_unmapped_internal_is_background_agents(self):
-        assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
+        assert _resolve_product("image_builder", None, internal=True) == "background_agents"
 
     def test_unmapped_external_is_posthog_code(self):
-        assert resolve_sandbox_ai_product("user_created", None) == "posthog_code"
+        assert _resolve_product("user_created", None) == "posthog_code"
 
     def test_stage_does_not_split_non_signals_products(self):
-        assert resolve_sandbox_ai_product("loop", "implementation") == "posthog_code"
-        assert resolve_sandbox_ai_product("review_hog", "implementation", internal=True) == "review_hog"
+        assert _resolve_product("loop", "implementation") == "posthog_code"
+        assert _resolve_product("review_hog", "implementation", internal=True) == "review_hog"
 
 
 class TestSharedRoutingContract:
@@ -131,14 +141,11 @@ class TestSharedRoutingContract:
         "case", _CASES["resolve_ai_product"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}"
     )
     def test_resolve_matches_contract(self, case):
-        assert (
-            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
-            == case["expected"]
-        )
+        assert _resolve_product(case["origin_product"], case["ai_stage"], internal=case["internal"]) == case["expected"]
 
     @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
     def test_routed_matches_contract(self, case):
-        ai_product = resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+        ai_product = _resolve_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
         assert sandbox_product_routed(ai_product, case["ai_stage"], case["allowlist"]) == case["expected"]
 
 
@@ -588,7 +595,9 @@ class TestMintableGate:
             "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
             return_value="phe_abc",
         ) as mint:
-            env = ai_gateway_env_vars(team_id=123, origin_product="scout_suggestions", ai_stage=SUGGESTIONS_AI_STAGE)
+            env = ai_gateway_env_vars(
+                team_id=123, origin_product="scout_suggestions", ai_stage=SUGGESTIONS_AI_STAGE, internal=True
+            )
         assert env["AI_GATEWAY_PRODUCT"] == "signals_scout_suggestions"
         mint.assert_called_once_with(ai_product="signals_scout_suggestions", team_id=123, user=None)
 
@@ -613,6 +622,7 @@ class TestProvisioningBoundaries:
     def _task(self):
         task = MagicMock()
         task.internal = True
+        task.profile = "signals.scout"
         return task
 
     @pytest.mark.django_db
@@ -663,6 +673,7 @@ class TestProvisioningBoundaries:
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
             team_id=7,
+            profile=get_task_profile("signals.scout"),
             origin_product="signals_scout",
             ai_stage="scout:logs",
             internal=True,
@@ -969,6 +980,7 @@ class TestProvisioningBoundaries:
         ctx.origin_product = "user_created"
         task = self._task()
         task.internal = False
+        task.profile = "user"
         env = {"AI_GATEWAY_URL": "url", "AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "posthog_code"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
@@ -986,6 +998,7 @@ class TestProvisioningBoundaries:
         ctx.origin_product = "user_created"
         task = self._task()
         task.internal = False
+        task.profile = "user"
         refusal = GatewayTokenUnavailableError("This organization is deactivated.", {})
         with (
             patch.object(utils, "ai_gateway_env_vars", side_effect=refusal),
@@ -1814,16 +1827,17 @@ class TestPosthogCodeSandboxMint:
         ctx = MagicMock(
             claude_model_access="gateway", codex_model_access="gateway", state={}, team_id=2, run_id="run-1"
         )
-        task = MagicMock(is_scout_experiment=False, internal=False)
+        user_task = MagicMock(is_scout_experiment=False, internal=False, profile="user")
+        workflow_task = MagicMock(is_scout_experiment=False, internal=False, profile="workflow")
         with (
             patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("boom")),
             patch.object(utils, "record_gateway_routing"),
         ):
             ctx.origin_product = "user_created"
             with pytest.raises(ProcessTaskTransientError):
-                utils.run_gateway_env_vars(ctx, task)
+                utils.run_gateway_env_vars(ctx, user_task)
             ctx.origin_product = "workflow"
-            assert utils.run_gateway_env_vars(ctx, task) == {}
+            assert utils.run_gateway_env_vars(ctx, workflow_task) == {}
 
     @pytest.mark.django_db
     def test_a_pi_run_mints(self):

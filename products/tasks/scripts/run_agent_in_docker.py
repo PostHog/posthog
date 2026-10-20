@@ -75,6 +75,7 @@ def create_test_task(repository=None):
             title="Add a joke to the README.md file",
             description="Add a joke to the README.md file",
             origin_product=Task.OriginProduct.USER_CREATED,
+            profile="user",
             github_integration=github_integration,
             repository=repository,
         )

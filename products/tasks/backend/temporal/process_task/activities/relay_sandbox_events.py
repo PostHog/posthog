@@ -22,6 +22,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.slack_app.backend.facade.api import agent_plan_steps, phase_for_tool_call, tool_call_from_acp_update
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.facade.api import record_run_failure_cause
+from products.tasks.backend.facade.profiles import profile_for_origin
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
     is_hogland_sandbox_url,
@@ -47,10 +48,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamGenerationMismatch,
     get_task_run_stream_key,
 )
-from products.tasks.backend.models import (
-    Task as TaskModel,
-    TaskRun as TaskRunModel,
-)
+from products.tasks.backend.models import TaskRun as TaskRunModel
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 from products.tasks.backend.temporal.metrics import (
@@ -176,9 +174,8 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     # flight; see _background_heartbeat), so the relay never resets a timer for
     # a run that is genuinely idle.
     origin_product = task_run.task.origin_product
-    is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
     inactivity_timeout_seconds = resolve_inactivity_timeout(
-        is_user_origin=is_user_origin, origin_product=origin_product, state=task_run.state
+        idle_minutes=profile_for_origin(origin_product).idle_minutes, state=task_run.state
     ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)

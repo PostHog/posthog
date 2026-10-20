@@ -25,12 +25,12 @@ from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import (
     IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
-    INACTIVITY_TIMEOUT_USER_SECONDS,
     SANDBOX_TTL_SNAPSHOT_LEAD,
     WARM_IDLE_TIMEOUT,
 )
@@ -2000,7 +2000,7 @@ class TestProcessTaskWorkflowUnit:
         assert journal.threads == {"T1": "C1"}
 
     def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
-        assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
+        assert WARM_IDLE_TIMEOUT < timedelta(minutes=get_task_profile("user").idle_minutes)
 
     @pytest.mark.parametrize(
         "end_of_turn_received, expected_seconds",

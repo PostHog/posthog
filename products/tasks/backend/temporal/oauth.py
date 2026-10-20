@@ -24,6 +24,7 @@ from posthog.temporal.oauth import (
 
 from products.mcp_store.backend.facade.api import is_builtin_agent_enforcement_enabled
 from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
+from products.tasks.backend.facade.profiles import OAuthApp, TaskProfile, profile_for_task
 from products.tasks.backend.logic.services.run_actor import (
     get_task_run_credential_user,
     is_slack_interaction_state,
@@ -57,14 +58,12 @@ SUBSCRIPTION_RUN_WITHHELD_SCOPES = frozenset({"llm_gateway:read"})
 # gateway can pin the `signals` product to that app alone. Sharing the Array app would leave
 # a Signals token equally valid for `posthog_code` and `background_agents`, and the product
 # is a path segment the caller picks, so any per-product budget would be self-selected.
-SIGNALS_ORIGIN_PRODUCTS = frozenset(
-    {
-        Task.OriginProduct.SIGNAL_REPORT,
-        Task.OriginProduct.SIGNALS_SCOUT,
-        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-        Task.OriginProduct.SIGNALS_CHAT,
-    }
-)
+_SANDBOX_OAUTH_APPLICATION: dict[OAuthApp, SandboxOAuthApplication] = {
+    OAuthApp.ARRAY: "array",
+    OAuthApp.POSTHOG_AI: "posthog_ai",
+    OAuthApp.SIGNALS: "signals",
+}
+
 
 # Signals surfaces a person drives by hand: the Inbox report CTAs ("Create PR" / "Discuss")
 # and scout chat. Scheduled scouts run under their own reserved origin and never appear here.
@@ -74,15 +73,6 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
         Task.OriginProduct.SIGNALS_CHAT,
     }
 )
-
-
-def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
-    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
-    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
-        return "posthog_ai"
-    if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
-        return "signals"
-    return "array"
 
 
 # Stages `Task.create_run` stamps on person-started signals runs. Any other stage is the
@@ -124,7 +114,7 @@ def _scopes_from_state_value(raw: object) -> PosthogMcpScopes | None:
     return None
 
 
-def default_run_scopes(origin_product: str, state: dict[str, Any] | None) -> PosthogMcpScopes:
+def default_run_scopes(profile: TaskProfile, state: dict[str, Any] | None) -> PosthogMcpScopes:
     """The scopes dispatch grants a run whose state records none: full unless the run source
     is scoped down, mirroring ``_trigger_task_processing_workflow``.
 
@@ -141,10 +131,8 @@ def default_run_scopes(origin_product: str, state: dict[str, Any] | None) -> Pos
         parse_run_state,
     )
 
-    if origin_product == Task.OriginProduct.SIGNALS_SCOUT:
-        return "signals_scout_reports"
-    if origin_product in (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, Task.OriginProduct.LOOP):
-        return "read_only"
+    if profile.mcp_scopes is not None:
+        return cast(McpScopePreset, profile.mcp_scopes)
     return mcp_scopes_for_run_source(parse_run_state(state).run_source)
 
 
@@ -160,7 +148,7 @@ def dispatched_run_scopes(task: Task, state: dict[str, Any] | None) -> PosthogMc
     pending = (state or {}).get("pending_dispatch")
     raw = pending.get("posthog_mcp_scopes") if isinstance(pending, dict) else None
     if raw is None:
-        return default_run_scopes(task.origin_product, state)
+        return default_run_scopes(profile_for_task(task), state)
     scopes = _scopes_from_state_value(raw)
     return scopes if scopes is not None else "read_only"
 
@@ -201,17 +189,13 @@ def create_oauth_access_token(
             cause=RuntimeError(f"Task {task.id} missing sandbox OAuth user"),
         )
 
+    profile = profile_for_task(task)
     token_options: dict[str, Any] = {
         "scopes": scopes,
-        "application": _oauth_application_for_task(task),
+        "application": _SANDBOX_OAUTH_APPLICATION[profile.oauth_app],
         "sandbox_task_id": task.id,
     }
-    if task.origin_product in {
-        Task.OriginProduct.SIGNALS_SCOUT,
-        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-        Task.OriginProduct.SUPPORT_REPLY,
-        Task.OriginProduct.WORKFLOW,
-    } and is_builtin_agent_enforcement_enabled(task.team_id):
+    if profile.mcp_agent is not None and is_builtin_agent_enforcement_enabled(task.team_id):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
         # origin fails closed instead of inheriting its creator's connections.

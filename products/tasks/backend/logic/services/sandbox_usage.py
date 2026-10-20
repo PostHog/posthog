@@ -27,6 +27,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.tasks.backend.facade.profiles import profile_for_origin
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
 from products.tasks.backend.logic.services.sandbox import SandboxBase, SandboxConfig, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_pricing import (
@@ -325,7 +326,9 @@ def get_billable_sandbox_compute_usage_by_team(
     usage: dict[int, list[Decimal]] = {}
     calculated_at = timezone.now()
     for session in sessions.iterator():
-        if not is_billable_compute(origin_product=session.origin_product, client_provenance=session.client_provenance):
+        if not is_billable_compute(
+            profile=profile_for_origin(session.origin_product), client_provenance=session.client_provenance
+        ):
             continue
         cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)
         totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(3)])

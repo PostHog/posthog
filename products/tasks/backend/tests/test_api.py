@@ -63,6 +63,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
+from products.tasks.backend.facade.profiles import Repository, RunOptions, get_task_profile
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -2962,9 +2963,9 @@ class TestTaskAPI(BaseTaskAPITest):
             team=self.team,
             title="Slack task",
             description="Created from Slack",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=get_task_profile("slack"),
             user_id=self.user.id,
-            repository="posthog/posthog",
+            options=RunOptions(repositories=(Repository(name="posthog/posthog"),)),
             create_pr=True,
             mode="interactive",
             start_workflow=False,

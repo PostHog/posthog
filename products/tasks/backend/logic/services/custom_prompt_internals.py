@@ -24,7 +24,8 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.facade.profiles import Repository, RunOptions, TaskProfile
+from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -312,15 +313,14 @@ def _with_session_files(
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     mcp_tool_allowlist: list[str] | None = None,
@@ -332,10 +332,18 @@ async def _create_task_and_trigger(
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
-    # None would clobber it. sandbox_environment_id already accepts None.
-    posthog_mcp_scopes: PosthogMcpScopes = (
-        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    options = RunOptions(
+        runtime=context.runtime,
+        adapter=context.runtime_adapter,
+        model=context.model,
+        reasoning_effort=context.reasoning_effort,
+        repositories=tuple(
+            Repository(name=name)
+            for name in (context.repositories or ((context.repository,) if context.repository else ()))
+        ),
+        output_schema=output_schema,
+        mcp_scopes=context.posthog_mcp_scopes,
+        permission_mode=context.initial_permission_mode,
     )
     extra_run_state: dict[str, Any] = {}
     if context.system_prompt is not None:
@@ -358,31 +366,22 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product or Task.OriginProduct.USER_CREATED,
+        profile=profile,
         user_id=context.user_id,
-        repository=context.repository,
-        repositories=list(context.repositories) or None,
+        options=options,
         create_pr=False,
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
-        model=context.model,
-        runtime_adapter=context.runtime_adapter,
-        runtime=context.runtime,
         pending_user_message=description if context.runtime == "pi" else None,
-        reasoning_effort=context.reasoning_effort,
         service_tier=context.service_tier,
-        initial_permission_mode=context.initial_permission_mode,
-        internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,
@@ -390,7 +389,6 @@ async def _create_task_and_trigger(
         extra_run_state=extra_run_state,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
-        output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -402,15 +400,14 @@ async def _create_task_and_trigger(
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -419,15 +416,13 @@ async def create_task_and_trigger(
     task, task_run = await _create_task_and_trigger(
         description,
         context,
+        profile=profile,
         branch=branch,
         step_name=step_name,
-        origin_product=origin_product,
         signal_report_id=signal_report_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        internal=internal,
         workflow_id_prefix=workflow_id_prefix,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         output_schema=output_schema,
