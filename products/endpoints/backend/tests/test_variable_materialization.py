@@ -242,17 +242,47 @@ class TestVariableAnalysis(APIBaseTest):
         assert "Unsupported operator" in reason
         assert var_infos == []
 
-    def test_variable_in_select_blocked(self):
+    @parameterized.expand(
+        [
+            ("select_only", "SELECT count(), {variables.x} as x FROM events", "not used in WHERE"),
+            (
+                "lambda_argument",
+                "SELECT count() FROM events WHERE arrayExists(d -> properties.$current_url LIKE d, splitByChar(',', {variables.x}))",
+                "must be compared directly to a column",
+            ),
+            (
+                "arithmetic_operand",
+                "SELECT count() FROM events WHERE toFloat(properties.price) = {variables.x} + 1",
+                "must be compared directly to a column",
+            ),
+            (
+                "constant_operand",
+                "SELECT count() FROM events WHERE 'fixed' = {variables.x}",
+                "must be compared directly to a column",
+            ),
+            (
+                "valid_and_buried_usage",
+                "SELECT count() FROM events WHERE event = {variables.x} AND arrayExists(d -> d = 'a', splitByChar(',', {variables.x}))",
+                "must be compared directly to a column",
+            ),
+            (
+                "subquery_comparison",
+                "SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons WHERE properties.email = {variables.x})",
+                "must be compared directly to a column",
+            ),
+        ]
+    )
+    def test_variable_outside_where_comparison_blocked(self, _name: str, hogql: str, expected_reason: str):
         query = {
             "kind": "HogQLQuery",
-            "query": "SELECT count(), {variables.metric_name} as metric_name FROM events",
-            "variables": {"var-1": {"code_name": "metric_name", "value": "total"}},
+            "query": hogql,
+            "variables": {"var-1": {"code_name": "x", "value": "total"}},
         }
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "not used in WHERE" in reason
+        assert expected_reason in reason
 
     def test_no_variables(self):
         query = {

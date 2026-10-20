@@ -47,6 +47,10 @@ class VariableComparedToPlaceholderExprError(MaterializationNotSupportedError):
     """
 
 
+class VariableNotComparedToColumnError(MaterializationNotSupportedError):
+    """Raised when a variable appears in WHERE inside an expression rather than as one side of a comparison."""
+
+
 def inject_series_index(query_ast: ast.SelectQuery | ast.SelectSetQuery) -> None:
     """Add a __series_index literal column to each sub-query in a UNION ALL.
 
@@ -407,6 +411,12 @@ def _variable_usages(
         return (
             [],
             "Variable compared against an expression containing another variable is not supported for materialization",
+        )
+    except VariableNotComparedToColumnError:
+        return (
+            [],
+            "Variable must be compared directly to a column, for example column = {variables.name}. "
+            "Using a variable inside another function or expression in WHERE is not supported for materialization.",
         )
     except ValueError as e:
         capture_exception(e)
@@ -1084,6 +1094,8 @@ def find_all_variable_usages(
         return []
     finder = VariableInWhereFinder(placeholder)
     finder.visit(ast_node)
+    if finder.seen_unmatched_in_where:
+        raise VariableNotComparedToColumnError()
     return finder.all_results
 
 
@@ -1094,6 +1106,7 @@ class VariableInWhereFinder(TraversingVisitor):
         super().__init__()
         self.target = target_placeholder
         self.all_results: list[tuple[Optional[str], VariableUsageInWhere]] = []
+        self.seen_unmatched_in_where = False
         self.in_where = False
         self._or_depth = 0
         self._current_cte_name: Optional[str] = None
@@ -1147,7 +1160,12 @@ class VariableInWhereFinder(TraversingVisitor):
             field_side = node.right
             variable_side = node.left
 
-        if not field_side:
+        if not isinstance(field_side, ast.Field | ast.Call):
+            # Flag without descending: a full visit would record comparisons inside subqueries as usages here.
+            finder = VariablePlaceholderFinder()
+            finder.visit(node)
+            if any(p.chain == self.target.chain for p in finder.variable_placeholders):
+                self.seen_unmatched_in_where = True
             return
 
         wrapper_fns = self._extract_wrapper_fns(variable_side)
@@ -1183,6 +1201,10 @@ class VariableInWhereFinder(TraversingVisitor):
                     ),
                 )
             )
+
+    def visit_placeholder(self, node: ast.Placeholder):
+        if self.in_where and node.chain == self.target.chain:
+            self.seen_unmatched_in_where = True
 
     def _contains_target_placeholder(self, node: ast.Expr) -> bool:
         """Check if an expression is or contains the target placeholder (e.g. inside toDate(...))."""
