@@ -1266,6 +1266,7 @@ from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
 from .tracklution.source import TracklutionSource
 from .tradable_bits.source import TradableBitsSource
+from .trafficstars.source import TrafficStarsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource

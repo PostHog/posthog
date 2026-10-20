@@ -366,7 +366,7 @@ impl Join {
                     self.evict_merge(old);
                     report.warmup_evictions += 1;
                 } else {
-                    self.settle_merge(old, &mut report);
+                    self.settle_merge(old, last_update_ms, &mut report);
                     self.release_merge(old);
                 }
             }
@@ -381,7 +381,7 @@ impl Join {
                     self.evict_mapping(&key);
                     report.warmup_evictions += 1;
                 } else {
-                    self.settle_mapping(&key, &mut report);
+                    self.settle_mapping(&key, last_update_ms, &mut report);
                 }
             }
         }
@@ -417,7 +417,12 @@ impl Join {
         watermarks
     }
 
-    fn settle_mapping(&mut self, key: &DistinctIdKey, report: &mut SweepReport) {
+    fn settle_mapping(
+        &mut self,
+        key: &DistinctIdKey,
+        last_update_ms: i64,
+        report: &mut SweepReport,
+    ) {
         let (node, personhog) = (self.node.mapping(key), self.personhog.mapping(key));
         let outcome = compare_mapping(node, personhog);
         if outcome != MappingOutcome::Agree {
@@ -426,6 +431,7 @@ impl Join {
                 "team_id": key.team_id,
                 "distinct_id": key.distinct_id,
                 "outcome": outcome.label(),
+                "last_update_ms": last_update_ms,
                 "node": node.map(mapping_json),
                 "personhog": personhog.map(mapping_json),
             }));
@@ -434,7 +440,7 @@ impl Join {
         self.evict_mapping(key);
     }
 
-    fn settle_merge(&mut self, old: PersonKey, report: &mut SweepReport) {
+    fn settle_merge(&mut self, old: PersonKey, last_update_ms: i64, report: &mut SweepReport) {
         let outcome = compare_survivor(&self.node, &self.personhog, old);
         let partitions = self
             .merges
@@ -456,6 +462,7 @@ impl Join {
                 "team_id": old.team_id,
                 "old_person_uuid": old.person_uuid.to_string(),
                 "outcome": outcome.label(),
+                "last_update_ms": last_update_ms,
                 "node": self.node.merged_into(&old).map(|new| new.to_string()),
                 "personhog": self.personhog.merged_into(&old).map(|new| new.to_string()),
                 "partitions": partitions,
@@ -731,6 +738,7 @@ mod tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0]["distinct_id"], "only");
         assert_eq!(samples[0]["outcome"], "node_only");
+        assert_eq!(samples[0]["last_update_ms"], 2_000);
     }
 
     // Topics with different counts place the same key on different
