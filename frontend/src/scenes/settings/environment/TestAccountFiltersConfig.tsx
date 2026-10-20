@@ -22,7 +22,11 @@ import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/fronte
 
 import { ApplyTestAccountFilterToExistingInsights } from './ApplyTestAccountFilterToExistingInsights'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
-import { suggestedTestAccountFilterOf, withoutSuggestedTestAccountFilter } from './suggestedTestAccountFilter'
+import {
+    hasTestAccountFilter,
+    suggestedTestAccountFilterOf,
+    withoutSuggestedTestAccountFilter,
+} from './suggestedTestAccountFilter'
 
 function createTestAccountFilterWarningLabels(
     currentTeam: TeamPublicType | TeamType | null,
@@ -67,7 +71,8 @@ function SuggestedTestAccountFilter({ restrictedReason }: { restrictedReason: st
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const rule = suggestedTestAccountFilterOf(searchParams)
-    if (!rule) {
+    // The banner goes once the project holds the rule, so it stays to retry when saving fails.
+    if (!rule || hasTestAccountFilter(currentTeam?.test_account_filters ?? [], rule)) {
         return null
     }
 
@@ -84,12 +89,11 @@ function SuggestedTestAccountFilter({ restrictedReason }: { restrictedReason: st
                         size="small"
                         loading={currentTeamLoading}
                         disabledReason={restrictedReason ?? undefined}
-                        onClick={() => {
+                        onClick={() =>
                             updateCurrentTeam({
                                 test_account_filters: [...(currentTeam?.test_account_filters ?? []), rule],
                             })
-                            dismiss()
-                        }}
+                        }
                         data-attr="suggested-test-account-filter-add"
                     >
                         Add rule

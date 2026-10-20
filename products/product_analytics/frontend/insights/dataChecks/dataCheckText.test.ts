@@ -1,6 +1,6 @@
 import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { dataCheckText, filterCheckParts, repeatedEventsTextOf } from './dataCheckText'
+import { dataCheckText, filterCheckParts, removesBotTraffic, repeatedEventsTextOf } from './dataCheckText'
 import type { FilterCheckParts } from './dataCheckText'
 
 const passed: InsightDataCheckApi = {
@@ -138,5 +138,25 @@ describe('dataCheckText', () => {
         expect(repeatedEventsTextOf({ ...passed, key: 'duplicate_events', top_events: events }).found).toContain(
             expected
         )
+    })
+
+    const trafficRule = (operator: string, value: string | string[]): Record<string, unknown> => ({
+        key: '$virt_traffic_type',
+        type: 'event',
+        operator,
+        value,
+    })
+
+    it.each<[string, Record<string, unknown>[], boolean]>([
+        ['one rule that excludes both types', [trafficRule('is_not', ['Bot', 'AI Agent'])], true],
+        [
+            'two rules that each exclude one type',
+            [trafficRule('is_not', 'Bot'), trafficRule('is_not', ['AI Agent'])],
+            true,
+        ],
+        ['a rule that excludes only AI agents', [trafficRule('is_not', ['AI Agent'])], false],
+        ['a rule that keeps only bots', [trafficRule('exact', ['Bot', 'AI Agent'])], false],
+    ])('knows whether the filter removes bot traffic with %s', (_name, rules, expected) => {
+        expect(removesBotTraffic(rules)).toBe(expected)
     })
 })

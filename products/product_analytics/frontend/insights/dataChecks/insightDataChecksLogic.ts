@@ -41,7 +41,7 @@ import type {
     InsightDataChecksStatusEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { TRAFFIC_TYPE_PROPERTY, postHogAIPromptOf } from './dataCheckText'
+import { postHogAIPromptOf, removesBotTraffic } from './dataCheckText'
 
 /** The insight query the server checks. The server reads the events from the query this chart runs. */
 export interface DataChecksQuery {
@@ -61,6 +61,8 @@ export interface insightDataChecksLogicValues {
     query: Node | null // insightDataLogic
     hasOverrides: boolean // insightLogic
     insightDataLoading: boolean // insightVizDataLogic
+    selectedTab: SidePanelTab | null // sidePanelStateLogic
+    sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     checkAgainRequested: boolean
     checkedQuery: DataChecksQuery | null
@@ -73,6 +75,7 @@ export interface insightDataChecksLogicValues {
     labelHeldOpen: boolean
     labelOpen: boolean
     lastResult: InsightDataChecksApi | null
+    postHogAIOpen: boolean
     queryFiltersTestAccounts: boolean
     refreshing: boolean
     requestedQuery: DataChecksQuery | null
@@ -206,6 +209,7 @@ export interface insightDataChecksLogicActions {
 export interface insightDataChecksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        postHogAIOpen: (sidePanelOpen: any, selectedTab: any) => boolean
         filterRemovesBots: (currentTeam: TeamPublicType | TeamType | null) => boolean
         checkedQuery: (
             query: Node<Record<string, any>> | null,
@@ -261,6 +265,8 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             ['featureFlags'],
             teamLogic,
             ['currentTeam'],
+            sidePanelStateLogic,
+            ['sidePanelOpen', 'selectedTab'],
         ],
         actions: [
             insightVizDataLogic(props),
@@ -367,10 +373,15 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         // Held until the checks run again, so the result from before the change cannot be acted on twice.
     }),
     selectors({
+        postHogAIOpen: [
+            (s) => [s.sidePanelOpen, s.selectedTab],
+            (sidePanelOpen: boolean, selectedTab: SidePanelTab | null): boolean =>
+                sidePanelOpen && selectedTab === SidePanelTab.Max,
+        ],
         filterRemovesBots: [
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
-                (currentTeam?.test_account_filters ?? []).some((rule) => rule.key === TRAFFIC_TYPE_PROPERTY),
+                removesBotTraffic(currentTeam?.test_account_filters ?? []),
         ],
         // The server only checks insights whose series are all events, so no request goes out for the rest.
         // Compared by value, so a render that rebuilds the same query is not a new query.
@@ -495,6 +506,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             }
         },
         fixWithPostHogAI: ({ check }) => {
+            // A second request while PostHog AI is open would start another run for the same finding.
+            if (values.postHogAIOpen) {
+                return
+            }
             // A leading "!" sends the prompt as soon as the panel opens.
             actions.openSidePanel(SidePanelTab.Max, `!${postHogAIPromptOf(check)}`)
             posthog.capture('insight data check fix applied', { check: check.key, fix: 'posthog_ai' })

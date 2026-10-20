@@ -17,7 +17,19 @@ export interface DataCheckText {
     result: string
 }
 
-export const TRAFFIC_TYPE_PROPERTY = '$virt_traffic_type'
+const TRAFFIC_TYPE_PROPERTY = '$virt_traffic_type'
+// The traffic types the bot check counts, as the backend's CRAWLER_TRAFFIC_TYPES lists them.
+const CRAWLER_TRAFFIC_TYPES = ['Bot', 'AI Agent']
+
+export function removesBotTraffic(
+    rules: readonly { key?: string; type?: string; operator?: unknown; value?: unknown }[]
+): boolean {
+    // The filter's rules all apply, so values excluded by separate rules add up.
+    const excluded = rules
+        .filter((rule) => rule.key === TRAFFIC_TYPE_PROPERTY && rule.type === 'event' && rule.operator === 'is_not')
+        .flatMap((rule) => (Array.isArray(rule.value) ? rule.value : [rule.value]))
+    return CRAWLER_TRAFFIC_TYPES.every((type) => excluded.includes(type))
+}
 
 /** The checks that the project's internal and test users filter answers. */
 export const FILTER_CHECK_KEYS: readonly InsightDataCheckKeyEnumApi[] = [
@@ -73,65 +85,86 @@ export interface FilterCheckParts {
     missed: { count: number; noun: string; examples: string[]; fallback: string; excludeLabel: string } | null
 }
 
+const NOTHING: FilterCheckParts = { caught: null, missed: null }
+
+function isFinding(check: InsightDataCheckApi): boolean {
+    return check.level === 'warning' || check.level === 'problem'
+}
+
+function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boolean): FilterCheckParts {
+    const removed = check.removed_by_filter
+    const removedShare = removed ? shareOf(check, removed) : null
+    const caughtAmount = removedShare !== null ? `${removedShare}% of these events` : pluralize(removed ?? 0, 'event')
+    return {
+        caught:
+            removed && !filtersTestAccounts
+                ? `Your filter catches ${caughtAmount}, but it's off for this insight.`
+                : null,
+        missed: check.missed_by_filter
+            ? {
+                  count: check.distinct_emails ?? check.top_emails.length,
+                  noun: 'user',
+                  examples: check.top_emails,
+                  fallback: "Your team's emails",
+                  excludeLabel: check.filter_to_add ? 'Exclude these users' : 'Edit filter',
+              }
+            : null,
+    }
+}
+
+function localHostParts(check: InsightDataCheckApi): FilterCheckParts {
+    if (!isFinding(check) || !check.filter_to_add) {
+        return NOTHING
+    }
+    return {
+        caught: null,
+        missed: {
+            count: check.distinct_hosts ?? check.top_hosts.length,
+            noun: 'host',
+            examples: check.top_hosts,
+            fallback: 'Localhost events',
+            excludeLabel: 'Exclude these hosts',
+        },
+    }
+}
+
+function botTrafficParts(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): FilterCheckParts {
+    if (!isFinding(check)) {
+        return NOTHING
+    }
+    if (filterRemovesBots && !filtersTestAccounts) {
+        return { caught: "Your filter catches this bot traffic, but it's off for this insight.", missed: null }
+    }
+    return {
+        caught: null,
+        missed: {
+            count: check.distinct_bots ?? check.top_bots.length,
+            noun: 'bot',
+            examples: check.top_bots,
+            fallback: 'Bot events',
+            excludeLabel: 'Exclude these bots',
+        },
+    }
+}
+
 export function filterCheckParts(
     check: InsightDataCheckApi,
     filtersTestAccounts: boolean,
     filterRemovesBots: boolean
 ): FilterCheckParts {
-    const found = check.level === 'warning' || check.level === 'problem'
     switch (check.key) {
-        case 'internal_users': {
-            const removed = check.removed_by_filter
-            const removedShare = removed ? shareOf(check, removed) : null
-            return {
-                caught:
-                    removed && !filtersTestAccounts
-                        ? `Your filter catches ${removedShare !== null ? `${removedShare}% of these events` : pluralize(removed, 'event')}, but it's off for this insight.`
-                        : null,
-                missed: check.missed_by_filter
-                    ? {
-                          count: check.distinct_emails ?? check.top_emails.length,
-                          noun: 'user',
-                          examples: check.top_emails,
-                          fallback: "Your team's emails",
-                          excludeLabel: check.filter_to_add ? 'Exclude these users' : 'Edit filter',
-                      }
-                    : null,
-            }
-        }
+        case 'internal_users':
+            return internalUsersParts(check, filtersTestAccounts)
         case 'local_development':
-            return {
-                caught: null,
-                missed:
-                    found && check.filter_to_add
-                        ? {
-                              count: check.distinct_hosts ?? check.top_hosts.length,
-                              noun: 'host',
-                              examples: check.top_hosts,
-                              fallback: 'Localhost events',
-                              excludeLabel: 'Exclude these hosts',
-                          }
-                        : null,
-            }
+            return localHostParts(check)
         case 'bot_traffic':
-            if (!found) {
-                return { caught: null, missed: null }
-            }
-            if (filterRemovesBots && !filtersTestAccounts) {
-                return { caught: "Your filter catches this bot traffic, but it's off for this insight.", missed: null }
-            }
-            return {
-                caught: null,
-                missed: {
-                    count: check.distinct_bots ?? check.top_bots.length,
-                    noun: 'bot',
-                    examples: check.top_bots,
-                    fallback: 'Bot events',
-                    excludeLabel: 'Exclude these bots',
-                },
-            }
+            return botTrafficParts(check, filtersTestAccounts, filterRemovesBots)
         default:
-            return { caught: null, missed: null }
+            return NOTHING
     }
 }
 
@@ -153,37 +186,37 @@ export function repeatedEventsTextOf(check: InsightDataCheckApi): { found: strin
     }
 }
 
+// The prompt holds only counts. Event names, hosts and emails come from captured events, which anyone with the
+// project token can send, so PostHog AI reads them through its tools instead of as part of the request.
 export function postHogAIPromptOf(check: InsightDataCheckApi): string {
-    if (check.key === 'duplicate_events') {
-        const share = check.share !== null ? ` (${Math.round(check.share * 100)}% of them)` : ''
-        const events = check.top_events.length ? `, mostly ${check.top_events.join(', ')}` : ''
-        return (
-            `The data checks on my insight found ${eventCount(check)} events${share} sent twice by the same person ` +
-            `less than 100 ms apart${events}. Find out why, for example the event being set up twice, my code re-firing ` +
-            'an event PostHog sends automatically, a bug in my code, or PostHog being initialized twice, and tell me ' +
-            'how to fix it.'
-        )
+    const share = check.share !== null && check.share >= 0.01 ? ` (${Math.round(check.share * 100)}% of them)` : ''
+    switch (check.key) {
+        case 'duplicate_events':
+            return (
+                `The data checks on this insight found ${eventCount(check)} events${share} sent twice by the same ` +
+                'person less than 100 ms apart. Find which events they are and why, for example the event being set ' +
+                'up twice, my code re-firing an event PostHog sends automatically, a bug in my code, or PostHog being ' +
+                'initialized twice, and tell me how to fix it.'
+            )
+        case 'local_development':
+            return (
+                `The data checks on this insight found ${eventCount(check)} events from local hosts that my project's ` +
+                'internal and test users filter keeps. Help me work out whether they come from people building the ' +
+                'app, and if they do, change the filter so it removes those hosts.'
+            )
+        case 'bot_traffic':
+            return (
+                `The data checks on this insight found ${eventCount(check)} events${share} from bots and crawlers that ` +
+                "my project's internal and test users filter keeps. Change the filter so it removes bot and AI agent " +
+                'traffic.'
+            )
+        case 'internal_users':
+            return (
+                `The data checks on this insight found ${pluralize(check.distinct_emails ?? 0, 'team email')} that my ` +
+                "project's internal and test users filter doesn't catch. Change the filter so it removes my team's " +
+                'internal and test users without removing real users.'
+            )
     }
-    if (check.key === 'local_development') {
-        const hosts = examplesOf(check.top_hosts, check.distinct_hosts, 'other host') ?? 'localhost'
-        return (
-            `The data checks on my insight found ${humanFriendlyNumber(check.events ?? 0)} events from ${hosts} ` +
-            "that my project's internal and test users filter keeps. Help me work out whether they come from " +
-            'people building the app, and if they do, change the filter so it removes every localhost host.'
-        )
-    }
-    if (check.key === 'bot_traffic') {
-        const bots = examplesOf(check.top_bots, check.distinct_bots, 'other bot') ?? 'bots and crawlers'
-        return (
-            `The data checks on my insight found ${eventCount(check)} events from ${bots} that my project's ` +
-            'internal and test users filter keeps. Change the filter so it removes bot and AI agent traffic.'
-        )
-    }
-    const emails = examplesOf(check.top_emails, check.distinct_emails, 'other') ?? "my team's emails"
-    return (
-        `The data checks on my insight found that ${emails} aren't caught by my project's internal and test ` +
-        "users filter. Change the filter so it removes my team's internal and test users without removing real users."
-    )
 }
 
 function skippedResult(check: InsightDataCheckApi): string {

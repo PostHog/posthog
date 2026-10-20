@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -16,11 +16,14 @@ export function FixWithPostHogAIButton({
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
 }): JSX.Element {
-    const { fixWithPostHogAI } = useActions(insightDataChecksLogic(insightProps))
+    const logic = insightDataChecksLogic(insightProps)
+    const { postHogAIOpen } = useValues(logic)
+    const { fixWithPostHogAI } = useActions(logic)
     return (
         <Button
             variant="outline"
             size="sm"
+            disabledReason={postHogAIOpen ? 'PostHog AI is already open' : undefined}
             onClick={() => fixWithPostHogAI(check)}
             data-attr="insight-data-check-fix-with-ai"
         >

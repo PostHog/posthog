@@ -1,5 +1,6 @@
 import { Button } from '@posthog/quill'
 
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { suggestedTestAccountFilterUrl } from 'scenes/settings/environment/suggestedTestAccountFilter'
 import { urls } from 'scenes/urls'
 
@@ -14,9 +15,12 @@ export function FilterSettingsButton({
     rule: InsightDataCheckFilterApi | null
     children: React.ReactNode
 }): JSX.Element {
-    const href = rule
-        ? suggestedTestAccountFilterUrl(rule as unknown as AnyPropertyFilter)
-        : urls.settings('environment-customization', 'internal-user-filtering')
+    // The new tab opens the project this insight belongs to, even if another tab has switched projects since.
+    const href = addProjectIdIfMissing(
+        rule
+            ? suggestedTestAccountFilterUrl(rule as unknown as AnyPropertyFilter)
+            : urls.settings('environment-customization', 'internal-user-filtering')
+    )
     return (
         <Button
             variant="outline"
