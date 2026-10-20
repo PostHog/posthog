@@ -6,6 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { ConversionRecommendationApi, ConversionRecommendationStateApi } from '../generated/api.schemas'
 import { ConversionGoalRecommendations } from './ConversionGoalRecommendations'
+import { DashboardConversionRecommendations } from './DashboardConversionRecommendations'
 
 const run = {
     id: 'synthetic-analysis',
@@ -39,7 +40,35 @@ const completed: ConversionRecommendationStateApi = {
     can_generate: true,
     generation_disabled_reason: null,
     results: {
-        recommendations: [recommendation],
+        recommendations: [
+            recommendation,
+            {
+                ...recommendation,
+                source_ref: 'event:quote_requested',
+                name: 'Quote requests',
+                intent: 'conversion',
+                amount_property: null,
+                reason: 'A quote request may indicate purchase intent.',
+                questions: ['Does this event exclude duplicate requests?'],
+                candidate: {
+                    source_ref: 'event:quote_requested',
+                    name: 'quote_requested',
+                    kind: 'EventsNode',
+                    event: 'quote_requested',
+                    count: 18,
+                },
+            },
+            {
+                ...recommendation,
+                source_ref: 'action:2',
+                name: 'Activated accounts',
+                intent: 'customer',
+                amount_property: null,
+                reason: 'This action may identify newly activated accounts.',
+                questions: ['Does this action fire once for each new customer?'],
+                candidate: { source_ref: 'action:2', name: 'Activated accounts', kind: 'ActionsNode', action_id: 2 },
+            },
+        ],
         limitations: [
             'Discovery considers up to 20 custom events and 20 existing actions. Business definitions need your review.',
         ],
@@ -89,6 +118,10 @@ export const FirstAnalysis: Story = {
     ],
 }
 export const Ready: Story = { decorators: [withState(completed)] }
+export const Dashboard: Story = {
+    render: () => <DashboardConversionRecommendations />,
+    decorators: [withState(completed)],
+}
 export const Updating: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
     decorators: [withState({ ...completed, latest_run: { ...run, status: 'running', lookback_days: 14 } })],
@@ -101,7 +134,7 @@ export const Failed: Story = {
             latest_run: {
                 ...run,
                 status: 'failed',
-                error: 'Could not analyze the sources. Update recommendations to retry.',
+                error: 'Could not analyze the sources. Scan again to retry.',
             },
         }),
     ],
