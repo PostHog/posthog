@@ -119,8 +119,9 @@ describe('useTileGroupDrag', () => {
         )
 
         const draggedItem = box(1, 40)
-        const pointerAt = (element: Element): void =>
+        const pointerAt = (element: Element): void => {
             Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [element] })
+        }
         act(() => result.current.startTileDrag(draggedItem, tileElement))
         if (passOver) {
             pointerAt(passOver(own))
