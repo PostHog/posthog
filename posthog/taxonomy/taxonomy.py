@@ -3385,6 +3385,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {
@@ -3438,6 +3444,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_cache_read_audio_tokens": {
             "label": "AI cache read audio tokens (LLM)",
             "description": "The number of audio tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
             "examples": [16],
             "type": "Numeric",
         },

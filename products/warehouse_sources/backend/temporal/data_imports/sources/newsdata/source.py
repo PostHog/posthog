@@ -106,7 +106,7 @@ Page size and daily request credits are determined by your NewsData.io plan.""",
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = NEWSDATA_ENDPOINTS[endpoint]
-            # Only date-filter endpoints (archive, crypto) have a genuine server-side timestamp filter.
+            # Only date-filter endpoints (archive, crypto, market) have a genuine server-side timestamp filter.
             has_incremental = endpoint_config.supports_date_filter and bool(INCREMENTAL_FIELDS.get(endpoint))
             return SourceSchema(
                 name=endpoint,

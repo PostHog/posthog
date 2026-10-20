@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
-from functools import partial
+from functools import cached_property, partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -52,7 +52,7 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -77,7 +77,6 @@ from posthog.hogql_queries.validation.rules import (
 )
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
@@ -115,6 +114,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         *,
         workload: Workload = Workload.DEFAULT,
         hogql_settings: Optional[HogQLGlobalSettings] = None,
+        ch_user: ClickHouseUser | None = None,
     ):
         from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
@@ -161,6 +161,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             limit_context=limit_context,
             workload=workload,
             user=user,
+            ch_user=ch_user or ClickHouseUser.DEFAULT,
         )
 
     def __post_init__(self):
@@ -169,9 +170,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
-        if self.hogql_settings is None:
-            return super().single_flight_variant()
-        return f"{super().single_flight_variant()}:max_execution_time={self.hogql_settings.max_execution_time}"
+        variant = super().single_flight_variant()
+        if self.ch_user != ClickHouseUser.DEFAULT:
+            variant = f"{variant}:ch_user={self.ch_user.value}"
+        if self.hogql_settings is not None:
+            variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
+        return variant
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -352,6 +356,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     team=self.team,
                     user=self.user,
                     workload=self.workload,
+                    ch_user=self.ch_user,
                     settings=self.hogql_settings,
                     modifiers=self.modifiers,
                     # timings=timings,
@@ -426,6 +431,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     team=self.team,
                     user=self.user,
                     workload=self.workload,
+                    ch_user=self.ch_user,
                     settings=self.hogql_settings,
                     timings=timings,
                     modifiers=self.modifiers,
