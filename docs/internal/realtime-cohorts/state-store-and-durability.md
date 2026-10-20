@@ -216,6 +216,7 @@ The window bounds only the listing: a restore already published resumes at any a
 A published restore stays pending until the events group commits the restored positions:
 
 1. Before the store opens, the restore commits each follower group's positions on the partitions it keeps.
+   It first waits until the [ownership fence](processor-runtime.md#ownership-and-the-single-pod-deployment) admits the pod's split again, because another split can claim the partitions while the restore runs.
    A failure blocks the boot.
 2. The store opens, and the resets apply.
 3. The events consumer seeks each owned partition to the lower of its restored position and the first event it polled, commits that seek list, then deletes the marker.

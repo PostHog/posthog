@@ -43,8 +43,8 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    CohortConsumerContext, InputGroups, InputTopic, OffsetTracker, PartitionOwnership,
-    PartitionRouter, ShuffleMessage, WorkerInbox,
+    AdmittedSplit, ClaimedSplit, CohortConsumerContext, InputGroups, InputTopic, OffsetTracker,
+    PartitionOwnership, PartitionRouter, ShuffleMessage, WorkerInbox,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
@@ -240,7 +240,43 @@ async fn produce_new_persons(topic: &str, count: u128) -> usize {
 /// The single pod's ownership of the test topics.
 const SINGLE_POD: PartitionOwnership = PartitionOwnership::single(NUM_PARTITIONS as u16);
 
-fn build_consumer(
+/// Admits `ownership` through the ownership fence, as the processor does before it opens the
+/// store.
+async fn admit(ownership: PartitionOwnership, groups: &Arc<InputGroups>) -> AdmittedSplit {
+    let groups = groups.clone();
+    tokio::task::spawn_blocking(move || {
+        AdmittedSplit::try_admit(ownership, &groups).expect("the fence admits the split")
+    })
+    .await
+    .expect("the admission panicked")
+}
+
+/// The claim the processor makes once the store is open.
+async fn claim(admitted: AdmittedSplit, groups: &Arc<InputGroups>) -> ClaimedSplit {
+    let groups = groups.clone();
+    tokio::task::spawn_blocking(move || {
+        admitted.claim(&groups).expect("claim the owned partitions")
+    })
+    .await
+    .expect("the claim panicked")
+}
+
+/// Admits and claims `ownership` of `topic` for `group`. These tests read only the events topic,
+/// so the follower groups, which the fence claims too, read it as well.
+async fn claim_events(topic: &str, group: &str, ownership: PartitionOwnership) -> ClaimedSplit {
+    let mut config = Config::init_from_hashmap(&HashMap::new()).expect("default config");
+    config.kafka_hosts = bootstrap_servers();
+    config.cohort_stream_events_topic = topic.to_owned();
+    config.kafka_consumer_group = group.to_owned();
+    config.person_merge_events_topic = topic.to_owned();
+    config.kafka_merge_consumer_group = format!("{group}-merges");
+    config.cohort_merge_state_transfer_topic = topic.to_owned();
+    config.kafka_merge_apply_consumer_group = format!("{group}-transfers");
+    let groups = Arc::new(InputGroups::new(&config));
+    claim(admit(ownership, &groups).await, &groups).await
+}
+
+async fn build_consumer(
     topic: &str,
     group: &str,
     store: CohortStore,
@@ -249,6 +285,7 @@ fn build_consumer(
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
 ) -> CohortStreamEventsConsumer {
+    let claimed = claim_events(topic, group, SINGLE_POD).await;
     let (consumer, _dispatcher) = build_consumer_with_restore(
         topic,
         group,
@@ -257,7 +294,7 @@ fn build_consumer(
         handle,
         sink,
         offset_commit_interval,
-        SINGLE_POD,
+        &claimed,
         false,
         100,
     );
@@ -273,7 +310,7 @@ fn build_consumer_with_restore(
     handle: lifecycle::Handle,
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
-    ownership: PartitionOwnership,
+    claimed: &ClaimedSplit,
     durable_restore: bool,
     recv_batch_size: usize,
 ) -> (CohortStreamEventsConsumer, Arc<EventDispatcher>) {
@@ -297,7 +334,7 @@ fn build_consumer_with_restore(
         recv_batch_size,
         Duration::from_millis(200),
         offset_commit_interval,
-        ownership,
+        claimed,
         None,
     )
     .expect("assign the owned partitions");
@@ -456,7 +493,8 @@ async fn consumes_routes_and_commits_end_to_end() {
         handle,
         Arc::new(CaptureSink::new()),
         Duration::from_millis(250),
-    );
+    )
+    .await;
     let task = tokio::spawn(consumer.process());
 
     let deadline = Duration::from_secs(60);
@@ -540,7 +578,8 @@ async fn produces_membership_changes_and_commits_offsets() {
         handle,
         sink,
         Duration::from_millis(250),
-    );
+    )
+    .await;
     let task = tokio::spawn(consumer.process());
 
     let start = Instant::now();
@@ -670,7 +709,8 @@ async fn trickled_events_are_never_silently_dropped() {
         handle,
         Arc::new(CaptureSink::new()),
         Duration::from_millis(300),
-    );
+    )
+    .await;
     let task = tokio::spawn(consumer.process());
 
     let total = produce_events_trickle(&topic, N, Duration::from_millis(120)).await;
@@ -813,7 +853,8 @@ async fn does_not_commit_past_a_blocked_produce() {
         handle,
         sink.clone(),
         Duration::from_millis(100),
-    );
+    )
+    .await;
     let task = tokio::spawn(consumer.process());
 
     tokio::time::timeout(Duration::from_secs(30), entered.notified())
@@ -932,6 +973,7 @@ async fn two_pods_split_the_events_by_residue_class_and_commit_every_offset() {
             ..StoreConfig::default()
         })
         .expect("open store");
+        let claimed = claim_events(&topic, &group, ownership).await;
         let (consumer, dispatcher) = build_consumer_with_restore(
             &topic,
             &group,
@@ -940,7 +982,7 @@ async fn two_pods_split_the_events_by_residue_class_and_commit_every_offset() {
             handle.clone(),
             Arc::new(CaptureSink::new()),
             Duration::from_millis(250),
-            ownership,
+            &claimed,
             false,
             100,
         );
@@ -1065,6 +1107,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         );
         let shutdown_handle = handle.clone();
         let _monitor = manager.monitor_background();
+        let claimed = claim_events(&topic, &group, SINGLE_POD).await;
         let (consumer, _dispatcher) = build_consumer_with_restore(
             &topic,
             &group,
@@ -1073,7 +1116,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
             handle,
             Arc::new(CaptureSink::new()),
             Duration::from_millis(250),
-            SINGLE_POD,
+            &claimed,
             true,
             100,
         );
@@ -1122,6 +1165,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         );
         let shutdown_handle = handle.clone();
         let _monitor = manager.monitor_background();
+        let claimed = claim_events(&topic, &group, SINGLE_POD).await;
         let (consumer, _dispatcher) = build_consumer_with_restore(
             &topic,
             &group,
@@ -1130,7 +1174,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
             handle,
             Arc::new(CaptureSink::new()),
             Duration::from_millis(250),
-            SINGLE_POD,
+            &claimed,
             true,
             10,
         );
@@ -1273,6 +1317,7 @@ fn build_consumer_finishing_restore(
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
     restore: PendingRestore,
+    claimed: &ClaimedSplit,
 ) -> CohortStreamEventsConsumer {
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
@@ -1292,7 +1337,7 @@ fn build_consumer_finishing_restore(
         100,
         Duration::from_millis(200),
         offset_commit_interval,
-        SINGLE_POD,
+        claimed,
         Some(restore),
     )
     .expect("assign the owned partitions")
@@ -1402,8 +1447,14 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
 
     // --- Tenure 1: fold, checkpoint through the sweeper, then fold and commit past it. ---
     {
-        let store =
-            CohortStore::open(&config.store_config(SINGLE_POD)).expect("open tenure-1 store");
+        let admitted = admit(
+            config.partition_ownership().expect("a standalone split"),
+            &groups,
+        )
+        .await;
+        let store = CohortStore::open(&config.store_config(admitted.ownership()))
+            .expect("open tenure-1 store");
+        let claimed = claim(admitted, &groups).await;
         let mut manager = Manager::builder("s3restore-itest-1")
             .with_trap_signals(false)
             .build();
@@ -1421,7 +1472,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
             handle,
             Arc::new(CaptureSink::new()),
             Duration::from_millis(250),
-            SINGLE_POD,
+            &claimed,
             true,
             100,
         );
@@ -1492,7 +1543,12 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
         .expect("remove checkpoint_local_dir (simulate PVC loss)");
 
     // --- Tenure 2: the boot restores from S3, then the consumer finishes the restore. ---
-    let (store2, restore) = open_store(&config, SINGLE_POD, Some(lineage), groups.clone())
+    let admitted = admit(
+        config.partition_ownership().expect("a standalone split"),
+        &groups,
+    )
+    .await;
+    let (store2, restore) = open_store(&config, &admitted, Some(lineage), groups.clone())
         .await
         .expect("open the restored store");
     let restore = restore
@@ -1541,6 +1597,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     );
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
+    let claimed = claim(admitted, &groups).await;
     let consumer = build_consumer_finishing_restore(
         &topic,
         &group,
@@ -1550,6 +1607,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
         Arc::new(CaptureSink::new()),
         Duration::from_millis(250),
         restore,
+        &claimed,
     );
     let task = tokio::spawn(consumer.process());
 
