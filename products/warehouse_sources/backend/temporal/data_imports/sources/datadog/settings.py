@@ -3,6 +3,9 @@ from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
+    DatadogIssueSearchConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PaginationStyle = Literal["cursor", "page", "offset", "record_id", "none"]
@@ -73,6 +76,15 @@ class DatadogEndpointConfig:
     # this the very first sync would only fetch the last 15 minutes. We seed ``filter[from]`` to
     # ``now - default_lookback_days`` instead; Datadog clamps it to the account's retention.
     default_lookback_days: Optional[int] = None
+    # Set for the Error Tracking issue search, which walks a time window instead of pages.
+    search: Optional[DatadogIssueSearchConfig] = None
+    # Stops a page walk after this many pages. Safe for ascending incremental endpoints, because the
+    # pipeline checkpoints the highest cursor value and the next sync resumes from it. Also safe for a
+    # newest-first full refresh, where the cap drops the oldest rows of the window. An ascending full
+    # refresh would keep the oldest rows and lose the newest.
+    max_pages_per_sync: Optional[int] = None
+    # Tables that are off until the user opts in, because they are high volume or need extra scopes.
+    should_sync_default: bool = True
 
     @property
     def supports_incremental(self) -> bool:
@@ -197,6 +209,86 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         timestamp_filter_param="start_month",
         timestamp_filter_format="month",
         default_lookback_days=400,
+    ),
+    # --- Error tracking (opt-in; these feed the Self-driving inbox) ---
+    # Grouped errors across APM traces, logs and RUM, one row per issue. The search has no time
+    # filter we could checkpoint (``last_seen`` moves for old issues), so this table is a full
+    # refresh over the lookback window. Needs the ``error_tracking_read`` scope.
+    "error_tracking_issues": DatadogEndpointConfig(
+        name="error_tracking_issues",
+        path="/api/v2/error-tracking/issues/search",
+        data_path="data",
+        pagination="none",
+        flatten_attributes=True,
+        static_params={"include": "issue"},
+        search=DatadogIssueSearchConfig(),
+        # ``first_seen`` never changes for an issue, unlike ``last_seen``.
+        partition_key="first_seen",
+        default_lookback_days=14,
+        should_sync_default=False,
+    ),
+    # Error spans only. APM span volume is far too high to sync unfiltered, so the error filter is
+    # applied by Datadog. The spans API allows 300 requests per hour, so a sync reads a bounded
+    # number of pages and the next sync continues from the checkpointed ``start_timestamp``.
+    # The 1 day first-sync lookback keeps the capped first sync on the freshest day instead of
+    # spending its pages on older rows. Later syncs continue from the checkpointed timestamp.
+    "error_spans": DatadogEndpointConfig(
+        name="error_spans",
+        path="/api/v2/spans/events",
+        data_path="data",
+        pagination="cursor",
+        page_size=1000,
+        page_size_param="page[limit]",
+        static_params={"filter[query]": "status:error"},
+        flatten_attributes=True,
+        partition_key="start_timestamp",
+        incremental_fields=_timestamp_incremental_fields("start_timestamp"),
+        default_incremental_field="start_timestamp",
+        timestamp_filter_param="filter[from]",
+        sort_param="timestamp",
+        default_lookback_days=1,
+        max_pages_per_sync=100,
+        should_sync_default=False,
+    ),
+    # Error-level logs only, for the same volume reason as ``error_spans``. The ``logs`` table
+    # stays unfiltered for users who want every log.
+    "error_logs": DatadogEndpointConfig(
+        name="error_logs",
+        path="/api/v2/logs/events",
+        data_path="data",
+        pagination="cursor",
+        page_size=1000,
+        page_size_param="page[limit]",
+        static_params={"filter[query]": "status:error"},
+        flatten_attributes=True,
+        partition_key="timestamp",
+        incremental_fields=_timestamp_incremental_fields("timestamp"),
+        default_incremental_field="timestamp",
+        timestamp_filter_param="filter[from]",
+        sort_param="timestamp",
+        default_lookback_days=1,
+        max_pages_per_sync=100,
+        should_sync_default=False,
+    ),
+    # Firing monitor alerts only. Datadog applies the filter, because recoveries and warnings would
+    # triple the rows read on every sync. The desktop toggle creates this table as a full refresh, so
+    # it re-reads a bounded lookback window. The sort is newest first so that the page cap drops the
+    # oldest alerts, which a previous sync has usually already read.
+    "monitor_alerts": DatadogEndpointConfig(
+        name="monitor_alerts",
+        path="/api/v2/events",
+        data_path="data",
+        pagination="cursor",
+        page_size=1000,
+        page_size_param="page[limit]",
+        static_params={"filter[query]": "source:alert status:error"},
+        flatten_attributes=True,
+        partition_key="timestamp",
+        timestamp_filter_param="filter[from]",
+        sort_param="-timestamp",
+        default_lookback_days=7,
+        max_pages_per_sync=20,
+        should_sync_default=False,
     ),
     # --- Full refresh ---
     "dashboards": DatadogEndpointConfig(
@@ -370,4 +462,4 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 # Datadog retains logs / audit logs / events for a limited window, so the first sync can only
 # reach back as far as the account's retention allows.
-LIMITED_RETENTION_ENDPOINTS = {"logs", "audit_logs", "events"}
+LIMITED_RETENTION_ENDPOINTS = {"logs", "audit_logs", "events", "error_spans", "error_logs", "monitor_alerts"}
