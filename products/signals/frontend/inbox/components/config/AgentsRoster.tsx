@@ -620,7 +620,6 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
 export function AgentsRoster(): JSX.Element {
     const {
         externalSourceStates,
-        rosterGroups,
         filteredRosterGroups,
         sourceSearchQuery,
         sourceCategory,
