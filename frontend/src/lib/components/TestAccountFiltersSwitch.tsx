@@ -1,11 +1,14 @@
 import { useValues } from 'kea'
-import React from 'react'
 
-import { IconExternal, IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
+import { LemonSwitchProps } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { LemonTestAccountFilterSwitch } from './LemonTestAccountFilterSwitch'
+import { QuillTestAccountFilterSwitch } from './QuillTestAccountFilterSwitch'
 
 const TEST_ACCOUNT_FILTER_TYPE_LABELS: Record<string, string> = {
     person: 'person property',
@@ -49,55 +52,41 @@ export function TestAccountFilterSwitch({
     settingsLinkIcon = 'gear',
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { currentTeam } = useValues(teamLogic)
     const filters = currentTeam?.test_account_filters || []
     const hasFilters = filters.length > 0
     const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
     const showNewTabIcon = settingsLinkIcon === 'new-tab' && !onConfigure
-    return (
-        <LemonSwitch
-            id="test-account-filter"
-            bordered
-            {...props}
-            disabledReason={
-                !hasFilters
-                    ? `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
-                    : (unusedReason ?? props.disabledReason)
-            }
+    const disabledReason = !hasFilters
+        ? `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
+        : (unusedReason ?? props.disabledReason)
+
+    return quillEnabled ? (
+        <QuillTestAccountFilterSwitch
             checked={checked}
             onChange={onChange}
-            label={
-                <div className="flex items-center">
-                    <span>Filter out internal and test users</span>
-                    {/* Opens in a new tab by default: this switch sits inside forms that hold unsaved work (a
-                        half-built scanner, an unsaved cohort, an insight in progress), and the
-                        disabledReason below actively sends people here when no filters are set up.
-                        Callers that can configure the filters in place pass onConfigure instead. */}
-                    <LemonButton
-                        icon={showNewTabIcon ? <IconExternal className="size-3.5" /> : <IconGear />}
-                        size="small"
-                        noPadding
-                        className="ml-1"
-                        {...(onConfigure
-                            ? {
-                                  // The gear sits inside the switch's <label htmlFor>, which forwards clicks to the
-                                  // switch button. Stop it here so opening settings can't also flip the filter.
-                                  onClick: (e: React.MouseEvent) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                      onConfigure()
-                                  },
-                                  tooltip: 'Configure internal and test users.',
-                              }
-                            : {
-                                  to: urls.settings('environment-customization', 'internal-user-filtering'),
-                                  targetBlank: true,
-                                  hideExternalLinkIcon: true,
-                                  tooltip: 'Configure internal and test users. Opens in a new tab.',
-                              })}
-                    />
-                </div>
+            disabledReason={disabledReason}
+            onConfigure={onConfigure}
+            showNewTabIcon={showNewTabIcon}
+            settingsLink={
+                <LinkPrimitive
+                    to={urls.settings('environment-customization', 'internal-user-filtering')}
+                    target="_blank"
+                />
             }
+            id={props.id}
+            className={props.className}
+            data-attr={props['data-attr']}
+        />
+    ) : (
+        <LemonTestAccountFilterSwitch
+            {...props}
+            checked={checked}
+            onChange={onChange}
+            disabledReason={disabledReason}
+            onConfigure={onConfigure}
+            showNewTabIcon={showNewTabIcon}
         />
     )
 }

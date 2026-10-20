@@ -1,6 +1,6 @@
 import { LifecycleToggle } from '~/types'
 
-import { getLifecycleTooltip } from './LifecycleToggles'
+import { getLifecycleTooltip } from './lifecycleToggleUtils'
 
 describe('getLifecycleTooltip', () => {
     const cases: [LifecycleToggle, { singular: string; plural: string }, 'that' | 'who', string][] = [

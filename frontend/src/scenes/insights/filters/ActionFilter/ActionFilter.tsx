@@ -7,8 +7,6 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useMemo } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
-
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -16,7 +14,8 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
@@ -29,6 +28,8 @@ import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { MathAvailability } from './ActionFilterRow/types'
 import { LocalSeries, entityFilterLogic } from './entityFilterLogic'
 import { legacyFilterToSeriesDefaults, legacyFiltersToSeries, seriesToLegacyFilters } from './legacyFilters'
+import { LemonAddSeriesButton } from './LemonAddSeriesButton'
+import { QuillAddSeriesButton } from './QuillAddSeriesButton'
 import { SeriesNode, WarehouseSeriesNodeKind, isGroupSeriesNode } from './seriesNode'
 
 export interface SeriesActionFilterProps {
@@ -182,6 +183,7 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
 
     const { localSeries } = useValues(logic)
     const { addSeries, setSeries } = useActions(logic)
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
 
     // No way around this. Somehow the ordering of the logic calling each other causes stale
     // series to be shown on the /funnels page, even if we try to use a selector with props
@@ -246,6 +248,9 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localSeries.length >= entitiesLimit)
+    const addSeriesLabel = !reachedLimit
+        ? buttonCopy || 'Action or event'
+        : `Reached limit of ${entitiesLimit} ${insightType === InsightType.FUNNELS ? 'steps' : 'series'}`
     const sortedItemIds = localSeries.map((i) => i.uuid)
 
     return (
@@ -335,21 +340,31 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    <LemonButton
-                        type={buttonType}
-                        onClick={() => addSeries()}
-                        data-attr="add-action-event-button"
-                        icon={<IconPlusSmall />}
-                        size="small"
-                        disabled={reachedLimit || disabled || readOnly}
-                        {...buttonProps}
-                    >
-                        {!reachedLimit
-                            ? buttonCopy || 'Action or event'
-                            : `Reached limit of ${entitiesLimit} ${
-                                  insightType === InsightType.FUNNELS ? 'steps' : 'series'
-                              }`}
-                    </LemonButton>
+                    {quillEnabled ? (
+                        <QuillAddSeriesButton
+                            label={addSeriesLabel}
+                            onClick={() => addSeries()}
+                            disabled={reachedLimit || disabled || readOnly || !!buttonProps.disabledReason}
+                            variant={
+                                buttonType === 'primary'
+                                    ? 'primary'
+                                    : buttonType === 'secondary'
+                                      ? 'outline'
+                                      : 'default'
+                            }
+                            fullWidth={buttonProps.fullWidth}
+                            icon={buttonProps.icon}
+                            data-attr={buttonProps['data-attr'] ?? 'add-action-event-button'}
+                        />
+                    ) : (
+                        <LemonAddSeriesButton
+                            label={addSeriesLabel}
+                            onClick={() => addSeries()}
+                            disabled={reachedLimit || disabled || readOnly}
+                            buttonType={buttonType}
+                            buttonProps={buttonProps}
+                        />
+                    )}
                     {customFooter}
                 </div>
             )}

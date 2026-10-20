@@ -8,7 +8,6 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
-import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { DefinitionView } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -26,8 +25,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -74,12 +72,13 @@ import {
     isWarehouseSeriesNodeKind,
     seriesNodeKey,
 } from '../seriesNode'
-import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicGroupTypeToSeriesNodeKind } from './actionFilterRowUtils'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
+import { buildLemonActionFilterRowControls } from './LemonActionFilterRowControls'
 import { MathSelector } from './MathSelector'
 import { getDefaultMathHogQLExpression } from './mathUtils'
 import { PropertyValueMathSelector } from './PropertyValueMathSelector'
+import { buildQuillActionFilterRowControls } from './QuillActionFilterRowControls'
 import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
@@ -212,6 +211,7 @@ export function ActionFilterRow({
         }
     }, [isDataWarehouseFilter, ensureAllTableFields])
     const { featureFlags } = useValues(featureFlagLogic)
+    const quillEnabled = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -510,97 +510,55 @@ export function ActionFilterRow({
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ node, index, onClose }) : customRowSuffix
 
-    const propertyFiltersButton = (
-        <IconWithCount key="property-filter" count={node.properties?.length || 0} showZero={false}>
-            <LemonButton
-                icon={<IconFilter />}
-                title="Show filters"
-                data-attr={`show-prop-filter-${index}`}
-                noPadding
-                active={propertyFiltersVisible}
-                onClick={() => {
-                    setEntityFilterVisibility(index, !propertyFiltersVisible)
-                }}
-                disabledReason={nodeKey === 'empty' ? 'Please select an event first' : undefined}
-                tooltip="Show filters"
-                tooltipDocLink={addFilterDocLink}
-            />
-        </IconWithCount>
-    )
-
     // Enable popup menu for funnels and trends contexts where we want to show rename/duplicate/delete/etc in a menu
     const enablePopup = mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext
 
-    const renameRowButton = (
-        <LemonButton
-            key="rename"
-            icon={<IconPencil />}
-            title="Rename graph series"
-            data-attr={`show-prop-rename-${index}`}
-            noPadding={!enablePopup}
-            onClick={() => {
+    const buildRowControls = quillEnabled ? buildQuillActionFilterRowControls : buildLemonActionFilterRowControls
+    const { propertyFiltersButton, renameRowButton, duplicateRowButton, combineInlineButton, deleteButton, menu } =
+        buildRowControls({
+            index,
+            propertyFilterCount: node.properties?.length || 0,
+            propertyFiltersVisible,
+            propertyFiltersDisabledReason: nodeKey === 'empty' ? 'Please select an event first' : undefined,
+            addFilterDocLink,
+            inlineEventsDocLink,
+            enablePopup,
+            canCombine,
+            onToggleFilters: () => setEntityFilterVisibility(index, !propertyFiltersVisible),
+            onRename: () => {
                 selectSeries(index, node, uuid)
                 onRenameClick()
-            }}
-            fullWidth={enablePopup}
-        >
-            {enablePopup ? 'Rename' : undefined}
-        </LemonButton>
-    )
-
-    const duplicateRowButton = (
-        <LemonButton
-            key="duplicate"
-            icon={<IconCopy />}
-            title="Duplicate graph series"
-            data-attr={`show-prop-duplicate-${index}`}
-            noPadding={!enablePopup}
-            onClick={() => {
-                duplicateSeries(index)
-            }}
-            fullWidth={enablePopup}
-        >
-            {enablePopup ? 'Duplicate' : undefined}
-        </LemonButton>
-    )
-
-    const combineInlineButton = (
-        <LemonButton
-            key="combine-inline"
-            icon={<IconGroupIntersect />}
-            data-attr={`show-prop-combine-${index}`}
-            noPadding={!enablePopup}
-            onClick={() => {
+            },
+            onDuplicate: () => duplicateSeries(index),
+            onCombine: () => {
                 convertToGroup(index)
                 posthog.capture('combine_events', {
                     insight_type: insightType,
                     team_id: currentTeamId,
                 })
-            }}
-            tooltip="Count multiple events as a single event"
-            tooltipDocLink={inlineEventsDocLink}
-            fullWidth={enablePopup}
-        >
-            {enablePopup ? 'Combine' : undefined}
-        </LemonButton>
-    )
-
-    const deleteButton = (
-        <LemonButton
-            key="delete"
-            status={enablePopup ? 'danger' : 'default'}
-            icon={<IconTrash />}
-            title="Delete graph series"
-            data-attr={`delete-prop-filter-${index}`}
-            noPadding={!enablePopup}
-            onClick={() => {
-                onClose()
-            }}
-            fullWidth={enablePopup}
-        >
-            {enablePopup ? 'Delete' : undefined}
-        </LemonButton>
-    )
+            },
+            onDelete: () => onClose(),
+            menu: {
+                isTrendsContext,
+                isFunnelContext,
+                isStepOptional,
+                math,
+                mathGroupTypeIndex,
+                mathAvailability,
+                trendsDisplayCategory,
+                readOnly,
+                query: query || {},
+                filter: node,
+                hideRename: !!hideRename,
+                hideDuplicate,
+                hideDeleteBtn,
+                singleFilter: !!singleFilter,
+                onMathSelect,
+                onUpdateOptional: (checked) => {
+                    updateSeriesOptional(index, checked)
+                },
+            },
+        })
 
     const rowStartElements = [
         sortable && filterCount > 1 ? <DragHandle key="drag-handle" listeners={listeners} /> : null,
@@ -756,31 +714,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
-                                        <ActionFilterRowMenu
-                                            index={index}
-                                            isTrendsContext={isTrendsContext}
-                                            isFunnelContext={isFunnelContext}
-                                            isStepOptional={isStepOptional}
-                                            math={math}
-                                            mathGroupTypeIndex={mathGroupTypeIndex}
-                                            mathAvailability={mathAvailability}
-                                            trendsDisplayCategory={trendsDisplayCategory}
-                                            readOnly={readOnly}
-                                            query={query || {}}
-                                            filter={node}
-                                            hideRename={!!hideRename}
-                                            hideDuplicate={hideDuplicate}
-                                            hideDeleteBtn={hideDeleteBtn}
-                                            singleFilter={!!singleFilter}
-                                            onMathSelect={onMathSelect}
-                                            onUpdateOptional={(checked) => {
-                                                updateSeriesOptional(index, checked)
-                                            }}
-                                            renameRowButton={renameRowButton}
-                                            duplicateRowButton={duplicateRowButton}
-                                            deleteButton={deleteButton}
-                                            combineButton={canCombine ? combineInlineButton : null}
-                                        />
+                                        {menu}
                                     </>
                                 ) : (
                                     rowEndElements

@@ -1,16 +1,9 @@
-import './BreakdownTag.scss'
-
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconEllipsis, IconX } from '@posthog/icons'
-import { LemonButton, LemonButtonDropdown, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonButtonDropdown, LemonDropdown } from '@posthog/lemon-ui'
 
-import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
-import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -21,6 +14,9 @@ import { BreakdownType, GroupTypeIndex } from '~/types'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
+import { LemonBreakdownTag } from './LemonBreakdownTag'
+import { QuillBreakdownTag } from './QuillBreakdownTag'
+import { QuillBreakdownTagOptionsButton } from './QuillBreakdownTagOptionsButton'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
@@ -123,6 +119,7 @@ export function BreakdownTag({
 }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { groupTypes } = useValues(groupsModel)
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
 
     let propertyName = breakdown
 
@@ -141,58 +138,33 @@ export function BreakdownTag({
         propertyName = extractDisplayLabel(propertyName as string)
     }
 
-    const clickable = onClick !== undefined
-    const closeable = onClose !== undefined
-    const ButtonComponent = clickable ? 'button' : 'div'
-
+    if (quillEnabled) {
+        return (
+            <QuillBreakdownTag
+                propertyName={propertyName}
+                breakdownType={breakdownType}
+                disablePropertyInfo={disablePropertyInfo}
+                onClick={onClick}
+                onClose={onClose}
+                optionsTrigger={
+                    popover?.overlay ? (
+                        <LemonDropdown {...popover}>
+                            <QuillBreakdownTagOptionsButton />
+                        </LemonDropdown>
+                    ) : null
+                }
+            />
+        )
+    }
     return (
-        <ButtonComponent
-            className={clsx('BreakdownTag', `BreakdownTag--${size}`, {
-                'BreakdownTag--clickable': clickable,
-            })}
-            data-attr="breakdown-tag"
-            type={ButtonComponent === 'button' ? 'button' : undefined}
-            title={String(propertyName)}
+        <LemonBreakdownTag
+            propertyName={propertyName}
+            breakdownType={breakdownType}
+            disablePropertyInfo={disablePropertyInfo}
+            onClose={onClose}
             onClick={onClick}
-        >
-            {breakdownType === 'hogql' ? (
-                <HoqQLPropertyInfo value={propertyName as string} />
-            ) : (
-                <PropertyKeyInfo
-                    value={propertyName as string}
-                    disablePopover={disablePropertyInfo}
-                    type={
-                        breakdownType
-                            ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType]
-                            : TaxonomicFilterGroupType.EventProperties
-                    }
-                />
-            )}
-            {popover?.overlay && (
-                <LemonButtonWithDropdown
-                    size="xsmall"
-                    icon={<IconEllipsis />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                    }}
-                    dropdown={popover}
-                    className="p-0.5"
-                    data-attr="breakdown-tag-options"
-                />
-            )}
-
-            {closeable && (
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconX />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onClose()
-                    }}
-                    className="p-0.5"
-                    data-attr="breakdown-tag-close"
-                />
-            )}
-        </ButtonComponent>
+            popover={popover}
+            size={size}
+        />
     )
 }

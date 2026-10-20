@@ -1,14 +1,8 @@
-import './PropertyFilterButton.scss'
-
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
-
-import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
-import { fullNameOrEmail, midEllipsis } from 'lib/utils/strings'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -22,7 +16,8 @@ import {
     isGroupCardFilterKey,
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
-import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
+import { LemonPropertyFilterButton } from './LemonPropertyFilterButton'
+import { QuillPropertyFilterButton } from './QuillPropertyFilterButton'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
@@ -39,6 +34,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         ref
     ): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
+        const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
         const { meFirstMembers } = useValues(membersLogic)
@@ -80,7 +76,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             return <></>
         }
 
-        const groupTypeIndex = (item as GroupPropertyFilter).group_type_index
+        const groupTypeIndex = (item as GroupPropertyFilter).group_type_index as GroupTypeIndex | null | undefined
         const groupKeys = Array.isArray(item.value)
             ? item.value.map(String)
             : item.value !== null && item.value !== undefined
@@ -98,83 +94,20 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             groupTypeIndex !== undefined &&
             groupKeys.length === 1
 
-        const closable = onClose !== undefined
-        const clickable = onClick !== undefined
-
-        // A native <button> can't contain the nested close <button> (invalid DOM nesting),
-        // so a closeable chip renders as a div with button semantics instead
-        const ButtonComponent = clickable && !closable ? 'button' : 'div'
-        const buttonRoleProps =
-            clickable && ButtonComponent === 'div'
-                ? {
-                      role: 'button',
-                      tabIndex: 0,
-                      onKeyDown: (e: React.KeyboardEvent) => {
-                          if (!disabledReason && (e.key === 'Enter' || e.key === ' ')) {
-                              e.preventDefault()
-                              onClick?.()
-                          }
-                      },
-                  }
-                : {}
-
-        const button = (
-            <ButtonComponent
-                ref={ref as any}
-                onClick={disabledReason ? undefined : onClick}
-                className={clsx('PropertyFilterButton', 'grow', 'ph-no-capture', {
-                    'PropertyFilterButton--closeable': closable,
-                    'PropertyFilterButton--clickable': clickable,
-                    'PropertyFilterButton--compact': compact,
-                    'PropertyFilterButton--wraps': wraps,
-                })}
-                aria-disabled={!!disabledReason}
-                type={ButtonComponent === 'button' ? 'button' : undefined}
-                {...buttonRoleProps}
-            >
-                <PropertyFilterIcon type={item.type} />
-                <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
-                    {wraps ? label : midEllipsis(label, 32)}
-                </span>
-                {closable &&
-                    !disabledReason && (
-                        // The context below prevents close button from going into active status when filter popover is open
-                        <PopoverReferenceContext.Provider value={null}>
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconX />}
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onClose()
-                                }}
-                                className="p-0.5"
-                            />
-                        </PopoverReferenceContext.Provider>
-                    )}
-            </ButtonComponent>
+        const sharedProps = {
+            onClick,
+            onClose,
+            label,
+            wraps,
+            showGroupCard,
+            groupTypeIndex,
+            groupKeys,
+            disabledReason,
+        }
+        return quillEnabled ? (
+            <QuillPropertyFilterButton ref={ref as React.Ref<HTMLDivElement>} type={item.type} {...sharedProps} />
+        ) : (
+            <LemonPropertyFilterButton ref={ref} item={item} compact={compact} {...sharedProps} />
         )
-
-        if (disabledReason) {
-            return <Tooltip title={disabledReason}>{button}</Tooltip>
-        }
-
-        if (showGroupCard) {
-            return (
-                <Tooltip
-                    interactive
-                    title={
-                        <GroupKeyFilterTooltip
-                            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
-                            groupKey={groupKeys[0]}
-                            fallbackLabel={label}
-                        />
-                    }
-                >
-                    {button}
-                </Tooltip>
-            )
-        }
-
-        return button
     }
 )

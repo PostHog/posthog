@@ -3,16 +3,18 @@ import './FilterRow.scss'
 import clsx from 'clsx'
 import React, { useState } from 'react'
 
-import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
-
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 import { PathCleaningFilter, PropertyFilterRow } from '~/types'
 
+import { LemonAddFilterButton } from './LemonAddFilterButton'
+import { LemonFilterRowRemoveButton } from './LemonFilterRowRemoveButton'
 import { OperandTag } from './OperandTag'
 import { PropertyFilterButton } from './PropertyFilterButton'
+import { QuillAddFilterButton } from './QuillAddFilterButton'
+import { QuillFilterRowRemoveButton } from './QuillFilterRowRemoveButton'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -58,6 +60,7 @@ export const FilterRow = React.memo(function FilterRow({
     suffix,
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { key } = item
     const isValid = isValidPropertyFilter(item)
@@ -87,13 +90,18 @@ export const FilterRow = React.memo(function FilterRow({
                     <>
                         {filterComponent(() => setOpen(false))}
                         {Object.keys(filters[index]).length > 0 && editable && showRemoveButton ? (
-                            <LemonButton
-                                icon={orFiltering ? <IconTrash /> : <IconX />}
-                                onClick={() => onRemove(index)}
-                                size={size}
-                                className="ml-2"
-                                noPadding
-                            />
+                            quillEnabled ? (
+                                <QuillFilterRowRemoveButton
+                                    orFiltering={orFiltering}
+                                    onRemove={() => onRemove(index)}
+                                />
+                            ) : (
+                                <LemonFilterRowRemoveButton
+                                    orFiltering={orFiltering}
+                                    onRemove={() => onRemove(index)}
+                                    size={size}
+                                />
+                            )
                         ) : null}
                     </>
                 ) : (
@@ -111,17 +119,23 @@ export const FilterRow = React.memo(function FilterRow({
                                 disabledReason={disabledReason}
                             />
                         ) : !disabledReason ? (
-                            <LemonButton
-                                onClick={() => setOpen(!open)}
-                                className={clsx('new-prop-filter', labelClassName)}
-                                data-attr={'new-prop-filter-' + pageKey}
-                                type="secondary"
-                                size={size}
-                                icon={<IconPlusSmall />}
-                                sideIcon={null}
-                            >
-                                {label}
-                            </LemonButton>
+                            quillEnabled ? (
+                                <QuillAddFilterButton
+                                    label={label}
+                                    labelClassName={labelClassName}
+                                    pageKey={pageKey}
+                                    open={open}
+                                    onClick={() => setOpen(!open)}
+                                />
+                            ) : (
+                                <LemonAddFilterButton
+                                    label={label}
+                                    labelClassName={labelClassName}
+                                    pageKey={pageKey}
+                                    size={size}
+                                    onClick={() => setOpen(!open)}
+                                />
+                            )
                         ) : undefined}
                     </Popover>
                 )}

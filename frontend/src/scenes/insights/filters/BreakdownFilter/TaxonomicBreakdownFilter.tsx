@@ -1,24 +1,29 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ReactElement } from 'react'
 
-import { IconGear, IconPencil } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { urls } from 'scenes/urls'
 
-import { LemonButton } from '~/lib/lemon-ui/LemonButton'
-import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
 import { Popover } from '~/lib/lemon-ui/Popover'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { EditableBreakdownTag } from './BreakdownTag'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
+import { LemonBreakdownByLabel } from './LemonBreakdownByLabel'
+import { LemonBreakdownOptionsButton } from './LemonBreakdownOptionsButton'
+import { QuillBreakdownByLabel } from './QuillBreakdownByLabel'
+import { QuillBreakdownOptionsButton } from './QuillBreakdownOptionsButton'
 import { TaxonomicBreakdownButton } from './TaxonomicBreakdownButton'
 import { TaxonomicBreakdownFilterLogicProps, taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
+const BREAKDOWN_INFO =
+    'Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.'
 const BREAKDOWN_DOCS_URL = 'https://posthog.com/docs/product-analytics/trends/breakdowns'
 const COHORT_BREAKDOWN_DOCS_URL = 'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
 
@@ -70,6 +75,7 @@ export function TaxonomicBreakdownFilter({
     } = useValues(taxonomicBreakdownFilterLogic(logicProps))
     const { toggleBreakdownOptions } = useActions(taxonomicBreakdownFilterLogic(logicProps))
     const { hogQL, canEditInSqlEditor } = useValues(insightDataLogic(insightProps))
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
 
     const breakdownDocsUrl =
         taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
@@ -135,23 +141,28 @@ export function TaxonomicBreakdownFilter({
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             {(showLabel || (!showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions)) && (
                 <div className="flex items-center gap-2">
-                    {showLabel && (
-                        <LemonLabel info="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.">
-                            Breakdown by
-                        </LemonLabel>
-                    )}
+                    {showLabel &&
+                        (quillEnabled ? (
+                            <QuillBreakdownByLabel info={BREAKDOWN_INFO} />
+                        ) : (
+                            <LemonBreakdownByLabel info={BREAKDOWN_INFO} />
+                        ))}
                     {!showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions && (
                         <Popover
                             overlay={<GlobalBreakdownOptionsMenu />}
                             visible={breakdownOptionsOpened}
                             onClickOutside={() => toggleBreakdownOptions(false)}
                         >
-                            <LemonButton
-                                icon={<IconGear />}
-                                size="small"
-                                noPadding
-                                onClick={() => toggleBreakdownOptions(!breakdownOptionsOpened)}
-                            />
+                            {quillEnabled ? (
+                                <QuillBreakdownOptionsButton
+                                    open={!!breakdownOptionsOpened}
+                                    onClick={() => toggleBreakdownOptions(!breakdownOptionsOpened)}
+                                />
+                            ) : (
+                                <LemonBreakdownOptionsButton
+                                    onClick={() => toggleBreakdownOptions(!breakdownOptionsOpened)}
+                                />
+                            )}
                         </Popover>
                     )}
                 </div>

@@ -1,6 +1,11 @@
-import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButtonProps } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { FilterLogicalOperator } from '~/types'
+
+import { LemonAndOrFilterSelect } from './LemonAndOrFilterSelect'
+import { QuillAndOrFilterSelect } from './QuillAndOrFilterSelect'
 
 export interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
@@ -14,88 +19,18 @@ export interface AndOrFilterSelectProps {
     size?: LemonButtonProps['size']
 }
 
-export function AndOrFilterSelect({
-    onChange,
-    value,
-    topLevelFilter,
-    prefix = 'Match',
-    suffix = ['filter in this group', 'filters in this group'],
-    shortSuffix,
-    disabledReason,
-    size = 'small',
-}: AndOrFilterSelectProps): JSX.Element {
-    return (
-        <div className="flex items-center font-medium">
-            <span className="ml-2 @max-[410px]/editor-panel:ml-0">{prefix}</span>
-            <LemonSelect
-                className="mx-2"
-                size={size}
-                value={value}
-                onChange={(type) => onChange(type as FilterLogicalOperator)}
-                disabledReason={disabledReason}
-                options={[
-                    {
-                        label: 'all',
-                        value: FilterLogicalOperator.And,
-                        labelInMenu: (
-                            <SelectOption<FilterLogicalOperator>
-                                title="All"
-                                description="Every single filter must match"
-                                value={FilterLogicalOperator.And}
-                                selectedValue={value}
-                            />
-                        ),
-                    },
-                    {
-                        label: 'any',
-                        value: FilterLogicalOperator.Or,
-                        labelInMenu: (
-                            <SelectOption<FilterLogicalOperator>
-                                title="Any"
-                                description="One or more filters must match"
-                                value={FilterLogicalOperator.Or}
-                                selectedValue={value}
-                            />
-                        ),
-                    },
-                ]}
-                optionTooltipPlacement={topLevelFilter ? 'bottom-end' : 'bottom-start'}
-                dropdownMatchSelectWidth={false}
-            />
-            <span className={shortSuffix ? '@max-[375px]/editor-panel:hidden' : undefined}>
-                {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}
-            </span>
-            {shortSuffix && <span className="hidden @max-[375px]/editor-panel:inline">{shortSuffix}</span>}
-        </div>
+export function AndOrFilterSelect(props: AndOrFilterSelectProps): JSX.Element {
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    return quillEnabled ? (
+        <QuillAndOrFilterSelect
+            value={props.value}
+            onChange={props.onChange}
+            prefix={props.prefix}
+            suffix={props.suffix}
+            shortSuffix={props.shortSuffix}
+            disabledReason={props.disabledReason}
+        />
+    ) : (
+        <LemonAndOrFilterSelect {...props} />
     )
 }
-
-type SelectOptionProps<T extends React.ReactNode> = {
-    title: string
-    description: string
-    value: T
-    selectedValue: T
-}
-
-export const SelectOption = <T extends React.ReactNode>({
-    title,
-    description,
-    value,
-    selectedValue,
-}: SelectOptionProps<T>): JSX.Element => (
-    <div className="flex p-1 items-center">
-        <div
-            className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
-                value === selectedValue
-                    ? 'bg-accent text-primary-inverse [text-shadow:0_0_1px_black]'
-                    : 'bg-surface-secondary text-primary'
-            }`}
-        >
-            {value}
-        </div>
-        <div>
-            <div className="font-bold">{title}</div>
-            <div className="font-normal">{description}</div>
-        </div>
-    </div>
-)

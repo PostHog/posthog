@@ -1,10 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconFilter } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
-
 import { FilterBar } from 'lib/components/FilterBar'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { PathCleaningToggle } from 'scenes/web-analytics/PathCleaningToggle'
@@ -13,6 +11,9 @@ import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebStatsTableQuery } from '~/queries/utils'
+
+import { LemonWebFilterTestAccountsToggle } from './LemonWebFilterTestAccountsToggle'
+import { QuillWebFilterTestAccountsToggle } from './QuillWebFilterTestAccountsToggle'
 
 export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery
@@ -82,19 +83,12 @@ function FilterTestAccountsToggle({
     query: WebStatsTableQuery | WebOverviewQuery
     updateQuerySource: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
 }): JSX.Element {
-    const isFilterTestAccountsEnabled = query.filterTestAccounts ?? false
-
-    return (
-        <Tooltip title="Filter out events from test accounts">
-            <LemonButton
-                icon={<IconFilter />}
-                onClick={() => updateQuerySource({ filterTestAccounts: !isFilterTestAccountsEnabled })}
-                type="secondary"
-                size="small"
-            >
-                Filter out internal and test users:{' '}
-                <LemonSwitch checked={isFilterTestAccountsEnabled} className="ml-1" />
-            </LemonButton>
-        </Tooltip>
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const checked = query.filterTestAccounts ?? false
+    const onChange = (filterTestAccounts: boolean): void => updateQuerySource({ filterTestAccounts })
+    return quillEnabled ? (
+        <QuillWebFilterTestAccountsToggle checked={checked} onChange={onChange} />
+    ) : (
+        <LemonWebFilterTestAccountsToggle checked={checked} onChange={onChange} />
     )
 }

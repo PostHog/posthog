@@ -31,43 +31,47 @@ export function QuillEditorFilterGroups({
         .map(({ title }) => title)
 
     return (
-        <Accordion multiple value={openTitles} data-quill>
-            {editorFilterGroups.map(({ title, collapsedSummary, headerExtra, editorFilters }) => {
-                const isOpen = openTitles.includes(title)
-                return (
-                    <AccordionItem
-                        key={title}
-                        value={title}
-                        onOpenChange={(open) => {
-                            setOpenByTitle((current) => ({ ...current, [title]: open }))
-                            posthog.capture('editor panel section toggled', {
-                                section: title,
-                                action: open ? 'opened' : 'closed',
-                                query_kind: queryKind,
-                            })
-                        }}
-                    >
-                        <AccordionTrigger data-attr={'editor-filter-group-collapse-' + slugify(title)}>
-                            <span className="flex items-baseline gap-2 min-w-0">
-                                <span className="shrink-0">{title}</span>
-                                {!isOpen && collapsedSummary ? (
-                                    <Text size="xs" variant="muted" render={<span />} className="truncate">
-                                        {collapsedSummary}
-                                    </Text>
+        // A card surface, so the outline controls stand out instead of sitting on the accordion's muted tint
+        <div data-quill>
+            <Accordion multiple value={openTitles} className="bg-card text-card-foreground">
+                {editorFilterGroups.map(({ title, collapsedSummary, headerExtra, editorFilters }) => {
+                    const isOpen = openTitles.includes(title)
+                    return (
+                        <AccordionItem
+                            key={title}
+                            value={title}
+                            className="bg-card"
+                            onOpenChange={(open) => {
+                                setOpenByTitle((current) => ({ ...current, [title]: open }))
+                                posthog.capture('editor panel section toggled', {
+                                    section: title,
+                                    action: open ? 'opened' : 'closed',
+                                    query_kind: queryKind,
+                                })
+                            }}
+                        >
+                            <AccordionTrigger data-attr={'editor-filter-group-collapse-' + slugify(title)}>
+                                <span className="flex items-baseline gap-2 min-w-0">
+                                    <span className="shrink-0">{title}</span>
+                                    {!isOpen && collapsedSummary ? (
+                                        <Text size="xs" variant="muted" render={<span />} className="truncate">
+                                            {collapsedSummary}
+                                        </Text>
+                                    ) : null}
+                                </span>
+                            </AccordionTrigger>
+                            <AccordionContent className="flex flex-col gap-3 min-w-0">
+                                {headerExtra ? (
+                                    <div data-not-quill className="flex">
+                                        {headerExtra}
+                                    </div>
                                 ) : null}
-                            </span>
-                        </AccordionTrigger>
-                        <AccordionContent className="flex flex-col gap-3 min-w-0">
-                            {headerExtra ? (
-                                <div data-not-quill className="flex">
-                                    {headerExtra}
-                                </div>
-                            ) : null}
-                            <QuillEditorFilterItems editorFilters={editorFilters} insightProps={insightProps} />
-                        </AccordionContent>
-                    </AccordionItem>
-                )
-            })}
-        </Accordion>
+                                <QuillEditorFilterItems editorFilters={editorFilters} insightProps={insightProps} />
+                            </AccordionContent>
+                        </AccordionItem>
+                    )
+                })}
+            </Accordion>
+        </div>
     )
 }

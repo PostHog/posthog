@@ -51,3 +51,11 @@ export function excludedItemChips(excludedItems: PathsV2Item[], stepSources: Pat
     }
     return chips
 }
+
+/** Why an excluded item that a step source still produces is left out of the journey. */
+export function activeChipExplanation(item: PathsV2Item, source: PathsV2StepSource): string {
+    if (source.namingProperty) {
+        return `Excludes ${item.event} events with no value for ${source.namingProperty}.`
+    }
+    return `Excludes all ${item.event} events.`
+}

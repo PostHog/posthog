@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
@@ -26,6 +26,7 @@ import {
     TaxonomicFilterValue,
     isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
+import { QuillTaxonomicTrigger } from 'lib/components/TaxonomicPopover/QuillTaxonomicTrigger'
 import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
 import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
@@ -151,6 +152,7 @@ export function TaxonomicPropertyFilter({
     const { featureFlags } = useValues(featureFlagLogic)
     const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
     const menuRebuildEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
+    const quillEnabled = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -309,30 +311,43 @@ export function TaxonomicPropertyFilter({
             visible={dropdownOpen}
             onClickOutside={closeDropdown}
         >
-            <LemonButton
-                type="secondary"
-                icon={!valuePresent ? <IconPlusSmall /> : undefined}
-                data-attr={'property-select-toggle-' + index}
-                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
-                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                size={size}
-                truncate={true}
-                tooltip={
-                    <>
-                        {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
-                        {addFilterDocLink && (
-                            <>
-                                <br />
-                                <Link to={addFilterDocLink} target="_blank">
-                                    Read the docs
-                                </Link>
-                            </>
-                        )}
-                    </>
-                }
-            >
-                {filterContent ?? (addText || 'Add filter')}
-            </LemonButton>
+            {quillEnabled ? (
+                <QuillTaxonomicTrigger
+                    icon={!valuePresent ? <IconPlus /> : undefined}
+                    sideIcon={null}
+                    data-attr={'property-select-toggle-' + index}
+                    open={dropdownOpen}
+                    onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                    tooltip={cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+                >
+                    {filterContent ?? (addText || 'Add filter')}
+                </QuillTaxonomicTrigger>
+            ) : (
+                <LemonButton
+                    type="secondary"
+                    icon={!valuePresent ? <IconPlusSmall /> : undefined}
+                    data-attr={'property-select-toggle-' + index}
+                    sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
+                    onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                    size={size}
+                    truncate={true}
+                    tooltip={
+                        <>
+                            {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+                            {addFilterDocLink && (
+                                <>
+                                    <br />
+                                    <Link to={addFilterDocLink} target="_blank">
+                                        Read the docs
+                                    </Link>
+                                </>
+                            )}
+                        </>
+                    }
+                >
+                    {filterContent ?? (addText || 'Add filter')}
+                </LemonButton>
+            )}
         </LemonDropdown>
     )
 

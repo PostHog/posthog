@@ -23,6 +23,7 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
+import { QuillTaxonomicTrigger } from './QuillTaxonomicTrigger'
 import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
 import { TaxonomicPopoverMenu } from './TaxonomicPopoverMenu'
@@ -119,6 +120,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const { featureFlags } = useValues(featureFlagLogic)
     const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
     const menuRebuildEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
+    const quillEnabled = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
 
     const generatedKey = useId()
     const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
@@ -193,7 +195,35 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             }}
             placement={placement}
         >
-            {isClearButtonShown ? (
+            {quillEnabled ? (
+                <QuillTaxonomicTrigger
+                    ref={ref}
+                    icon={buttonPropsRest.icon}
+                    sideIcon={sideIcon}
+                    fullWidth={buttonPropsRest.fullWidth}
+                    disabled={buttonPropsRest.disabled}
+                    disabledReason={buttonPropsRest.disabledReason}
+                    tooltip={
+                        typeof buttonPropsFinal.tooltip === 'function'
+                            ? buttonPropsFinal.tooltip()
+                            : buttonPropsFinal.tooltip
+                    }
+                    open={visible}
+                    className={buttonPropsRest.className}
+                    onClick={buttonPropsFinal.onClick}
+                    onClear={
+                        isClearButtonShown
+                            ? () => {
+                                  onChange?.('' as ValueType, groupType, null)
+                                  setLocalValue('' as ValueType)
+                              }
+                            : undefined
+                    }
+                    data-attr={buttonPropsRest['data-attr']}
+                >
+                    {buttonPropsFinal.children}
+                </QuillTaxonomicTrigger>
+            ) : isClearButtonShown ? (
                 <LemonButton
                     sideAction={{
                         icon: <IconX />,

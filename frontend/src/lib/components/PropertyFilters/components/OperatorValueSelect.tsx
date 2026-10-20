@@ -1,16 +1,16 @@
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDropdownProps, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { isMobile } from 'lib/utils/dom'
 import {
-    allOperatorsMapping,
     chooseOperatorMap,
     isOperatorCohort,
     isOperatorDate,
@@ -18,7 +18,6 @@ import {
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
-    isOperatorSemver,
 } from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
@@ -33,7 +32,9 @@ import {
     PropertyType,
 } from '~/types'
 
+import { LemonOperatorSelect } from './LemonOperatorSelect'
 import { PropertyValue } from './PropertyValue'
+import { QuillOperatorSelect } from './QuillOperatorSelect'
 
 const STARTS_ENDS_WITH_OPERATORS = [
     PropertyOperator.StartsWith,
@@ -149,7 +150,7 @@ export interface OperatorValueSelectProps {
     staticValues?: PropValue[] | null
 }
 
-interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
+export interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
@@ -473,64 +474,17 @@ export function OperatorValueSelect({
     )
 }
 
-function toOption(op: PropertyOperator): { label: JSX.Element; value: PropertyOperator } {
-    return {
-        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
-        value: op || PropertyOperator.Exact,
-    }
-}
-
-export function OperatorSelect({
-    operator,
-    operators,
-    onChange,
-    className,
-    size,
-    startVisible,
-}: OperatorSelectProps): JSX.Element {
-    const hasSemver = operators.some(isOperatorSemver)
-    const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
-        hasSemver
-            ? [
-                  ...(operators.some((op) => !isOperatorSemver(op))
-                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
-                      : []),
-                  {
-                      title: 'Semver operators',
-                      footer: (
-                          <div className="mx-2 my-1">
-                              <Link
-                                  to="https://posthog.com/docs/data/property-filters#semver-operators"
-                                  target="_blank"
-                                  className="text-xs"
-                              >
-                                  Learn more
-                              </Link>
-                          </div>
-                      ),
-                      options: operators.filter(isOperatorSemver).map(toOption),
-                  },
-              ]
-            : operators.map(toOption)
-
-    return (
-        <LemonSelect
-            options={options}
-            value={operator || '='}
-            placeholder="Property key"
-            dropdownMatchSelectWidth={false}
-            dropdownPlacement="bottom-start"
-            fullWidth
-            onChange={(op) => {
-                op && onChange(op)
-            }}
-            className={className}
-            size={size}
-            menu={{
-                closeParentPopoverOnClickInside: false,
-                ...(hasSemver ? { className: '!max-h-[400px]' } : {}),
-            }}
-            startVisible={startVisible}
+export function OperatorSelect(props: OperatorSelectProps): JSX.Element {
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    return quillEnabled ? (
+        <QuillOperatorSelect
+            operator={props.operator}
+            operators={props.operators}
+            onChange={props.onChange}
+            className={props.className}
+            defaultOpen={props.startVisible}
         />
+    ) : (
+        <LemonOperatorSelect {...props} />
     )
 }

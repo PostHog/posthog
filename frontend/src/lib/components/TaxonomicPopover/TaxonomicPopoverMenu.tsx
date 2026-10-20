@@ -38,12 +38,14 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
+import { QuillTaxonomicTrigger } from './QuillTaxonomicTrigger'
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
 
 /**
@@ -115,7 +117,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
  * bare `LemonButton` (no wrapper) so base-ui's `DropdownMenuTrigger` can
  * render onto it directly and the DOM matches a plain button.
  */
-function buildTriggerButton(args: {
+function buildLemonTriggerButton(args: {
     value: TaxonomicFilterValue | null | undefined
     renderValue?: (value: any) => JSX.Element | null
     placeholder?: React.ReactNode
@@ -147,6 +149,29 @@ function buildTriggerButton(args: {
     )
 }
 
+/** The quill counterpart of `buildLemonTriggerButton`. */
+function buildQuillTriggerButton(args: Parameters<typeof buildLemonTriggerButton>[0]): ReactElement {
+    const { value, renderValue, placeholder, placeholderClass, triggerButtonProps, open, onClick } = args
+    return (
+        <QuillTaxonomicTrigger
+            icon={triggerButtonProps?.icon}
+            sideIcon={triggerButtonProps?.sideIcon}
+            fullWidth={triggerButtonProps?.fullWidth}
+            disabledReason={triggerButtonProps?.disabledReason}
+            className={triggerButtonProps?.className}
+            open={open}
+            onClick={onClick}
+            data-attr="taxonomic-popover-menu-trigger"
+        >
+            {value ? (
+                (renderValue?.(value) ?? String(value))
+            ) : (
+                <span className={placeholderClass ?? 'text-muted-foreground'}>{placeholder}</span>
+            )}
+        </QuillTaxonomicTrigger>
+    )
+}
+
 export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
     props: TaxonomicPopoverMenuProps<ValueType>
 ): JSX.Element {
@@ -154,6 +179,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     // placeholder button. Mounting the orchestrator for pickers the user
     // never opens would multiply mount cost across every call site on a page.
     const [armed, setArmed] = useState(false)
+    const buildTriggerButton = useFeatureFlag('TODAY_RAIL_NAV') ? buildQuillTriggerButton : buildLemonTriggerButton
     // Which panel the first interaction should land on once armed. The input
     // variant has two entry points (search box → combobox, icon → menu); the
     // button variant always resolves its own open state, so this is ignored.
@@ -257,6 +283,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     // here (not in the lazy outer component) so non-opened pickers don't
     // subscribe to it.
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const buildTriggerButton = useFeatureFlag('TODAY_RAIL_NAV') ? buildQuillTriggerButton : buildLemonTriggerButton
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
     useEffect(() => {
         if (
