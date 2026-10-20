@@ -207,6 +207,7 @@ async def test_completed_upload_stays_successful_when_tagging_is_interrupted(
     caplog: pytest.LogCaptureFixture,
     shutdown: str,
 ) -> None:
+    monkeypatch.setattr(offline_results.logger, "disabled", False)
     caplog.set_level("WARNING", logger=offline_results.__name__)
     tag_started = asyncio.Event()
     release_tag = asyncio.Event()
