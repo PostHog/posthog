@@ -8,7 +8,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import field
 from functools import partial
 from typing import TypeVar
-from uuid import UUID
 
 import grpc
 
@@ -30,11 +29,14 @@ from posthog.models.team import Team
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.personhog_client.proto import (
-    CONSISTENCY_LEVEL_STRONG,
-    GetDistinctIdsForPersonsRequest,
-    ReadOptions,
-    SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest,
+    DISTINCT_ID_WRITE_ACTION_RAISE,
+    DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE,
+    DistinctIdWrite,
+    DistinctIdWriteResult,
+    PersonVersionFloor,
+    RaisePersonVersionFloorsRequest,
+    WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 )
 
 from . import datatypes, lookups, repair_plan, stale_merge
@@ -44,13 +46,23 @@ _T = TypeVar("_T")
 
 _REPAIR_CHUNK_SIZE = 100
 
+# The most rows one personhog repair write takes.
+_WRITE_BATCH_SIZE = 250
+
 # The waits between re-reads give the replica about 0.5 s to show a raise, far above its usual lag of a few milliseconds.
 _REREAD_BACKOFF_SECONDS = (0.025, 0.05, 0.1, 0.15, 0.175)
 
 _TRANSIENT_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 
+# FAILED_PRECONDITION is transient for the repair writes: personhog returns it only for a person whose lifecycle
+# mark another operation holds, or for a row that changed between its read and its lock, and both clear on a retry.
 _TRANSIENT_RPC_CODES = frozenset(
-    {grpc.StatusCode.INTERNAL, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
+    {
+        grpc.StatusCode.INTERNAL,
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.FAILED_PRECONDITION,
+    }
 )
 
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
@@ -61,41 +73,50 @@ _DELIVERY_PRUNE_EVERY = 1_000
 _sleep = time.sleep
 
 
-def _raise_person_version_floor(team_id: int, person_id: int, min_version: int) -> None:
+def _raise_person_version_floor(team_id: int, person_uuid: str, min_version: int) -> None:
+    # Claims the person's lifecycle mark, so the raise waits out an in-flight merge or delete of the person.
     personhog_call(
-        "person_divergence_set_person_version_floor",
-        lambda: require_personhog_client().set_person_version_floor(
-            SetPersonVersionFloorRequest(team_id=team_id, person_id=person_id, min_version=min_version)
-        ),
-    )
-
-
-def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: int) -> str | None:
-    """Raise the mapping's version on the primary and return the uuid of the person it maps to there."""
-    response = personhog_call(
-        "person_divergence_set_person_distinct_id_version_floor",
-        lambda: require_personhog_client().set_person_distinct_id_version_floor(
-            SetPersonDistinctIdVersionFloorRequest(team_id=team_id, distinct_id=distinct_id, min_version=min_version)
-        ),
-    )
-    if not response.HasField("person"):
-        return None
-    return str(UUID(response.person.uuid))
-
-
-def _primary_mapping_versions(team_id: int, person_id: int) -> dict[str, int]:
-    response = personhog_call(
-        "person_divergence_confirm_mapping_versions",
-        lambda: require_personhog_client().get_distinct_ids_for_persons(
-            GetDistinctIdsForPersonsRequest(
-                team_id=team_id,
-                person_ids=[person_id],
-                read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
-                limit_per_person=repair_plan._MAX_REPAIR_DISTINCT_IDS_PER_PERSON + 1,
+        "person_divergence_raise_person_version_floors",
+        lambda: require_personhog_client().raise_person_version_floors(
+            RaisePersonVersionFloorsRequest(
+                team_id=team_id, floors=[PersonVersionFloor(person_uuid=person_uuid, min_version=min_version)]
             )
         ),
     )
-    return {d.distinct_id: int(d.version or 0) for pd in response.person_distinct_ids for d in pd.distinct_ids}
+
+
+def _write_distinct_ids(request: WriteDistinctIdsRequest) -> WriteDistinctIdsResponse:
+    return require_personhog_client().write_distinct_ids(request)
+
+
+def _raise_mapping_version_floors(
+    team_id: int, person_uuid: str, mappings: Sequence[repair_plan._MappingPlan], before_write: Callable[[], None]
+) -> dict[str, DistinctIdWriteResult]:
+    """Raise each live mapping of the person to its target version on the primary, in batches.
+
+    A mapping that moved to another person, or was tombstoned, is left alone and reported with its current row.
+    """
+    results: dict[str, DistinctIdWriteResult] = {}
+    for batch in lookups._chunks(list(mappings), _WRITE_BATCH_SIZE):
+        before_write()
+        request = WriteDistinctIdsRequest(
+            team_id=team_id,
+            writes=[
+                DistinctIdWrite(
+                    distinct_id=m.distinct_id,
+                    action=DISTINCT_ID_WRITE_ACTION_RAISE,
+                    person_uuid=person_uuid,
+                    min_version=m.target_version,
+                )
+                for m in batch
+            ],
+        )
+        response = personhog_call(
+            "person_divergence_raise_mapping_versions",
+            partial(_write_distinct_ids, request),
+        )
+        results.update({r.distinct_id: r for r in response.results})
+    return results
 
 
 def _person_action(plan: repair_plan._PersonPlan, outcome: datatypes.RepairOutcome) -> datatypes.RepairAction:
@@ -175,6 +196,11 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
+def is_retryable(exc: BaseException) -> bool:
+    """Whether a repair failed on a race that a later attempt can win, such as a merge holding the person."""
+    return _is_transient(exc)
+
+
 def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:
     """Run ``fn`` again after a transient ClickHouse or personhog error, then re-raise once the retries run out.
 
@@ -240,20 +266,29 @@ def _execute_plan(
     pg_version = int(person.version or 0)
     if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
         before_write()
-        _raise_person_version_floor(plan.team_id, person.pk, plan.target_version)
+        _raise_person_version_floor(plan.team_id, plan.person_uuid, plan.target_version)
 
-    # SetPersonDistinctIdVersionFloor runs on the primary, so its reply is the owner check: the replica list
-    # that produced this mapping can lag a merge that moved it to another person.
+    # The raise runs on the primary, so its reply is the owner check: the replica list that produced this
+    # mapping can lag a merge that moved it to another person.
+    written = (
+        _raise_mapping_version_floors(plan.team_id, plan.person_uuid, divergent_mappings, before_write)
+        if divergent_mappings
+        else {}
+    )
     owned: list[repair_plan._MappingPlan] = []
+    stored_versions: dict[str, int] = {}
     for mapping in divergent_mappings:
-        before_write()
-        owner = _raise_mapping_version_floor(plan.team_id, mapping.distinct_id, mapping.target_version)
-        if owner is None:
+        result = written.get(mapping.distinct_id)
+        row = result.row if result is not None and result.HasField("row") else None
+        if result is not None and result.outcome == DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE:
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_tombstoned"))
+        elif row is None or row.is_deleted:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
-        elif owner != plan.person_uuid:
+        elif row.person_uuid != plan.person_uuid:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
         else:
             owned.append(mapping)
+            stored_versions[mapping.distinct_id] = int(row.version)
 
     # Re-read after the raise so the published properties are the ones Postgres holds at the
     # published version, including any ingestion update that landed after the first read.
@@ -280,28 +315,18 @@ def _execute_plan(
         published(_publish_person(plan.team_id, reread))
         person_outcome = "repaired"
 
-    # The SetPersonDistinctIdVersionFloor reply does not say whether it wrote, and a personhog-replica build
-    # without NULL-version handling leaves a NULL version unchanged, so publish only the mappings whose
-    # version on the primary reached the target.
-    stored_versions = _primary_mapping_versions(plan.team_id, person.pk) if owned else {}
+    # The write reply holds the row the primary stored, at or above the target, so it is the version to publish.
     for mapping in owned:
-        stored_version = stored_versions.get(mapping.distinct_id)
-        if stored_version is None:
-            # The primary no longer lists the mapping under this person: it moved or was tombstoned after the raise.
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
-        elif stored_version < mapping.target_version:
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_reread_lagging"))
-        else:
-            published(
-                create_person_distinct_id(
-                    team_id=plan.team_id,
-                    distinct_id=mapping.distinct_id,
-                    person_id=plan.person_uuid,
-                    version=stored_version,
-                    is_deleted=False,
-                )
+        published(
+            create_person_distinct_id(
+                team_id=plan.team_id,
+                distinct_id=mapping.distinct_id,
+                person_id=plan.person_uuid,
+                version=stored_versions[mapping.distinct_id],
+                is_deleted=False,
             )
-            mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
+        )
+        mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
     return [_person_action(plan, person_outcome), *mapping_actions]
 
 

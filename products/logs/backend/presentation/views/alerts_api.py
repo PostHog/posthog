@@ -2,7 +2,7 @@ import os
 import datetime as dt
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, Final, Literal, TypedDict, cast
+from typing import Any, Final, Literal, TypedDict, cast, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -16,11 +16,13 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
@@ -87,11 +89,14 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.facade.api import (
     ALLOWED_WINDOW_MINUTES,
+    MAX_MERGED_EVENT_ROWS,
+    PlatformCheckRow,
     close_incident_on_commit,
     follow_logs_alert,
     has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
+    platform_check_rows,
 )
 from products.logs.backend.facade.platform_ownership import before_delete, on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
@@ -1177,6 +1182,77 @@ def _fill_empty_buckets(
     return result
 
 
+@frozen
+class _EventWindow(Sequence[LogsAlertEvent]):
+    """The newest rows of a history merged from two sources, sized as the whole history.
+
+    `LimitOffsetPagination` pages it as it pages a list: it takes its length, then slices one page.
+    It holds only the rows up to the end of the page the request asked for.
+    """
+
+    newest: Sequence[LogsAlertEvent]
+    total: int
+
+    def __len__(self) -> int:
+        return self.total
+
+    @overload
+    def __getitem__(self, index: int) -> LogsAlertEvent: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[LogsAlertEvent]: ...
+
+    def __getitem__(self, index: int | slice) -> LogsAlertEvent | Sequence[LogsAlertEvent]:
+        return self.newest[index]
+
+
+def _with_platform_checks(
+    alert: LogsAlertConfiguration, events: QuerySet[LogsAlertEvent], *, kind: str | None, rows_needed: int
+) -> QuerySet[LogsAlertEvent] | _EventWindow:
+    """`events` with the platform's checks in place of the shadow ones, newest first.
+
+    A logs check row written after the cutover is the shadow evaluation, so it is left out.
+    `rows_needed` is the end of the requested page, because a merged page needs that many rows
+    from each source.
+
+    Returns `events` unchanged for an alert the logs stack owns, and when ClickHouse fails, because
+    the shadow checks are a better answer than a failed list.
+    """
+    cutover_at = alert.owner_changed_at
+    if not alert.platform_owned or cutover_at is None:
+        return events
+    if kind is not None and kind != LogsAlertEvent.Kind.CHECK:
+        return events
+    # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
+    logs_events = stable_queryset_ordering(events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at))
+    try:
+        checks = platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
+    except Exception as error:
+        capture_exception(error)
+        return events
+    if checks is None:
+        return events
+    merged = [*logs_events[:rows_needed], *(_as_logs_event(alert, row) for row in checks.rows)]
+    merged.sort(key=lambda event: event.created_at, reverse=True)
+    return _EventWindow(newest=merged[:rows_needed], total=logs_events.count() + checks.total)
+
+
+def _as_logs_event(alert: LogsAlertConfiguration, row: PlatformCheckRow) -> LogsAlertEvent:
+    """An unsaved row in the shape `LogsAlertEventSerializer` reads."""
+    return LogsAlertEvent(
+        id=row.id,
+        alert=alert,
+        kind=LogsAlertEvent.Kind.CHECK,
+        created_at=row.created_at,
+        state_before=row.state_before,
+        state_after=row.state_after,
+        threshold_breached=row.threshold_breached,
+        result_count=row.result_count,
+        error_message=row.error_message,
+        query_duration_ms=row.query_duration_ms,
+    )
+
+
 @extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
@@ -1370,7 +1446,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
             "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
             "change and there was no error) are filtered out since only the last 10 are kept "
-            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind. "
+            "For an alert the alerts platform evaluates, checks since it took the alert over come "
+            "from the platform's check history."
         ),
     )
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["logs:read"])
@@ -1391,12 +1469,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
             queryset = queryset.filter(kind=kind)
 
-        page = self.paginate_queryset(queryset)
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        rows_needed = paginator.get_offset(request) + (paginator.get_limit(request) or 0)
+        if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
+            raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
+        history = _with_platform_checks(alert, queryset, kind=kind, rows_needed=rows_needed)
+        page = self.paginate_queryset(history)
         if page is not None:
             serializer = LogsAlertEventSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = LogsAlertEventSerializer(queryset, many=True)
+        serializer = LogsAlertEventSerializer(history, many=True)
         return Response(serializer.data)
 
     @extend_schema(
