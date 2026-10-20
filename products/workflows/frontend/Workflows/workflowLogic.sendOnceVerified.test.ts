@@ -416,6 +416,30 @@ describe('workflowLogic send once verified', () => {
             ])
         })
 
+        it('drops a status answer that lands after the editor closed', async () => {
+            await mountWaiting()
+            let releaseCheck!: () => void
+            const checkReleased = new Promise<void>((resolve) => {
+                releaseCheck = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': async () => {
+                        retrieveCount += 1
+                        await checkReleased
+                        return [200, wentLive]
+                    },
+                },
+            })
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(retrieveCount).toEqual(1)
+
+            logic.unmount()
+            releaseCheck()
+            await jest.advanceTimersByTimeAsync(0)
+            await new Promise((resolve) => setImmediate(resolve))
+        })
+
         it('checks only while the tab is visible, and checks at once when it shows again', async () => {
             let hidden = true
             const hiddenSpy = jest.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden)

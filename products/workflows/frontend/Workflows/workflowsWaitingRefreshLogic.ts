@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, getContext, kea, listeners, path, selectors } from 'kea'
 
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
@@ -66,15 +66,19 @@ export const workflowsWaitingRefreshLogic = kea<workflowsWaitingRefreshLogicType
             }
             const shown = values.workflows
             const params = values.paramsFromFilters
+            const context = getContext()
             let response: WorkflowsResult
             try {
                 response = await api.hogFlows.getHogFlows(params)
             } catch {
                 return
             }
+            if (cache.disposables.isDisposed || getContext() !== context) {
+                return
+            }
             const superseded =
                 values.workflowsLoading || values.workflows !== shown || !objectsEqual(values.paramsFromFilters, params)
-            if (cache.disposables.isDisposed || superseded) {
+            if (superseded) {
                 return
             }
             // The success action, not the loader, so the table does not flash its loading state.

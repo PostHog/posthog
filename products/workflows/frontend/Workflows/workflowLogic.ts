@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    getContext,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
@@ -4488,14 +4501,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || !latest || !values.isWaitingForDomain || values.workflowLoading) {
                 return
             }
+            const context = getContext()
             let fresh: HogFlow
             try {
                 fresh = await api.hogFlows.getHogFlow(props.id)
             } catch {
                 return
             }
+            if (cache.disposables.isDisposed || getContext() !== context) {
+                return
+            }
             const latestNow = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
-            if (cache.disposables.isDisposed || latestNow !== latest || values.workflowLoading) {
+            if (latestNow !== latest || values.workflowLoading) {
                 return
             }
             const lifecycle = lifecycleUpdate(latest, fresh)
