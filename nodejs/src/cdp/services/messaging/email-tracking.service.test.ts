@@ -259,15 +259,20 @@ describe('EmailTrackingService', () => {
         // there is no SES, so the pixel/redirect handlers themselves emit the metric — these
         // tests run in test env and exercise that path.
         describe('handleEmailTrackingRedirect', () => {
+            const trackingCode = (): string =>
+                signer.generate({ functionId: hogFunction.id, id: invocationId, teamId: team.id })
+
+            const mintedLinkPath = (target: string): string => {
+                const link = new URL(
+                    signer.redirectUrl({ functionId: hogFunction.id, id: invocationId, teamId: team.id }, target)
+                )
+                return `${link.pathname}${link.search}`
+            }
+
             it('should redirect to the target url and record an email_link_clicked metric', async () => {
-                const phId = signer.generate({
-                    functionId: hogFunction.id,
-                    id: invocationId,
-                    teamId: team.id,
-                })
-                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}&target=https://example.com`)
+                const res = await supertest(app).get(mintedLinkPath('https://example.com/?a=1&b=2'))
                 expect(res.status).toBe(302)
-                expect(res.headers.location).toBe('https://example.com')
+                expect(res.headers.location).toBe('https://example.com/?a=1&b=2')
 
                 await waitForExpect(() => {
                     const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
@@ -280,13 +285,56 @@ describe('EmailTrackingService', () => {
                 })
             })
 
-            it('should return 404 if the target is not provided', async () => {
-                const phId = signer.generate({
-                    functionId: hogFunction.id,
-                    id: invocationId,
-                    teamId: team.id,
-                })
-                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}`)
+            it.each([
+                [
+                    'has no tracking code',
+                    () => '/public/m/redirect?target=https://other.example/',
+                    'https://other.example/',
+                ],
+                [
+                    'has no target signature',
+                    () => `/public/m/redirect?ph_id=${trackingCode()}&target=https://other.example/`,
+                    'https://other.example/',
+                ],
+                [
+                    'has its target swapped after signing',
+                    () =>
+                        mintedLinkPath('https://example.com/').replace(/target=[^&]+/, 'target=https://other.example/'),
+                    'https://other.example/',
+                ],
+                [
+                    'carries markup in its target',
+                    () =>
+                        `/public/m/redirect?target=${encodeURIComponent('https://other.example/"><script>alert(1)</script>')}`,
+                    'https://other.example/%22%3E%3Cscript%3Ealert(1)%3C/script%3E',
+                ],
+                [
+                    'points at an email address',
+                    () => '/public/m/redirect?target=mailto:someone@example.com',
+                    'mailto:someone@example.com',
+                ],
+            ])(
+                'should show a confirmation page instead of redirecting when the link %s',
+                async (_name, path, expectedHref) => {
+                    const res = await supertest(app).get(path())
+                    expect(res.status).toBe(200)
+                    expect(res.headers.location).toBeUndefined()
+                    expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
+                    expect(res.headers['content-security-policy']).toContain("default-src 'none'")
+                    expect(res.text).toContain(`href="${expectedHref}"`)
+                    expect(res.text).not.toContain('<script')
+                }
+            )
+
+            it.each([
+                ['the target is not provided', () => `/public/m/redirect?ph_id=${trackingCode()}`],
+                ['an unsigned target has a script scheme', () => '/public/m/redirect?target=javascript:alert(1)'],
+                [
+                    'the target is repeated',
+                    () => '/public/m/redirect?target=https://a.example/&target=https://b.example/',
+                ],
+            ])('should return 404 if %s', async (_name, path) => {
+                const res = await supertest(app).get(path())
                 expect(res.status).toBe(404)
 
                 const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
