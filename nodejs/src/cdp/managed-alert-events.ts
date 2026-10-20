@@ -12,3 +12,10 @@ export function isManagedAlertInternalEvent(eventName: unknown): boolean {
         MANAGED_ALERT_EVENT_PATTERN.test(eventName)
     )
 }
+
+/**
+ * The alerts platform's transition event. Only a workflow trigger that names its alerts may read it,
+ * because saving that trigger checks read access to each alert's source product. Mirror of
+ * `ALERT_TRANSITION_EVENT` in `products/cdp/backend/internal_events.py`.
+ */
+export const ALERT_TRANSITION_EVENT = '$alert_transition'

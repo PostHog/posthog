@@ -1271,10 +1271,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(globals.event.distinct_id).toBe('distinct-1')
         })
 
-        it('skips events with no identifiers and no-flow teams, but keeps a person-only event', async () => {
+        it('skips events with no identifiers, no-flow teams and reserved events, but keeps a person-only event', async () => {
             const result = await (matcher as any)._parseInternalEventsBatch([
                 rawInternalEvent({ event: { distinct_id: '' } }), // no distinct_id and no person
                 rawInternalEvent({ team_id: 2 }), // team 2 has no actionable flow
+                // alert data whose readers are checked, so no wait or goal predicate may see it
+                rawInternalEvent({ event: { event: '$alert_transition', distinct_id: 'team_1' } }),
                 rawInternalEvent({ event: { distinct_id: '' }, person: { id: 'person-1', properties: {} } }),
             ])
 
