@@ -24,9 +24,13 @@ const row = (type: string, ref: string, path: string): Record<string, unknown> =
 
 describe('analyticsSpacesLogic', () => {
     let requests: string[]
+    let folders: string[]
+    let folderRequests: URLSearchParams[]
 
     beforeEach(() => {
         requests = []
+        folders = ['Growth', 'Unfiled', 'Finance', 'Users']
+        folderRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system_shortcut/': {
@@ -40,10 +44,15 @@ describe('analyticsSpacesLogic', () => {
                     const parent = params.get('parent')
                     const type = params.get('type') ?? params.get('type__startswith')
                     if (params.get('depth') === '1' && type === 'folder') {
+                        folderRequests.push(params)
+                        const search = params.get('search')?.toLowerCase() ?? ''
+                        const matches = folders.filter((name) => name.toLowerCase().includes(search))
+                        const offset = Number(params.get('offset') ?? 0)
+                        const limit = Number(params.get('limit') ?? 20)
                         return {
-                            results: ['Growth', 'Unfiled', 'Finance', 'Users'].map(folder),
-                            count: 4,
-                            next: null,
+                            results: matches.slice(offset, offset + limit).map(folder),
+                            count: matches.length,
+                            next: offset + limit < matches.length ? '/next-page' : null,
                         }
                     }
                     if (parent && type) {
@@ -95,5 +104,33 @@ describe('analyticsSpacesLogic', () => {
         ).toDispatchActions(['loadShortcuts'])
 
         expect(requests).toEqual(['delete shortcut sc-growth'])
+    })
+
+    it('loads collections twenty at a time and searches collections outside the loaded page', async () => {
+        folders = Array.from({ length: 22 }, (_, index) => `Collection ${String(index + 1).padStart(2, '0')}`)
+        const logic = analyticsSpacesLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.spaces).toHaveLength(20)
+        expect(logic.values.pagination).toEqual({ offset: 20, hasMore: true })
+        expect(folderRequests).toHaveLength(1)
+        expect(folderRequests[0].get('limit')).toBe('20')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMore()
+            logic.actions.loadMore()
+        }).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.spaces.map((space) => space.name)).toEqual(folders)
+        expect(logic.values.pagination).toEqual({ offset: 22, hasMore: false })
+        expect(folderRequests).toHaveLength(2)
+        expect(folderRequests[1].get('offset')).toBe('20')
+
+        await expectLogic(logic, () => logic.actions.setSearch('Collection 22')).toDispatchActions([
+            'loadSpacesSuccess',
+        ])
+        expect(logic.values.spaces.map((space) => space.name)).toEqual(['Collection 22'])
+        expect(folderRequests[2].get('offset')).toBe('0')
+        expect(folderRequests[2].get('search')).toBe('Collection 22')
     })
 })

@@ -13,6 +13,12 @@ import { initKeaTests } from '~/test/init'
 import { resetAnalyticsFeedSnapshot } from './analyticsFeedLogic'
 import { analyticsListLogic } from './analyticsListLogic'
 
+jest.mock('lib/utils/getAppContext', () => ({
+    ...jest.requireActual('lib/utils/getAppContext'),
+    getCurrentTeamIdOrNone: () => 997,
+    getCurrentUserIdOrNone: () => 'u-ada',
+}))
+
 const ADA = { id: 1, uuid: 'u-ada', first_name: 'Ada', last_name: '', email: 'ada@example.com' }
 const entry = (type: string, ref: string, path: string): Record<string, unknown> => ({
     id: `fs-${ref}`,
@@ -30,6 +36,7 @@ describe('analyticsListLogic', () => {
     let lastViewedAt: string | null
 
     beforeEach(() => {
+        localStorage.clear()
         lastViewedAt = null
         resetAnalyticsFeedSnapshot()
         useMocks({
@@ -84,7 +91,11 @@ describe('analyticsListLogic', () => {
         ])
     })
 
-    it('keeps the chosen sort on return and gives each scope its own default', async () => {
+    it('ignores saved defaults and remembers explicit sort choices separately for both scopes', async () => {
+        localStorage.setItem(
+            '997__u-ada__.scenes.analytics.analyticsListLogic.orderByByScope',
+            JSON.stringify({ mine: '-last_viewed_at', all: '-created_at' })
+        )
         const logic = analyticsListLogic()
         logic.mount()
         router.actions.push(urls.analyticsMine())
@@ -94,10 +105,25 @@ describe('analyticsListLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         router.actions.push(urls.analyticsList())
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.feedQuery.orderBy).toBe('-created_at')
+        expect(logic.values.feedQuery.orderBy).toBe('-last_viewed_at')
         router.actions.push(urls.analyticsMine())
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.feedQuery.orderBy).toBe('last_viewed_at')
+        logic.unmount()
+
+        const restored = analyticsListLogic()
+        restored.mount()
+        await expectLogic(restored, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        expect(restored.values.feedQuery.orderBy).toBe('-last_viewed_at')
+        await expectLogic(restored, () =>
+            restored.actions.setFilters({ orderBy: '-created_at' })
+        ).toFinishAllListeners()
+        restored.unmount()
+
+        const withSavedChoice = analyticsListLogic()
+        withSavedChoice.mount()
+        await expectLogic(withSavedChoice, () => withSavedChoice.actions.loadList()).toFinishAllListeners()
+        expect(withSavedChoice.values.feedQuery.orderBy).toBe('-created_at')
     })
 
     it('refreshes view times when URL filters restore a cached sorted list', async () => {

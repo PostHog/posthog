@@ -24,7 +24,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Skeleton,
     Spinner,
     Text,
 } from '@posthog/quill'
@@ -47,6 +46,7 @@ import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
+import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
@@ -63,16 +63,6 @@ export function AnalyticsList(): JSX.Element {
     const analyticsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     // The page ships behind the Today navigation, so without the flag `/analytics/all` stays a missing page.
     return analyticsEnabled ? <AnalyticsListContent /> : <NotFound object="page" />
-}
-
-function TableSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2" aria-busy aria-label="Loading analytics">
-            {Array.from({ length: 6 }, (_, index) => (
-                <Skeleton key={index} className="h-9" />
-            ))}
-        </div>
-    )
 }
 
 function AnalyticsListContent(): JSX.Element {
@@ -106,6 +96,7 @@ function AnalyticsListContent(): JSX.Element {
     const columns = analyticsListColumns({
         backUrl,
         showSpace: mode === 'feed',
+        showOwner: scope !== 'mine',
         orderBy: feedQuery.orderBy,
         onOrderByChange: (orderBy) => setFilters({ orderBy }),
     })
@@ -156,7 +147,7 @@ function AnalyticsListContent(): JSX.Element {
             )
         }
         if (listState === 'loading') {
-            return <TableSkeleton />
+            return <AnalyticsListSkeleton columns={columns} />
         }
         if (listState === 'no-matches') {
             return (
@@ -231,11 +222,7 @@ function AnalyticsListContent(): JSX.Element {
                         fullWidth
                         size="sm"
                         stickyHeader
-                        className={
-                            mode === 'feed'
-                                ? 'w-full min-w-0 **:data-expand:max-w-0 @max-[64rem]/analytics:[&_tr>:nth-child(2)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(3)]:hidden @max-[64rem]/analytics:[&_tr>:nth-child(4)]:hidden'
-                                : 'w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208'
-                        }
+                        className="w-full min-w-0 **:data-expand:min-w-64 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
                         empty={<Text size="sm">Nothing in this collection.</Text>}
                     />
                 )}

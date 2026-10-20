@@ -75,18 +75,20 @@ function TagsCell({ tags }: { tags: string[] }): JSX.Element {
     }
     const hidden = tags.length - VISIBLE_TAGS
     return (
-        <ChipGroup className="flex-nowrap overflow-hidden">
-            {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                <Chip key={tag} size="xs" className="max-w-24 truncate">
-                    {tag}
-                </Chip>
-            ))}
+        <div className="flex min-w-0 items-center gap-1">
+            <ChipGroup className="min-w-0 max-w-full flex-1 flex-nowrap">
+                {tags.slice(0, VISIBLE_TAGS).map((tag) => (
+                    <Chip key={tag} size="xs" className="min-w-0 max-w-24 flex-1" title={tag}>
+                        <span className="min-w-0 truncate">{tag}</span>
+                    </Chip>
+                ))}
+            </ChipGroup>
             {hidden > 0 && (
-                <Text size="xs" variant="muted">
+                <Text size="xs" variant="muted" className="shrink-0">
                     {`+${hidden}`}
                 </Text>
             )}
-        </ChipGroup>
+        </div>
     )
 }
 
@@ -295,11 +297,13 @@ function ItemTitle({
 export function analyticsListColumns({
     backUrl,
     showSpace,
+    showOwner,
     orderBy,
     onOrderByChange,
 }: {
     backUrl: string
     showSpace: boolean
+    showOwner: boolean
     orderBy: AnalyticsFeedQuery['orderBy']
     onOrderByChange: (orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>) => void
 }): AnalyticsListColumns {
@@ -336,26 +340,30 @@ export function analyticsListColumns({
             header: 'Tags',
             enableSorting: false,
             cell: ({ row }) => (
-                <div className="w-36 overflow-hidden">
+                <div className="w-36">
                     {row.original.kind === 'item' ? <TagsCell tags={row.original.item.tags} /> : <EmptyCell />}
                 </div>
             ),
         },
-        {
-            id: 'owner',
-            header: 'Owner',
-            enableSorting: false,
-            cell: ({ row }) => (
-                <AnalyticsOwner
-                    owner={
-                        row.original.kind === 'item'
-                            ? row.original.item.createdBy
-                            : (row.original.folder.createdBy ?? null)
-                    }
-                    className="w-36"
-                />
-            ),
-        },
+        ...(showOwner
+            ? ([
+                  {
+                      id: 'owner',
+                      header: 'Owner',
+                      enableSorting: false,
+                      cell: ({ row }) => (
+                          <AnalyticsOwner
+                              owner={
+                                  row.original.kind === 'item'
+                                      ? row.original.item.createdBy
+                                      : (row.original.folder.createdBy ?? null)
+                              }
+                              className="w-36"
+                          />
+                      ),
+                  },
+              ] satisfies AnalyticsListColumns)
+            : []),
         ...(showSpace
             ? ([
                   {
@@ -370,7 +378,7 @@ export function analyticsListColumns({
                                   onOrderByChange(orderBy === '-last_viewed_at' ? 'last_viewed_at' : '-last_viewed_at')
                               }
                           >
-                              You last viewed
+                              Last viewed
                               {orderBy === '-last_viewed_at' && <IconChevronDown />}
                               {orderBy === 'last_viewed_at' && <IconChevronDown className="rotate-180" />}
                           </Button>

@@ -10,7 +10,7 @@ import {
     fileSystemEntryToAnalytics,
 } from './analyticsUtils'
 
-export const ANALYTICS_FEED_PAGE_SIZE = 50
+export const ANALYTICS_FEED_PAGE_SIZE = 20
 
 export interface AnalyticsFeedQuery {
     type: AnalyticsTypeFilter
@@ -132,6 +132,20 @@ export function analyticsTime(item: AnalyticsItem, orderBy?: AnalyticsFeedQuery[
     const time = new Date(item.timestamp).getTime()
     return orderBy === 'last_viewed_at' ? -time : time
 }
+
+function analyticsItemComesFirst(
+    first: AnalyticsItem,
+    second: AnalyticsItem,
+    orderBy?: AnalyticsFeedQuery['orderBy']
+): boolean {
+    const firstTime = analyticsTime(first, orderBy)
+    const secondTime = analyticsTime(second, orderBy)
+    if (firstTime !== secondTime) {
+        return firstTime > secondTime
+    }
+    return new Date(first.createdAt ?? 0).getTime() > new Date(second.createdAt ?? 0).getTime()
+}
+
 export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined)[]): {
     items: AnalyticsItem[]
     blocking: AnalyticsSourceState[]
@@ -153,8 +167,11 @@ export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined
             if (
                 positions[index] < states[index].items.length &&
                 (best === -1 ||
-                    analyticsTime(states[index].items[positions[index]], states[index].query?.orderBy) >
-                        analyticsTime(states[best].items[positions[best]], states[best].query?.orderBy))
+                    analyticsItemComesFirst(
+                        states[index].items[positions[index]],
+                        states[best].items[positions[best]],
+                        states[index].query?.orderBy
+                    ))
             ) {
                 best = index
             }

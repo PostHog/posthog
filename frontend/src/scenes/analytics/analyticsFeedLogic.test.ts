@@ -186,7 +186,7 @@ describe('mergeAnalyticsSources view order', () => {
                         type,
                         ref: `${type}-${index}`,
                         path: `${type}/${index}`,
-                        created_at: at(30),
+                        created_at: at(30 - index),
                     })!,
                     timestamp: day === null ? null : at(day),
                 })),
@@ -202,6 +202,7 @@ describe('mergeAnalyticsSources view order', () => {
             const { items } = mergeAnalyticsSources([source('dashboard', dashboards), source('notebook', [3, null])])
             const expected = orderBy === '-last_viewed_at' ? [5, 3, 2, null, null] : [2, 3, 5, null, null]
             expect(items.map((item) => item.timestamp)).toEqual(expected.map((day) => (day === null ? null : at(day))))
+            expect(items.slice(-2).map((item) => item.type)).toEqual(['notebook', 'dashboard'])
         }
     )
 })

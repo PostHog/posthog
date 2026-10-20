@@ -40,7 +40,7 @@ import {
 
 export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
 // A folder lists its direct children in one request. Deeper folders are opened by drilling in.
-const FOLDER_PAGE_SIZE = 100
+const FOLDER_PAGE_SIZE = ANALYTICS_FEED_PAGE_SIZE
 const SORT_TEAM_ID = getCurrentTeamIdOrNone()
 const SORT_USER_ID = getCurrentUserIdOrNone()
 const SORT_PERSIST_OPTIONS =
@@ -68,6 +68,7 @@ export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
 export type AnalyticsListMode = 'feed' | 'folder'
 /** `all` lists what the project shares; `mine` lists everything the person created, shared or not. */
 export type AnalyticsListScope = 'all' | 'mine'
+type AnalyticsSortChoices = Partial<Record<AnalyticsListScope, NonNullable<AnalyticsFeedQuery['orderBy']>>>
 
 export interface FolderContents {
     /** The folder these rows belong to, so a failed or slow load never shows another folder's rows. */
@@ -165,10 +166,10 @@ export interface analyticsListLogicValues {
     loadedCount: number
     loading: boolean
     mode: AnalyticsListMode
-    orderByByScope: Record<AnalyticsListScope, NonNullable<AnalyticsFeedQuery['orderBy']>>
     scope: AnalyticsListScope
     searchInput: string
     shownQuery: AnalyticsFeedQuery | null
+    sortChoicesByScope: AnalyticsSortChoices
     subfolders: FolderRow[]
 }
 
@@ -297,9 +298,11 @@ export interface analyticsListLogicMeta {
             creators: string[],
             currentUserUuid: string | null,
             scope: AnalyticsListScope,
-            orderByByScope: Record<
-                AnalyticsListScope,
-                NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
+            sortChoicesByScope: Partial<
+                Record<
+                    AnalyticsListScope,
+                    NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
+                >
             >
         ) => AnalyticsFeedQuery
         currentFeed: (
@@ -448,11 +451,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         ],
     })),
     reducers({
-        orderByByScope: [
-            { mine: '-last_viewed_at', all: '-created_at' } as Record<
-                AnalyticsListScope,
-                NonNullable<AnalyticsFeedQuery['orderBy']>
-            >,
+        sortChoicesByScope: [
+            {} as AnalyticsSortChoices,
             SORT_PERSIST_OPTIONS,
             {
                 rememberOrderBy: (state, { scope, orderBy }) => ({ ...state, [scope]: orderBy }),
@@ -507,17 +507,17 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 scope === 'mine' ? (currentUserUuid ? [currentUserUuid] : []) : filters.createdBy,
         ],
         feedQuery: [
-            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid, s.scope, s.orderByByScope],
+            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid, s.scope, s.sortChoicesByScope],
             (
                 filters: AnalyticsListFilters,
                 feedSearch: string,
                 creators: string[],
                 currentUserUuid: string | null,
                 scope: AnalyticsListScope,
-                orderByByScope: Record<AnalyticsListScope, NonNullable<AnalyticsFeedQuery['orderBy']>>
+                sortChoicesByScope: AnalyticsSortChoices
             ): AnalyticsFeedQuery => ({
                 type: filters.type,
-                orderBy: filters.orderBy ?? orderByByScope[scope],
+                orderBy: filters.orderBy ?? sortChoicesByScope[scope] ?? '-last_viewed_at',
                 search: feedSearch.trim(),
                 createdBy: creators,
                 createdByMe: !!currentUserUuid && creators.length === 1 && creators[0] === currentUserUuid,
