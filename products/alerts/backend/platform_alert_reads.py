@@ -55,6 +55,8 @@ def with_platform_runtime(alerts: Sequence[AlertConfiguration], *, now: datetime
             alert.last_notified_at = alert_runtime.last_notified_at
         if (alert_history := history.get(alert.id)) is not None:
             alert.last_checked_at = ensure_utc(alert_history.last_checked_at)
+            # Annotated from the alert's own checks, which stop once the shadow ends.
+            alert.last_value = alert_history.last_value
 
 
 def platform_checks(

@@ -290,12 +290,12 @@ def _snapshot(raw: str) -> dict[str, Any]:
 # keeps the checks that moved the alert and the newest check, so a page of alerts that check every
 # minute returns a few rows each rather than a day of them.
 _HISTORY_SQL = f"""
-SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest
+SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest, value
 FROM (
-    SELECT configuration_id, occurred_at, previous_state, state, error_message,
+    SELECT configuration_id, occurred_at, previous_state, state, error_message, value,
            occurred_at = max(occurred_at) OVER (PARTITION BY configuration_id) AS is_latest
     FROM (
-        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message
+        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message, value
         FROM {PLATFORM_ALERT_EVENTS_TABLE}
         WHERE team_id = %(team_id)s
           AND configuration_id IN %(configuration_ids)s
@@ -332,8 +332,8 @@ def history(
         team_id=team_id,
     )
     changes: dict[UUID, list[PlatformStateChange]] = {}
-    latest: dict[UUID, tuple[datetime, str]] = {}
-    for configuration_id, occurred_at, previous_state, state, error_message, is_latest in rows:
+    latest: dict[UUID, tuple[datetime, str, float | None]] = {}
+    for configuration_id, occurred_at, previous_state, state, error_message, is_latest, value in rows:
         if previous_state != state:
             changes.setdefault(configuration_id, []).append(
                 PlatformStateChange(
@@ -343,14 +343,15 @@ def history(
                 )
             )
         if is_latest:
-            latest[configuration_id] = (occurred_at, error_message)
+            latest[configuration_id] = (occurred_at, error_message, value)
     return {
         configuration_id: PlatformAlertHistory(
             state_changes=tuple(changes.get(configuration_id, ())),
             last_checked_at=last_checked_at,
             last_error_message=error_message or None,
+            last_value=value,
         )
-        for configuration_id, (last_checked_at, error_message) in latest.items()
+        for configuration_id, (last_checked_at, error_message, value) in latest.items()
     }
 
 
@@ -371,6 +372,20 @@ ORDER BY occurred_at DESC, evaluation_key DESC
 LIMIT %(limit)s OFFSET %(offset)s
 """
 
+_CHECK_COUNT_SQL = f"""
+SELECT count()
+FROM (
+    SELECT alert_id, evaluation_key
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND occurred_at >= %(since)s
+      AND occurred_at < %(until)s
+    LIMIT 1 BY alert_id, evaluation_key
+)
+"""
+
 
 def check_page(
     team_id: int, configuration_id: UUID, *, since: datetime, until: datetime, limit: int, offset: int
@@ -382,21 +397,24 @@ def check_page(
     """
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
     # Not `_execute`, for the same reason as `history`.
-    rows = sync_execute(
-        _CHECKS_SQL,
-        {
-            "team_id": team_id,
-            "configuration_id": configuration_id,
-            "since": since,
-            "until": until,
-            "limit": limit,
-            "offset": offset,
-        },
-        team_id=team_id,
-    )
+    parameters = {
+        "team_id": team_id,
+        "configuration_id": configuration_id,
+        "since": since,
+        "until": until,
+        "limit": limit,
+        "offset": offset,
+    }
+    rows = sync_execute(_CHECKS_SQL, parameters, team_id=team_id)
+    if rows:
+        total = rows[0][5]
+    elif offset:
+        # A page past the end has no row to carry the window's count, so it is counted on its own.
+        total = sync_execute(_CHECK_COUNT_SQL, parameters, team_id=team_id)[0][0]
+    else:
+        total = 0
     return PlatformCheckPage(
-        # A page past the end has no rows to carry the window count, and it holds no checks either way.
-        total=rows[0][5] if rows else 0,
+        total=total,
         checks=tuple(
             PlatformCheckEntry(
                 occurred_at=occurred_at,

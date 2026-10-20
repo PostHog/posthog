@@ -67,7 +67,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         row = self._row(action)
 
-        assert (row["state"], row["last_checked_at"]) == ("Firing", _iso(self._at(30)))
+        assert (row["state"], row["last_checked_at"], row["last_value"]) == ("Firing", _iso(self._at(30)), 150.0)
 
     def test_a_moved_alert_lists_its_checks_from_the_platform(self) -> None:
         self._record(90, "not_firing", value=50.0)
@@ -85,6 +85,8 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         assert row["checks"][0]["error"] == {
             "message": "This alert encountered an error. Check the alert configuration and try again."
         }
+        past_the_end = self._row("retrieve", "?checks_offset=5")
+        assert (past_the_end["checks_total"], past_the_end["checks"]) == (3, [])
 
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
