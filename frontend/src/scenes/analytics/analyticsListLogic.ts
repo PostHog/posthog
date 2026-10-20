@@ -88,6 +88,11 @@ function stringList(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+/** The router reads a value that looks like a number or a boolean as one, so text goes back to a string. */
+function urlParamToString(value: unknown): string {
+    return `${value ?? ''}`
+}
+
 export function analyticsListFiltersFromUrl(params: Record<string, any>): AnalyticsListFilters {
     const type = typeof params.type === 'string' && isAnalyticsType(params.type) ? params.type : 'all'
     const tags = Array.isArray(params.tags)
@@ -95,9 +100,9 @@ export function analyticsListFiltersFromUrl(params: Record<string, any>): Analyt
         : []
     return {
         type,
-        search: typeof params.search === 'string' ? params.search : '',
+        search: urlParamToString(params.search),
         createdBy: stringList(params.createdBy),
-        folder: typeof params.folder === 'string' ? params.folder : null,
+        folder: params.folder === undefined || params.folder === null ? null : urlParamToString(params.folder),
         tags,
     }
 }

@@ -4842,14 +4842,14 @@ Note: developers.flowlu.com is the API host, not docs (returns 404/api-key error
 
 ## Flutterwave — gaps
 
-Today (9): `beneficiaries`, `chargebacks`, `payment_plans`, `refunds`, `settlements`, `subaccounts`, `subscriptions`, `transactions`, `transfers`
+Today (12): `banks`, `beneficiaries`, `bill_payments`, `chargebacks`, `payment_plans`, `refunds`, `settlements`, `subaccounts`, `subscriptions`, `transactions`, `transfers`, `wallet_statement`
 
 Diffed against: <https://developer.flutterwave.com/v3.0.0/reference/get-all-transactions>
 
-- [ ] `Get all banks (GET /v3/banks/{country})` — resolve bank codes on transfers and beneficiaries into bank names (high)
-- [ ] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high)
-- [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium)
-- [ ] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium)
+- [x] `Get all banks (GET /v3/banks/{country})` — resolve bank codes on transfers and beneficiaries into bank names (high). Added as `banks` (v3, one request per documented payout country: NG, GH, KE, UG, ZA, TZ).
+- [x] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high). Added as `wallet_statement` (v3, one walk per currency listed by `/balances`).
+- [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium); skipped: one request per transaction on every sync, because `transactions` has no update cursor and the timeline has no list or date filter, and the rows are checkout UI steps with IP addresses and actor emails
+- [x] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium). Added as `bill_payments` (v3).
 - [ ] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium)
 - [ ] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium)
 - [ ] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium)
@@ -9079,10 +9079,10 @@ Today (9): `escalation_policies`, `incidents`, `log_entries`, `priorities`, `sch
 
 Diffed against: <https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json>
 
-- [ ] `/oncalls` — who was on call for which escalation policy and when - PagerDuty's headline operational dataset (high)
-- [ ] `/incidents/{id}/alerts` — alert-level rows under each incident; the actual monitoring events, and where dedup/noise analysis happens (high)
-- [ ] `/teams/{id}/members` — membership lookup joining users to the teams we already sync (high)
-- [ ] `/change_events` — deploy/change events, the standard correlate-incidents-to-deploys join (high)
+- [x] `/oncalls` — who was on call for which escalation policy and when - PagerDuty's headline operational dataset (high)
+- [x] `/incidents/{id}/alerts` — alert-level rows under each incident; the actual monitoring events, and where dedup/noise analysis happens (high)
+- [x] `/teams/{id}/members` — membership lookup joining users to the teams we already sync (high)
+- [x] `/change_events` — deploy/change events, the standard correlate-incidents-to-deploys join (high)
 - [ ] `/analytics/raw/incidents (POST)` — precomputed per-incident MTTA/MTTR, engaged seconds, and escalation counts (high)
 - [ ] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium)
 - [ ] `/schedules/{id}/users` — membership lookup resolving which users belong to each schedule we already sync (medium)
