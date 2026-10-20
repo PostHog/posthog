@@ -199,8 +199,8 @@ jobs:
                   RUST_REBUILD_ALL: ${{ steps.rust-affected.outputs.rebuild-all }}
                   RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
                   RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
-                  # The Kafka parity e2e spawns identity and the publisher through the harness.
-                  RUST_PERSONHOG_E2E_CRATES: '["personhog-identity", "personhog-test-harness"]'
+                  # The Kafka parity e2e spawns identity, the publisher and the parity monitor through the harness.
+                  RUST_PERSONHOG_E2E_CRATES: '["personhog-identity", "personhog-test-harness", "personhog-parity-monitor"]'
               run: |
                   # `schedule` alongside `push`: the paths filter is skipped on both, so
                   # NODEJS_CHANGED is empty there. Without this the hourly run would decide
@@ -954,7 +954,12 @@ jobs:
             - name: Pre-build the personhog stack and harness
               run: |
                   if [ -f nodejs/tests/service-e2e/personhog-kafka-parity.serial.test.ts ]; then
-                    cd rust && cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
+                    packages=(-p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness)
+                    # The parity test spawns the monitor through the stack; a branch without the crate runs the test without it.
+                    if [ -d rust/personhog-parity-monitor ]; then
+                      packages+=(-p personhog-parity-monitor)
+                    fi
+                    cd rust && cargo build "${packages[@]}"
                   else
                     echo "Kafka parity e2e test is not present on this branch; skipping the stack build."
                   fi
