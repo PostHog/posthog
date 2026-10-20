@@ -157,6 +157,9 @@ class DaisyconSource(ResumableSource[DaisyconSourceConfig, DaisyconResumeConfig]
         resumable_source_manager: ResumableSourceManager[DaisyconResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        # Checked before the integration lookup, so the error names the table and costs no read.
+        if inputs.schema_name not in ENDPOINTS:
+            raise ValueError(f"Daisycon has no table named {inputs.schema_name}")
         if not config.daisycon_integration_id:
             raise ValueError("Missing integration ID")
         integration = self.get_oauth_integration(config.daisycon_integration_id, inputs.team_id)
