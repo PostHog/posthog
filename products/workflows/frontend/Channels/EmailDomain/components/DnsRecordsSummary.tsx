@@ -3,7 +3,8 @@ import { useValues } from 'kea'
 import { IconCheck, IconWarning } from '@posthog/icons'
 import { LemonCollapse, Spinner } from '@posthog/lemon-ui'
 
-import type { EmailDomainStatusRecordApi } from '../../../generated/api.schemas'
+import type { EmailDomainStatusRecordApi } from 'products/integrations/frontend/generated/api.schemas'
+
 import { emailDomainAutoConfigureLogic } from '../emailDomainAutoConfigureLogic'
 import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { DnsRecordRows } from './DnsRecordRows'

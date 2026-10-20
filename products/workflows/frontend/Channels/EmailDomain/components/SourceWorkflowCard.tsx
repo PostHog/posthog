@@ -49,7 +49,9 @@ export function SourceWorkflowCard({
             <div className="flex flex-col gap-1 min-w-0">
                 <span className="text-xs uppercase tracking-wide text-secondary">Your workflow</span>
                 <h2 className="m-0 text-xl font-semibold break-words">{workflow.name}</h2>
-                <p className="m-0 text-sm text-secondary break-words">{lead(workflow, stage, domain)}</p>
+                <p className="m-0 text-sm text-secondary break-words">
+                    {lead(workflow, stage, domain ?? 'the domain')}
+                </p>
             </div>
             <div className="flex flex-col gap-2">
                 {offersEnable && (
