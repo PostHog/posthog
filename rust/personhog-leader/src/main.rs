@@ -40,10 +40,11 @@ use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::migration::SealDuty;
 use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::settle::prune_and_settle_tick;
+use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
 use personhog_leader::warming::{
     changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
@@ -147,6 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ComponentOptions::new().is_observability(true),
     );
     let changelog_handle = manager.register("changelog-config", ComponentOptions::new());
+    let migration_handle = manager.register("migration-duty", ComponentOptions::new());
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -456,6 +458,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_repair_nudge(Arc::clone(&fence_repair_nudge)),
     );
 
+    {
+        let duty = SealDuty {
+            store: Arc::clone(&store),
+            pod_name: config.pod_name.clone(),
+            fenced: Arc::clone(&fenced),
+        };
+        tokio::spawn(async move {
+            let _guard = migration_handle.process_scope();
+            let cancel = CancellationToken::new();
+            tokio::select! {
+                _ = migration_handle.shutdown_signal() => cancel.cancel(),
+                _ = duty.run(cancel.clone()) => {}
+            }
+        });
+    }
+
     // One clock for the process: the coordination session claims and
     // surrenders it, the data plane reads it per request.
     let authority = Arc::new(AuthorityClock::unclaimed());
@@ -680,6 +698,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&cache),
         Arc::clone(&locks),
         Arc::clone(&warm_pools),
+        changelog.clone(),
+        config.writer_consumer_group.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
     ));
@@ -772,11 +792,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// export the dirty-count and writer-lag gauges as a side effect. One
 /// batched OffsetFetch covers every partition with marks, on a pooled
 /// client — each tick reuses the connection instead of rebuilding one.
+#[allow(clippy::too_many_arguments)]
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
     cache: Arc<PartitionedCache>,
     locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     pools: Arc<WarmClientPools>,
+    changelog: LiveChangelog,
+    writer_group: String,
     offsets_timeout: Duration,
     prune_interval: Duration,
 ) {
@@ -786,12 +809,15 @@ async fn run_dirty_index_prune_loop(
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
         gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
         gauge!("personhog_leader_cache_weight_bytes").set(cache.usage_bytes() as f64);
+        // Read when judged, not when the tick starts: a capture adopts before its marks
+        // exist, so a stream seen with marks is never judged on an older config.
         let lags = prune_and_settle_tick(
             &dirty_index,
             &cache,
             &locks,
             &pools.offsets,
             offsets_timeout,
+            |topic| retired_topic(&changelog.current(), &writer_group, topic),
         )
         .await;
         // A partition's lag sums the streams feeding it; a stream the writer never

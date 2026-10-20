@@ -62,6 +62,7 @@ async fn put_handoff(
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2063,6 +2064,55 @@ async fn the_reconcile_pass_heals_an_out_of_protocol_deletion() {
     cancel.cancel();
 }
 
+/// Routes for partitions a shrink dissolved must not outlive it, or a later
+/// grow forwards writes for the reborn partitions to their old owner.
+#[tokio::test]
+async fn the_reconcile_pass_drops_routes_above_the_live_count() {
+    let store = test_store("reconcile-drops-dissolved").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 2, "personhog-writer")
+        .await
+        .unwrap());
+    let assignments: Vec<PartitionAssignment> = (0..4)
+        .map(|partition| PartitionAssignment {
+            partition,
+            owner: "pod-a".to_string(),
+            status: AssignmentStatus::Active,
+            advertise_address: None,
+        })
+        .collect();
+    assert!(store
+        .create_assignments_and_handoffs(&assignments, &[], &[], 128)
+        .await
+        .expect("write assignments"));
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "rdd-router".to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let table = router.table_handle();
+    let (handler, _events) = MockCutoverHandler::new();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let table = Arc::clone(&table);
+        async move {
+            let mut routed: Vec<u32> = table.read().await.keys().copied().collect();
+            routed.sort_unstable();
+            routed == vec![0, 1]
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
 /// The reconcile pass re-derives freeze acks from the snapshot, so an
 /// ack lost out-of-protocol — or a Freezing event lost to a dead watch
 /// stream — is repaired on the next pass instead of wedging the quorum
@@ -2617,6 +2667,126 @@ async fn the_reconcile_pass_skips_drains_for_settled_partitions() {
     cancel.cancel();
 }
 
+/// A cutover handler whose stash always has something parked, on `pending`
+/// among others.
+struct PendingCutoverHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+    pending: Vec<u32>,
+}
+
+#[async_trait]
+impl StashHandler for PendingCutoverHandler {
+    async fn begin_stash(&self, _partition: u32, _new_owner: &str) -> Result<()> {
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        Ok(())
+    }
+
+    fn stash_pending(&self, _partition: u32) -> bool {
+        true
+    }
+
+    fn pending_partitions(&self) -> Vec<u32> {
+        self.pending.clone()
+    }
+}
+
+/// A stash whose owner is gone still drains, so its parked requests get answered.
+#[tokio::test]
+async fn the_reconcile_pass_drains_a_gone_owners_stash() {
+    let store = test_store("reconcile-gone-owner").await;
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-gone".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+            128
+        )
+        .await
+        .expect("write assignment"));
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "gone-owner-router".to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = PendingCutoverHandler {
+        events: Arc::clone(&events),
+        pending: vec![0],
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.iter().any(|e| {
+                matches!(e, CutoverEvent::StashDrained { partition: 0, target } if target == "pod-gone")
+            })
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A pending partition nothing names still drains, so its parked requests get answered.
+#[tokio::test]
+async fn the_reconcile_pass_drains_a_pending_partition_nothing_names() {
+    let store = test_store("reconcile-unnamed-pending").await;
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "unnamed-pending-router".to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = PendingCutoverHandler {
+        events: Arc::clone(&events),
+        pending: vec![6],
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, CutoverEvent::StashDrained { partition: 6, .. }))
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
 // ============================================================
 // Convergence lanes: partitions converge concurrently,
 // single-flight per partition
@@ -2651,6 +2821,7 @@ async fn put_handoff_with_id(
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -4816,6 +4987,7 @@ async fn a_freeze_quorum_reference_that_is_gone_requires_every_live_router() {
         freeze_quorum_ref: Some("never-written".to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
     };
 
@@ -5490,6 +5662,7 @@ async fn a_recorded_membership_advances_past_a_router_outside_it() {
         freeze_quorum_ref: Some("narrow-membership".to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
     };
     store.put_handoff(&handoff).await.expect("write handoff");
@@ -5638,6 +5811,7 @@ async fn a_cached_absent_membership_still_requires_every_live_router() {
         freeze_quorum_ref: Some("never-written".to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
     };
 
@@ -5759,6 +5933,7 @@ async fn a_membership_already_read_is_answered_without_reading_again() {
         freeze_quorum_ref: Some(id.to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
     };
 
@@ -5832,6 +6007,7 @@ async fn a_plan_past_the_server_txn_budget_still_applies() {
             freeze_quorum_ref: Some(quorum_id.to_string()),
             created_at_ms: now * 1000,
             phase_entered_at_ms: now * 1000,
+            held_by: None,
             config_epoch: 0,
         })
         .collect();
@@ -5888,6 +6064,7 @@ async fn a_conflicted_partition_stands_down_alone() {
         freeze_quorum_ref: None,
         created_at_ms: 1_000_000,
         phase_entered_at_ms: 1_000_000,
+        held_by: None,
         config_epoch: 0,
     };
 
@@ -5953,6 +6130,7 @@ async fn a_swept_quorum_delete_loses_to_a_concurrent_re_put() {
         freeze_quorum_ref: Some(quorum_id.to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
     };
     let listed_revision = |store: Arc<personhog_coordination::store::PersonhogStore>| async move {
@@ -6037,6 +6215,7 @@ async fn a_missing_membership_is_resolved_again_once_written() {
         freeze_quorum_ref: Some(quorum_id.to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
     };
 
@@ -6088,6 +6267,7 @@ async fn an_over_server_budget_chunk_degrades_to_per_unit_transactions() {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
             config_epoch: 0,
         })
         .collect();

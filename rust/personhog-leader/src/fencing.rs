@@ -967,6 +967,65 @@ impl FencedChangelogProducers {
         self.acquire_installed(partition, target).await.map(|_| ())
     }
 
+    /// Claim and drop each lane's id; a dial in flight is waited for, not duplicated.
+    pub async fn seal(
+        &self,
+        partition: u32,
+        target: &ChangelogTarget,
+    ) -> Result<&'static str, String> {
+        let topic = target.topic.as_str();
+        let start = Instant::now();
+        while start.elapsed() < self.init_timeout
+            && self
+                .prepared
+                .get(&partition)
+                .is_some_and(|slot| matches!(slot.value(), Prepared::Connecting { .. }))
+        {
+            sleep(Duration::from_millis(10)).await;
+        }
+        let mut parked = self.take_prepared(partition, topic);
+        let path = if parked.is_empty() {
+            "cold"
+        } else {
+            "prepared"
+        };
+        parked.resize_with(self.lanes, || None);
+        let dial = self.dial(partition, target);
+        let claimed = spawn_blocking(move || {
+            let fell_back = AtomicBool::new(false);
+            let results = per_lane(parked, |lane, parked| {
+                claim_lane(&dial, lane, parked, &fell_back)
+            });
+            let mut producers = Vec::with_capacity(results.len());
+            let mut failure = None;
+            for result in results {
+                match result {
+                    Ok(producer) => producers.push(producer),
+                    Err(e) => {
+                        failure.get_or_insert(e);
+                    }
+                }
+            }
+            // The ids are claimed once init returns; the destroy that
+            // follows takes hundreds of milliseconds and nobody waits for it.
+            drop_off_worker(producers);
+            match failure {
+                Some(e) => Err(e),
+                None => Ok(()),
+            }
+        })
+        .await
+        .map_err(|join| format!("seal join: {join}"))?;
+        histogram!("personhog_leader_fence_seal_ms", "path" => path)
+            .record(start.elapsed().as_secs_f64() * 1000.0);
+        counter!(
+            "personhog_leader_fence_seal_total",
+            "outcome" => if claimed.is_ok() { "ok" } else { "error" }
+        )
+        .increment(1);
+        claimed.map(|()| path)
+    }
+
     /// Mark the installed lanes as about to be fenced by this pod's own
     /// re-acquisition, so the fences their writers then see count as a
     /// heal rather than a takeover.

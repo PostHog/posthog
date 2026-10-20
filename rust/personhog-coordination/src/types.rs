@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use k8s_awareness::types::ControllerRef;
 use serde::{Deserialize, Serialize};
 
@@ -188,9 +190,18 @@ pub struct HandoffState {
     /// Zero means the record predates the field.
     #[serde(default)]
     pub phase_entered_at_ms: i64,
+    /// A migration's hold: driver-owned, never advanced past Draining.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_by: Option<String>,
     /// Changelog epoch the record was planned under.
     #[serde(default)]
     pub config_epoch: u64,
+}
+
+impl HandoffState {
+    pub fn is_held(&self) -> bool {
+        self.held_by.is_some()
+    }
 }
 
 /// State machine for partition handoffs:
@@ -361,6 +372,100 @@ pub struct ChangelogTarget {
     pub partitions: u32,
 }
 
+/// Sealing is the point of no return: the old topic's ids are re-initialized there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum MigrationPhase {
+    Freezing,
+    Draining,
+    Sealing,
+    Resuming,
+    Complete,
+    Cancelling,
+    Cancelled,
+}
+
+impl MigrationPhase {
+    pub fn may_transition_to(self, next: MigrationPhase) -> bool {
+        matches!(
+            (self, next),
+            (Self::Freezing, Self::Draining)
+                | (Self::Draining, Self::Sealing)
+                | (Self::Sealing, Self::Resuming)
+                | (Self::Resuming, Self::Complete)
+                | (Self::Freezing | Self::Draining, Self::Cancelling)
+                | (Self::Cancelling, Self::Cancelled)
+        )
+    }
+}
+
+/// A request to migrate: the control plane writes it, and the coordinator
+/// starts the saga from it only once the fleet is quiet (`protocol::migration::fleet_quiet`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationRequest {
+    pub id: String,
+    pub from: ChangelogTarget,
+    pub to: ChangelogTarget,
+    pub requested_at_ms: i64,
+    /// When the coordinator first saw it, on the coordinator's clock; the expiry counts from here.
+    #[serde(default)]
+    pub seen_at_ms: Option<i64>,
+    /// Why the coordinator has not started it yet.
+    #[serde(default)]
+    pub waiting: Vec<String>,
+}
+
+impl MigrationRequest {
+    /// The saga record the start creates; its pre-flip deadline counts from `now_ms`.
+    pub fn start(&self, now_ms: i64) -> MigrationState {
+        MigrationState {
+            id: self.id.clone(),
+            from: self.from.clone(),
+            to: self.to.clone(),
+            phase: MigrationPhase::Freezing,
+            created_at_ms: now_ms,
+            phase_entered_at_ms: now_ms,
+            blocking: Vec::new(),
+            cancel_reason: None,
+        }
+    }
+
+    /// The history record of a request that never started.
+    pub fn rejected(&self, reason: &str, now_ms: i64) -> MigrationState {
+        MigrationState {
+            phase: MigrationPhase::Cancelled,
+            created_at_ms: self.requested_at_ms,
+            phase_entered_at_ms: now_ms,
+            blocking: std::iter::once(reason.to_string())
+                .chain(self.waiting.iter().cloned())
+                .collect(),
+            ..self.start(self.requested_at_ms)
+        }
+    }
+}
+
+/// The saga record: only the coordinator creates and advances it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationState {
+    pub id: String,
+    pub from: ChangelogTarget,
+    pub to: ChangelogTarget,
+    pub phase: MigrationPhase,
+    pub created_at_ms: i64,
+    pub phase_entered_at_ms: i64,
+    #[serde(default)]
+    pub blocking: Vec<String>,
+    /// Why the saga was cancelled, recorded by the cancelling write.
+    pub cancel_reason: Option<String>,
+}
+
+/// One leader's report of the old partitions it sealed; the flip takes the union.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealAck {
+    pub migration_id: String,
+    pub pod_name: String,
+    pub sealed: BTreeSet<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +489,7 @@ mod tests {
         assert!(h.freeze_quorum.is_none());
         assert_eq!(h.created_at_ms, 0);
         assert_eq!(h.phase_entered_at_ms, 0);
+        assert!(!h.is_held());
         assert_eq!(h.config_epoch, 0);
     }
 
@@ -486,6 +592,7 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
             config_epoch: 0,
             new_owner_address: None,
         };
@@ -507,6 +614,7 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
             config_epoch: 0,
             new_owner_address: None,
         };
@@ -586,6 +694,20 @@ mod tests {
             (HandoffPhase::Complete, "\"Complete\""),
         ] {
             assert_eq!(serde_json::to_string(&phase).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn a_saga_cancels_only_before_the_seal() {
+        use MigrationPhase::*;
+        for phase in [
+            Freezing, Draining, Sealing, Resuming, Complete, Cancelling, Cancelled,
+        ] {
+            assert_eq!(
+                phase.may_transition_to(Cancelling),
+                matches!(phase, Freezing | Draining),
+                "{phase:?}"
+            );
         }
     }
 }

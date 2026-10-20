@@ -1471,6 +1471,7 @@ async fn a_dead_new_owner_handoff_is_reaffirmed_to_the_current_owner() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -1606,6 +1607,7 @@ async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
             config_epoch: 0,
         })
         .await
@@ -1838,6 +1840,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -1910,6 +1913,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -1967,6 +1971,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2054,6 +2059,7 @@ async fn a_dead_new_owner_handoff_in_warming_is_reaffirmed() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2160,6 +2166,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2245,6 +2252,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2355,6 +2363,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2470,6 +2479,7 @@ async fn a_handoff_that_can_never_reach_quorum_is_cancelled() {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
             config_epoch: 0,
         })
         .await
@@ -2560,6 +2570,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2665,6 +2676,7 @@ async fn initial_assignment_skips_draining_phase() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2732,6 +2744,7 @@ async fn dead_old_owner_in_draining_recovers() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2839,6 +2852,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2904,6 +2918,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -2996,6 +3011,7 @@ async fn a_dead_new_owner_handoff_in_draining_is_reaffirmed() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -3250,6 +3266,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -3271,6 +3288,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -3326,6 +3344,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };
@@ -3410,6 +3429,7 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: None,
         config_epoch: 0,
         new_owner_address: None,
     };

@@ -140,6 +140,44 @@ async fn acquiring_on_another_topic_produces_there_and_discards_a_stale_preconne
     assert_eq!(read_committed_count(&new).await, 1);
 }
 
+/// Sealing claims every lane's id on the old topic, so a holder still producing
+/// there is fenced and nothing more lands, on the cold and the prepared path.
+#[tokio::test]
+async fn a_seal_fences_the_holder_on_the_old_topic() {
+    for prepared in [false, true] {
+        let topic = format!("fence_seal_{}", uuid::Uuid::new_v4().simple());
+        let holder = fenced_producers(2);
+        holder
+            .acquire(0, &target(&topic))
+            .await
+            .expect("holder acquires");
+        holder
+            .produce(0, &test_person(1))
+            .await
+            .expect("holder produces before the seal");
+
+        let sealer = fenced_producers(2);
+        if prepared {
+            sealer.preconnect(0, &target(&topic)).await;
+        }
+        let path = sealer
+            .seal(0, &target(&topic))
+            .await
+            .expect("the seal claims every lane");
+        assert_eq!(path, if prepared { "prepared" } else { "cold" });
+
+        match holder.produce(0, &test_person(2)).await {
+            Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
+            other => panic!("prepared={prepared}: the holder must be fenced, got {other:?}"),
+        }
+        assert_eq!(
+            read_committed_count(&topic).await,
+            1,
+            "prepared={prepared}: nothing lands after the seal"
+        );
+    }
+}
+
 #[tokio::test]
 async fn a_prepared_connection_still_fences_the_previous_owner() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());

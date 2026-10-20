@@ -50,6 +50,12 @@ pub trait StashHandler: Send + Sync {
     fn stash_pending(&self, _partition: u32) -> bool {
         true
     }
+
+    /// Every partition for which `stash_pending` holds, so the reconcile
+    /// pass can drain those no handoff or assignment names.
+    fn pending_partitions(&self) -> Vec<u32> {
+        Vec::new()
+    }
 }
 
 /// Runs drains off the handoff watch loop, one lane per partition.
@@ -933,17 +939,8 @@ impl RoutingTable {
                                 }
                             }
                             EventType::Delete => {
-                                // A handoff record is never deleted while
-                                // non-terminal — cancellation replaces it
-                                // with the record that resolves its stashes
-                                // — so a deletion has exactly one protocol
-                                // meaning: cleanup after Complete, which
-                                // requires nothing from the router. If a
-                                // stash is somehow still open here (an
-                                // out-of-protocol raw deletion), it stays
-                                // parked; the reconcile tick derives
-                                // disposal from durable state and drains it
-                                // to the assignment owner.
+                                // A deletion needs nothing from the router. A stash
+                                // still open stays parked; the reconcile tick drains it.
                                 let Some(kv) = event.kv() else { continue };
                                 let key = from_utf8(kv.key()).unwrap_or("");
                                 let Some(partition) = store::extract_partition_from_key(key) else {
@@ -1060,7 +1057,9 @@ impl RoutingTable {
         store.put_freeze_acks(&acks, max_txn_ops).await?;
 
         let assignments = store.list_assignments().await?;
+        let mut owned = constrained.clone();
         for assignment in assignments {
+            owned.insert(assignment.partition);
             if constrained.contains(&assignment.partition) {
                 continue;
             }
@@ -1086,6 +1085,26 @@ impl RoutingTable {
                     assignment.owner,
                 );
             }
+        }
+        // A pending partition nothing names drains with no owner: it answers what outlived
+        // the stash wait and closes the freeze.
+        for partition in handler.pending_partitions() {
+            if !owned.contains(&partition) {
+                lanes.request(
+                    Arc::clone(handler),
+                    router_name.to_string(),
+                    partition,
+                    String::new(),
+                );
+            }
+        }
+        // A route at or above the live count names a partition a shrink dissolved. Read after
+        // the listings, so a flip they reflect is in the count and their new routes survive.
+        if let Some(config) = store.get_changelog_config().await? {
+            table
+                .write()
+                .await
+                .retain(|partition, _| *partition < config.partitions);
         }
         Ok(())
     }

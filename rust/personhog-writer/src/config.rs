@@ -12,9 +12,6 @@ pub struct Config {
     #[envconfig(default = "personhog-writer")]
     pub kafka_consumer_group: String,
 
-    #[envconfig(default = "earliest")]
-    pub kafka_consumer_offset_reset: String,
-
     // ── Postgres ─────────────────────────────────────────────────
     pub database_url: String,
 

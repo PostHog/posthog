@@ -251,6 +251,9 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn capture_changelog(&self, partition: u32, config: &ChangelogConfig) {
         preregister_partition_fencing_metrics(partition);
+        // Adopted before the capture lands, so the live config is never older than a
+        // topic this pod marks; the prune's retirement check relies on that.
+        self.changelog.adopt(config);
         self.captures.insert(
             partition,
             Capture {
@@ -599,6 +602,28 @@ mod tests {
             .await;
         assert!(handler.warm_partition(0).await.is_err());
         assert!(!handler.captures.contains_key(&0));
+    }
+
+    /// A capture newer than the watch's view is adopted first, so the prune never
+    /// judges a topic this pod marks as retired.
+    #[tokio::test]
+    async fn a_capture_ahead_of_the_watch_keeps_its_topic_live() {
+        let mut handler = handler();
+        handler.changelog = LiveChangelog::new(ChangelogConfig {
+            writer_group: "personhog-writer".to_string(),
+            ..ChangelogConfig::new("personhog_updates", 4)
+        });
+        let flipped = ChangelogConfig {
+            epoch: 2,
+            writer_group: "personhog-writer".to_string(),
+            ..ChangelogConfig::new("personhog_updates_v2", 8)
+        };
+        handler.capture_changelog(0, &flipped).await;
+        assert!(!crate::settle::retired_topic(
+            &handler.changelog.current(),
+            "personhog-writer",
+            "personhog_updates_v2"
+        ));
     }
 
     /// After a shrink, old-5 and new-1 share keys on this pod, and the
