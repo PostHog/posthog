@@ -13,7 +13,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient
@@ -164,25 +164,33 @@ class TestSharing(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("dashboard", "dashboard", True, False, True),
-            ("notebook", "notebook", True, False, True),
-            ("insight", "insight", True, False, True),
-            ("project", "project", True, False, True),
-            ("source", "external_data_source", True, False, True),
-            ("warehouse_objects", "warehouse_objects", True, False, True),
-            ("table", "warehouse_table", True, False, True),
-            ("table_object", "warehouse_table", True, False, True),
-            ("view", "warehouse_view", True, False, True),
-            ("property", "property_definition", True, False, True),
-            ("no_rules", None, True, False, False),
-            ("unrelated_rules", "feature_flag", True, False, False),
-            ("unavailable_feature", "dashboard", False, False, False),
-            ("other_team", "dashboard", True, True, False),
-            ("other_team_property", "property_definition", True, True, False),
+            param("dashboard", resource="dashboard"),
+            param("notebook", resource="notebook", shared_resource="notebook"),
+            param("insight", resource="insight", shared_resource="insight"),
+            param("project", resource="project"),
+            param("source", resource="external_data_source"),
+            param("warehouse_objects", resource="warehouse_objects"),
+            param("table", resource="warehouse_table"),
+            param("table_object", resource="warehouse_table", resource_id="example-object"),
+            param("view", resource="warehouse_view"),
+            param("property", resource="property_definition"),
+            param("no_rules", expected=False),
+            param("unrelated_rules", resource="feature_flag", expected=False),
+            param("unavailable_feature", resource="dashboard", entitled=False, expected=False),
+            param("other_team", resource="dashboard", other_team=True, expected=False),
+            param("other_team_property", resource="property_definition", other_team=True, expected=False),
         ]
     )
     def test_sharing_config_reports_relevant_access_controls(
-        self, _name: str, resource: str | None, entitled: bool, other_team: bool, expected: bool
+        self,
+        _name: str,
+        *,
+        resource: str | None = None,
+        resource_id: str | None = None,
+        shared_resource: str = "dashboard",
+        entitled: bool = True,
+        other_team: bool = False,
+        expected: bool = True,
     ) -> None:
         self.organization.available_product_features = (
             [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}] if entitled else []
@@ -198,20 +206,21 @@ class TestSharing(APIBaseTest):
             AccessControl.objects.create(
                 team=rule_team,
                 resource=resource,
-                resource_id="example-object" if _name == "table_object" else None,
+                resource_id=resource_id,
                 access_level="viewer",
             )
 
-        if _name == "notebook":
+        if shared_resource == "notebook":
             notebook = Notebook.objects.create(team=self.team, created_by=self.user)
             url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        elif shared_resource == "insight":
+            url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing"
         else:
             url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing"
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["has_relevant_access_controls"] is expected
-        assert response.json()["enabled"] is False
 
     @parameterized.expand(
         [

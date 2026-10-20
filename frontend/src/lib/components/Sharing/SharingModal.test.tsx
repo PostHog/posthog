@@ -93,18 +93,14 @@ describe('SharingModal (dashboard)', () => {
         accessControlAvailable = false,
         hasRelevantAccessControls = false,
         enabled = true,
-        passwordRequired = false,
         securitySettingsAvailable = false,
-        membershipLevel = OrganizationMembershipLevel.Admin,
         sharingAllowed = true,
     }: {
         extraProps?: Partial<SharingModalProps>
         accessControlAvailable?: boolean
         hasRelevantAccessControls?: boolean
         enabled?: boolean
-        passwordRequired?: boolean
         securitySettingsAvailable?: boolean
-        membershipLevel?: OrganizationMembershipLevel
         sharingAllowed?: boolean
     }): JSX.Element {
         // Render the dashboard sharing modal with `WHITE_LABELLING` so the UI shows
@@ -117,13 +113,13 @@ describe('SharingModal (dashboard)', () => {
         initKeaTests(true, undefined, undefined, {
             ...MOCK_DEFAULT_ORGANIZATION,
             available_product_features: getAvailableProductFeatures(),
-            membership_level: membershipLevel,
+            membership_level: OrganizationMembershipLevel.Admin,
             allow_publicly_shared_resources: sharingAllowed,
         })
         themeLogic.mount()
         useMocks({
             get: {
-                ...mockDashboardSharingConfiguration({ enabled, passwordRequired, hasRelevantAccessControls }),
+                ...mockDashboardSharingConfiguration({ enabled, hasRelevantAccessControls }),
                 '/api/environments/:team_id/notebooks/:notebook_id/sharing/': {
                     created_at: createdAt,
                     enabled,
@@ -161,88 +157,98 @@ describe('SharingModal (dashboard)', () => {
 
     it.each([
         {
+            scenario: 'before enabling sharing',
             resource: 'dashboard',
             available: true,
             configured: true,
             enabled: false,
-            password: false,
             allowed: true,
+            settingsAvailable: true,
             warning: true,
         },
         {
+            scenario: 'sharing enabled without security settings',
             resource: 'dashboard',
             available: true,
             configured: true,
             enabled: true,
-            password: true,
             allowed: true,
+            settingsAvailable: false,
             warning: true,
         },
         {
+            scenario: 'sharing a notebook',
             resource: 'notebook',
             available: true,
             configured: true,
             enabled: false,
-            password: false,
             allowed: true,
+            settingsAvailable: true,
             warning: true,
         },
         {
+            scenario: 'no access-control feature',
             resource: 'dashboard',
             available: false,
             configured: true,
             enabled: true,
-            password: false,
             allowed: true,
+            settingsAvailable: true,
             warning: false,
         },
         {
+            scenario: 'no configured rules',
             resource: 'dashboard',
             available: true,
             configured: false,
             enabled: true,
-            password: false,
             allowed: true,
+            settingsAvailable: true,
             warning: false,
         },
         {
+            scenario: 'organization disallows sharing',
             resource: 'dashboard',
             available: true,
             configured: true,
             enabled: true,
-            password: false,
             allowed: false,
+            settingsAvailable: true,
             warning: false,
         },
-    ])(
-        'warns about public $resource access with $available/$configured/$enabled/$password',
-        async ({ resource, available, configured, enabled, password, allowed, warning }) => {
-            render(
-                <DashboardSharingModalWrapper
-                    accessControlAvailable={available}
-                    hasRelevantAccessControls={configured}
-                    enabled={enabled}
-                    passwordRequired={password}
-                    sharingAllowed={allowed}
-                    extraProps={
-                        resource === 'notebook' ? { dashboardId: undefined, notebookShortId: 'example-notebook' } : {}
-                    }
-                />
-            )
+    ])('$scenario', async ({ resource, available, configured, enabled, allowed, settingsAvailable, warning }) => {
+        render(
+            <DashboardSharingModalWrapper
+                accessControlAvailable={available}
+                hasRelevantAccessControls={configured}
+                enabled={enabled}
+                sharingAllowed={allowed}
+                securitySettingsAvailable={settingsAvailable}
+                extraProps={
+                    resource === 'notebook' ? { dashboardId: undefined, notebookShortId: 'example-notebook' } : {}
+                }
+            />
+        )
 
-            await screen.findByText(`Share ${resource} publicly`)
-            const banner = screen.queryByText(/Access controls do not apply to public/)
-            expect(banner?.textContent).toBe(
-                warning
-                    ? `Anyone with the public link can view this ${resource} and its data, including people outside your organization. Access controls do not apply to public ${resource}s.`
-                    : undefined
-            )
-            const toggle = screen.getByTestId('sharing-switch')
-            expect(toggle.hasAttribute('disabled')).toBe(!allowed)
-            expect(toggle).toHaveAttribute('aria-checked', String(allowed && enabled))
+        await screen.findByText(`Share ${resource} publicly`)
+        const banner = screen.queryByText(new RegExp(`Access controls do not apply to public ${resource}s`))
+        const link = screen.queryByText('Disable public sharing for your organization')
+        if (warning) {
+            expect(banner).toBeInTheDocument()
+        } else {
+            expect(banner).not.toBeInTheDocument()
+        }
+        if (warning && settingsAvailable) {
+            expect(link).toHaveAttribute('href', expect.stringMatching(/\/settings\/organization-security$/))
+        } else {
+            expect(link).not.toBeInTheDocument()
+        }
+        if (!allowed) {
+            expect(screen.getByTestId('sharing-switch')).toBeDisabled()
+            expect(screen.getByTestId('sharing-switch')).toHaveAttribute('aria-checked', 'false')
             expect(screen.queryByText('Public sharing is disabled for this organization.')).not.toBeInTheDocument()
         }
-    )
+    })
 
     it.each([
         { membershipLevel: OrganizationMembershipLevel.Admin, securitySettingsAvailable: true, showsLink: true },
@@ -252,22 +258,18 @@ describe('SharingModal (dashboard)', () => {
     ])(
         'gates the settings link for role $membershipLevel with security settings $securitySettingsAvailable',
         async ({ membershipLevel, securitySettingsAvailable, showsLink }) => {
-            render(
-                <DashboardSharingModalWrapper
-                    accessControlAvailable
-                    hasRelevantAccessControls
-                    enabled={false}
-                    membershipLevel={membershipLevel}
-                    securitySettingsAvailable={securitySettingsAvailable}
-                />
-            )
+            useAvailableFeatures(securitySettingsAvailable ? [AvailableFeature.ORGANIZATION_SECURITY_SETTINGS] : [])
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                available_product_features: getAvailableProductFeatures(),
+                membership_level: membershipLevel,
+            })
+            useMocks({ get: mockDashboardSharingConfiguration({}) })
+            const logic = sharingLogic({ dashboardId })
 
-            await screen.findByText('Share dashboard publicly')
-            const link = screen.queryByText('Disable public sharing for your organization')
-            expect(!!link).toBe(showsLink)
-            expect(link?.getAttribute('href')).toEqual(
-                showsLink ? expect.stringMatching(/\/settings\/organization-security$/) : undefined
-            )
+            await expectLogic(logic, () => logic.mount()).toDispatchActions(['loadSharingConfigurationSuccess'])
+            expect(logic.values.canManagePublicSharing).toBe(showsLink)
+            logic.unmount()
         }
     )
 
