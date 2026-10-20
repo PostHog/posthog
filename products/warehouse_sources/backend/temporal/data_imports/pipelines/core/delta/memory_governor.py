@@ -65,6 +65,10 @@ import pyarrow.compute as pc
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DEFAULT_TARGET_FILE_SIZE_BYTES,
+    table_target_file_size,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import (
     RssPeakSampler,
     RssWindow,
@@ -132,8 +136,7 @@ _SOURCE_INUSE_PER_MB = 0.73
 #: deltalite keeps one add action per table file in its snapshot. Measured at ~2.2 KB per file on
 #: the 30-column harness tables (6,000 files hold 12 MB more than 600 files).
 _SNAPSHOT_KB_PER_FILE = 2.2
-#: deltalite and delta-rs both default to 100 MiB when the table does not set ``delta.targetFileSize``.
-_DEFAULT_TARGET_FILE_SIZE = 100 * MB
+_DEFAULT_TARGET_FILE_SIZE = DEFAULT_TARGET_FILE_SIZE_BYTES
 
 #: RSS per byte of malloc in-use memory. glibc keeps freed memory in its arenas, and with its
 #: default mmap threshold the large Arrow buffers stay there too. RSS ran 1.25–2.1× in-use in most
@@ -360,21 +363,13 @@ def rewrite_profile(
     )
 
 
-def _table_target_file_size(table: deltalake.DeltaTable) -> int:
-    raw = table.metadata().configuration.get("delta.targetFileSize")
-    try:
-        return int(raw) if raw and int(raw) > 0 else _DEFAULT_TARGET_FILE_SIZE
-    except ValueError:
-        return _DEFAULT_TARGET_FILE_SIZE
-
-
 def estimate_rewrite_profile(
     table: deltalake.DeltaTable, source: pa.Table, partition_col: str | None, primary_keys: Sequence[str]
 ) -> RewriteProfile | None:
     """``rewrite_profile`` for a live table, or None when its add actions cannot be read."""
     try:
         add_actions = pa.table(table.get_add_actions(flatten=True))
-        return rewrite_profile(add_actions, source, partition_col, primary_keys, _table_target_file_size(table))
+        return rewrite_profile(add_actions, source, partition_col, primary_keys, table_target_file_size(table))
     except Exception as e:  # noqa: BLE001 - an estimate must never fail a write; None sizes conservatively
         logger.debug("deltalite governor: could not estimate the rewrite size: %s", e)
         return None
