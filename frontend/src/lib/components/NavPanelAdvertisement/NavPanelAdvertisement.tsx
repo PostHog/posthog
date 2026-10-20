@@ -12,6 +12,8 @@ import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 
+// Growth owns this sidebar promotion slot and every card in it. Other teams must not add cards to the slot
+// or change which card wins it. Ask #team-growth to run a promotion for your product instead.
 export function NavPanelAdvertisement(): JSX.Element | null {
     const { activeCampaign } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)

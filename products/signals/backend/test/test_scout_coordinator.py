@@ -21,6 +21,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import (
@@ -2654,6 +2655,31 @@ async def test_seed_failure_does_not_abort_tick(ateam):
         planned = await _run_activity()
 
     assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-existing" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_team_deleted_during_the_tick_is_skipped(ateam, aother_team):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-gone")
+
+    def _seed_other():
+        with team_scope(aother_team.id, canonical=True):
+            _create_skill(aother_team, "signals-scout-kept")
+
+    await database_sync_to_async(_seed_other)()
+    real_register = register_missing_configs
+
+    def _register(team_id, *args, **kwargs):
+        if team_id == ateam.id:
+            raise TeamScopeError(f"Team {team_id} not found on default DB")
+        return real_register(team_id, *args, **kwargs)
+
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs", side_effect=_register
+    ):
+        planned = await _run_activity()
+
+    assert {(p.team_id, p.skill_name) for p in planned} == {(aother_team.id, "signals-scout-kept")}
 
 
 @pytest.mark.asyncio

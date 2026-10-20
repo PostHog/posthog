@@ -2,9 +2,9 @@
 
 Sourced from the official Smartsheet API reference (https://smartsheet.redoc.ly). Keyed by the
 endpoint names in `settings.py` `SMARTSHEET_ENDPOINTS`, which match the `ExternalDataSchema.name`
-of a synced Smartsheet table. These are the account-level list endpoints (sheet/report/workspace/
-user/contact/template metadata) — not the user-defined cell data inside a sheet. Columns absent
-here fall back to LLM enrichment.
+of a synced Smartsheet table. Most are account-level list endpoints (sheet/report/workspace/
+user/contact/template/group metadata); `sheet_rows` holds the cell data inside each sheet. Columns
+absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -103,6 +103,80 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "reportId": "Identifier of the report this scope entry belongs to.",
             "assetType": "The kind of source asset, either 'sheet' or 'workspace'.",
             "assetId": "Identifier of the source asset, according to its assetType.",
+        },
+    },
+    "sheet_rows": {
+        "description": "A row of a sheet, with its cells — fanned out across every sheet the account can access.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/sheets/getsheet",
+        "columns": {
+            "sheetId": "Identifier of the sheet this row belongs to.",
+            "id": "Row ID.",
+            "rowNumber": "Row number within the sheet.",
+            "parentId": "Identifies the row that is the hierarchical parent of this row, if one exists.",
+            "siblingId": "Identifies the row immediately above this row, if one exists.",
+            "cells": "Cells belonging to the row. Each cell holds a columnId (see sheet_columns), a value and a displayValue.",
+            "locked": "Whether the row is locked.",
+            "createdAt": "Time at which the row was created.",
+            "modifiedAt": "Time at which the row was last modified.",
+        },
+    },
+    "sheet_columns": {
+        "description": "A column of a sheet — fanned out across every sheet the account can access. Resolves the columnId of each cell in sheet_rows.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/columns/columns-listonsheet",
+        "columns": {
+            "sheetId": "Identifier of the sheet this column belongs to.",
+            "id": "The column's unique identifier.",
+            "index": "The column's position in the sheet. Indexes start at 0.",
+            "title": "Column title.",
+            "type": "The column type (e.g. TEXT_NUMBER, DATE, PICKLIST, CONTACT_LIST, CHECKBOX).",
+            "primary": "Whether the column is the sheet's primary column.",
+            "options": "The options of a picklist column.",
+            "hidden": "Whether the column is hidden.",
+            "locked": "Whether the column is locked.",
+            "width": "The column's display width, in pixels.",
+            "formula": "The formula for the column, if set.",
+            "description": "Column description.",
+        },
+    },
+    "events": {
+        "description": "An event in the organization's activity stream — an action a user or system took on a Smartsheet object.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/events/list-events",
+        "columns": {
+            "eventId": "Unique event identifier.",
+            "eventTimestamp": "Date and time of the event.",
+            "objectType": "The Smartsheet resource that the event affected (e.g. SHEET, REPORT, USER).",
+            "action": "The action applied to the object (e.g. CREATE, UPDATE, LOAD, DELETE).",
+            "objectId": "Identifier of the object that the event affected.",
+            "userId": "User assumed as the one who initiated the event.",
+            "requestUserId": "User whose authentication credential is embedded in the request that initiated the event.",
+            "accessTokenName": "Name of the access token embedded in the request, if any.",
+            "source": "The client or user agent used to initiate the action.",
+            "additionalDetails": "Properties specific to the event type.",
+        },
+    },
+    "groups": {
+        "description": "A group in the organization account.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/groups/list-groups",
+        "columns": {
+            "id": "Group ID.",
+            "name": "Group name.",
+            "description": "Group description.",
+            "owner": "Group owner's email address.",
+            "ownerId": "Group owner's user ID.",
+            "createdAt": "Time at which the group was created.",
+            "modifiedAt": "Time at which the group was last modified.",
+        },
+    },
+    "group_members": {
+        "description": "A member of a group — fanned out across every group in the organization account.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/groups/get-group",
+        "columns": {
+            "groupId": "Identifier of the group this member belongs to.",
+            "id": "Group member's user ID.",
+            "email": "Group member's email address.",
+            "name": "Group member's full name.",
+            "firstName": "Group member's first name.",
+            "lastName": "Group member's last name.",
         },
     },
 }

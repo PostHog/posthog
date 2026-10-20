@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
 
+import structlog
+
 from posthog.sync import database_sync_to_async_pool
 
 if TYPE_CHECKING:
@@ -16,7 +18,13 @@ if TYPE_CHECKING:
 _Result = TypeVar("_Result")
 
 TRINO_QUERY_SECONDS = 6 * 60 * 60
+# Trino's low-memory killer stops a query when the whole cluster runs out of memory, and asks the
+# client to try again in a few minutes. A query over its own memory limit fails with another name.
+CLUSTER_OUT_OF_MEMORY = "CLUSTER_OUT_OF_MEMORY"
+CLUSTER_OUT_OF_MEMORY_RETRY_DELAYS_SECONDS = (2 * 60, 5 * 60)
 _executor = ThreadPoolExecutor(thread_name_prefix="trino-model")
+
+logger = structlog.get_logger(__name__)
 
 
 class TrinoQueryControl:
@@ -72,3 +80,26 @@ async def run_trino_model(
         raise
     finally:
         control.finished.set()
+
+
+def is_cluster_out_of_memory(error: BaseException) -> bool:
+    return getattr(error, "error_name", None) == CLUSTER_OUT_OF_MEMORY
+
+
+async def run_trino_model_with_retries(
+    execute: Callable[[TrinoQueryControl], _Result],
+    *,
+    query_seconds: float = TRINO_QUERY_SECONDS,
+    retry_delays: tuple[float, ...] = CLUSTER_OUT_OF_MEMORY_RETRY_DELAYS_SECONDS,
+) -> _Result:
+    """Run ``execute`` again after a cluster out-of-memory kill. All attempts share one deadline."""
+    deadline = monotonic() + query_seconds
+    for delay in retry_delays:
+        try:
+            return await run_trino_model(execute, query_seconds=deadline - monotonic())
+        except Exception as error:
+            if not is_cluster_out_of_memory(error) or monotonic() + delay >= deadline:
+                raise
+            logger.warning("Trino cluster is out of memory, retrying the model", retry_in_seconds=delay)
+            await asyncio.sleep(delay)
+    return await run_trino_model(execute, query_seconds=deadline - monotonic())

@@ -19,7 +19,7 @@ class TestCloudsmithSource:
         assert config.name.value == "Cloudsmith"
         assert config.label == "Cloudsmith"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/cloudsmith.png"
@@ -30,7 +30,7 @@ class TestCloudsmithSource:
 
         # Only the packages list has a server-side time filter (`query=uploaded:>=...`);
         # everything else would have to fetch every page anyway, so it stays full refresh.
-        for name in ("repositories", "entitlements", "webhooks", "vulnerabilities", "audit_log", "members", "teams"):
+        for name in set(CLOUDSMITH_ENDPOINTS) - {"packages"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].incremental_fields == []
 

@@ -149,7 +149,7 @@ The per-resource cost table needs resource-level data turned on in your Cost Exp
 Connect the management (payer) account to see spend across every member account. AWS charges $0.01 per Cost Explorer API request, so syncs ask for wide date ranges at a time.""",
             iconPath="/static/services/aws_cost_explorer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-explorer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "finops", "cloud spend", "cost explorer"],
             fields=cast(
                 list[FieldType],

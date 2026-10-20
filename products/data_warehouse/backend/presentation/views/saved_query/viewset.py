@@ -6,7 +6,6 @@ from typing import Any, cast
 from django.db.models import Model, Prefetch
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -34,6 +33,7 @@ from products.data_modeling.backend.facade.api import (
     SavedQueryNotFoundError,
     enable_saved_query_materialization,
 )
+from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
@@ -196,25 +196,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.defer("columns")
 
         # Detect whether we should include managed views in the queryset
-        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
-            "managed-viewsets",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-
-        if not is_managed_viewset_enabled:
+        if not is_managed_viewset_enabled(self.team):
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         return base_queryset

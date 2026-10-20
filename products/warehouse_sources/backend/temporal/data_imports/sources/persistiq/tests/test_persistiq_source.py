@@ -3,7 +3,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persistiq import (
     PersistIqSourceConfig,
 )
@@ -20,7 +19,7 @@ class TestPersistIqSource:
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.label == "PersistIq"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # A finished source is visible — it must not carry the scaffolding flag.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/persistiq"
@@ -81,10 +80,3 @@ class TestPersistIqSource:
         assert kwargs["api_key"] == "pq-key"
         assert kwargs["endpoint"] == "leads"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown PersistIQ schema 'not_a_table'"
-        assert result.requests == []

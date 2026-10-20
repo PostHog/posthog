@@ -199,8 +199,10 @@ The rebuild is left out, because its close event fires on every close and its ca
 Those switches do not narrow search, so the query drops them, and "category pick" means a real group.
 The query also drops any open that picked the SQL expression category: legacy commits a SQL expression without sending `taxonomic filter item selected`, so a success there would look like a failure.
 An existing SQL expression filter reopens straight on that tab without a category event, so the query also drops any open whose close has `groupType = 'hogql_expression'`.
-Suggested sends no `taxonomic filter empty result`, so the without-category empty rate is too low.
+Legacy clients that predate All-tab measurement send no `taxonomic filter empty result` from Suggested, so their without-category empty rate is too low.
 The same gap biases `category_then_empty_ratio` upward: an empty search on Suggested followed by a category pick never counts in its base.
+New clients send `scope = 'all'` when the aggregate empty state is visible and `scope = 'category'` for remote category searches.
+Compare windows with the same coverage, or filter both periods to `scope = 'category'` for a category-only comparison.
 `selection_after_category_pct` and `selection_without_category_pct` do not use empty-result events, so they are the most reliable output of this query.
 Drives failure mode 1 in [failure-modes](failure-modes.md).
 
@@ -361,7 +363,9 @@ WHERE event IN ('taxonomic filter event match answered', 'taxonomic filter event
 ### 12. Recovery after an empty result
 
 Share of empty results followed by a searched selection in the same person, session and surface within 30 seconds, per surface.
-The surfaces cover different empty states (legacy sends none from Suggested, the rebuild sends them from its meta-scopes), so never pool them.
+The surfaces cover different empty states, so never pool them.
+Legacy clients that predate All-tab measurement send none from Suggested.
+New clients mark All-tab empties with `scope = 'all'`; compare periods with the same coverage or restrict both to `scope = 'category'`.
 Two pickers open at once in one session can still match each other; exact matching would need a picker instance ID.
 This counts every empty result, including repeats while typing, so it reads lower than the health dashboard's recovery tile.
 Compare each against its own history, not each other.
