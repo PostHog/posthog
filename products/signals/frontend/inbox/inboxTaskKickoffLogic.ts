@@ -445,7 +445,10 @@ export interface inboxTaskKickoffLogicValues {
     freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
-    lastQuickAskFailure: { reportId: string; question: string } | null
+    lastQuickAskFailure: {
+        question: string
+        reportId: string
+    } | null
     lastReportRun: ReportRunRef | null
     metricCheckReplacementDisabledReason: string | null
     reportChatContext: ReportChatContext | null
@@ -675,6 +678,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             null as { reportId: string; question: string } | null,
             {
                 quickAskFailed: (_, failure) => failure,
+                discussReportSuccess: () => null,
             },
         ],
         isDiscussing: [
