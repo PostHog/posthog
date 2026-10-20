@@ -19,6 +19,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     MessageDetail,
+    MessageImage,
     MessageLink,
     SourceKind,
 )
@@ -70,6 +71,7 @@ class AlertMessage:
     transition: AnnouncedTransition
     context: tuple[str, ...] = ()
     data_link: MessageLink | None = None
+    image: MessageImage | None = None
     incident_action: IncidentAction | None = None
 
     @property
@@ -196,5 +198,6 @@ def build_message(
         transition=transition,
         context=description.context,
         data_link=description.data_link,
+        image=description.image,
         incident_action=incident_action,
     )

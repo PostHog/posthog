@@ -1123,6 +1123,12 @@ class MessageLink:
 
 
 @frozen
+class MessageImage:
+    url: str
+    alt_text: str
+
+
+@frozen
 class SourceDescription:
     """What a source says about one transition, in the words its own product uses.
 
@@ -1138,6 +1144,8 @@ class SourceDescription:
     context: tuple[str, ...] = ()
     # Where the data behind the alert is, such as the matching logs.
     data_link: MessageLink | None = None
+    # A picture of that data, such as the insight's chart. A provider that cannot show one leaves it out.
+    image: MessageImage | None = None
 
 
 class SourceDescriber(Protocol):

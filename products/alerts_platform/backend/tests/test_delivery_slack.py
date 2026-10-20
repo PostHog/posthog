@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     MessageDetail,
+    MessageImage,
     MessageLink,
 )
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
@@ -83,6 +84,22 @@ class TestSlackBlocks(SimpleTestCase):
 
         assert [block["type"] for block in blocks] == ["header", "actions"]
         assert blocks[1]["elements"][0]["url"] == ALERT_URL
+
+    def test_a_source_image_sits_above_the_buttons(self) -> None:
+        # The state line a resolve adds goes above the last block, so the buttons have to stay last.
+        message = alert_message(
+            context=("Insight: Signups",),
+            image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"),
+        )
+
+        blocks = blocks_for(message)
+
+        assert [block["type"] for block in blocks] == ["header", "context", "image", "actions"]
+        assert blocks[2] == {
+            "type": "image",
+            "image_url": "https://app.example.com/chart.png",
+            "alt_text": "Insight chart",
+        }
 
     def test_the_source_data_link_comes_before_the_alert_link(self) -> None:
         data_url = "https://app.example.com/project/1/logs"

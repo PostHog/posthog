@@ -24,6 +24,8 @@ MAX_CONTEXT_LINE_CHARS: Final = 300
 # A data link can carry a whole filter in its query string. Slack refuses a post whose button URL is
 # over 3000 characters, so a longer link is dropped rather than costing the message.
 MAX_DATA_LINK_URL_CHARS: Final = 2000
+# Slack refuses an image block whose URL is over 3000 characters, so a longer image is dropped too.
+MAX_IMAGE_URL_CHARS: Final = 3000
 
 logger = structlog.get_logger(__name__)
 
@@ -71,8 +73,13 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
     if data_link is not None and len(data_link.url) > MAX_DATA_LINK_URL_CHARS:
         logger.warning("alerts_platform.data_link_too_long", source=source.value, length=len(data_link.url))
         data_link = None
+    image = description.image
+    if image is not None and len(image.url) > MAX_IMAGE_URL_CHARS:
+        logger.warning("alerts_platform.image_url_too_long", source=source.value, length=len(image.url))
+        image = None
     return SourceDescription(
         details=description.details,
         context=tuple(clip_text(line, MAX_CONTEXT_LINE_CHARS) for line in description.context[:MAX_CONTEXT_LINES]),
         data_link=data_link,
+        image=image,
     )
