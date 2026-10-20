@@ -40,7 +40,7 @@ MODEL_TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
     "hog_flow_templates": (HogFlowTemplate, {"actions": "updated_at"}),
     "hog_functions": (HogFunction, {"inputs": "updated_at", "draft": "draft_updated_at"}),
 }
-# Message templates belong to messaging, which finds and rewrites its own rows (content, updated_at).
+# Message templates belong to messaging, which finds and rewrites its own rows (content, draft_content, updated_at).
 MESSAGE_TEMPLATES: Final = "message_templates"
 TARGETS: Final[tuple[str, ...]] = ("hog_flows", "hog_flow_templates", MESSAGE_TEMPLATES, "hog_functions")
 

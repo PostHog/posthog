@@ -43,10 +43,13 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     queryset = templates_of(team_ids)
     if template_id:
         queryset = queryset.filter(id=template_id)
-    # The text cast stays in the WHERE clause, so the scan never returns a full copy of each content blob.
+    # The text casts stay in the WHERE clause, so the scan never returns a full copy of each content blob.
     return list(
-        queryset.annotate(_text_content=Cast("content", models.TextField()))
-        .filter(_text_content__contains=text)
+        queryset.annotate(
+            _text_content=Cast("content", models.TextField()),
+            _text_draft_content=Cast("draft_content", models.TextField()),
+        )
+        .filter(models.Q(_text_content__contains=text) | models.Q(_text_draft_content__contains=text))
         .order_by("id")
         .values_list("id", flat=True)
     )

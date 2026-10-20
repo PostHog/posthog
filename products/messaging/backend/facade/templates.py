@@ -142,6 +142,6 @@ def save_template_content(
 def rewrite_template_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
-    """Apply `rewrite` to a template's content under a row lock, and write the new content to its transactional
-    workflow in the same transaction. Returns the number of occurrences it replaced."""
+    """Apply `rewrite` to a template's content and its draft under a row lock, and write the new content to its
+    transactional workflow in the same transaction. Returns the number of occurrences it replaced."""
     return template_saves.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)

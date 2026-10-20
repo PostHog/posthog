@@ -62,23 +62,34 @@ def save_locked_template(
 def rewrite_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
-    """Apply `rewrite` to a template's content, deleted or not, and save it with its workflow. Returns the number of
-    occurrences it replaced."""
+    """Apply `rewrite` to a template's content and its draft, deleted or not, and save it with its workflow. Returns
+    the number of occurrences it replaced."""
     if dry_run:
-        return rewrite(templates_of(team_ids).get(pk=template_id).content)[1]
+        template = templates_of(team_ids).get(pk=template_id)
+        return rewrite(template.content)[1] + rewrite(template.draft_content)[1]
 
     with transaction.atomic():
         # Read the row again under the lock, so a concurrent save is not overwritten with a stale blob.
         template = templates_of(team_ids).select_for_update().get(pk=template_id)
-        new_content, occurrences = rewrite(template.content)
-        if occurrences:
+        new_content, content_occurrences = rewrite(template.content)
+        new_draft, draft_occurrences = rewrite(template.draft_content)
+        if content_occurrences:
             save_locked_template(
                 template,
-                lambda locked: setattr(locked, "content", new_content),
+                lambda locked: _set_contents(locked, new_content, new_draft),
                 user_id=None,
                 require_workflow_editor=_operators_edit_every_workflow,
             )
-    return occurrences
+        elif draft_occurrences:
+            # Sends never read the draft, so a draft-only rewrite leaves the workflow as it is.
+            template.draft_content = new_draft
+            template.save(update_fields=["draft_content", "updated_at"])
+    return content_occurrences + draft_occurrences
+
+
+def _set_contents(template: MessageTemplate, content: Any, draft_content: Any) -> None:
+    template.content = content
+    template.draft_content = draft_content
 
 
 def _operators_edit_every_workflow(_hog_flow_id: UUID) -> None:
