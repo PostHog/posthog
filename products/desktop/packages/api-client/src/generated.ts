@@ -12119,6 +12119,7 @@ export namespace Schemas {
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13521,7 +13522,8 @@ export namespace Schemas {
         | "Testomatio"
         | "GoogleAdMob"
         | "Klar"
-        | "ConectoCRM";
+        | "ConectoCRM"
+        | "CloudflareR2";
     /**
      * * `web` - web
      * * `api` - api
@@ -14933,6 +14935,7 @@ export namespace Schemas {
          * * `GoogleAdMob` - GoogleAdMob
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
+         * * `CloudflareR2` - CloudflareR2
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
