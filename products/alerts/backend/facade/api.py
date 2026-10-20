@@ -37,7 +37,6 @@ from products.alerts.backend.judge.contract import (
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR
 from products.alerts.backend.llm_detector_limits import (
     LLMAlertRefusal,
     LLMAlertWrite,
@@ -215,7 +214,6 @@ def list_firing_alerts_created_by(
 __all__ = [
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
-    "LLM_EVALUATE_EXECUTOR",
     "MAX_CONCURRENT_MODEL_CALLS",
     "MAX_PROMPT_POINTS",
     "LLMAlertRefusal",

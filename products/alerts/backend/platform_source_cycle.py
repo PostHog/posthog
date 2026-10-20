@@ -17,6 +17,7 @@ same set of checks.
 
 import time
 from collections.abc import Collection
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Final
@@ -91,6 +92,11 @@ from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 logger = structlog.get_logger(__name__)
 
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
+
+# The parallel run's AI checks share the AI worker with production's, and the judge allows a fixed
+# number of model calls per worker. A pool this small bounds what the parallel run can take from
+# production, and its stalled checks never hold a thread on production's own pool.
+PLATFORM_LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alerts-platform-insight-llm")
 
 # Every query the parallel run sends starts with this, so its ClickHouse cost can be read apart from
 # production's in `query_log`. Production's other tags are kept, so workload management treats both

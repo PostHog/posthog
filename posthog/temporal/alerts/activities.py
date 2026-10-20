@@ -93,7 +93,7 @@ from products.alerts.backend.evaluation.validation import validate_alert_config,
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
-    LLM_EVALUATE_EXECUTOR,
+    MAX_CONCURRENT_MODEL_CALLS,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
     is_llm_detector_config,
@@ -130,6 +130,14 @@ async def _run_control(
 
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
+
+# AI-detector checks hold a thread for the model call, up to a minute each. On the shared
+# default pool that would let a slow model stall every alert's database work on the worker,
+# so they run on their own pool, sized to the detector's own concurrency bound. A check
+# past that bound queues here without holding any thread.
+_LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_MODEL_CALLS, thread_name_prefix="insight-alert-llm-evaluate"
+)
 
 
 @frozen
@@ -811,7 +819,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # tick, which prepares and routes it again.
             logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
             return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
-        executor = LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
+        executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
         # Shielded, so cancelling the attempt leaves this future to complete when the thread exits,
         # which is what _stop_work waits for.
         thread = asyncio.ensure_future(

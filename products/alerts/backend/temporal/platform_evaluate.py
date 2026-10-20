@@ -200,16 +200,16 @@ def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> Sour
 @close_db_connections
 async def evaluate_platform_insight_llm_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
     """An AI detector check. It runs on the AI queue, because only that worker holds the model
-    credentials, and on the executor production's AI checks use, so the two stacks together never
-    run more model calls than the judge has slots."""
+    credentials, on a small pool of its own, so a stalled platform check never holds a thread that
+    production's AI checks need."""
     from posthog.sync import database_sync_to_async  # noqa: PLC0415
 
-    from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR  # noqa: PLC0415
+    from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_EVALUATE_EXECUTOR  # noqa: PLC0415
 
     info = activity.info()
-    return await database_sync_to_async(_evaluate_check, thread_sensitive=False, executor=LLM_EVALUATE_EXECUTOR)(
-        inputs, info, final_attempt=info.attempt >= LLM_CHECK_RETRY_POLICY.maximum_attempts
-    )
+    return await database_sync_to_async(
+        _evaluate_check, thread_sensitive=False, executor=PLATFORM_LLM_EVALUATE_EXECUTOR
+    )(inputs, info, final_attempt=info.attempt >= LLM_CHECK_RETRY_POLICY.maximum_attempts)
 
 
 @workflow.defn(name="insight-alert-platform-evaluate")
