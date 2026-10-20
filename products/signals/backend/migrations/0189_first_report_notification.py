@@ -30,6 +30,7 @@ class Migration(migrations.Migration):
                 ("activated_at", models.DateTimeField(auto_now_add=True)),
                 ("message_data", models.JSONField(db_default={}, default=dict)),
                 ("send_started_at", models.DateTimeField(blank=True, null=True)),
+                ("next_attempt_at", models.DateTimeField(blank=True, null=True)),
                 ("queued_at", models.DateTimeField(blank=True, null=True)),
                 ("message_id", models.CharField(blank=True, max_length=200, null=True)),
                 (

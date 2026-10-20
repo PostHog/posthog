@@ -10,6 +10,7 @@ from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -52,6 +53,7 @@ class TestFirstReportNotification(BaseTest):
         )
         self.enterContext(patch(f"{MODULE}.SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID", str(self.template_id)))
         self.enterContext(patch(f"{MODULE}.is_cloud", return_value=True))
+        self.enterContext(patch(f"{TASK_MODULE}.is_cloud", return_value=True))
         self.email_flag = self.enterContext(patch(f"{MODULE}.team_first_report_email_enabled", return_value=True))
         response = Mock(status_code=202)
         response.json.return_value = {"message_id": "example-message-id"}
@@ -195,6 +197,42 @@ class TestFirstReportNotification(BaseTest):
         self.send.assert_not_called()
         assert self.notification().cancelled_at is not None
 
+    def test_retry_after_blocks_early_dispatch_and_recovery_until_due(self) -> None:
+        first = self.report()
+        self.post.return_value.status_code = 429
+        self.post.return_value.headers = {"Retry-After": "3600"}
+        self.post.return_value.json.return_value = {"code": "rate_limited"}
+
+        with patch(f"{TASK_MODULE}.capture_exception"), self.assertRaises(Retry) as raised:
+            dispatch_first_report_notification.apply(args=(self.team.id,), throw=True)
+
+        assert raised.exception.when == 3600
+        assert self.notification().next_attempt_at == timezone.now() + timedelta(hours=1)
+        assert self.notification().send_started_at is None
+        initial_send = self.send.call_args
+        self.post.return_value.status_code = 202
+        self.post.return_value.json.return_value = {"message_id": "example-message-id"}
+
+        with time_machine.travel("2026-01-15T12:59:59Z", tick=False):
+            self.report()
+            dispatch_first_report_notification(self.team.id)
+            with patch(f"{TASK_MODULE}.dispatch_first_report_notification.delay") as enqueue:
+                sweep_first_report_notifications()
+            enqueue.assert_not_called()
+            self.send.assert_called_once()
+
+        with time_machine.travel("2026-01-15T13:00:00Z", tick=False):
+            with patch(f"{TASK_MODULE}.dispatch_first_report_notification.delay") as enqueue:
+                sweep_first_report_notifications()
+            enqueue.assert_called_once_with(self.team.id)
+            dispatch_first_report_notification(self.team.id)
+
+        assert self.send.call_count == 2
+        assert self.send.call_args == initial_send
+        assert initial_send.kwargs["message_data"]["report_id"] == str(first.id)
+        assert self.notification().queued_at is not None
+        assert self.notification().next_attempt_at is None
+
     @parameterized.expand(
         [(SignalReport.Status.CANDIDATE,), (SignalReport.Status.IN_PROGRESS,), (SignalReport.Status.PENDING_INPUT,)]
     )
@@ -310,6 +348,8 @@ class TestFirstReportNotification(BaseTest):
         self.report()
         with (
             patch(f"{MODULE}.is_cloud", return_value=reason != "not_cloud"),
+            patch(f"{TASK_MODULE}.is_cloud", return_value=reason != "not_cloud"),
+            patch(f"{TASK_MODULE}.dispatch_first_report_notification.delay") as enqueue,
             override_settings(
                 POSTHOG_PROJECT_ID=0 if reason == "no_project" else 123456789,
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="" if reason == "no_key" else "phs_fake_transactional_key",
@@ -317,6 +357,9 @@ class TestFirstReportNotification(BaseTest):
             ),
         ):
             deliver_first_report_email(self.team.id)
+            with self.assertNumQueries(0):
+                sweep_first_report_notifications()
+            enqueue.assert_not_called()
         self.send.assert_not_called()
         assert self.notification().send_started_at is None
 

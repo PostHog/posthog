@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -71,6 +73,7 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
             .select_for_update(of=("self",))
             .select_related("team__organization", "activated_by")
             .filter(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True)
+            .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=timezone.now()))
             .first()
         )
         if notification is None:
@@ -112,8 +115,9 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
         # The transactional API has no idempotency key. A crash or uncertain response must leave
         # this marker intact, because another send could duplicate an email already queued.
         notification.send_started_at = timezone.now()
+        notification.next_attempt_at = None
         notification.last_error = ""
-        notification.save(update_fields=["report", "message_data", "send_started_at", "last_error"])
+        notification.save(update_fields=["report", "message_data", "send_started_at", "next_attempt_at", "last_error"])
         return notification
 
 
@@ -134,8 +138,11 @@ def deliver_first_report_email(team_id: int) -> None:
         )
     except (TransactionalEmailRetryableError, TransactionalEmailRejected, ImproperlyConfigured) as error:
         # These failures occur before the workflow accepts a send, so they can safely retry.
+        retry_after = error.retry_after if isinstance(error, TransactionalEmailRetryableError) else None
         record.update(
-            send_started_at=None, last_error="setup_error" if isinstance(error, ImproperlyConfigured) else str(error)
+            send_started_at=None,
+            next_attempt_at=timezone.now() + timedelta(seconds=retry_after) if retry_after is not None else None,
+            last_error="setup_error" if isinstance(error, ImproperlyConfigured) else str(error),
         )
         raise
     except Exception:

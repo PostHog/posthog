@@ -199,6 +199,7 @@ class SignalFirstReportNotification(UUIDModel):
     report = models.ForeignKey("signals.SignalReport", on_delete=models.SET_NULL, null=True, blank=True)
     message_data = models.JSONField(default=dict, db_default={})
     send_started_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
     queued_at = models.DateTimeField(null=True, blank=True)
     message_id = models.CharField(max_length=200, null=True, blank=True)
     last_error = models.CharField(max_length=50, default="", db_default="", blank=True)
