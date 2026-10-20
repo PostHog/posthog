@@ -147,17 +147,10 @@ class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
     )
 
 
-def _build_openapi_serializers() -> tuple[
-    dict[str, type[serializers.Serializer]],
-    dict[str, type[serializers.Serializer]],
-]:
-    config_serializers: dict[str, type[serializers.Serializer]] = {}
+def _build_catalog_entry_serializers() -> dict[str, type[serializers.Serializer]]:
     catalog_entry_serializers: dict[str, type[serializers.Serializer]] = {}
 
     for widget_type, spec in WIDGET_SPECS.items():
-        config_serializer = pydantic_stub_serializer(spec.config_model)
-        config_serializers[widget_type] = config_serializer
-
         prefix = _config_model_openapi_prefix(spec.config_model)
         catalog_entry_serializers[widget_type] = type(
             f"{prefix}CatalogEntryOpenApiSerializer",
@@ -172,7 +165,8 @@ def _build_openapi_serializers() -> tuple[
                     spec.config_model,
                     read_only=True,
                     help_text=(
-                        "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas)."
+                        "Config shape for this widget type. Build the config for the batch add and batch update "
+                        "tools from it, because their schemas do not list config keys."
                     ),
                 ),
                 "required_product_access": serializers.CharField(required=False, allow_null=True),
@@ -186,10 +180,13 @@ def _build_openapi_serializers() -> tuple[
             },
         )
 
-    return config_serializers, catalog_entry_serializers
+    return catalog_entry_serializers
 
 
-WIDGET_CONFIG_SERIALIZERS, _WIDGET_CATALOG_ENTRY_SERIALIZERS = _build_openapi_serializers()
+WIDGET_CONFIG_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
+    widget_type: pydantic_stub_serializer(spec.config_model) for widget_type, spec in WIDGET_SPECS.items()
+}
+_WIDGET_CATALOG_ENTRY_SERIALIZERS = _build_catalog_entry_serializers()
 
 DashboardWidgetConfigOpenApi = PolymorphicProxySerializer(
     component_name="DashboardWidgetConfig",

@@ -4942,7 +4942,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ActivityEventsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -20433,7 +20433,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: CanvasAppWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -25526,7 +25526,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ConversationsRecentTicketsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -41602,7 +41602,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ErrorTrackingListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -45945,7 +45945,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ExperimentResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -47529,7 +47529,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ExperimentsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -64736,7 +64736,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: LogsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -69061,7 +69061,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: NotebookWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -102545,7 +102545,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: SessionReplayListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -109894,7 +109894,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: SurveyResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
