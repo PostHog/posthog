@@ -20,6 +20,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall, RequiredToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, InsightShape
 
 TIME_SERIES_DISPLAYS = ["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph", "ActionsUnstackedBar"]
@@ -104,6 +105,10 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-visualization-choice-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_visualization_choice::eval_visualization_choice",
+            metrics=["no_persistent_insight_save", "insight_shape"],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
@@ -151,6 +156,10 @@ async def eval_saved_insight_display(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-saved-insight-display-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_visualization_choice::eval_saved_insight_display",
+            metrics=["saved_insight", "insight_shape"],
+        ),
         cases=cases,
         scorers=[RequiredToolCall(["insight-create"], name="saved_insight"), InsightShape()],
         ctx=ctx,
