@@ -261,6 +261,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
     # in full. A native send that fails also reruns the whole delivery, so the store records the
     # emission, and a rerun does not send every HogFunction message a second time.
+    emitted: tuple[LegacyEventEmission, ...] = ()
     if emitter is not None and not busy:
         try:
             emission = thread_store.claim(
@@ -290,6 +291,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 failures.append(f"legacy events: {type(error).__name__}")
             else:
                 thread_store.delivered(emission, None)
+                emitted = emissions
     # A held thread wins over a failure. The workflow waits a held thread out and then runs the
     # whole delivery again, which retries the failed destinations too. A failure raised instead
     # spends the activity's retries inside the claim's TTL, and the held message is lost.
@@ -302,8 +304,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         live=True,
         sent=sent,
         skipped_without_transport=skipped,
-        emitted_transitions=len(emissions),
-        emitted_events=sum(emission.event_count for emission in emissions),
+        emitted_transitions=len(emitted),
+        emitted_events=sum(emission.event_count for emission in emitted),
     )
 
 
