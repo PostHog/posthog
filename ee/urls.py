@@ -70,6 +70,7 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
+    from posthog.admin.admins.events_retention_admin import events_retention_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
@@ -101,6 +102,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/distinct-id-usage/",
             admin.site.admin_view(distinct_id_usage_view),
             name="distinct-id-usage",
+        ),
+        path(
+            "admin/events-retention/",
+            admin.site.admin_view(events_retention_view),
+            name="events-retention",
         ),
         path(
             "admin/tophog/",
