@@ -82,8 +82,7 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
         params={"include_transaction_type": "true", "include_payout_id": "true"},
         fan_out_params=("currency", "type"),
     ),
-    # Airtime, data, cable and utility bills bought through the account. The endpoint defaults
-    # `status` to Successful, so it is queried once per status to also capture failed and reversed bills.
+    # Airtime, data, cable and utility bills. `status` defaults to Successful, so each status is read.
     "bill_payments": FlutterwaveEndpointConfig(
         name="bill_payments",
         path="/bills/history",
@@ -96,10 +95,9 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
 # The payout countries the v3 banks reference documents.
 BANK_COUNTRIES = ("NG", "GH", "KE", "UG", "ZA", "TZ")
 
-# The wallet statement `type` filter documents credit and debit, and its reference defaults it to credit.
+# `type` defaults to credit, so both directions are read.
 WALLET_STATEMENT_TYPES = ("C", "D")
 
-# The statuses the v3 bill payment history filter documents.
 BILL_PAYMENT_STATUSES = ("Successful", "Failed", "Reversed")
 
 ENDPOINTS = tuple(FLUTTERWAVE_ENDPOINTS.keys())
