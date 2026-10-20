@@ -648,9 +648,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             back: () => {
                 actions.setStepIndex(Math.max(0, values.stepIndex - 1))
             },
-            initWizard: () => {
+            initWizard: ({ path, step }) => {
                 // The automation path and a link to a named step never move, so their first step is already settled.
-                if (values.hasPositioned || values.wizardPath === 'automation') {
+                // Reads the payload, because positioning can run before this listener and set `hasPositioned`.
+                if (step !== null || path === 'automation') {
                     captureStepViewed()
                 }
                 actions.positionIfReady()
@@ -734,7 +735,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             const step = steps.includes(searchParams.step) ? (searchParams.step as WizardStepKey) : null
             const templateId = searchParams.template ? String(searchParams.template) : null
             const entry = isWizardEntry(searchParams.entry) ? searchParams.entry : null
-            if (path !== values.wizardPath || step !== values.currentStep || templateId !== values.selectedTemplateId) {
+            if (
+                !values.initialized ||
+                path !== values.wizardPath ||
+                step !== values.currentStep ||
+                templateId !== values.selectedTemplateId
+            ) {
                 actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId, entry)
             }
         },
