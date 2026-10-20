@@ -86,6 +86,7 @@ export interface marketingAnalyticsTilesLogicValues {
     includeConversionGoals: boolean // marketingAnalyticsLogic
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
+    marketingChartSourceIds: string[] // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
     sourcesInitialLoading: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
@@ -125,7 +126,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             baseCurrency: CurrencyCode,
             integrationFilter: IntegrationFilter,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            marketingChartSourceIds: string[]
         ) => QueryTile
         campaignBreakdownTile: (
             campaignCostsBreakdown: DataTableNode | null,
@@ -171,6 +173,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'compareFilter',
                 'dateFilter',
                 'createMarketingDataWarehouseNodes',
+                'marketingChartSourceIds',
                 'loading',
                 'sourcesInitialLoading',
                 'draftConversionGoal',
@@ -242,6 +245,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.baseCurrency,
                 s.integrationFilter,
                 s.featureFlags,
+                s.marketingChartSourceIds,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -251,7 +255,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 tileColumnSelection: validColumnsForTiles,
                 baseCurrency: CurrencyCode,
                 integrationFilter: IntegrationFilter,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                marketingChartSourceIds: string[]
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -326,6 +331,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             : costsPrecomputeEnabled
                               ? [costSeriesNode]
                               : createMarketingDataWarehouseNodes,
+                        marketingAnalyticsCostFallback:
+                            costsPrecomputeEnabled && hasSources
+                                ? { series: createMarketingDataWarehouseNodes, sourceIds: marketingChartSourceIds }
+                                : undefined,
                         compareFilter: compareFilter || undefined,
                         // The precompute path reads a single node, so split by source here; the S3 adapters
                         // are already per-source series and need no breakdown.
