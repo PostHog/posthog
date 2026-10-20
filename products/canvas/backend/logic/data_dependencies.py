@@ -9,19 +9,24 @@ human-initiated: the result feeds a notice and the ``request_fix`` endpoint, nev
 from typing import Any
 from uuid import UUID
 
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
 
 from products.canvas.backend.models import Canvas, CanvasDataCheck
 from products.event_definitions.backend.facade.api import existing_event_names, existing_property_names
-from products.warehouse_sources.backend.facade.api import all_queryable_table_names
+from products.warehouse_sources.backend.facade.api import all_queryable_table_keys
 
 logger = structlog.get_logger(__name__)
 
 DATA_SECTIONS = ("events", "properties", "tables")
 PROPERTY_TYPES = ("event", "person", "group", "session")
 MAX_DATA_ITEMS = 100
+
+
+class CanvasDataChecksFailed(Exception):
+    """Some canvases could not be checked. The run checked the others first."""
 
 
 def empty_missing() -> dict[str, list[Any]]:
@@ -53,7 +58,7 @@ def missing_data(team_id: int, capabilities: dict[str, Any] | None) -> dict[str,
     for property_type in {entry["type"] for entry in declared["properties"]}:
         names = [entry["name"] for entry in declared["properties"] if entry["type"] == property_type]
         present_properties |= {(name, property_type) for name in existing_property_names(team_id, names, property_type)}
-    present_tables = set(all_queryable_table_names(team_id).values()) if declared["tables"] else set()
+    present_tables = _present_table_names(team_id) if declared["tables"] else set()
     return {
         "events": [name for name in declared["events"] if name not in present_events],
         "properties": [
@@ -63,6 +68,16 @@ def missing_data(team_id: int, capabilities: dict[str, Any] | None) -> dict[str,
         ],
         "tables": [name for name in declared["tables"] if name not in present_tables],
     }
+
+
+def _present_table_names(team_id: int) -> set[str]:
+    # A query names a source table by its dotted key, e.g. "googleanalytics.devices". Accept the
+    # stored row name too, so an older declaration that used it does not show as drift.
+    names: set[str] = set()
+    for table in all_queryable_table_keys(team_id).values():
+        names.add(table.queryable_key)
+        names.add(table.row_name)
+    return names
 
 
 def check_canvas_data(canvas: Canvas) -> CanvasDataCheck:
@@ -92,28 +107,45 @@ def run_data_dependency_checks() -> dict[str, int]:
         .order_by("team_id", "id")
     )
     checked = drifted = 0
+    failed: list[str] = []
     for canvas in canvases.iterator(chunk_size=200):
         if not declares_data(canvas.current_source_version.capabilities if canvas.current_source_version else None):
             continue
         try:
             check = check_canvas_data(canvas)
         except Exception:
+            # Check the other canvases first, then fail the run so the failure is visible.
             logger.exception("canvas_data_check_failed", canvas_id=str(canvas.id), team_id=canvas.team_id)
+            failed.append(str(canvas.id))
             continue
         checked += 1
         if check.status == CanvasDataCheck.STATUS_DRIFT:
             drifted += 1
+    if failed:
+        raise CanvasDataChecksFailed(
+            f"{len(failed)} canvas data checks failed ({checked} checked, {drifted} drifted): {', '.join(failed[:20])}"
+        )
     return {"checked": checked, "drifted": drifted}
 
 
+def _current_check(team_id: int, canvas_id: UUID | str) -> CanvasDataCheck | None:
+    # A check of an older version says nothing about the live one: a publish can add, change, or
+    # remove the data declaration. Only a check of the canvas's current version counts.
+    return (
+        CanvasDataCheck.objects.for_team(team_id)
+        .filter(canvas_id=canvas_id, source_version_id=F("canvas__current_source_version_id"))
+        .first()
+    )
+
+
 def data_check_record(team_id: int, canvas_id: UUID | str) -> dict[str, Any]:
-    """The latest check for the API, or the unchecked shape when no check has run yet."""
-    check = CanvasDataCheck.objects.for_team(team_id).filter(canvas_id=canvas_id).first()
+    """The check of the canvas's live version, or the unchecked shape when that version has no check yet."""
+    check = _current_check(team_id, canvas_id)
     if check is None:
         return {"status": "unchecked", "checked_at": None, "missing": empty_missing()}
     return {"status": check.status, "checked_at": check.checked_at, "missing": {**empty_missing(), **check.missing}}
 
 
 def latest_missing_data(team_id: int, canvas_id: UUID | str) -> dict[str, Any] | None:
-    check = CanvasDataCheck.objects.for_team(team_id).filter(canvas_id=canvas_id).first()
+    check = _current_check(team_id, canvas_id)
     return check.missing if check is not None else None

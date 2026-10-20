@@ -316,4 +316,16 @@ describe('canvasSceneLogic', () => {
         expect(fixRequestBodies).toEqual([{ build_id: 'build-1', error_type: 'data_drift' }])
         expect(logic.values.fixTaskId).toEqual('task-9')
     })
+
+    it('reads the data check again when the live version changes', async () => {
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadDataCheckSuccess'])
+        const view = logic.values.view!
+
+        await expectLogic(logic, () => {
+            logic.actions.loadViewSuccess({ ...view, current_version_id: 'version-2' })
+        }).toDispatchActions(['loadDataCheck', 'loadDataCheckSuccess'])
+        expect(logic.values.dataCheck).toEqual(DATA_DRIFT)
+    })
 })

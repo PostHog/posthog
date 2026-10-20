@@ -194,6 +194,8 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneEvent
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax = 100
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax = 400
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax = 100
@@ -444,6 +446,9 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                                     'One property a canvas reads, with the kind of property it is.'
                                                 )
                                         )
+                                        .max(
+                                            canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax
+                                        )
                                         .optional()
                                         .describe("Properties the canvas's queries read or filter on."),
                                     tables: zod
@@ -565,6 +570,8 @@ export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneEventsItemMax = 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneEventsMax = 100
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesMax = 100
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneTablesItemMax = 400
 
@@ -740,6 +747,7 @@ export const CanvasesEditCreateBody = /* @__PURE__ */ zod
                                         })
                                         .describe('One property a canvas reads, with the kind of property it is.')
                                 )
+                                .max(canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesMax)
                                 .optional()
                                 .describe("Properties the canvas's queries read or filter on."),
                             tables: zod
@@ -1249,6 +1257,8 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneEve
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax = 100
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax = 400
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax = 100
@@ -1501,6 +1511,9 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                                     'One property a canvas reads, with the kind of property it is.'
                                                 )
                                         )
+                                        .max(
+                                            canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax
+                                        )
                                         .optional()
                                         .describe("Properties the canvas's queries read or filter on."),
                                     tables: zod
@@ -1748,6 +1761,8 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneEv
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax = 100
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax = 100
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax = 400
 
@@ -2000,6 +2015,9 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                                 .describe(
                                                     'One property a canvas reads, with the kind of property it is.'
                                                 )
+                                        )
+                                        .max(
+                                            canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax
                                         )
                                         .optional()
                                         .describe("Properties the canvas's queries read or filter on."),
