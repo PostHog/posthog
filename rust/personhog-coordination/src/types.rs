@@ -304,6 +304,39 @@ pub struct LeaderInfo {
     pub lease_id: i64,
 }
 
+/// The live changelog target under `{prefix}config/changelog`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangelogConfig {
+    pub topic: String,
+    pub partitions: u32,
+    /// Monotonic from 1.
+    pub epoch: u64,
+    /// The writer's consumer group; a generation retires only once it has read it to the end.
+    pub writer_group: String,
+    /// Generations some consumer may still be reading.
+    pub draining: Vec<Generation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Generation {
+    pub topic: String,
+    pub partitions: u32,
+    pub epoch: u64,
+}
+
+impl ChangelogConfig {
+    /// A freshly seeded config.
+    pub fn new(topic: &str, partitions: u32) -> Self {
+        Self {
+            topic: topic.to_string(),
+            partitions,
+            epoch: 1,
+            writer_group: String::new(),
+            draining: Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

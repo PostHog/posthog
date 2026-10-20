@@ -1247,6 +1247,15 @@ export const MonitorOverview: StoryObj = {
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
+// A scanner with legacy experiment targeting points its owner to an experiment scanner.
+export const MonitorOverviewLegacyTargeting: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(monitorOverviewScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
+}
+
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },

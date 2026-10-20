@@ -9,7 +9,6 @@ import jwt
 import requests
 import structlog
 from structlog.types import FilteringBoundLogger
-from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -25,7 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     endpoints_for_version,
     reporting_limits_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    BoundedRetry,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -54,7 +56,7 @@ _REPORT_METRICS_KEY = {
 # `Retry-After`. The transport honors that header; POST is added to the retryable methods
 # because every read path here except v5's `/campaigns` and `/acls` is a side-effect-free POST
 # (`/find`, `/query`, `/reports/...`) that urllib3 would otherwise refuse to retry.
-APPLE_SEARCH_ADS_RETRY = Retry(
+APPLE_SEARCH_ADS_RETRY = BoundedRetry(
     total=5,
     backoff_factor=1.0,
     status_forcelist=(429, 500, 502, 503, 504),
@@ -886,9 +888,7 @@ def apple_search_ads_source(
             token_provider=token_provider,
         ),
         primary_keys=list(config.primary_keys),
-        # Reporting windows are walked oldest-first, so `date` only ever moves forward across
-        # batches by at most one window — which the schema's trailing lookback re-reads.
-        sort_mode="asc",
+        # No `sort_mode`: each campaign restarts at the start of its window, so `date` has no order.
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

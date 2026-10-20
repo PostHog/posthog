@@ -60,7 +60,7 @@ Create an API token in Livestorm under **Account settings > Integrations > Publi
 Livestorm allows 10,000 API calls per 30 days for each account. `session_people` reads every session on each sync, one request per session, so sync it daily or less often, or deselect it if you hold many sessions.""",
             iconPath="/static/services/livestorm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/livestorm",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["webinar"],
             fields=cast(
                 list[FieldType],

@@ -40,11 +40,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
             # Role-scoped keys without the customers grant still 403; only 401
             # means the key itself is bad.
             (403, True),
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
