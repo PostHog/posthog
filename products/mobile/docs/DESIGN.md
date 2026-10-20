@@ -167,6 +167,7 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   inbox's reasons and an optional note, and after a confirmed verdict the screen goes back to the inbox.
   A 409 from the server (the report's status cannot take that verdict) stays in the sheet as an error. Undo is a separate action while an answer is in flight. Transient tool text
   clears when a turn is idle or terminal and stays on one truncated line while active.
+- **Assignee card**: loads the latest complete reviewer assignment, including when it is older than the first page of activity. On the report screen, opening it shows loading until that assignment is known, or an error with a retry action if the read fails. Search and unsaved selections stay in place while the report refreshes. Closing and reopening starts from the current assignment.
 - **Overlays**: hand-off sheet, Resolve and Dismiss sheets (`VerdictSheet`), Assignee card, Priority sheet (P0 to P4),
   Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover, the Model and Mode chips, and the session thread. The chat sheet shares the sheets' grabber

@@ -1,6 +1,6 @@
 import { ApiError, NotSignedInError } from '@/api/client'
 import { fetchReport } from '@/api/reports'
-import { createTask, type HandoffRunFieldsApi, startTaskRun } from '@/api/tasks'
+import { createTask, getTask, type HandoffRunFieldsApi, startTaskRun } from '@/api/tasks'
 import { isRecord } from '@/lib/records'
 
 import { type Clock, realClock } from './clock'
@@ -61,6 +61,8 @@ export interface KickoffResult {
 
 export interface KickoffOptions {
     run: HandoffRunFieldsApi
+    taskId?: string
+    onTaskCreated?: (taskId: string) => void
     signal?: AbortSignal
     clock?: Clock
 }
@@ -70,20 +72,27 @@ export interface KickoffOptions {
 export async function kickOffReportTask(reportId: string, options: KickoffOptions): Promise<KickoffResult> {
     const report = await fetchReport(reportId, options.signal)
     const prompt = buildCreatePrReportPrompt(report)
-    const task = await withWarmRetry(
-        (headers) =>
-            createTask(
-                {
-                    title: report.title?.trim() || FALLBACK_TITLE,
-                    description: prompt,
-                    origin_product: 'signal_report',
-                    signal_report: reportId,
-                    signal_report_task_relationship: 'implementation',
-                },
-                { headers, signal: options.signal }
-            ),
-        options
-    )
+    const taskId = report.assignee?.kind === 'task' ? (report.assignee.task_id ?? options.taskId) : options.taskId
+    const task = taskId
+        ? await getTask(taskId, options.signal)
+        : await withWarmRetry(
+              (headers) =>
+                  createTask(
+                      {
+                          title: report.title?.trim() || FALLBACK_TITLE,
+                          description: prompt,
+                          origin_product: 'signal_report',
+                          signal_report: reportId,
+                          signal_report_task_relationship: 'implementation',
+                      },
+                      { headers, signal: options.signal }
+                  ),
+              options
+          )
+    if (task.signal_report !== reportId) {
+        throw new RunNotStartedError()
+    }
+    options.onTaskCreated?.(task.id)
     let run = task.latest_run ?? null
     if (!run) {
         const running = await withWarmRetry(

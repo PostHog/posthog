@@ -15,8 +15,8 @@ import { Area, CartesianChart, Line, type PointsArray } from 'victory-native'
 
 import { colors } from '@/ui/tokens'
 
-import type { ChartGeometry, PlotRect } from './chartGeometry'
-import { BAR_BAND_PADDING, BAR_MIN_HEIGHT } from './chartMath'
+import { barSpan, type ChartGeometry, type PlotRect, yPosition } from './chartGeometry'
+import { BAR_BAND_PADDING } from './chartMath'
 import { gestureHandlerConfig } from './gestures/useChartGestures'
 import type { ChartSelectionValues } from './selection/useChartSelection'
 import type { ChartKind, ChartVariant } from './types'
@@ -70,6 +70,7 @@ export function MetricChartRenderer({
 }: MetricChartRendererProps): ReactElement {
     const { width, height, plot, xs } = geometry
     const count = xs.length
+    const baseline = kind === 'bar' ? yPosition(0, geometry.yDomain, plot) : plot.bottom
     // victory-native recomputes its layout when these props change identity, so they are memoized.
     const data = useMemo(() => Array.from({ length: Math.max(1, count) }, (_, index) => ({ index, v: 0 })), [count])
     const padding = useMemo(
@@ -106,8 +107,8 @@ export function MetricChartRenderer({
                         />
                     ))}
                     <SkiaLine
-                        p1={vec(plot.left, plot.bottom)}
-                        p2={vec(plot.right, plot.bottom)}
+                        p1={vec(plot.left, baseline)}
+                        p2={vec(plot.right, baseline)}
                         color={colors.border}
                         strokeWidth={1}
                     />
@@ -259,6 +260,7 @@ function Bars({
     selection: ChartSelectionValues
 }): ReactElement {
     const { plot, bandWidth } = geometry
+    const zeroY = yPosition(0, geometry.yDomain, plot)
     const single = series.length === 1
     const groupWidth = bandWidth * (1 - BAR_BAND_PADDING)
     const barWidth = groupWidth / Math.max(1, series.length)
@@ -270,14 +272,14 @@ function Bars({
                     if (typeof point.y !== 'number' || !Number.isFinite(point.y)) {
                         continue
                     }
-                    const top = Math.min(point.y, plot.bottom - BAR_MIN_HEIGHT)
+                    const { top, height } = barSpan(point.y, zeroY)
                     const left = point.x - groupWidth / 2 + seriesIndex * barWidth
-                    builder.addRRect(Skia.RRectXY(Skia.XYWHRect(left, top, barWidth, plot.bottom - top), 1, 1))
+                    builder.addRRect(Skia.RRectXY(Skia.XYWHRect(left, top, barWidth, height), 1, 1))
                 }
                 // A single series draws gray and highlights the selected bar; several keep their colors.
                 return { key: s.key, path: builder.detach(), color: single ? colors.border : s.color }
             }),
-        [series, plot.bottom, groupWidth, barWidth, single]
+        [series, zeroY, groupWidth, barWidth, single]
     )
     const first = series[0]
     return (
@@ -291,7 +293,7 @@ function Bars({
                         sel={selection.selA}
                         series={first}
                         xs={geometry.xs}
-                        plot={plot}
+                        zeroY={zeroY}
                         width={barWidth}
                         color={accent}
                     />
@@ -299,7 +301,7 @@ function Bars({
                         sel={selection.selB}
                         series={first}
                         xs={geometry.xs}
-                        plot={plot}
+                        zeroY={zeroY}
                         width={barWidth}
                         color={accent}
                     />
@@ -315,21 +317,22 @@ function BarHighlight({
     sel,
     series,
     xs,
-    plot,
+    zeroY,
     width,
     color,
 }: {
     sel: SharedValue<number>
     series: PlottedSeries
     xs: number[]
-    plot: PlotRect
+    zeroY: number
     width: number
     color: string
 }): ReactElement {
     const { ys } = series
     const x = useDerivedValue(() => (xs[sel.value] ?? 0) - width / 2)
-    const y = useDerivedValue(() => Math.min(ys[sel.value] ?? plot.bottom, plot.bottom - BAR_MIN_HEIGHT))
-    const barHeight = useDerivedValue(() => plot.bottom - y.value)
+    const span = useDerivedValue(() => barSpan(ys[sel.value] ?? zeroY, zeroY))
+    const y = useDerivedValue(() => span.value.top)
+    const barHeight = useDerivedValue(() => span.value.height)
     const opacity = useDerivedValue(() => (sel.value >= 0 && Number.isFinite(ys[sel.value]) ? 1 : 0))
     return <RoundedRect x={x} y={y} width={width} height={barHeight} r={1} color={color} opacity={opacity} />
 }

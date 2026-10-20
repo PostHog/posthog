@@ -1,3 +1,4 @@
+import { barSpan, yPosition } from './chartGeometry'
 import {
     formatAxisDate,
     formatChange,
@@ -13,6 +14,7 @@ import type { ChartInterval, ChartKind } from './types'
 describe('chartMath', () => {
     test.each<[string, number[], ChartKind, [number, number], number[]]>([
         ['small counts never get fractional ticks', [0, 1, 2, 1], 'bar', [0, 2], [0, 1, 2]],
+        ['signed bars include zero', [-10, 0, 20], 'bar', [-10, 20], [-10, 0, 10, 20]],
         ['bars start at zero', [40, 52, 47], 'bar', [0, 60], [0, 20, 40, 60]],
         ['an all-zero bar series still has a range', [0, 0], 'bar', [0, 1], [0, 1]],
         ['lines float to the data', [410, 432, 455], 'line', [400, 460], [400, 420, 440, 460]],
@@ -86,5 +88,17 @@ describe('chartMath', () => {
         ['a zero previous value has no percent', 7, 0, '+7'],
     ])('formatChange: %s', (_, value, previous, expected) => {
         expect(formatChange(value, previous, (v) => v.toLocaleString('en-US'))).toBe(expected)
+    })
+
+    test.each([
+        [-10, 200 / 3, 100 / 3],
+        [0, 200 / 3, 0],
+        [20, 0, 200 / 3],
+    ])('draws the signed bar for %s from zero', (value, top, height) => {
+        const plot = { left: 0, right: 300, top: 0, bottom: 100 }
+        const domain = yAxisTicks([-10, 0, 20], 'bar').domain
+        const span = barSpan(yPosition(value, domain, plot), yPosition(0, domain, plot))
+        expect(span.top).toBeCloseTo(top)
+        expect(span.height).toBeCloseTo(height)
     })
 })

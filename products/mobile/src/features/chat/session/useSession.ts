@@ -18,6 +18,8 @@ import {
     type TaskRunApi,
     type TaskRunCreateRequestApi,
 } from '@/api/tasks'
+import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
 import { DEMO_ANSWER_REPLY, DEMO_REPLY, demoSessionLog, demoSessionRunId } from '@/demo/sessionThreads'
 import {
@@ -47,6 +49,7 @@ import {
 } from '@/features/handoff/runStream'
 import type { PermissionRecord, RunStreamState } from '@/features/handoff/types'
 import { IDLE_TIMEOUT_MS, isAbort, isFatal, useAppActive } from '@/features/handoff/useTaskRun'
+import { abortError } from '@/lib/abort'
 import { track } from '@/lib/analytics'
 import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
@@ -439,7 +442,7 @@ async function readConnection(
                 if (outcome.control) {
                     cancelQuiet()
                     if (outcome.control.type === 'resync') {
-                        entry.cursor.resetCursor()
+                        entry.cursor = new RunStreamCursor(runId)
                         entry.pendingFrames = []
                         entry.hydrate = true
                     }
@@ -545,8 +548,18 @@ async function followSessionRun(
     return 'aborted'
 }
 
+function sessionScope(): string {
+    const { host, projectId, user } = useAuthStore.getState()
+    return JSON.stringify([host, projectId, user?.uuid, sessionGeneration()])
+}
+
 export function useSession(options: SessionOptions): Session {
     const { taskId, runId: requestedRunId } = options
+    const scope = useAuthStore((state) =>
+        JSON.stringify([state.host, state.projectId, state.user?.uuid, sessionGeneration()])
+    )
+    const openedScope = useRef(scope)
+    const scopeIsCurrent = useCallback((): boolean => sessionScope() === openedScope.current, [])
     const demo = useDemoMode((state) => state.enabled)
     const active = useAppActive()
     const [thread, dispatchThread] = useReducer(sessionThreadReducer, false, initialSessionThread)
@@ -563,7 +576,7 @@ export function useSession(options: SessionOptions): Session {
     const [demoPlaying, setDemoPlaying] = useState(false)
     const [createdTaskId, setCreatedTaskId] = useState<string | null>(null)
     const [unsentText, setUnsentText] = useState<string | undefined>(undefined)
-    const activeTaskId = taskId ?? createdTaskId
+    const activeTaskId = scope === openedScope.current ? (taskId ?? createdTaskId) : null
 
     const taskIdRef = useRef<string | null>(activeTaskId)
     taskIdRef.current = activeTaskId
@@ -649,14 +662,14 @@ export function useSession(options: SessionOptions): Session {
             }
             try {
                 const run = await getTaskRun(id, runId)
-                if (epoch.current === mine) {
+                if (epoch.current === mine && scopeIsCurrent()) {
                     applySnapshot(run)
                 }
             } catch {
                 // The stream still reports the run's state; this fetch only makes it arrive sooner.
             }
         },
-        [applySnapshot]
+        [applySnapshot, scopeIsCurrent]
     )
 
     const surfaceRequest = useCallback(
@@ -672,6 +685,9 @@ export function useSession(options: SessionOptions): Session {
     const runEffects = useCallback(
         async (run: RunRef, effects: RunEffect[], signal: AbortSignal): Promise<void> => {
             for (const effect of effects) {
+                if (signal.aborted || !scopeIsCurrent()) {
+                    return
+                }
                 try {
                     const outcome = await deliverPermissionResponse(
                         run,
@@ -690,11 +706,14 @@ export function useSession(options: SessionOptions): Session {
                 }
             }
         },
-        [refreshRun, surfaceRequest]
+        [refreshRun, scopeIsCurrent, surfaceRequest]
     )
 
     const applyFrame = useCallback(
         (data: unknown, context: FrameContext, runId: string, signal: AbortSignal): void => {
+            if (!scopeIsCurrent()) {
+                return
+            }
             dispatchThread({ type: 'frame', frame: data, context })
             const current = liveRef.current
             if (!current || current.runId !== runId) {
@@ -726,7 +745,7 @@ export function useSession(options: SessionOptions): Session {
                 void runEffects({ taskId: id, runId }, result.effects, signal)
             }
         },
-        [runEffects, setLive]
+        [runEffects, scopeIsCurrent, setLive]
     )
 
     const resetState = useCallback((): void => {
@@ -759,7 +778,7 @@ export function useSession(options: SessionOptions): Session {
         resetState()
         setCreatedTaskId(null)
         runSource.current = {}
-        if (!taskId) {
+        if (!taskId || scope !== openedScope.current) {
             taskIdRef.current = null
             setTitle(null)
             setHistory(IDLE)
@@ -793,7 +812,7 @@ export function useSession(options: SessionOptions): Session {
         const { signal } = controller
         try {
             const task = await getTask(taskId, signal)
-            if (epoch.current !== mine) {
+            if (epoch.current !== mine || !scopeIsCurrent()) {
                 return
             }
             setTitle(task.title || null)
@@ -802,7 +821,7 @@ export function useSession(options: SessionOptions): Session {
                 requestedRunId && requestedRunId !== task.latest_run?.id
                     ? await getTaskRun(taskId, requestedRunId, signal)
                     : task.latest_run
-            if (epoch.current !== mine) {
+            if (epoch.current !== mine || !scopeIsCurrent()) {
                 return
             }
             if (!run) {
@@ -816,7 +835,7 @@ export function useSession(options: SessionOptions): Session {
             let state = applyRunSnapshot(initialRunState(taskId, run.id, run.status), run)
             if (isTerminalRunStatus(run.status)) {
                 const entries = await getTaskRunLogs(taskId, run.id, signal)
-                if (epoch.current !== mine) {
+                if (epoch.current !== mine || !scopeIsCurrent()) {
                     return
                 }
                 const frames = historyFrames(entries, run.id, resumed)
@@ -835,7 +854,7 @@ export function useSession(options: SessionOptions): Session {
             }
             track('mobile_session_resumed', { status: run.status })
         } catch (error) {
-            if (epoch.current !== mine || isAbort(error, signal)) {
+            if (epoch.current !== mine || !scopeIsCurrent() || isAbort(error, signal)) {
                 return
             }
             setHistory({ status: 'error', error: toChatError(error) })
@@ -844,7 +863,7 @@ export function useSession(options: SessionOptions): Session {
                 bootController.current = null
             }
         }
-    }, [demo, requestedRunId, resetState, setLive, taskId])
+    }, [demo, requestedRunId, resetState, setLive, taskId, scope, scopeIsCurrent])
 
     useEffect(() => {
         reloadHistory().catch(() => undefined)
@@ -1008,12 +1027,20 @@ export function useSession(options: SessionOptions): Session {
                 },
                 artifactIds
             )
-            const response = await withWarmRetry((headers) => startTaskRun(id, body, { headers, signal }), { signal })
+            const response = await withWarmRetry(
+                (headers) => {
+                    if (!scopeIsCurrent()) {
+                        throw abortError()
+                    }
+                    return startTaskRun(id, body, { headers, signal })
+                },
+                { signal }
+            )
             const run = response.run ?? response.latest_run ?? null
             if (!run) {
                 throw new RunNotStartedError()
             }
-            if (epoch.current !== mine) {
+            if (epoch.current !== mine || !scopeIsCurrent()) {
                 return fields.initial_permission_mode
             }
             runDetail.current = run
@@ -1027,7 +1054,7 @@ export function useSession(options: SessionOptions): Session {
             setFollow({ runId: run.id, key: 0, fresh: !previousRunId })
             return fields.initial_permission_mode
         },
-        [configFor, setLive, setPartial]
+        [configFor, scopeIsCurrent, setLive, setPartial]
     )
 
     const syncConfig = useCallback(
@@ -1043,7 +1070,7 @@ export function useSession(options: SessionOptions): Session {
             }
             for (const change of plan.changes) {
                 await sendConfigOption(run, change, signal)
-                if (epoch.current !== mine) {
+                if (epoch.current !== mine || !scopeIsCurrent()) {
                     break
                 }
                 // Recorded per change, so a later failure resends only what did not go out.
@@ -1051,7 +1078,7 @@ export function useSession(options: SessionOptions): Session {
             }
             return plan.permissionMode
         },
-        [configFor]
+        [configFor, scopeIsCurrent]
     )
 
     /**
@@ -1062,7 +1089,7 @@ export function useSession(options: SessionOptions): Session {
         async (id: string, signal: AbortSignal, mine: number): Promise<RunStreamState | null> => {
             const task = await getTask(id, signal)
             const run = task.latest_run
-            if (!run || epoch.current !== mine) {
+            if (!run || epoch.current !== mine || !scopeIsCurrent()) {
                 return null
             }
             runDetail.current = run
@@ -1073,7 +1100,7 @@ export function useSession(options: SessionOptions): Session {
             }
             return state
         },
-        [setLive]
+        [scopeIsCurrent, setLive]
     )
 
     const followUp = useCallback(
@@ -1085,7 +1112,7 @@ export function useSession(options: SessionOptions): Session {
         ): Promise<boolean> => {
             const taskId = taskIdRef.current
             const trimmed = text.trim()
-            if (!taskId || !trimmed || sendingRef.current) {
+            if (!scopeIsCurrent() || !taskId || !trimmed || sendingRef.current) {
                 return false
             }
             const steer = sendOptions.steer === true && canSteerRef.current
@@ -1136,7 +1163,7 @@ export function useSession(options: SessionOptions): Session {
             let steered = false
             try {
                 const current = liveRef.current ?? (await adoptLatestRun(taskId, controller.signal, mine))
-                if (epoch.current !== mine) {
+                if (epoch.current !== mine || !scopeIsCurrent()) {
                     return false
                 }
                 let delivered = false
@@ -1161,6 +1188,9 @@ export function useSession(options: SessionOptions): Session {
                             controller.signal,
                             false
                         )
+                        if (!scopeIsCurrent() || controller.signal.aborted) {
+                            return false
+                        }
                         const outcome = await sendUserMessage(run, content, {
                             id: randomUUID(),
                             signal: controller.signal,
@@ -1183,6 +1213,9 @@ export function useSession(options: SessionOptions): Session {
                         controller.signal,
                         false
                     )
+                    if (!scopeIsCurrent() || controller.signal.aborted) {
+                        return false
+                    }
                     permissionMode = await startRun(
                         content,
                         current?.runId,
@@ -1208,7 +1241,7 @@ export function useSession(options: SessionOptions): Session {
                     }
                 }
             } catch (error) {
-                if (epoch.current !== mine || controller.signal.aborted) {
+                if (epoch.current !== mine || !scopeIsCurrent() || controller.signal.aborted) {
                     return false
                 }
                 dispatchThread({ type: 'withdraw', id: localId })
@@ -1224,7 +1257,17 @@ export function useSession(options: SessionOptions): Session {
             }
             return true
         },
-        [adoptLatestRun, applyFrame, demo, playDemoFrames, startRun, syncConfig, turnTracker, updateLive]
+        [
+            adoptLatestRun,
+            applyFrame,
+            demo,
+            playDemoFrames,
+            scopeIsCurrent,
+            startRun,
+            syncConfig,
+            turnTracker,
+            updateLive,
+        ]
     )
 
     const startNew = useCallback(
@@ -1235,7 +1278,7 @@ export function useSession(options: SessionOptions): Session {
             sendOptions: SendOptions
         ): Promise<boolean> => {
             const trimmed = text.trim()
-            if (taskIdRef.current || !trimmed || sendingRef.current) {
+            if (!scopeIsCurrent() || taskIdRef.current || !trimmed || sendingRef.current) {
                 return false
             }
             const attachments = sendOptions.attachments ?? []
@@ -1282,10 +1325,15 @@ export function useSession(options: SessionOptions): Session {
             setSending(true)
             try {
                 // No abort signal, so the app always learns the task id and whether its run started.
-                const task = await withWarmRetry((headers) => createTask(requests.task, { headers }))
-                if (epoch.current !== mine) {
+                const task = await withWarmRetry((headers) => {
+                    if (!scopeIsCurrent()) {
+                        throw abortError()
+                    }
+                    return createTask(requests.task, { headers })
+                })
+                if (epoch.current !== mine || !scopeIsCurrent()) {
                     // An empty task cannot start a run after its composer has gone.
-                    if (!task.latest_run) {
+                    if (!task.latest_run && scopeIsCurrent()) {
                         await deleteTask(task.id).catch(() => undefined)
                     }
                     return task.latest_run != null
@@ -1314,13 +1362,19 @@ export function useSession(options: SessionOptions): Session {
                             signal,
                             true
                         )
+                        if (!scopeIsCurrent() || signal.aborted) {
+                            throw abortError()
+                        }
                         runRequested = true
-                        const response = await withWarmRetry((headers) =>
-                            startTaskRun(task.id, withPendingArtifacts(requests.run, artifactIds), { headers })
-                        )
+                        const response = await withWarmRetry((headers) => {
+                            if (!scopeIsCurrent()) {
+                                throw abortError()
+                            }
+                            return startTaskRun(task.id, withPendingArtifacts(requests.run, artifactIds), { headers })
+                        })
                         run = response.run ?? response.latest_run ?? null
                     } catch (error) {
-                        if (!runRequested || isRunRefused(error)) {
+                        if (scopeIsCurrent() && (!runRequested || isRunRefused(error))) {
                             // No run started, so the task would only sit empty in the Chats list.
                             deleteTask(task.id).catch(() => undefined)
                             if (epoch.current === mine) {
@@ -1336,7 +1390,7 @@ export function useSession(options: SessionOptions): Session {
                 if (!run) {
                     throw new RunNotStartedError()
                 }
-                if (epoch.current !== mine) {
+                if (epoch.current !== mine || !scopeIsCurrent()) {
                     return true
                 }
                 runDetail.current = run
@@ -1346,7 +1400,7 @@ export function useSession(options: SessionOptions): Session {
                 track('mobile_session_sent', sentProperties)
                 turnTracker.begin(liveRef.current)
             } catch (error) {
-                if (epoch.current !== mine || signal.aborted) {
+                if (epoch.current !== mine || !scopeIsCurrent() || signal.aborted) {
                     return false
                 }
                 dispatchThread({ type: 'withdraw', id: localId })
@@ -1362,7 +1416,7 @@ export function useSession(options: SessionOptions): Session {
             }
             return true
         },
-        [applyFrame, demo, playDemoFrames, setLive, turnTracker]
+        [applyFrame, demo, playDemoFrames, scopeIsCurrent, setLive, turnTracker]
     )
 
     const submit = useCallback(
@@ -1382,7 +1436,7 @@ export function useSession(options: SessionOptions): Session {
         async (input: DecisionAnswerInput): Promise<void> => {
             const taskId = taskIdRef.current
             const current = liveRef.current
-            if (!taskId || !current || sendingRef.current) {
+            if (!scopeIsCurrent() || !taskId || !current || sendingRef.current) {
                 return
             }
             const pending = current.pending
@@ -1431,7 +1485,7 @@ export function useSession(options: SessionOptions): Session {
                 const outcome = await deliverPermissionResponse({ taskId, runId: current.runId }, plan.params, {
                     signal: controller.signal,
                 })
-                if (epoch.current !== mine) {
+                if (epoch.current !== mine || !scopeIsCurrent()) {
                     return
                 }
                 updateLive(current.runId, (state) => markRequestHandled(state, requestId))
@@ -1446,7 +1500,7 @@ export function useSession(options: SessionOptions): Session {
                     void refreshRun(current.runId)
                 }
             } catch (error) {
-                if (epoch.current !== mine || controller.signal.aborted) {
+                if (epoch.current !== mine || !scopeIsCurrent() || controller.signal.aborted) {
                     return
                 }
                 setNotice(answerErrorMessage(error))
@@ -1457,7 +1511,7 @@ export function useSession(options: SessionOptions): Session {
                 }
             }
         },
-        [demo, playDemoFrames, refreshRun, setPartial, updateLive]
+        [demo, playDemoFrames, refreshRun, scopeIsCurrent, setPartial, updateLive]
     )
 
     const stop = useCallback((): void => {
@@ -1474,7 +1528,7 @@ export function useSession(options: SessionOptions): Session {
         }
         const taskId = taskIdRef.current
         const current = liveRef.current
-        if (!taskId || !current || stoppingRef.current) {
+        if (!scopeIsCurrent() || !taskId || !current || stoppingRef.current) {
             return
         }
         if (
@@ -1507,7 +1561,7 @@ export function useSession(options: SessionOptions): Session {
                     turnTracker.markStopped(false)
                 }
             })
-    }, [active, demo, endStopping, reconnecting, turnTracker])
+    }, [active, demo, endStopping, reconnecting, scopeIsCurrent, turnTracker])
 
     const dismissNotice = useCallback((): void => setNotice(undefined), [])
 

@@ -16,6 +16,7 @@ import {
     RESOLVE_REASON_OPTIONS,
     type ResolveReason,
 } from '@/model/verdictReasons'
+import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { LoadingView, StateView } from '@/ui/StateView'
@@ -31,7 +32,7 @@ import { useInboxItems, useMarkReadOnOpen } from '../inbox/hooks'
 import { useInboxFilters } from '../inbox/inboxFiltersStore'
 import { PrioritySheet } from '../priority/PrioritySheet'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
-import { useGithubOnlyReviewerCount } from '../reviewers/hooks'
+import { useGithubOnlyReviewerCount, useReportReviewersQuery } from '../reviewers/hooks'
 import { VerdictSheet } from '../verdict/VerdictSheet'
 import { dismissCopy, hasOpenPullRequest, resolveCopy } from '../verdict/verdictCopy'
 import { Activity } from './Activity'
@@ -110,6 +111,8 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const answer = useDecisionAnswer(reportId)
     const notice = useHandoffNotice(reportId)
     const githubOnlyReviewers = useGithubOnlyReviewerCount(reportId)
+    const reviewers = useReportReviewersQuery(reportId)
+    const insets = useScreenInsets()
     const [overlay, setOverlay] = useState<Overlay>('none')
     const sheets = useSheetFunnel(reportId)
     useMarkReadOnOpen(query.data?.id)
@@ -277,14 +280,37 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
                 pending={actions.pending.dismiss}
                 testID="dismiss-sheet"
             />
-            <AssigneeSheet
-                visible={overlay === 'assignee'}
-                current={report.reviewers}
-                githubOnlyCount={githubOnlyReviewers}
-                onClose={closeOverlay}
-                onSave={setReviewers}
-                pending={actions.pending.reviewers}
-            />
+            {reviewers.data ? (
+                <AssigneeSheet
+                    key={reportId}
+                    visible={overlay === 'assignee'}
+                    current={reviewers.data}
+                    githubOnlyCount={githubOnlyReviewers}
+                    onClose={closeOverlay}
+                    onSave={setReviewers}
+                    pending={actions.pending.reviewers}
+                />
+            ) : (
+                <FloatingCard
+                    visible={overlay === 'assignee'}
+                    onClose={closeOverlay}
+                    accessibilityLabel="Assignee"
+                    testID="assignee-loading-sheet"
+                    style={[styles.assigneeState, { top: topOffset(insets, 120) }]}
+                >
+                    {reviewers.isError ? (
+                        <StateView
+                            title="Couldn't load the assignees"
+                            message="Check your connection and try again."
+                            actionLabel="Try again"
+                            onAction={() => void reviewers.refetch()}
+                            testID="assignee-load-error"
+                        />
+                    ) : (
+                        <LoadingView label="Loading the assignees" />
+                    )}
+                </FloatingCard>
+            )}
             <PrioritySheet
                 visible={overlay === 'priority'}
                 current={report.priority}
@@ -377,6 +403,11 @@ const styles = StyleSheet.create({
     },
     body: {
         flex: 1,
+    },
+    assigneeState: {
+        left: 16,
+        right: 16,
+        minHeight: 240,
     },
     scroll: {
         flex: 1,

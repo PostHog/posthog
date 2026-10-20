@@ -168,7 +168,11 @@ export function useHandoffActions(reportId: string): HandoffActions {
         try {
             const options = useRunOptionsStore.getState().options
             const run = buildHandoffRunRequest(options, await fetchRunDefaults(queryClient, scope))
-            const started = await kickOffReportTask(reportId, { run })
+            const started = await kickOffReportTask(reportId, {
+                run,
+                taskId: handoffEntry(reportId).unstartedTaskId,
+                onTaskCreated: (taskId) => useHandoffStore.getState().setUnstartedTask(reportId, taskId),
+            })
             useHandoffStore.getState().setStarted(reportId, started)
             useRunOptionsStore.getState().reset()
             track('mobile_report_handed_off', {

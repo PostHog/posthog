@@ -2,7 +2,6 @@ import { type QueryClient, type QueryKey, useQuery } from '@tanstack/react-query
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ViewToken } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
-
 import { fetchRecentDashboards } from '@/api/dashboards'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
 import {
@@ -12,7 +11,10 @@ import {
     fetchShortcuts,
     SHORTCUT_PAGE_SIZE,
 } from '@/api/shortcuts'
+import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useDemoViews } from '@/demo/views'
+import { abortError } from '@/lib/abort'
 import { toError } from '@/lib/errors'
 import { mergeRecent, pinsFromShortcuts, shortcutMatchKey } from '@/model/adapters/viewPins'
 import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
@@ -53,8 +55,11 @@ type ShortcutPage = PaginatedApi<FileSystemShortcutApi>
 const EMPTY_ROWS: FileSystemShortcutApi[] = []
 const EMPTY_RECENT: DeviceRecentEntry[] = []
 
-function readShortcuts(signal?: AbortSignal): Promise<ShortcutPage> {
-    return listRead('dashboards', signal, () => fetchShortcuts(signal))
+function readShortcuts(signal?: AbortSignal, beforeRead?: () => void): Promise<ShortcutPage> {
+    return listRead('dashboards', signal, () => {
+        beforeRead?.()
+        return fetchShortcuts(signal)
+    })
 }
 
 function projectKey(scope: ProjectScope): string {
@@ -177,6 +182,13 @@ export interface PinWriteTarget {
     client: QueryClient
     listKey: QueryKey
     demo: boolean
+    isCurrent: () => boolean
+}
+
+function assertCurrentWrite(list: PinWriteTarget): void {
+    if (!list.isCurrent()) {
+        throw abortError()
+    }
 }
 
 // Pin and unpin of one view run one after another, from every screen, so a second tap waits for the first instead of
@@ -185,7 +197,10 @@ const pinWrites = new Map<string, Promise<void>>()
 
 function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => Promise<void>): Promise<void> {
     const key = `${list.demo ? 'demo' : freshnessKey(list.listKey)}|${matchKey}`
-    const next = (pinWrites.get(key) ?? Promise.resolve()).then(run)
+    const next = (pinWrites.get(key) ?? Promise.resolve()).then(() => {
+        assertCurrentWrite(list)
+        return run()
+    })
     const settled = next.catch(() => undefined)
     pinWrites.set(key, settled)
     void settled.then(() => {
@@ -220,9 +235,14 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
                 ? state.data
                 : await client.fetchQuery({
                       queryKey: listKey,
-                      queryFn: ({ signal }) => readShortcuts(signal),
+                      queryFn: async ({ signal }) => {
+                          const page = await readShortcuts(signal, () => assertCurrentWrite(list))
+                          assertCurrentWrite(list)
+                          return page
+                      },
                       staleTime: 0,
                   })
+        assertCurrentWrite(list)
         if (rowsFor(page).some((row) => shortcutMatchKey(row.type, row.ref) === key)) {
             return
         }
@@ -235,6 +255,7 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
         client.setQueryData<ShortcutPage>(listKey, (current) => withRows(current, [...rowsFor(current), pending]))
         try {
             const created = await createShortcut(input)
+            assertCurrentWrite(list)
             client.setQueryData<ShortcutPage>(listKey, (current) =>
                 withRows(current, [
                     ...rowsFor(current).filter((row) => row.id !== pending.id && row.id !== created.id),
@@ -243,6 +264,7 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
             )
             trackViewPinned({ viewType: target.kind, from })
         } catch (error) {
+            assertCurrentWrite(list)
             client.setQueryData<ShortcutPage>(listKey, (current) =>
                 withRows(
                     current,
@@ -277,8 +299,10 @@ export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from:
         )
         try {
             await Promise.all(ids.map((id) => deleteShortcut(id)))
+            assertCurrentWrite(list)
             trackViewUnpinned({ viewType, from, rowsDeleted: ids.length })
         } catch (error) {
+            assertCurrentWrite(list)
             reportScopeError(error)
             viewsQueue.notePause('dashboards', error)
             void client.invalidateQueries({ queryKey: listKey })
@@ -321,9 +345,20 @@ export function usePinActions(): PinActions {
     const write = useCallback(
         (run: (target: PinWriteTarget) => Promise<void>): Promise<void> => {
             setWriting((count) => count + 1)
-            return run({ client, listKey, demo }).finally(() => setWriting((count) => count - 1))
+            const session = sessionGeneration()
+            const isCurrent = (): boolean => {
+                const current = useAuthStore.getState()
+                return (
+                    demo ||
+                    (sessionGeneration() === session &&
+                        current.status === 'signed_in' &&
+                        current.host?.replace(/\/$/, '') === scope?.host &&
+                        current.projectId === scope?.projectId)
+                )
+            }
+            return run({ client, listKey, demo, isCurrent }).finally(() => setWriting((count) => count - 1))
         },
-        [client, listKey, demo]
+        [client, listKey, demo, scope]
     )
     const pin = useCallback(
         (target: PinTarget, from: PinSource) => write((list) => pinView(list, target, from)),

@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
 
 import { actionErrorMessage } from '@/lib/errors'
@@ -82,14 +82,16 @@ export function AssigneeSheet({
     const [error, setError] = useState<string | undefined>(undefined)
     const people = useAvailableReviewers(query)
     const currentIds = useMemo(() => current.map((reviewer) => reviewer.uuid), [current])
+    const wasVisible = useRef(false)
 
     useEffect(() => {
-        if (visible) {
+        if (visible && !wasVisible.current) {
             setQuery('')
             setSelected(new Set(currentIds))
             setLimitHit(false)
             setError(undefined)
         }
+        wasVisible.current = visible
     }, [visible, currentIds])
 
     const overLimit = selected.size + githubOnlyCount > MAX_REVIEWERS

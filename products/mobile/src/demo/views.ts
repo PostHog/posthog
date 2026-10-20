@@ -5,6 +5,7 @@ import type { DashboardApi, DashboardBasicApi, DashboardTileApi } from '@/api/da
 import type { InsightApi, InsightBasicApi } from '@/api/insights'
 import type { FileSystemShortcutApi, ShortcutInput } from '@/api/shortcuts'
 import type { WebOverviewResponseApi } from '@/api/webAnalytics'
+import { asRecord } from '@/lib/records'
 import type { DeviceRecentEntry, PinDisplay } from '@/model/views'
 
 import { useDemoMode } from './demoMode'
@@ -804,7 +805,7 @@ export function demoCompareResponse(
         new Date(anchor)
     )
     return {
-        results: def ? demoResult(def, window, new Date(anchor), true) : [],
+        results: def ? demoResult(def, window, new Date(anchor), asRecord(query.compareFilter)?.compare === true) : [],
         ...demoFreshness(anchor, refreshedAt),
         timezone: 'UTC',
         resolved_date_range: resolvedRange(window),

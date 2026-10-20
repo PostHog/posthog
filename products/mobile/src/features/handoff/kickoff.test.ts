@@ -132,6 +132,48 @@ describe('kickoff', () => {
         })
     })
 
+    test.each([400, 429, 503, 500])('retries the original task after run refusal %s', async (status) => {
+        const created = { id: 'task-1', title: 'Legend crash', signal_report: 'rep-1', latest_run: null }
+        replies = [REPORT, { status: 201, body: created }, { status, body: { error: 'Run unavailable' } }]
+        let taskId: string | undefined
+        const onTaskCreated = (id: string): void => {
+            taskId = id
+        }
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS, onTaskCreated })).rejects.toMatchObject({ status })
+        expect(taskId).toBe('task-1')
+        replies = [REPORT, { status: 200, body: created }, { status: 200, body: { ...created, run: RUN } }]
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS, taskId })).resolves.toEqual({
+            taskId,
+            runId: RUN.id,
+        })
+        expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/tasks/'))).toHaveLength(1)
+        expect(calls.filter((call) => call.method === 'DELETE')).toEqual([])
+    })
+
+    test('after a restart, the report claim recovers the task whose first run never started', async () => {
+        replies = [
+            { ...REPORT, body: { ...(REPORT.body as object), assignee: { kind: 'task', task_id: 'task-1' } } },
+            { status: 200, body: { id: 'task-1', signal_report: 'rep-1', latest_run: null } },
+            { status: 200, body: { run: RUN } },
+        ]
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS })).resolves.toEqual({
+            taskId: 'task-1',
+            runId: RUN.id,
+        })
+        expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/tasks/'))).toEqual([])
+        expect(calls.at(-1)?.url).toContain('/tasks/task-1/run/')
+    })
+
+    test('an ambiguous failure adopts the run the original request started', async () => {
+        const created = { id: 'task-1', title: 'Legend crash', signal_report: 'rep-1', latest_run: RUN }
+        replies = [REPORT, { status: 200, body: created }]
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS, taskId: 'task-1' })).resolves.toEqual({
+            taskId: 'task-1',
+            runId: RUN.id,
+        })
+        expect(calls.every((call) => call.method === 'GET')).toBe(true)
+    })
+
     test('a warm sandbox refusal is retried with the first retry token', async () => {
         const clock = fakeClock()
         replies = [

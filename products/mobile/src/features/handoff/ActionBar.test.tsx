@@ -6,6 +6,7 @@ import type { ActionBarState, PullRequestView, ReportActions } from '@/model/typ
 import { OverlayHost } from '@/ui/OverlayPortal'
 
 import { ActionBar } from './ActionBar'
+import { useHandoffStore } from './handoffStore'
 import { usePullRequestChecks } from './usePullRequestChecks'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
@@ -43,6 +44,7 @@ const PULL_REQUESTS: PullRequestView[] = [
 
 beforeEach(() => {
     jest.useFakeTimers()
+    useHandoffStore.setState({ reports: {} })
     jest.mocked(usePullRequestChecks).mockReturnValue({ status: 'unavailable', isRefreshing: false })
 })
 afterEach(() => {
@@ -204,4 +206,21 @@ test('shows checked CI data and replaces a prior pass with unavailable when it c
     expect(screen.getByTestId('pull-request-checks')).toHaveTextContent('Checks unavailable')
     expect(screen.queryByText('Checks passed')).toBeNull()
     expect(screen.getByTestId('pr-ready-card')).toBeTruthy()
+})
+
+test.each([false, true])('a task without a run can retry with local kickoff state: %s', async (remembered) => {
+    if (remembered) useHandoffStore.getState().setUnstartedTask(REPORT.id, 'task-retry')
+    const viewProps = props({ pullRequests: [], showHandoff: false })
+    render(
+        <ActionBar
+            {...viewProps}
+            report={{
+                ...REPORT,
+                work: { state: 'working', assignee: { kind: 'task', name: 'PostHog', taskId: 'task-retry' } },
+                task: { taskId: 'task-retry', status: 'not_started' },
+            }}
+        />
+    )
+    await act(async () => fireEvent.press(screen.getByTestId('handoff-button')))
+    expect(viewProps.actions.handOff).toHaveBeenCalledTimes(1)
 })

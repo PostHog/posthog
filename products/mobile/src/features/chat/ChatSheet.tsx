@@ -4,6 +4,8 @@ import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-ha
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
+import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
@@ -101,9 +103,22 @@ export function ChatSheet({
     const keyboard = useReanimatedKeyboardAnimation()
     const preparingSend = useRef(false)
     const [preparing, setPreparing] = useState(false)
+    const queueEpoch = useRef(0)
     const [visible, setVisible] = useState(true)
     const { progress } = usePresence(visible, motion.sheet)
-    const close = useCallback((): void => setVisible(false), [])
+    const close = useCallback((): void => {
+        queueEpoch.current++
+        setVisible(false)
+    }, [])
+    const accountScope = useAuthStore((state) =>
+        JSON.stringify([state.host, state.projectId, state.user?.uuid, sessionGeneration()])
+    )
+    const openedScope = useRef(accountScope)
+    useEffect(() => {
+        if (accountScope !== openedScope.current) {
+            close()
+        }
+    }, [accountScope, close])
     const { drag, pan } = useSheetDrag(visible, close)
     const [draftReportId, setDraftReportId] = useState(() =>
         initialReportId && isReportId(initialReportId, demo) ? initialReportId : undefined
@@ -132,8 +147,6 @@ export function ChatSheet({
     const [queue, dispatchQueue] = useReducer(queueReducer, EMPTY_QUEUE)
     const delivering = useRef(false)
     const [isDelivering, setDelivering] = useState(false)
-    // Bumped by New chat and by closing, so a delivery that settles afterwards leaves the new queue alone.
-    const queueEpoch = useRef(0)
     const latest = useRef<{ queue: QueueState; draft: ChatDraft; change: (draft: ChatDraft) => void }>({
         queue,
         draft: composerDraft.draft,
@@ -476,9 +489,14 @@ export function ChatSheet({
             // The bubble already shows the files, and a demo send settles only after the canned reply plays.
             attachments.clear({ only: files.map((file) => file.id), release: false })
         }
+        const epoch = queueEpoch.current
         void composerDraft
             .beginSend({ text: message, reportIds: attached })
             .then(async (settle) => {
+                if (queueEpoch.current !== epoch) {
+                    await settle(false)
+                    return
+                }
                 const sent = await session.send(message, context, options, { attachments: files }).catch(() => false)
                 if (sent) {
                     sheetEvents.countSent()
@@ -487,15 +505,20 @@ export function ChatSheet({
                 await settle(sent)
             })
             .finally(() => {
-                preparingSend.current = false
-                setPreparing(false)
-                setSendingFileIds([])
+                if (queueEpoch.current === epoch) {
+                    preparingSend.current = false
+                    setPreparing(false)
+                    setSendingFileIds([])
+                }
             })
     }
     const startNewChat = (): void => {
         sheetEvents.countNewChat()
         // The queued text folds into this chat's draft, so its files must not follow into the new chat.
         releaseAttachments(foldQueue())
+        preparingSend.current = false
+        setPreparing(false)
+        setSendingFileIds([])
         if (target.taskId) {
             // The session reloads as an empty new chat when its task option goes.
             setTarget({})

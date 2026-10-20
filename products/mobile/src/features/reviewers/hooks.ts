@@ -104,6 +104,10 @@ function selectReviewers(data: ReportArtefactApi | null): Reviewer[] {
 
 // Reads only the work log, so a caller outside the report screen gets the reviewers without the report's refetches.
 export function useReportReviewers(reportId: string): Reviewer[] | undefined {
+    return useReportReviewersQuery(reportId).data
+}
+
+export function useReportReviewersQuery(reportId: string): QueryState<Reviewer[]> {
     const mode = useDataMode()
     const scope = useProjectScope()
     const demo = useDemoReportQuery(reportId)
@@ -114,9 +118,21 @@ export function useReportReviewers(reportId: string): Reviewer[] | undefined {
         select: selectReviewers,
     })
     if (mode === 'demo') {
-        return demo.data?.reviewers
+        return demo.data ? successQuery(demo.data.reviewers) : errorQuery(demo.error ?? new Error('Report unavailable'))
     }
-    return mode === 'live' ? live.data : undefined
+    if (mode === 'loading') {
+        return loadingQuery()
+    }
+    if (!scope) {
+        return errorQuery(new NotSignedInError())
+    }
+    if (live.data) {
+        return successQuery(live.data, { isRefetching: live.isFetching, refetch: live.refetch })
+    }
+    if (live.isError && !live.isFetching) {
+        return errorQuery(toError(live.error), live.refetch)
+    }
+    return { ...loadingQuery<Reviewer[]>(), refetch: live.refetch }
 }
 
 export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]> {

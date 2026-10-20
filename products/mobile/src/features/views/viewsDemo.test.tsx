@@ -2,7 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 
+import { insightSnapshot } from '@/model/adapters/insightSnapshot'
+import { insightQueryKey } from './items'
 import { useViewsList } from './pinHooks'
+import { useViewRangeStore } from './rangeStore'
+import { viewsQueue } from './refreshQueue'
+import { useInsightScreen } from './viewHooks'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -35,10 +40,14 @@ async function advance(ms: number): Promise<void> {
 describe('views in demo mode', () => {
     beforeEach(() => {
         jest.useFakeTimers()
+        viewsQueue.reset()
+        useViewRangeStore.getState().clear()
         client = new QueryClient({ defaultOptions: { queries: { gcTime: Number.POSITIVE_INFINITY } } })
     })
 
     afterEach(() => {
+        viewsQueue.reset()
+        client.clear()
         jest.useRealTimers()
     })
 
@@ -69,5 +78,49 @@ describe('views in demo mode', () => {
         expect(result.current.refresh.hint).toBe('You can refresh again in 5 min.')
         await advance(3000)
         expect(result.current.refresh.hint).toBeNull()
+    })
+
+    test('turns off a saved insight comparison and loads the single-period result', async () => {
+        const shortId = 'demo-ins-dau'
+        const snapshot = insightSnapshot(
+            {
+                id: 1,
+                short_id: shortId,
+                name: 'Daily active users',
+                derived_name: null,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        dateRange: { date_from: '-7d' },
+                        compareFilter: { compare: true },
+                    },
+                },
+                result: [
+                    { action: { order: 0 }, days: ['2026-10-19'], data: [10], compare_label: 'current' },
+                    { action: { order: 0 }, days: ['2026-10-12'], data: [5], compare_label: 'previous' },
+                ],
+                last_refresh: new Date().toISOString(),
+                cache_target_age: null,
+                next_allowed_client_refresh: null,
+            },
+            undefined,
+            { readAt: Date.now(), serverNow: Date.now() }
+        )
+        client.setQueryData(insightQueryKey(null, { shortId, dashboardRef: null, override: null }), snapshot)
+        const { result, unmount } = renderHook(() => useInsightScreen(shortId, { from: 'browse' }), { wrapper })
+        expect(result.current.range.compare).toBe(true)
+
+        act(() => result.current.range.setCompare(false))
+        await advance(1000)
+
+        expect(result.current.range.compare).toBe(false)
+        expect(result.current.comparing).toBe(false)
+        expect(result.current.insight.data?.query).toMatchObject({ source: { compareFilter: { compare: false } } })
+        expect(result.current.insight.data?.allSeries.length).toBeGreaterThan(0)
+        expect(result.current.insight.data?.allSeries.some((series) => series.compare === 'previous')).toBe(false)
+        expect(result.current.insight.data?.delta?.basis).not.toBe('compare')
+        unmount()
     })
 })

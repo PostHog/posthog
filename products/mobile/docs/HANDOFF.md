@@ -71,6 +71,7 @@ Hand off ──► kickOffReportTask ──► store.started ──► useTaskRu
    The run comes from `run`, else `latest_run`. Both calls retry a 503
    `warm_run_activation_unavailable` with `X-PostHog-Warm-Retry: <first retry_token>`, 250 ms
    doubling to 1 s, for up to 20 s.
+   The created task ID stays in memory if its first run fails; after an app restart the report's current task claim recovers it. Retry fetches that same task, adopts any run the earlier request started, or starts its first run without creating another task. The Hand off button remains available while that task has no run, including after the report shows its claim. An ambiguous failure never deletes a potentially running task.
 2. **Started.** `useHandoffActions(id).handOff` stores `{taskId, runId}` in the hand-off store,
    tracks `mobile_report_handed_off`, and invalidates the report and inbox queries. While the
    calls are in flight `handOffPending` already shows the status card.

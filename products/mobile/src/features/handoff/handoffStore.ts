@@ -28,6 +28,7 @@ export interface StoredAnswer {
 
 export interface ReportHandoff {
     started?: { taskId: string; runId: string }
+    unstartedTaskId?: string
     live?: RunStreamState
     partial?: { requestId: string; labels: string[] }
     answer?: StoredAnswer
@@ -38,6 +39,7 @@ export interface ReportHandoff {
 interface HandoffStoreState {
     reports: Record<string, ReportHandoff>
     setStarted: (reportId: string, started: { taskId: string; runId: string }) => void
+    setUnstartedTask: (reportId: string, taskId: string) => void
     applySnapshot: (reportId: string, taskId: string, run: TaskRunApi) => RunStreamState
     clearStarted: (reportId: string) => void
     publishHydration: (
@@ -69,10 +71,12 @@ export const useHandoffStore = create<HandoffStoreState>()((set, get) => {
 
     return {
         reports: {},
+        setUnstartedTask: (reportId, unstartedTaskId) => update(reportId, (entry) => ({ ...entry, unstartedTaskId })),
         setStarted: (reportId, started) =>
             update(reportId, (entry) => ({
                 ...entry,
                 started,
+                unstartedTaskId: undefined,
                 notice: undefined,
                 answer: undefined,
                 partial: undefined,

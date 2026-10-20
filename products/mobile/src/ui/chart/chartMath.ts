@@ -8,7 +8,7 @@ export const TICK_FONT_SIZE = 11
 export const TICK_GAP = 8
 /** Fraction of each bar's slot left empty, as in the web chart. */
 export const BAR_BAND_PADDING = 0.25
-/** The shortest bar, so a zero still reads as a bar. */
+/** The shortest nonzero bar. */
 export const BAR_MIN_HEIGHT = 2
 
 // Menlo, Android's monospace and SF Mono all advance 0.6em per glyph, so label widths are known without measuring.

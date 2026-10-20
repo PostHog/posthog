@@ -52,6 +52,7 @@ import {
     DASHBOARD_COMPARE_SUPPORTED,
     dashboardOverride,
     rangeOverride,
+    supportsCompare,
     WEB_ANALYTICS_SAVED_RANGE,
     webAnalyticsRange,
 } from './rangeOverride'
@@ -341,6 +342,7 @@ export interface InsightScreenState {
     range: ViewRange
     /** False with All time, where the server turns compare off. */
     compareAvailable: boolean
+    compareSupported: boolean
     /** True while the compare result shows. */
     comparing: boolean
     /** True while `insight` still shows the previous range because the new one has not loaded. */
@@ -402,12 +404,12 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     const compareSource = base ?? baseSaved ?? (range.choice ? lastBase.current : undefined)
     // An insight saved with compare answers its saved range with both periods, so the retrieve shows them.
     const savedCompareShown = savedCompare && range.compare && range.choice === null
+    const compareSupported = supportsCompare(compareSource?.query)
+    const compareAvailable =
+        compareSupported && compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom)
     const compareBody =
-        range.compare &&
-        !savedCompareShown &&
-        compareSource &&
-        compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom)
-            ? compareQuery(compareSource.query, range.choice)
+        compareSource && ((range.compare && compareAvailable && !savedCompareShown) || (savedCompare && !range.compare))
+            ? compareQuery(compareSource.query, range.choice, range.compare)
             : null
     const compareId = compareBody ? stableStringify(compareBody) : null
     const compareSnapshot = useSnapshot<InsightSnapshot>(compareId ? viewsKeys.compare(scope, compareId) : null)
@@ -443,13 +445,13 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     useRecordRecentView(compareSource ? { kind: 'insight', ref: shortId, name: compareSource.name } : null)
     useViewOpenedEvent('insight', options, () => [base])
 
-    const comparingQuery = Boolean(compareSnapshot && compareBody)
+    const querySnapshotShown = Boolean(compareSnapshot && compareBody)
     const comparing =
-        comparingQuery ||
-        (savedCompareShown && Boolean(base?.allSeries.some((series) => series.compare === 'previous')))
-    const current = comparingQuery ? compareSnapshot : base
-    const currentKey =
-        comparingQuery && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
+        range.compare &&
+        (querySnapshotShown ||
+            (savedCompareShown && Boolean(base?.allSeries.some((series) => series.compare === 'previous'))))
+    const current = compareBody ? compareSnapshot : base
+    const currentKey = compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
     // The key travels with the held snapshot, so full screen and the Point sheet open the entry that is on screen.
     const shown = useHeldWhileLoading(current ? { snapshot: current, queryKey: currentKey } : undefined, error)
     return {
@@ -463,7 +465,8 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         ),
         error,
         range,
-        compareAvailable: compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom),
+        compareAvailable,
+        compareSupported,
         comparing,
         rangeLoading: shown.held,
         refresh,

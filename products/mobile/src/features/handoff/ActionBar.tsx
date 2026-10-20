@@ -12,6 +12,7 @@ import { ActionPill } from './ActionPill'
 import { AgentStatusCard } from './AgentStatusCard'
 import { DecisionRequest } from './DecisionRequest'
 import { HandoffSplitButton } from './HandoffSplitButton'
+import { useHandoffEntry } from './hooks'
 import { PullRequestCard } from './PullRequestCard'
 import type { HandoffAnswer } from './types'
 
@@ -45,6 +46,19 @@ export function ActionBar({
     onTaskChat,
 }: ActionBarProps): ReactElement {
     const insets = useScreenInsets()
+    const unstartedTaskId =
+        useHandoffEntry(report.id)?.unstartedTaskId ??
+        (report.task?.status === 'not_started' && !report.task.runId ? report.task.taskId : undefined)
+    const assignee = report.work.assignee
+    const canRetry = Boolean(
+        unstartedTaskId &&
+            !report.task?.runId &&
+            (!assignee || (assignee.kind === 'task' && assignee.taskId === unstartedTaskId)) &&
+            report.canAct !== false &&
+            report.status !== 'resolved' &&
+            report.work.state !== 'done'
+    )
+    const showHandoff = state.showHandoff || canRetry
     const hasPullRequests = state.pullRequests.length > 0
     const activity = state.activity
     const taskChatFrom = (entry: TaskChatEntry): (() => void) | undefined =>
@@ -55,7 +69,7 @@ export function ActionBar({
           ? 'pr_ready'
           : state.answer
             ? 'decided'
-            : state.showHandoff
+            : showHandoff
               ? 'idle'
               : activity
                 ? 'handed'
@@ -116,7 +130,7 @@ export function ActionBar({
                 ) : activity || state.request || state.answer ? (
                     <View style={styles.panel}>{activityContent}</View>
                 ) : null}
-                {state.showHandoff ? (
+                {showHandoff ? (
                     <HandoffSplitButton
                         report={report}
                         onHandOff={() => void actions.handOff()}

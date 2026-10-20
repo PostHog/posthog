@@ -54,23 +54,32 @@ export function compareAllowed(dateFrom: string | null): boolean {
     return dateFrom !== 'all'
 }
 
+export function supportsCompare(query: unknown): boolean {
+    const node = asRecord(query)
+    return (asRecord(node?.source) ?? node)?.kind === 'TrendsQuery'
+}
+
 /**
  * The `POST query/` body for "Compare to previous period" on an insight: the response's `query.source` with compare
- * on and the chosen range, or the saved range when there is no choice. Null when compare cannot apply.
+ * set to the requested state and chosen range, or the saved range when there is no choice. Null when unsupported.
  */
-export function compareQuery(query: unknown, choice: RangeChoice | null): Record<string, unknown> | null {
+export function compareQuery(
+    query: unknown,
+    choice: RangeChoice | null,
+    compare = true
+): Record<string, unknown> | null {
     const node = asRecord(query)
     const source = asRecord(node?.source) ?? node
-    if (!source) {
+    if (!source || !supportsCompare(query)) {
         return null
     }
     const savedRange = asRecord(source.dateRange)
     const dateRange: Record<string, unknown> = choice ? { ...rangeValues(choice) } : { ...(savedRange ?? {}) }
     const dateFrom = typeof dateRange.date_from === 'string' ? dateRange.date_from : null
-    if (!compareAllowed(dateFrom)) {
+    if (compare && !compareAllowed(dateFrom)) {
         return null
     }
-    return { ...source, compareFilter: { compare: true }, dateRange }
+    return { ...source, compareFilter: { compare }, dateRange }
 }
 
 /** The web analytics `dateRange` for a choice, or the web's default range of the last 7 days. */

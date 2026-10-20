@@ -1,6 +1,14 @@
 import { lineHeight } from '@/ui/tokens'
 
-import { formatAxisDate, monoTextWidth, TICK_FONT_SIZE, TICK_GAP, xTickIndices, yAxisTicks } from './chartMath'
+import {
+    BAR_MIN_HEIGHT,
+    formatAxisDate,
+    monoTextWidth,
+    TICK_FONT_SIZE,
+    TICK_GAP,
+    xTickIndices,
+    yAxisTicks,
+} from './chartMath'
 import type { ChartInterval, ChartKind, ChartVariant } from './types'
 
 export const TICK_LINE_HEIGHT = lineHeight(TICK_FONT_SIZE)
@@ -53,6 +61,13 @@ export function yPosition(value: number, domain: [number, number], plot: PlotRec
     const [lo, hi] = domain
     const span = hi - lo || 1
     return plot.bottom - ((value - lo) / span) * (plot.bottom - plot.top)
+}
+
+export function barSpan(valueY: number, zeroY: number): { top: number; height: number } {
+    'worklet'
+    const offset = valueY - zeroY
+    const height = offset === 0 ? 0 : Math.max(BAR_MIN_HEIGHT, Math.abs(offset))
+    return { top: offset > 0 ? zeroY : zeroY - height, height }
 }
 
 /**

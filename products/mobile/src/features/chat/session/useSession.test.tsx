@@ -3,6 +3,8 @@ import { AppState } from 'react-native'
 import { ApiError } from '@/api/client'
 import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
+import { useAuthStore } from '@/auth/authStore'
+import { getSessionTokens, setSessionTokens } from '@/auth/tokens'
 import { setAnalyticsClient } from '@/lib/analytics'
 
 import type { PendingAttachment } from '../attachments/types'
@@ -277,6 +279,96 @@ describe('useSession', () => {
             }
         }
     )
+
+    test.each([false, true])('a full resync retains history already published: %s', async (published) => {
+        const firstStream = liveStream(false)
+        const secondStream = liveStream(false)
+        const first = { ...logLine({ sessionUpdate: 'agent_message_chunk', text: 'Saved ' }), event_id: 'boot-1' }
+        const last = { ...logLine({ sessionUpdate: 'agent_message_chunk', text: 'reply.' }), event_id: 'boot-2' }
+        mocked.openTaskRunStream
+            .mockResolvedValueOnce(firstStream.response)
+            .mockResolvedValueOnce(secondStream.response)
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await act(async () => {})
+            await act(async () => {
+                firstStream.push(first, 'log-0')
+                if (published) firstStream.push({}, undefined, 'keepalive')
+                firstStream.push({ type: 'resync' }, undefined, 'end')
+            })
+            await waitFor(() => expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2))
+            expect(mocked.openTaskRunStream.mock.calls[1]?.[2]?.lastEventId).toBeUndefined()
+            await act(async () => {
+                secondStream.push(first, 'log-0')
+                secondStream.push(last, 'log-1')
+                secondStream.push({}, undefined, 'keepalive')
+            })
+            expect(result.current.items).toEqual([expect.objectContaining({ kind: 'assistant', text: 'Saved reply.' })])
+        } finally {
+            unmount()
+        }
+    })
+
+    test.each(['project', 'session'])(
+        'a %s switch drops the old session and rejects captured callbacks',
+        async (changed) => {
+            const previous = useAuthStore.getState().projectId
+            useAuthStore.setState({ projectId: 1 })
+            mocked.getTask.mockResolvedValue(task(run({ status: 'completed' })))
+            mocked.getTaskRunLogs.mockResolvedValue([logLine({ sessionUpdate: 'agent_message', text: 'Project one' })])
+            const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+            try {
+                await waitFor(() => expect(result.current.history.status).toBe('idle'))
+                expect(result.current.items).toHaveLength(1)
+                const send = result.current.send
+                await act(async () => {
+                    if (changed === 'session') setSessionTokens(getSessionTokens())
+                    useAuthStore.setState({ projectId: changed === 'project' ? 2 : 1 })
+                })
+                expect(result.current.taskId).toBeNull()
+                expect(result.current.items).toEqual([])
+                await expect(send('Continue', { kind: 'none' })).resolves.toBe(false)
+                expect(mocked.startTaskRun).not.toHaveBeenCalled()
+                expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+                expect(mocked.getTask).toHaveBeenCalledTimes(1)
+            } finally {
+                unmount()
+                useAuthStore.setState({ projectId: previous })
+            }
+        }
+    )
+
+    test('a task create completing after a project switch cannot start or delete in the new project', async () => {
+        const previous = useAuthStore.getState().projectId
+        useAuthStore.setState({ projectId: 1 })
+        let finishCreate!: (created: TaskCreateResponseApi) => void
+        mocked.createTask.mockReturnValue(
+            new Promise((resolve) => {
+                finishCreate = resolve
+            })
+        )
+        const { result, unmount } = renderHook(() => useSession({}))
+        try {
+            let sending!: Promise<boolean>
+            act(() => {
+                sending = result.current.send('Old project', { kind: 'none' })
+            })
+            await act(async () => {
+                useAuthStore.setState({ projectId: 2 })
+            })
+            await act(async () => {
+                finishCreate({ ...task(run({})), latest_run: null })
+                await sending
+            })
+            expect(mocked.startTaskRun).not.toHaveBeenCalled()
+            expect(mocked.deleteTask).not.toHaveBeenCalled()
+            expect(result.current.taskId).toBeNull()
+        } finally {
+            unmount()
+            useAuthStore.setState({ projectId: previous })
+        }
+    })
 
     test('keeps buffered history and its cursor when the stream rotates during catch-up', async () => {
         const firstStream = liveStream(false)

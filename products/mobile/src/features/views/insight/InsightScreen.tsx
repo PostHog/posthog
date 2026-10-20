@@ -172,7 +172,9 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
                         resolved={snapshot.resolvedRange}
                         loading={screen.rangeLoading}
                         detail={rangeDetail}
-                        compare={insightCompareRow(screen.range, screen.compareAvailable)}
+                        compare={
+                            screen.compareSupported ? insightCompareRow(screen.range, screen.compareAvailable) : null
+                        }
                     />
                 }
                 rangeDetail={rangeDetail}

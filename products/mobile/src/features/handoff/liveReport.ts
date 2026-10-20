@@ -147,6 +147,7 @@ export function sameVisibleEntry(a: ReportHandoff | undefined, b: ReportHandoff 
     }
     return (
         a.started === b.started &&
+        a.unstartedTaskId === b.unstartedTaskId &&
         a.partial === b.partial &&
         a.answer === b.answer &&
         a.notice === b.notice &&

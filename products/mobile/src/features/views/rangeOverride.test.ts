@@ -33,4 +33,23 @@ describe('range overrides', () => {
         })
         expect(compareQuery(query, { kind: 'preset', key: 'all' })).toBeNull()
     })
+
+    test.each(['HogQLQuery', 'RetentionQuery', 'FunnelsQuery', 'PathsQuery'])(
+        'leaves comparison unavailable for %s',
+        (kind) => {
+            expect(compareQuery({ kind: 'InsightVizNode', source: { kind } }, null)).toBeNull()
+        }
+    )
+
+    test('can explicitly turn off a saved trends comparison', () => {
+        const query = {
+            kind: 'InsightVizNode',
+            source: { kind: 'TrendsQuery', dateRange: { date_from: '-7d' }, compareFilter: { compare: true } },
+        }
+        expect(compareQuery(query, null, false)).toMatchObject({
+            kind: 'TrendsQuery',
+            dateRange: { date_from: '-7d' },
+            compareFilter: { compare: false },
+        })
+    })
 })

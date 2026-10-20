@@ -279,7 +279,7 @@ A file from history has no local copy and shows by name only (see [GAPS.md](GAPS
   Opening a thread scrolls straight to the latest message without animation.
   Reconnects follow the hand-off rules (see [HANDOFF.md](HANDOFF.md)). A reconnect keeps the cursor and buffered history
   through a transport rotation, and buffers each new connection's backlog before showing it. A replay after a lost
-  cursor rebuilds the thread.
+  cursor rebuilds the thread with a fresh event deduplication set, so previously displayed or buffered frames remain in the full replay.
 - `mobile_session_resumed` is captured with the run status.
 - `mobile_session_load_failed` is captured with `code` (the `ChatError` kind) each time the thread shows "Couldn't load this session".
   `mobile_session_load_retried` is captured when the person taps Try again there.
@@ -369,6 +369,9 @@ The empty state with suggested prompts shows while there is no task and no messa
 `mobile_chat_report_attached` with `attached_count`, and `mobile_chat_report_removed` (a chip's ×) with `attached_count` and `initial` (the report the sheet opened with).
 
 ## Sheet lifecycle
+
+Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
+A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
 
 The sheet opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
