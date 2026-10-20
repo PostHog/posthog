@@ -21,28 +21,28 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
+                                    npm install @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
+                                    yarn add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
+                                    pnpm add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
+                                    bun add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                         ]}
