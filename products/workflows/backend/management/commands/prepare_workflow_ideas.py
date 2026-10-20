@@ -5,9 +5,7 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.workflows.backend.facade.data_suggestions import (
-    FEATURE_FLAG_KEY,
     data_suggestions_acting_user,
-    is_data_suggestions_enabled,
     prepare_premade_ideas,
     waiting_premade_count,
 )
@@ -17,7 +15,7 @@ from products.workflows.backend.presentation.views.data_suggestion_drafts import
 class Command(BaseCommand):
     help = (
         "Generate workflow ideas for the given projects and build each one now, so a click creates the draft at once. "
-        f"Projects whose organization does not have {FEATURE_FLAG_KEY} are skipped. This runs the models."
+        "This runs the models."
     )
 
     def add_arguments(self, parser):
@@ -39,8 +37,6 @@ class Command(BaseCommand):
         user = data_suggestions_acting_user(team)
         if user is None:
             return f"skipped, organization {team.organization_id} has no active owner or admin"
-        if not is_data_suggestions_enabled(user, str(team.organization_id)):
-            return f"skipped, {FEATURE_FLAG_KEY} is off for organization {team.organization_id}"
         waiting = waiting_premade_count(team.id)
         if waiting:
             return f"skipped, {waiting} ideas already waiting"

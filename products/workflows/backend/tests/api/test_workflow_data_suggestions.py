@@ -864,10 +864,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(CommandError):
             call_command("prepare_workflow_ideas")
-        flag.return_value = False
-        assert prepare() == missing + (
-            f"team {self.team.id}: skipped, workflows-data-suggestions is off for organization {self.organization.id}\n"
-        )
         flag.return_value = True
         assert prepare() == missing + f"team {self.team.id}: stored Follow up on trial_started, 0 failed to build\n"
         assert prepare() == missing + f"team {self.team.id}: skipped, 1 ideas already waiting\n"
