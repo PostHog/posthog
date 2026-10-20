@@ -111,7 +111,6 @@ class RankedEntry:
 @frozen
 class RankedSearchResult:
     entries: list[RankedEntry]
-    tokens: tuple[str, ...]
     matched_all_words: bool
     matched_with_typos: bool
     type_counts: dict[str, int]
@@ -158,7 +157,9 @@ class FileSystemRankedSearch:
 
     def fetch(self, queryset: QuerySet[FileSystem], match: Q, seen: list[FileSystem]) -> list[FileSystem]:
         name_first = Case(
-            When(Q(*(Q(search_name__contains=singular(token)) for token in self.tokens)), then=Value(0)),
+            When(
+                Q(*(Q(search_name__regex=r"\m" + re.escape(singular(token))) for token in self.tokens)), then=Value(0)
+            ),
             default=Value(1),
         )
         found = list(
@@ -170,8 +171,6 @@ class FileSystemRankedSearch:
         return seen + found
 
     def search(self, queryset: QuerySet[FileSystem]) -> RankedSearchResult:
-        if not self.tokens:
-            return self.rank([])
         queryset = (
             queryset.select_related(None)
             .only(*CANDIDATE_FIELDS)
@@ -187,7 +186,7 @@ class FileSystemRankedSearch:
             if any(allowed_typos(token) for token in self.tokens):
                 found = self.fetch(queryset, self.every_word(typos=True), found)
             result = self.rank(found)
-            if result.matched_all_words or len(self.tokens) == 1 and found:
+            if result.matched_all_words or len(self.tokens) == 1:
                 return result
             found = self.fetch(queryset, self.any_word(typos=False), found)
             if not found:
@@ -273,7 +272,6 @@ class FileSystemRankedSearch:
         pool.sort(key=lambda r: r.rank)
         return RankedSearchResult(
             entries=pool,
-            tokens=self.tokens,
             matched_all_words=bool(full),
             matched_with_typos=fewest_typos > 0,
             type_counts=dict(Counter(r.entry.type for r in pool)),

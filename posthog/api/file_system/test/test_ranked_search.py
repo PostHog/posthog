@@ -93,6 +93,7 @@ class TestFileSystemRankedSearch(APIBaseTest):
     @parameterized.expand(
         [
             ("unknown_word", "xyzzy report", ["Weekly report"], ["Weekly report"], ["report"]),
+            ("word_with_a_colon", "revenue: xyzzy", ["Revenue - Q1"], ["Revenue - Q1"], ["revenue"]),
             (
                 "close_spelling_the_ranker_rejects",
                 "addon journey",

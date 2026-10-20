@@ -239,6 +239,9 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=1)
 
 
+SEARCH_FILTER_FIELDS = {"path", "name", "user", "author", "type", "ref"}
+
+
 class FileSystemRankedSearchQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         max_length=500,
@@ -1276,7 +1279,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         free_tokens: list[str] = []
         for token in tokenize_search(params["search"]):
             bare = token.lstrip("-!")
-            (filter_tokens if ":" in bare or bare != token else free_tokens).append(token)
+            field, has_colon, _ = bare.partition(":")
+            is_filter = bare != token or (has_colon and field.lower() in SEARCH_FILTER_FIELDS)
+            (filter_tokens if is_filter else free_tokens).append(token)
         queryset = self._scope_by_project_and_environment(FileSystem.objects.select_related("created_by"))
         queryset = queryset.exclude(type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"])
         if filter_tokens:
@@ -1299,7 +1304,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             full_entries = queryset.in_bulk([ranked_entry.entry.id for ranked_entry in entries])
             items = []
             for ranked_entry in entries:
-                entry = full_entries[ranked_entry.entry.id]
+                entry = full_entries.get(ranked_entry.entry.id)
+                if entry is None:
+                    continue
                 entry.last_viewed_at = ranker.last_viewed.get(FileRef(type=entry.type, ref=entry.ref or ""))
                 items.append((entry, list(ranked_entry.rank)))
         else:
