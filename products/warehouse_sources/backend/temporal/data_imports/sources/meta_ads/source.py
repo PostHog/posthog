@@ -262,6 +262,12 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta refused to return an Advantage+ creative ad whose asset variations don't match "
                 "its main creative. Fix that ad in Ads Manager; the next sync runs on schedule."
             ),
+            # Graph API code 100, subcode 1443048: Meta refuses to serve a creative whose object story
+            # spec is malformed, for example one with no Page.
+            '"error_subcode":1443048': (
+                "Meta refused to return an ad creative whose story is incomplete, such as one with no "
+                "Page. Fix or delete that creative in Ads Manager; the next sync runs on schedule."
+            ),
         }
 
     def get_schemas(

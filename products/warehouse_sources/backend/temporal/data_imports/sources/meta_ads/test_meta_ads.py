@@ -356,10 +356,12 @@ class TestSimplePaginationRefusedFields:
         "error": {"message": "Invalid parameter", "code": 100, "error_subcode": 2446211, "is_transient": False}
     }
 
-    def test_refused_row_syncs_without_refusable_fields(self) -> None:
+    @pytest.mark.parametrize("subcode", [2446211, 1443048])
+    def test_refused_row_syncs_without_refusable_fields(self, subcode: int) -> None:
         manager = _build_manager()
+        refused_body = {"error": {**self.REFUSED_BODY["error"], "error_subcode": subcode}}
         responses = [
-            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(400, refused_body),
             _mock_response(
                 200,
                 {
@@ -368,9 +370,9 @@ class TestSimplePaginationRefusedFields:
                 },
             ),
             # The lookup for both ads is refused, so it splits until the refused ad is alone.
-            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(400, refused_body),
             _mock_response(200, {"1": {"id": "1", "creative": {"id": "c1"}}}),
-            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(400, refused_body),
             _mock_response(200, {"data": [{"id": "3", "name": "c", "creative": {"id": "c3"}}], "paging": {}}),
         ]
 
@@ -1675,6 +1677,12 @@ class TestRetryableErrors:
                 '"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
                 "Advantage+ creative",
             ),
+            (
+                'Meta API request failed: 400 - {"error":{"message":"Invalid parameter","type":'
+                '"OAuthException","code":100,"error_subcode":1443048,"is_transient":false,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "story is incomplete",
+            ),
         ],
     )
     def test_retry_exhausted_message_replaces_the_raw_meta_response(
@@ -2012,6 +2020,13 @@ class TestEndpointCatalog:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
         # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_refusable_fields_are_requested_fields(self, endpoint: str) -> None:
+        # The fallback drops a refusable field by exact name, so a misspelt one stays in the reduced
+        # request and Meta refuses the page again.
+        schema = get_meta_ads_schemas()[endpoint]
+        assert set(schema.refusable_fields) <= set(schema.field_names)
 
     def test_resource_the_worker_does_not_know_raises_a_named_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The web pods and the workers deploy separately, so a newly shipped table is selectable in

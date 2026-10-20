@@ -510,6 +510,30 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "degrees_of_freedom_spec",
             "effective_authorization_category",
         ],
+        # Meta can refuse these for one creative it can no longer render, and that creative then
+        # syncs with only its id, account, name and status instead of failing the table. Meta does
+        # not say which field triggers the refusal, so every field it derives from the creative's
+        # specs is refusable.
+        "refusable_fields": (
+            "object_type",
+            "object_story_id",
+            "effective_object_story_id",
+            "object_story_spec",
+            "thumbnail_url",
+            "image_url",
+            "image_hash",
+            "video_id",
+            "body",
+            "title",
+            "call_to_action_type",
+            "link_url",
+            "url_tags",
+            "instagram_permalink_url",
+            "actor_id",
+            "asset_feed_spec",
+            "degrees_of_freedom_spec",
+            "effective_authorization_category",
+        ),
     },
     # `hash` rather than `id` as the key: Meta documents it as AdImage's default field, and the
     # `id` it returns is just the account and hash joined.
