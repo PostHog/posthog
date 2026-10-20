@@ -42,6 +42,7 @@ describe('app onError', () => {
             presenceGated: false,
             thinTail: false,
             originProduct: 'unknown',
+            agentSendsCallbacks: false,
         })
     })
 

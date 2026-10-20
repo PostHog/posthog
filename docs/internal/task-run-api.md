@@ -81,6 +81,9 @@ Runs without event ingest buffer events until an SSE client attaches.
 The Claude adapter forwards partial tool inputs without retaining each intermediate snapshot in session history.
 Budget-steer notifications remain in the event stream.
 The standalone agent-proxy asks the authenticated Django callback to queue each steer for analytics and retries a failed dispatch.
+When the `tasks-agent-sends-callbacks` flag is on for a run, the agent-server sends every callback itself through `POST .../runs/{run_id}/agent_callback/`, and neither the agent-proxy nor Django's own ingest sends any for that run.
+The agent reports a turn result only after ingest acknowledges its event and sends that event's sequence, so Django drops a retried turn result.
+Only the run's sandbox can call this endpoint.
 Direct Django ingest queues the same work without a callback, so analytics delivery does not delay later stream events.
 A Celery task captures the event and retries upload failures up to five times with backoff.
 Both paths preserve the event timestamp and derive the analytics event ID from the run and event sequence.

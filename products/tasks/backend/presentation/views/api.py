@@ -86,6 +86,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
+from products.tasks.backend.facade.agent_callback import dispatch_agent_callback
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
@@ -137,6 +138,8 @@ from products.tasks.backend.facade.streams import (
 )
 from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
+    AgentCallbackRequestSerializer,
+    AgentProxyCallbackResponseSerializer,
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
     ModelCatalogueResponseSerializer,
@@ -2020,6 +2023,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
         if self.action not in {
+            "agent_callback",
             "append_log",
             "set_summary",
             "update",
@@ -2033,7 +2037,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "task:read" in scopes
             and "scout_experiment_internal:read" in scopes
             and (
-                self.action in {"append_log", "set_summary"}
+                self.action in {"agent_callback", "append_log", "set_summary"}
                 or self.action in {"update", "partial_update"}
                 and self._is_trial_lifecycle_update(request.data)
             )
@@ -2801,6 +2805,44 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "expires_at": grant.expires_at,
                 }
             ).data
+        )
+
+    @validated_request(
+        request_serializer=AgentCallbackRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AgentProxyCallbackResponseSerializer,
+                description="Side effect dispatched or skipped",
+            ),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Invalid budget steer or process kill"
+            ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Caller is not this run's sandbox, or the agent-proxy sends this run's callbacks",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+            503: OpenApiResponse(
+                response=AgentProxyCallbackResponseSerializer, description="Dispatch failed; retry the callback"
+            ),
+        },
+        summary="Send an agent callback",
+        description="Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, "
+        "budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks "
+        "the agent sends instead of the agent-proxy.",
+    )
+    @action(detail=True, methods=["post"], url_path="agent_callback")
+    def agent_callback(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if not run_context.is_sandbox_run_request(request=request, team_id=self.team_id, task_id=task_id, run_id=pk):
+            raise PermissionDenied("Only this run's sandbox can send its callbacks.")
+        outcome = dispatch_agent_callback(
+            run_id=pk, task_id=task_id, team_id=self.team_id, body=request.data, data=request.validated_data
+        )
+        if outcome.error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": outcome.error}).data, status=outcome.status)
+        return Response(
+            AgentProxyCallbackResponseSerializer({"dispatched": outcome.dispatched}).data, status=outcome.status
         )
 
     @validated_request(

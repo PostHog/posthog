@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 AgentBootMilestone = Literal["agent_command_dispatched", "agent_activity_observed"]
 
-RETRYABLE_KINDS = frozenset({"budget_steer", "process_killed"})
+RETRYABLE_KINDS = frozenset({"awaiting_input", "turn_failed", "budget_steer", "process_killed"})
 
 
 class CallbackRejected(Exception):
@@ -194,14 +194,16 @@ class AgentProxyCallbackDispatcher:
         task_run = self._load_run("task__created_by")
         if task_run is None:
             return CallbackOutcome()
-        task_run.signal_agent_turn_completed(succeeded=self.callback.data["turn_succeeded"])
+        if not task_run.signal_agent_turn_completed(succeeded=self.callback.data["turn_succeeded"]):
+            return CallbackOutcome(status=503)
         dispatched = dispatch_turn_completed(task_run, turn_completed=self.callback.data["turn_completed"])
         return CallbackOutcome(dispatched=dispatched)
 
     def _turn_failed(self) -> CallbackOutcome:
         if self._load_run() is None:
             return CallbackOutcome()
-        signal_workflow_completion(self.run_id, "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error")
+        if not signal_workflow_completion(self.run_id, "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error"):
+            return CallbackOutcome(status=503)
         return CallbackOutcome(dispatched=True)
 
     def _budget_steer(self) -> CallbackOutcome:
