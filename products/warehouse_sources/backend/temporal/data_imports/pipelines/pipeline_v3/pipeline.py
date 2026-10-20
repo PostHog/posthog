@@ -366,17 +366,17 @@ class PipelineV3(Generic[ResumableData]):
         self._shutdown_monitor = shutdown_monitor
         self._shutdown_stopwatch = ShutdownStopwatch(shutdown_monitor)
         self._last_incremental_field_value: Any = None
-        if is_resume and source_response.sort_mode == "desc":
-            # A resumed descending attempt reads only rows older than the rows that the earlier attempts
-            # of this run read. Without their newest value, the run promotes the resume point as its
-            # watermark, and the next run reads every newer row again. `models.schema` is loaded when
-            # this attempt starts, so it holds what the earlier attempts staged.
+        if is_resume and source_response.sort_mode != "asc":
+            # A resumed attempt of a descending or unordered source can skip the rows that held the newest
+            # value of the earlier attempts of this run. Without their newest value, the run promotes the
+            # largest value of its own rows as the watermark, and the next run reads every newer row again.
+            # `models.schema` is loaded when this attempt starts, so it holds what the earlier attempts staged.
             self._last_incremental_field_value = staged_run_last_value(
                 models.schema.sync_type_config or {}, self._job.workflow_run_id
             )
-            if self._last_incremental_field_value is None:
+            if self._last_incremental_field_value is None and self._schema.should_use_incremental_field:
                 self._logger.warning(
-                    "V3 Pipeline: Resumed desc extract found no staged last value of this run",
+                    "V3 Pipeline: Resumed non-ascending extract found no staged last value of this run",
                     workflow_run_id=self._job.workflow_run_id,
                 )
         self._earliest_incremental_field_value: Any = process_incremental_value(
