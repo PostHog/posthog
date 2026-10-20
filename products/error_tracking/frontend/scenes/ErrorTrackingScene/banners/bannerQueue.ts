@@ -59,8 +59,10 @@ export function stepBanner(
     direction: 'previous' | 'next'
 ): ErrorTrackingBannerKey | null {
     const index = current ? active.indexOf(current) : -1
-    const target = index + (direction === 'next' ? 1 : -1)
-    return active[Math.min(Math.max(target, 0), active.length - 1)] ?? null
+    if (direction === 'next') {
+        return active[(index + 1) % active.length] ?? null
+    }
+    return active[Math.max(index - 1, 0)] ?? null
 }
 
 export function bannerAfterDismiss(

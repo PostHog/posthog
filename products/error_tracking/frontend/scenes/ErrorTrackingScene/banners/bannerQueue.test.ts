@@ -98,7 +98,7 @@ describe('banner queue', () => {
     test.each<[string, ErrorTrackingBannerKey, 'previous' | 'next', ErrorTrackingBannerKey]>([
         ['next from the middle', 'alerts', 'next', 'rate_limits'],
         ['previous from the middle', 'alerts', 'previous', 'source_maps'],
-        ['next stops at the end', 'rate_limits', 'next', 'rate_limits'],
+        ['next from the last wraps to the first', 'rate_limits', 'next', 'source_maps'],
         ['previous stops at the start', 'source_maps', 'previous', 'source_maps'],
     ])('step: %s', (_, current, direction, expected) => {
         expect(stepBanner(KEYS, current, direction)).toEqual(expected)

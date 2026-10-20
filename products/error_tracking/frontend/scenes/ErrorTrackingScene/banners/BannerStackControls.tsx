@@ -19,8 +19,7 @@ export function BannerStackControls({
                 variant="default"
                 size="icon-sm"
                 aria-label="Previous recommendation"
-                tooltip="Previous recommendation"
-                disabledReason={index <= 0 ? 'This is the first recommendation' : undefined}
+                disabled={index <= 0}
                 onClick={onPrevious}
                 data-attr="error-tracking-banners-previous"
             >
@@ -33,8 +32,6 @@ export function BannerStackControls({
                 variant="default"
                 size="icon-sm"
                 aria-label="Next recommendation"
-                tooltip="Next recommendation"
-                disabledReason={index >= total - 1 ? 'This is the last recommendation' : undefined}
                 onClick={onNext}
                 data-attr="error-tracking-banners-next"
             >
