@@ -122943,6 +122943,19 @@ export namespace Schemas {
       Static: 'static',
     } as const;
 
+    export type CohortsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
+
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
     /**
