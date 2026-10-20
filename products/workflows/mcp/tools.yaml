@@ -43,7 +43,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        url_prefix: /broadcasts
         enrich_url: '{id}'
         title: Create broadcast
         description: >
@@ -60,6 +59,27 @@ tools:
             workflows-patch-action-email.
         inject_body:
             origin_product: broadcasts
+        url_prefix: /broadcasts
+    workflows-convert-to-broadcast:
+        operation: hog_flows_convert_to_broadcast
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Convert workflow to broadcast
+        description: >
+            Move a workflow that sends one email to a batch audience over to broadcasts. It keeps its id, runs and
+            metrics, leaves the workflows list and opens in the broadcast editor, which shows delivery, open and click
+            numbers per send. It can no longer take more steps, and this cannot be undone, so ask the user first. The
+            workflow must be exactly a batch trigger, one email and an exit, joined in that order, with exit_condition
+            'exit_only_at_end' (set it with workflows-update first). It fails with a validation error for any other
+            shape, an archived workflow, a workflow with a staged draft, or one that is already a broadcast. Returns the
+            id and origin_product, plus _posthogUrl, the broadcast link.
+        url_prefix: /broadcasts
     workflows-create:
         operation: hog_flows_create
         enabled: true
@@ -70,12 +90,11 @@ tools:
             destructive: false
             idempotent: false
         enrich_url: '{id}/workflow'
-        hooks: workflows/broadcastLinkHooks
         title: Create workflow
         description: >
-            Create a workflow. For one email sent once or on a schedule to an audience (a batch trigger, one email
-            step and an exit), use broadcasts-create instead: the user gets the broadcast editor and per-send
-            delivery, open and click numbers. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
+            Create a workflow. For one email sent once or on a schedule to an audience (a batch trigger, one email step
+            and an exit), use broadcasts-create instead: the user gets the broadcast editor and per-send delivery, open
+            and click numbers. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
             is available, so the user knows what blocks sending. It is created as a draft and does NOT run until
             enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit
             approval — from then on it runs on real people, and further content edits stage as a draft you must publish
@@ -100,6 +119,7 @@ tools:
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
+        hooks: workflows/broadcastLinkHooks
     workflows-data-suggestions-create:
         operation: workflow_data_suggestions_build
         enabled: true
@@ -211,7 +231,6 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}/workflow'
-        hooks: workflows/broadcastLinkHooks
         title: Get workflow
         description: >
             Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead,
@@ -222,6 +241,7 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
+        hooks: workflows/broadcastLinkHooks
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
@@ -585,7 +605,6 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}/workflow'
-        hooks: workflows/broadcastLinkHooks
         title: Update workflow
         description: >
             Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
@@ -598,27 +617,7 @@ tools:
             - actions
             - edges
         ui_app: workflow
-    workflows-convert-to-broadcast:
-        operation: hog_flows_convert_to_broadcast
-        enabled: true
-        scopes:
-            - hog_flow:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        url_prefix: /broadcasts
-        enrich_url: '{id}'
-        title: Convert workflow to broadcast
-        description: >
-            Move a workflow that sends one email to a batch audience over to broadcasts. It keeps its id, runs and
-            metrics, leaves the workflows list and opens in the broadcast editor, which shows delivery, open and click
-            numbers per send. It can no longer take more steps, and this cannot be undone, so ask the user first.
-            The workflow must be exactly a batch trigger, one email and an exit, joined in that order, with
-            exit_condition 'exit_only_at_end' (set it with workflows-update first). It fails with a validation error
-            for any other shape, an archived workflow, a workflow with a staged draft, or one that is already a
-            broadcast. Returns the id and origin_product, plus _posthogUrl, the broadcast
-            link.
+        hooks: workflows/broadcastLinkHooks
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
         enabled: true
