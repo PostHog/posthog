@@ -122,23 +122,26 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_utf8_result", "SELECT unhex('ff')", "internal", "unhandled_type_error"),
+            ("invalid_utf8_result", "SELECT unhex('ff')", "internal", "unhandled_type_error", ()),
             (
                 "unreadable_result_type",
                 "SELECT argMinState(event, timestamp) FROM events",
                 "validation",
                 "unknown_type",
+                ("type AggregateFunction(argMin, String", "Use argMin() instead of argMinState()"),
             ),
         ]
     )
     async def test_execution_failure_names_its_class(
-        self, _name: str, query: str, expected_type: str, expected_code: str
+        self, _name: str, query: str, expected_type: str, expected_code: str, expected_fragments: tuple[str, ...]
     ) -> None:
         with self.assertRaises(MaxToolRetryableError) as ctx:
             await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
 
         self.assertEqual(ctx.exception.error_type, expected_type)
         self.assertEqual(ctx.exception.error_code, expected_code)
+        for fragment in expected_fragments:
+            self.assertIn(fragment, str(ctx.exception))
 
     @parameterized.expand(
         [
