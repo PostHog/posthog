@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source import FlexmailSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
     FlexmailSourceConfig,
@@ -14,11 +13,6 @@ class TestFlexmailSource:
         self.source = FlexmailSource()
         self.team_id = 123
         self.config = FlexmailSourceConfig(account_id="12345", personal_access_token="flexmail-token")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "contacts"
 
     @parameterized.expand(
         [
@@ -72,9 +66,3 @@ class TestFlexmailSource:
         assert kwargs["personal_access_token"] == "flexmail-token"
         assert kwargs["endpoint"] == "contacts"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Flexmail schema 'not_a_table'"

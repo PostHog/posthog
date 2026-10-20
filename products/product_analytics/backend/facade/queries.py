@@ -48,6 +48,7 @@ __all__ = sorted((*_LAZY, "run_cached_trends_query"))
 
 
 if TYPE_CHECKING:
+    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.models import Team
 
     # Static view for mypy and IDEs only; runtime resolves through __getattr__ below, so these
@@ -77,7 +78,12 @@ if TYPE_CHECKING:
 
 
 def run_cached_trends_query(
-    *, query: dict[str, Any], team: Team, max_execution_time_seconds: int, cache_age_seconds: int
+    *,
+    query: dict[str, Any],
+    team: Team,
+    max_execution_time_seconds: int,
+    cache_age_seconds: int,
+    ch_user: ClickHouseUser | None = None,
 ) -> TrendsQueryRunResult:
     """Run a Trends query through the blocking recent-cache path."""
 
@@ -92,6 +98,7 @@ def run_cached_trends_query(
         query=query,
         team=team,
         hogql_settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
+        ch_user=ch_user,
     )
     runner.is_query_service = is_api_key_access_method(get_query_tag_value("access_method"))
     response = runner.run(

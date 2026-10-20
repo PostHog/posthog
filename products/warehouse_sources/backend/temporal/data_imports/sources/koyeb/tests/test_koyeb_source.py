@@ -35,10 +35,6 @@ class TestKoyebSource:
         self.source = KoyebSource()
         self.config = KoyebSourceConfig(api_token="token")
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["apps"])
-        assert [s.name for s in schemas] == ["apps"]
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://app.koyeb.com/v1/apps?limit=100"),

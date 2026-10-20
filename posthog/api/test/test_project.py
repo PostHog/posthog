@@ -1446,26 +1446,20 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("default_experiment_stats_method", response.json())
 
-    def test_experiments_config_precomputation_toggle_stamps_manual_provenance(self):
-        # A missing stamp would let the auto-enrollment job override a human's disable
-        # on its next run. Other settings must not stamp it.
+    def test_experiments_config_ignores_precomputation_toggle(self):
+        # A write here would stamp the row as manual and stop the auto-enrollment job from
+        # managing the team, so the field is read-only for project admins.
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"default_cuped_enabled": True},
+            {"experiment_precomputation_enabled": True, "default_cuped_enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertFalse(response.json()["experiment_precomputation_enabled"])
         config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertFalse(config.experiment_precomputation_enabled)
         self.assertIsNone(config.precomputation_enabled_set_by)
-
-        response = self.client.patch(
-            f"/api/projects/{self.project.id}/experiments_config/",
-            {"experiment_precomputation_enabled": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+        self.assertTrue(config.default_cuped_enabled)
 
     def test_experiments_config_changes_are_logged_as_team_activity(self):
         # The first read creates the config row with defaults, which is not a change anyone made.
@@ -1550,6 +1544,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("zero", 0, status.HTTP_400_BAD_REQUEST),
+            ("one", 1, status.HTTP_400_BAD_REQUEST),
+            ("above_one", 1.5, status.HTTP_400_BAD_REQUEST),
+            ("negative", -0.5, status.HTTP_400_BAD_REQUEST),
+            ("ninety_percent", 0.9, status.HTTP_200_OK),
+        ]
+    )
+    def test_experiments_config_confidence_level_must_be_between_zero_and_one(self, _name, level, expected_status):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_experiment_confidence_level": level},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "default_experiment_confidence_level")
+        else:
+            self.assertEqual(response.json()["default_experiment_confidence_level"], "0.90")
 
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's
