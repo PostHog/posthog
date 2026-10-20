@@ -42,7 +42,8 @@ class _ListWithAllLines(Generic[_ParentT, _LineT]):
     session to every thread, `requests.Session` is not documented as thread-safe, and the retrying
     client keeps per-request state. The page client comes from the same factory, so a 429 on
     either leg slows the whole pool. Objects are yielded in list order because the
-    `starting_after` resume cursor is the last yielded id.
+    `starting_after` resume cursor is the last yielded id. Under `ending_before` the list reads
+    oldest first, as Stripe's own auto-pagination does.
     """
 
     object_name: ClassVar[str]

@@ -755,19 +755,11 @@ def _warehouse_start_position(
     return position if position.matches(table, None) else None
 
 
-def _batch_and_yield(
-    objects: Any,
-    batcher: Batcher,
-    incremental_field_name: Optional[str] = None,
-    stop_at_or_before: Optional[int] = None,
-):
-    """Batch raw Stripe objects into pa.Tables and yield them, stopping early once we reach an object
-    we already have (`stop_at_or_before`). Yielding in small batches lets the pipeline write and
-    persist the incremental watermark frequently, so progress survives a heartbeat timeout or redeploy."""
+def _batch_and_yield(objects: Any, batcher: Batcher):
+    """Batch raw Stripe objects into pa.Tables and yield them. Yielding in small batches lets the
+    pipeline write and persist the incremental watermark frequently, so progress survives a
+    heartbeat timeout or redeploy."""
     for obj in objects:
-        if stop_at_or_before is not None and incremental_field_name is not None:
-            if obj[incremental_field_name] <= stop_at_or_before:
-                break
         batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
@@ -1589,7 +1581,7 @@ def stripe_source(
         name=endpoint,
         column_hints=column_hints,
         webhook_only=webhook_only,
-        # Stripe data is returned in descending timestamp order
+        # Stripe lists newest first. A backlog read lists oldest first, which is safe because desc mode stages the max value.
         sort_mode="desc",
         partition_count=1 if partitioned else None,  # this enables partitioning
         partition_size=1 if partitioned else None,  # this enables partitioning

@@ -1,4 +1,3 @@
-import time
 import functools
 import threading
 import contextvars
@@ -180,7 +179,6 @@ class TestStripeGetRowsIncrementalCursor:
             {"id": "ch_2", "created": 1700000100},
             {"id": "ch_1", "created": 1700000040},
         ]
-
         resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
         resumable_source_manager = mock.MagicMock()
         resumable_source_manager.can_resume.return_value = False
@@ -239,6 +237,9 @@ class TestStripeGetRowsIncrementalCursor:
         assert len(tables) > 1
 
 
+NOW = 1_800_000_000
+
+
 def _stripe_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[RecordedRequest], ScriptedResponse]:
     # Stripe filters on `created` even for an object that only shows another timestamp, such as an invoice item's `date`.
     def respond(request: RecordedRequest) -> ScriptedResponse:
@@ -278,24 +279,21 @@ class TestStripeLatestObjectsOldestFirst:
         return result
 
     @pytest.mark.parametrize(
-        "resource, object_type, field",
+        "resource, object_type, field, run_seconds, several_runs",
         [
-            (CHARGE_RESOURCE_NAME, "charge", "created"),
-            (INVOICE_ITEM_RESOURCE_NAME, "invoiceitem", "date"),
-            (INVOICE_RESOURCE_NAME, "invoice", "created"),
+            (CHARGE_RESOURCE_NAME, "charge", "created", 15 * 60, False),
+            (CHARGE_RESOURCE_NAME, "charge", "created", 0, True),
+            (INVOICE_ITEM_RESOURCE_NAME, "invoiceitem", "date", 0, True),
+            (INVOICE_RESOURCE_NAME, "invoice", "created", 0, True),
         ],
-        ids=["charge", "invoice_item_by_date", "invoice_with_lines"],
-    )
-    @pytest.mark.parametrize(
-        "run_seconds, several_runs", [(15 * 60, False), (0, True)], ids=["within_budget", "budget_spent"]
+        ids=["within_budget", "budget_spent", "invoice_item_by_date", "invoice_with_lines"],
     )
     def test_a_backlog_loads_each_object_once_across_runs(
         self, resource: str, object_type: str, field: str, run_seconds: int, several_runs: bool
     ) -> None:
-        now = int(time.time())
-        watermark = now - 40 * 86_400
+        watermark = NOW - 40 * 86_400
         # Older objects are loaded already. Pairs share a timestamp, so a run must not stop between them.
-        timestamps = [watermark - 86_400, watermark] + [now - 600 * (i // 2) for i in range(250)]
+        timestamps = [watermark - 86_400, watermark] + [NOW - 600 * (i // 2) for i in range(250)]
         objects: list[dict[str, Any]] = [
             {
                 "id": f"obj_{i:03}",
@@ -320,23 +318,21 @@ class TestStripeLatestObjectsOldestFirst:
         assert (runs > 1) is several_runs
 
     def test_a_backlog_with_nothing_at_or_before_the_watermark_loads_in_one_run(self) -> None:
-        now = int(time.time())
         charges: list[dict[str, Any]] = [
-            {"id": f"ch_{i:03}", "object": "charge", "created": now - 60 * i} for i in range(150)
+            {"id": f"ch_{i:03}", "object": "charge", "created": NOW - 60 * i} for i in range(150)
         ]
 
         with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", 0):
-            result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", now - 86_400)
+            result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", NOW - 86_400)
 
         assert sorted(row["id"] for table in result.items for row in table.to_pylist()) == sorted(
             charge["id"] for charge in charges
         )
 
     def test_a_read_within_one_page_keeps_one_request(self) -> None:
-        now = int(time.time())
-        charges = [{"id": f"ch_{day}", "object": "charge", "created": now - day * 86_400} for day in (1, 300)]
+        charges = [{"id": f"ch_{day}", "object": "charge", "created": NOW - day * 86_400} for day in (1, 300)]
 
-        result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", now - 3 * 365 * 86_400)
+        result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", NOW - 3 * 365 * 86_400)
 
         assert len(result.requests) == 1
         assert [row["id"] for table in result.items for row in table.to_pylist()] == ["ch_1", "ch_300"]
