@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
@@ -15,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -1226,7 +1228,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
 
         # Baseline call to trigger caching of one off things like instance settings
+        content_type_for(Dashboard)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        # Tag lookups read content types through a process-wide cache. Fill it here so the counts
+        # do not depend on which tests ran before in the same worker.
+        ContentType.objects.get_for_models(Dashboard, FeatureFlag)
 
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1237,7 +1243,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 18
+        baseline = 17
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 4):
@@ -1280,7 +1286,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
+        baseline = 16
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 5):
@@ -1330,6 +1336,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
+        content_type_for(FeatureFlag)
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
