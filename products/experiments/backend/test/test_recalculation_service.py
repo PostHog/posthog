@@ -200,21 +200,22 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, request function, age-limit flag outcome, experiment age in days, active run, expected status)
-            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, False, "pending"),
+            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes, expected status)
+            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending"),
             (
                 "flag_error_over_limit_starts_new",
                 request_recalculation,
                 RuntimeError("flags down"),
                 181,
-                False,
+                None,
                 "pending",
             ),
-            ("under_limit_starts_new", request_recalculation, True, 179, False, "pending"),
-            ("at_limit_starts_new", request_recalculation, True, 180, False, "pending"),
-            ("over_limit_is_rejected", request_recalculation, True, 181, False, "failed"),
-            ("over_limit_reuses_active_run", request_recalculation, True, 181, True, "pending"),
-            ("admin_over_limit_starts_new", request_recalculation_without_age_limit, True, 181, False, "pending"),
+            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending"),
+            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending"),
+            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed"),
+            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending"),
+            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed"),
+            ("admin_over_limit_starts_new", request_recalculation_without_age_limit, True, 181, None, "pending"),
         ]
     )
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
@@ -224,7 +225,7 @@ class TestRecalculationService(BaseTest):
         request: Callable[[Experiment, User | None, str], dict],
         flag_outcome: bool | Exception,
         age_days: int,
-        has_active_run: bool,
+        active_run_minutes: int | None,
         expected_status: str,
     ):
         def evaluate_flag(key: str, *args, **kwargs) -> bool:
@@ -247,21 +248,30 @@ class TestRecalculationService(BaseTest):
         ExperimentMetricsRecalculation.objects.filter(id=previous.id).update(
             created_at=timezone.now() - timedelta(days=1)
         )
-        if has_active_run:
-            ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        active = None
+        if active_run_minutes is not None:
+            active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+            ExperimentMetricsRecalculation.objects.filter(id=active.id).update(
+                created_at=timezone.now() - timedelta(minutes=active_run_minutes)
+            )
 
         with (
             patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
+            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request(exp, self.user, "manual")
 
         assert result["status"] == expected_status
-        assert result["is_existing"] is has_active_run
+        assert result["is_existing"] is (active_run_minutes is not None and expected_status == "pending")
         if expected_status == "pending":
             mock_capture.assert_not_called()
             return
+        if active is not None:
+            active.refresh_from_db()
+            assert active.status == "failed"
+            mock_cancel.assert_called_once_with([str(active.id)])
 
         row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
         assert row.completed_at == timezone.now()

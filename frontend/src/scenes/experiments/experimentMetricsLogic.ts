@@ -159,7 +159,6 @@ type MetricErrorEntry = { step?: string; message?: string; error_type?: string; 
 const metricErrorEntries = (recalculation: RecalculationPayload): Record<string, MetricErrorEntry> =>
     (recalculation.metric_errors as Record<string, MetricErrorEntry> | null) ?? {}
 
-/** The message of a run the backend rejected because the experiment started too long ago, or null. */
 const rejectionMessage = (recalculation: RecalculationPayload): string | null =>
     Object.values(metricErrorEntries(recalculation)).find(
         (entry) => entry.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
@@ -802,7 +801,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * otherwise the uncovered metric shows a perpetual loading state, since nothing else re-runs
                      * on page load. What is already shown stays visible and cells update in place as the run polls.
                      */
-                    if (recalculationHasGap(props.experiment, recalculation)) {
+                    /** A rejected run gets the same answer on every heal, so a heal would only loop. */
+                    if (!rejectionMessage(recalculation) && recalculationHasGap(props.experiment, recalculation)) {
                         actions.triggerRecalculation(HEAL_TRIGGER_BY_RESULT_SOURCE[recalculation.result_source])
                     }
                 } catch (error: any) {
@@ -967,6 +967,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                          * run has no results on the create response, so latest serves the earlier ones.
                          */
                         if (rejectionMessage(recalculation)) {
+                            /** A failed reload never reaches applyResults, so the marks of this create clear here. */
+                            actions.setRecalculatingMetricUuids(
+                                values.recalculatingMetricUuids.filter(
+                                    (uuid) => !(uuid in metricErrorEntries(recalculation))
+                                )
+                            )
                             actions.loadLatestRecalculation()
                         } else {
                             applyResults(recalculation)

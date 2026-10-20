@@ -476,11 +476,6 @@ def _request_recalculation(
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
-        experiment_age = timezone.now() - experiment.start_date if experiment.start_date is not None else None
-        if max_age is not None and experiment_age is not None and experiment_age > max_age:
-            rejected = _create_rejected_recalculation(experiment, user, trigger, experiment_age, max_age)
-            return build_job_payload(rejected, is_existing=False)
-
         if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced(experiment):
             # get the latest terminal run and check against the rate limiting rules
             # if matched, increment counter and raise so the API answers 429 with Retry-After
@@ -517,6 +512,12 @@ def _request_recalculation(
             ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
             transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
+
+        # After the stale cleanup, so a stale run of an old experiment is failed and its workflow cancelled too.
+        experiment_age = timezone.now() - experiment.start_date if experiment.start_date is not None else None
+        if max_age is not None and experiment_age is not None and experiment_age > max_age:
+            rejected = _create_rejected_recalculation(experiment, user, trigger, experiment_age, max_age)
+            return build_job_payload(rejected, is_existing=False)
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
