@@ -49,6 +49,8 @@ import type {
     ErrorTrackingExternalReference,
     ErrorTrackingIssueAssignee,
     ErrorTrackingIssueCohort,
+    ErrorTrackingIssueEventsQuery,
+    ErrorTrackingLinkedDataKind,
     EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ErrorTrackingQueryIssueSeverity } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -63,10 +65,14 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/api'
 import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
+import {
+    errorTrackingIssueEventsQuery,
+    errorTrackingIssueEventsWithLinkedDataQuery,
+    errorTrackingIssueQuery,
+} from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
-import { issueLinkedDataLogic } from './issueLinkedDataLogic'
+import { ISSUE_EVENTS_COLUMNS, issueLinkedDataLogic } from './issueLinkedDataLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -83,13 +89,16 @@ export interface errorTrackingIssueSceneLogicValues {
     filterGroup: UniversalFiltersGroup // issueFiltersLogic
     filterTestAccounts: boolean // issueFiltersLogic
     searchQuery: string // issueFiltersLogic
-    linkedDataWhere: string[] // issueLinkedDataLogic
+    logsEnabled: boolean // issueLinkedDataLogic
+    requiredLinks: ErrorTrackingLinkedDataKind[] // issueLinkedDataLogic
     linkedReports: SignalReportApi[] // linkedReportsLogic
     linkedReportsLoading: boolean // linkedReportsLogic
     aggregations: ErrorTrackingIssueAggregations | undefined
     breadcrumbs: Breadcrumb[]
     eventsQuery: EventsQuery
     eventsQueryKey: string
+    issueEventsQuery: ErrorTrackingIssueEventsQuery
+    issueEventsQueryKey: string
     firstSeen: Dayjs | null
     initialEvent: ErrorEventType | null
     initialEventLoading: boolean
@@ -642,10 +651,16 @@ export interface errorTrackingIssueSceneLogicMeta {
             filterTestAccounts: boolean,
             searchQuery: string,
             filterGroup: UniversalFiltersGroup,
-            dateRange: DateRange,
-            linkedDataWhere: string[]
+            dateRange: DateRange
         ) => EventsQuery
         eventsQueryKey: (eventsQuery: EventsQuery) => string
+        issueEventsQuery: (
+            issueId: string,
+            eventsQuery: EventsQuery,
+            requiredLinks: ErrorTrackingLinkedDataKind[],
+            logsEnabled: boolean
+        ) => ErrorTrackingIssueEventsQuery
+        issueEventsQueryKey: (issueEventsQuery: ErrorTrackingIssueEventsQuery) => string
         maxContext: (issue: ErrorTrackingRelationalIssue | null, issueId: string) => MaxContextInput[]
     }
 }
@@ -676,7 +691,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             linkedReportsLogic({ issueId: props.id }),
             ['linkedReports', 'linkedReportsLoading'],
             issueLinkedDataLogic({ issueId: props.id }),
-            ['linkedDataWhere'],
+            ['requiredLinks', 'logsEnabled'],
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
@@ -996,14 +1011,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
 
         eventsQuery: [
-            (s) => [s.issueId, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange, s.linkedDataWhere],
+            (s) => [s.issueId, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
             (
                 issueId: string,
                 filterTestAccounts: boolean,
                 searchQuery: string,
                 filterGroup: UniversalFiltersGroup,
-                dateRange: DateRange,
-                linkedDataWhere: string[]
+                dateRange: DateRange
             ) =>
                 errorTrackingIssueEventsQuery({
                     issueId,
@@ -1011,8 +1025,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     filterGroup,
                     searchQuery,
                     dateRange,
-                    columns: ['*', 'timestamp', 'person'],
-                    conditions: linkedDataWhere,
+                    columns: ISSUE_EVENTS_COLUMNS,
                 }),
             // Preserve the query identity when selector inputs are deep-equal to avoid remounting the events table.
             { resultEqualityCheck: objectsEqual },
@@ -1025,6 +1038,29 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         eventsQueryKey: [
             (s) => [s.eventsQuery],
             (eventsQuery: import('~/queries/schema').EventsQuery): string => JSON.stringify(eventsQuery),
+        ],
+
+        // The issue page's list: the same exceptions, filtered and annotated with their linked data.
+        issueEventsQuery: [
+            (s) => [s.issueId, s.eventsQuery, s.requiredLinks, s.logsEnabled],
+            (
+                issueId: string,
+                eventsQuery: EventsQuery,
+                requiredLinks: ErrorTrackingLinkedDataKind[],
+                logsEnabled: boolean
+            ): ErrorTrackingIssueEventsQuery =>
+                errorTrackingIssueEventsWithLinkedDataQuery({
+                    issueId,
+                    source: eventsQuery,
+                    requiredLinkedData: requiredLinks,
+                    withLinkedLogs: logsEnabled,
+                }),
+            { resultEqualityCheck: objectsEqual },
+        ],
+
+        issueEventsQueryKey: [
+            (s) => [s.issueEventsQuery],
+            (issueEventsQuery: ErrorTrackingIssueEventsQuery): string => JSON.stringify(issueEventsQuery),
         ],
 
         maxContext: [
@@ -1090,7 +1126,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadIssueFingerprints()
                     actions.loadSpikeEvents()
                     eventsSourceLogic
-                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
+                        .findMounted({ query: values.issueEventsQuery, queryKey: values.issueEventsQueryKey })
                         ?.actions.loadData('force_blocking')
                 }
             },

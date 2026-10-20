@@ -1329,6 +1329,11 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingLinkedDataKind(StrEnum):
+    LOGS = "logs"
+    RECORDING = "recording"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -2373,6 +2378,8 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
+    ERROR_TRACKING_ISSUE_EVENTS_QUERY = "ErrorTrackingIssueEventsQuery"
+    ERROR_TRACKING_LINKED_DATA_SUMMARY_QUERY = "ErrorTrackingLinkedDataSummaryQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"

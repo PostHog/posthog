@@ -197,4 +197,6 @@ export type ErrorEventType = {
     properties: ErrorEventProperties
     person: PersonType
     elements?: never
+    /** Whether the exception has linked logs. Unset when the list did not check, null when the check failed. */
+    linkedLogs?: boolean | null
 }

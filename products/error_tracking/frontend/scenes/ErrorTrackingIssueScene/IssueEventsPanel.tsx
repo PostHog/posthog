@@ -18,12 +18,11 @@ import { LinkedDataBadges } from './LinkedDataBadges'
 
 export function IssueEventsPanel(): JSX.Element {
     const { issueFingerprintsLoading, issueId } = useValues(errorTrackingIssueSceneLogic)
-    const { linkedDataPending } = useValues(issueLinkedDataLogic({ issueId }))
-    const { requestLinkedData } = useActions(issueLinkedDataLogic({ issueId }))
+    const { requestSummary } = useActions(issueLinkedDataLogic({ issueId }))
 
-    useOnMountEffect(requestLinkedData)
+    useOnMountEffect(requestSummary)
 
-    if (issueFingerprintsLoading || linkedDataPending) {
+    if (issueFingerprintsLoading) {
         return (
             <IssueEventsLayout loading>
                 <EventsTableLoading />
@@ -35,7 +34,8 @@ export function IssueEventsPanel(): JSX.Element {
 }
 
 function LoadedIssueEventsPanel(): JSX.Element {
-    const { eventsQuery, eventsQueryKey, selectedEvent, summary, issueId } = useValues(errorTrackingIssueSceneLogic)
+    const { issueEventsQuery, issueEventsQueryKey, selectedEvent, summary, issueId } =
+        useValues(errorTrackingIssueSceneLogic)
     const { selectEvent, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { requiredLinks } = useValues(issueLinkedDataLogic({ issueId }))
     const { clearRequiredLinks } = useActions(issueLinkedDataLogic({ issueId }))
@@ -43,19 +43,19 @@ function LoadedIssueEventsPanel(): JSX.Element {
     const { hasActiveFilters } = useValues(issueFilterPreviewLogic)
     const { clearNonDateFilters } = useActions(issueFilterPreviewLogic)
     const { setDateRange } = useActions(issueFiltersLogic)
-    const dataSource = eventsSourceLogic({ query: eventsQuery, queryKey: eventsQueryKey })
+    const dataSource = eventsSourceLogic({ query: issueEventsQuery, queryKey: issueEventsQueryKey })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadData, loadNextData } = useActions(dataSource)
     const nextDateRange = getNextErrorTrackingDateRange(dateRange)
-    const previousEventsQueryKey = useRef(eventsQueryKey)
+    const previousEventsQueryKey = useRef(issueEventsQueryKey)
 
     useEffect(() => {
         if (itemsLoading) {
             return
         }
 
-        const queryChanged = previousEventsQueryKey.current !== eventsQueryKey
-        previousEventsQueryKey.current = eventsQueryKey
+        const queryChanged = previousEventsQueryKey.current !== issueEventsQueryKey
+        previousEventsQueryKey.current = issueEventsQueryKey
         const nextSelection = getListSelection(items, selectedEvent, canLoadNextData, queryChanged)
         if (nextSelection !== selectedEvent) {
             selectEvent(nextSelection)
@@ -63,7 +63,7 @@ function LoadedIssueEventsPanel(): JSX.Element {
         if (!nextSelection) {
             setMobileDetailOpen(false)
         }
-    }, [items, itemsLoading, canLoadNextData, eventsQueryKey, selectEvent, selectedEvent, setMobileDetailOpen])
+    }, [items, itemsLoading, canLoadNextData, issueEventsQueryKey, selectEvent, selectedEvent, setMobileDetailOpen])
 
     return (
         <IssueEventsLayout
@@ -89,6 +89,9 @@ function LoadedIssueEventsPanel(): JSX.Element {
                         clearNonDateFilters()
                         clearRequiredLinks()
                     }}
+                    // A logs filter checks a bounded number of exceptions per request, so an empty
+                    // page can still have older matches.
+                    onCheckOlder={canLoadNextData ? loadNextData : undefined}
                 />
             ) : (
                 <EventsTable

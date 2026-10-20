@@ -36,7 +36,9 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
     const { setLogsScope, setShowUnlinkedLogs } = useActions(exceptionCardLogic)
     const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
     const hasNoLinkedLogs = linkedData?.hasLogs === false
-    const linkedLogsCount = linkedData?.exceptionCounts?.logs ?? 0
+    const linkedLogsCount = linkedData?.exceptionCounts?.logs ?? null
+    const noExceptionHasLogs = !!linkedLogsCount && linkedLogsCount.complete && linkedLogsCount.count === 0
+    const canFilterToLogs = !!linkedLogsCount && !noExceptionHasLogs
 
     // logsViewerFiltersLogic re-applies `initialFilters` whenever the object identity changes, which
     // resets the date range the user set, so the window depends on the occurrence and not the scope.
@@ -68,14 +70,14 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
 
     return (
         <TabsContent value="logs" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {loading || linkedData?.hasLogs === null ? (
+            {loading ? (
                 <TabSpinner />
             ) : hasNoLinkedLogs && !showUnlinkedLogs ? (
                 <LinkedDataEmptyState
                     kind="logs"
                     title="No logs linked to this exception"
                     description={
-                        linkedLogsCount > 0 ? (
+                        !noExceptionHasLogs ? (
                             'Logs link to an exception through its trace ID or session ID.'
                         ) : (
                             <>
@@ -105,7 +107,7 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                             {hasNoLinkedLogs ? (
                                 <>
                                     No logs link to this exception, so these are all logs in that window.{' '}
-                                    {linkedLogsCount > 0 && linkedData && (
+                                    {canFilterToLogs && linkedData && (
                                         <Button
                                             variant="link"
                                             size="inline"

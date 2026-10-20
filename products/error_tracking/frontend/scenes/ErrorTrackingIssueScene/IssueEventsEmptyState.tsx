@@ -8,6 +8,8 @@ export interface IssueEventsEmptyStateProps {
     loading: boolean
     onIncreaseDateRange: () => void
     onClearFilters: () => void
+    /** Set when the list stopped before it checked every exception in the range. */
+    onCheckOlder?: () => void
 }
 
 export function IssueEventsEmptyState({
@@ -16,14 +18,17 @@ export function IssueEventsEmptyState({
     loading,
     onIncreaseDateRange,
     onClearFilters,
+    onCheckOlder,
 }: IssueEventsEmptyStateProps): JSX.Element {
-    const detail = hasActiveFilters
-        ? nextDateRangeLabel
-            ? 'Try a wider date range or remove filters.'
-            : 'Remove filters to see more exceptions.'
-        : nextDateRangeLabel
-          ? 'Try a wider date range to see earlier exceptions.'
-          : 'No exceptions match this date range.'
+    const detail = onCheckOlder
+        ? 'None of the most recent exceptions match. Older ones are not checked yet.'
+        : hasActiveFilters
+          ? nextDateRangeLabel
+              ? 'Try a wider date range or remove filters.'
+              : 'Remove filters to see more exceptions.'
+          : nextDateRangeLabel
+            ? 'Try a wider date range to see earlier exceptions.'
+            : 'No exceptions match this date range.'
 
     return (
         <div className="flex min-h-64 flex-1 items-center justify-center px-4 py-8 text-center">
@@ -38,7 +43,12 @@ export function IssueEventsEmptyState({
                     </Text>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                    {nextDateRangeLabel && (
+                    {onCheckOlder && (
+                        <Button variant="outline" loading={loading} onClick={onCheckOlder}>
+                            Check older exceptions
+                        </Button>
+                    )}
+                    {!onCheckOlder && nextDateRangeLabel && (
                         <Button variant="outline" loading={loading} onClick={onIncreaseDateRange}>
                             <IconCalendar />
                             Show last {nextDateRangeLabel}

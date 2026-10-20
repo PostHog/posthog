@@ -1,27 +1,20 @@
-import { useValues } from 'kea'
-
 import { IconLive, IconRewindPlay } from '@posthog/icons'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { issueLinkedDataLogic } from './issueLinkedDataLogic'
-
+// The list query sets both flags on each row: `$has_recording` from the replay tables, `linkedLogs` from logs.
 export function LinkedDataBadges({ record }: { record: ErrorEventType }): JSX.Element | null {
-    const { issueId } = useValues(errorTrackingIssueSceneLogic)
-    const { getEventLinkedData } = useValues(issueLinkedDataLogic({ issueId }))
-    const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
-    const linked = getEventLinkedData(record)
+    const hasRecording = record.properties.$has_recording === true
+    const hasLogs = record.linkedLogs === true
 
-    if (!linked || (!linked.recording && !(logsEnabled && linked.logs))) {
+    if (!hasRecording && !hasLogs) {
         return null
     }
 
     return (
         <span className="inline-flex items-center gap-1 text-muted-foreground">
-            {linked.recording && (
+            {hasRecording && (
                 <Tooltip>
                     <TooltipTrigger render={<span className="inline-flex" aria-label="Has a recording" />}>
                         <IconRewindPlay />
@@ -29,7 +22,7 @@ export function LinkedDataBadges({ record }: { record: ErrorEventType }): JSX.El
                     <TooltipContent>Has a recording</TooltipContent>
                 </Tooltip>
             )}
-            {logsEnabled && linked.logs && (
+            {hasLogs && (
                 <Tooltip>
                     <TooltipTrigger render={<span className="inline-flex" aria-label="Has linked logs" />}>
                         <IconLive />

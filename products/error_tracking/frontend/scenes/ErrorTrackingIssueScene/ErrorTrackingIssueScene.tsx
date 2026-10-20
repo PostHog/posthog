@@ -29,7 +29,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ErrorTrackingLinkedDataKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -40,7 +40,7 @@ import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueB
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
-import type { ExceptionLinkedData, LinkedDataKind } from '../../components/ExceptionCard/exceptionCardLogic'
+import type { ExceptionLinkedData } from '../../components/ExceptionCard/exceptionCardLogic'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
@@ -330,20 +330,21 @@ const RightHandColumn = ({
 }): JSX.Element | null => {
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
-    const { linkedData, getEventLinkedData } = useValues(issueLinkedDataLogic({ issueId }))
+    const { summary: linkedDataSummary } = useValues(issueLinkedDataLogic({ issueId }))
     const { setLinkRequired } = useActions(issueLinkedDataLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
-    const detailEventHasLogs = getEventLinkedData(detailEvent)?.logs ?? null
+    // An exception loaded straight from a link, rather than from the list, carries no logs flag.
+    const detailEventHasLogs = detailEvent?.linkedLogs ?? null
     const exceptionLinkedData = useMemo<ExceptionLinkedData>(
         () => ({
             hasLogs: detailEventHasLogs,
-            exceptionCounts: linkedData
-                ? { logs: linkedData.logs.exceptionCount, recording: linkedData.recording.exceptionCount }
+            exceptionCounts: linkedDataSummary
+                ? { logs: linkedDataSummary.logs, recording: linkedDataSummary.recording }
                 : null,
-            showOnlyExceptionsWith: (kind: LinkedDataKind) => setLinkRequired(kind, true),
+            showOnlyExceptionsWith: (kind: ErrorTrackingLinkedDataKind) => setLinkRequired(kind, true),
         }),
-        [detailEventHasLogs, linkedData, setLinkRequired]
+        [detailEventHasLogs, linkedDataSummary, setLinkRequired]
     )
 
     if (isMobile && !isOpen) {

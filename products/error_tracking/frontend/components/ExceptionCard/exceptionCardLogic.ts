@@ -2,14 +2,14 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, sel
 
 import posthog from 'lib/posthog-typed'
 
-export type LinkedDataKind = 'logs' | 'recording'
+import type { ErrorTrackingLinkedDataCount, ErrorTrackingLinkedDataKind } from '~/queries/schema/schema-general'
 
 export interface ExceptionLinkedData {
-    /** Whether this exception has linked logs, or null while the lookup runs. */
+    /** Whether this exception has linked logs, or null when the list could not tell. */
     hasLogs: boolean | null
-    /** How many of the issue's exceptions have each kind of data, or null while the lookup runs. */
-    exceptionCounts: Record<LinkedDataKind, number> | null
-    showOnlyExceptionsWith: (kind: LinkedDataKind) => void
+    /** How many of the issue's exceptions have each kind of data. Null until the counts load. */
+    exceptionCounts: Record<ErrorTrackingLinkedDataKind, ErrorTrackingLinkedDataCount | null> | null
+    showOnlyExceptionsWith: (kind: ErrorTrackingLinkedDataKind) => void
 }
 
 export type ExceptionCardLogicProps = {
