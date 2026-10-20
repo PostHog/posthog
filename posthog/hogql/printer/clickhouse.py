@@ -1329,12 +1329,17 @@ class ClickHousePrinter(BasePrinter):
 
     def select_column_names(self, query: ast.SelectQuery) -> list[str]:
         # ClickHouse names an unaliased expression after the SQL it receives, with bound values inlined.
-        return [
-            column.alias
-            if isinstance(column, ast.Alias) and not column.hidden
-            else substitute_params(self.visit(column), self.context.values)
-            for column, _ in self._prepare_select_columns(query.select)
-        ]
+        names: list[str] = []
+        for column, _ in self._prepare_select_columns(query.select):
+            if isinstance(column, ast.Alias) and not column.hidden:
+                names.append(column.alias)
+                continue
+
+            rendered = self.visit(column)
+            if re.search(r"%\([^)]*_sensitive\)s", rendered):
+                raise QueryError("An expression that reads sensitive source data needs an explicit alias")
+            names.append(substitute_params(rendered, self.context.values))
+        return names
 
     def _get_extra_select_clauses(
         self,
