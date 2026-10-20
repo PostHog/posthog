@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import PersonalAPIKey, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
@@ -186,6 +186,30 @@ class TestConversionRecommendations(APIBaseTest):
         expected_runs = 1 if expected_status == 200 else 0
         self.assertEqual(ConversionRecommendationRun.objects.for_team(self.team.pk).count(), expected_runs)
         self.assertEqual(enqueue.call_count, expected_runs)
+
+    @parameterized.expand([("child_only", False, 403), ("parent_and_child", True, 200)])
+    def test_recommendations_require_the_canonical_project_in_token_scope(
+        self, _name: str, include_parent: bool, expected_status: int
+    ) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Test environment")
+        key = self.create_personal_api_key_with_scopes(["marketing_analytics:write"])
+        PersonalAPIKey.objects.filter(user=self.user).update(
+            scoped_teams=[child.pk, self.team.pk] if include_parent else [child.pk]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+        endpoint = f"/api/projects/{child.pk}/marketing_analytics/conversion_recommendations"
+        self.assertEqual(self.client.get(endpoint).status_code, expected_status)
+        with patch(QUEUE) as enqueue, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(endpoint + "/start", {})
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if include_parent:
+            run_id = response.json()["latest_run"]["id"]
+            enqueue.assert_called_once_with(self.team.pk, run_id)
+            self.assertEqual(self.client.get(self.base).json()["latest_run"]["id"], run_id)
+        else:
+            enqueue.assert_not_called()
+            self.assertFalse(ConversionRecommendationRun.objects.for_team(self.team.pk).exists())
 
     @parameterized.expand([("amount", True), ("invented_amount", False)])
     def test_revenue_proposal_requires_observed_amount_and_keeps_business_questions(

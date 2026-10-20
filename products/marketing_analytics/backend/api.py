@@ -60,9 +60,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
@@ -1466,7 +1468,11 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise PermissionDenied("Use a user account to review AI conversion recommendations.")
 
     def _recommendation_service(self, request: Request) -> ConversionRecommendationService:
-        service = ConversionRecommendationService(self.team, cast(User, request.user))
+        canonical_team = self.team.parent_team or self.team
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_teams and canonical_team.pk not in scoped_teams:
+            raise PermissionDenied("Your API key does not have access to the project that owns these recommendations.")
+        service = ConversionRecommendationService(canonical_team, cast(User, request.user))
         try:
             service.require_access()
         except PermissionError as error:
@@ -1475,12 +1481,12 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     def _recommendation_state(self, service: ConversionRecommendationService) -> Response:
         service.expire_interrupted_runs()
-        runs = ConversionRecommendationRun.objects.for_team(self.team.pk).order_by("-created_at", "-id")
+        runs = ConversionRecommendationRun.objects.for_team(service.team.pk).order_by("-created_at", "-id")
         latest = runs.first()
         completed = runs.filter(status=ConversionRecommendationRun.Status.COMPLETED).first()
         generation_disabled_reason = None
         try:
-            self._require_project_admin()
+            self._require_project_admin(service.team)
             service.require_generation_access()
         except (PermissionDenied, PermissionError) as error:
             generation_disabled_reason = str(error)
@@ -1524,23 +1530,29 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     def start_conversion_recommendations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self._require_conversion_setup_ai(request)
-        self._require_project_admin()
         service = self._recommendation_service(request)
+        self._require_project_admin(service.team)
         try:
             service.start(refresh=request.validated_data["refresh"])
         except PermissionError as error:
             raise PermissionDenied(str(error)) from error
         return self._recommendation_state(service)
 
-    def _require_project_admin(self) -> None:
+    def _require_project_admin(self, team: Team | None = None) -> None:
         # The settings PATCH path puts these fields behind ADMIN, so these endpoints have to clear
         # the same bar or they route around it. RBAC alone doesn't: `check_access_level_for_object`
         # is permissive without the ACCESS_CONTROL feature. Either check satisfies.
-        if self.user_access_control.access_controls_supported:
-            if self.user_access_control.check_access_level_for_object(self.team, "admin"):
+        target_team = team or self.team
+        access = (
+            self.user_access_control
+            if target_team.pk == self.team.pk
+            else UserAccessControl(self.request.user, team=target_team)
+        )
+        if access.access_controls_supported:
+            if access.check_access_level_for_object(target_team, "admin"):
                 return
 
-        level = self.user_permissions.team(self.team).effective_membership_level
+        level = self.user_permissions.team(target_team).effective_membership_level
         if level is None or level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("You need admin access to this project to modify conversion goals.")
 

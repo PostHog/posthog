@@ -33,6 +33,8 @@ The scan does not inspect warehouse tables or create views.
 Starting analysis requires project admin access, AI data-processing consent, the feature flag, and `marketing_analytics:write` for scoped API keys.
 The worker rechecks access, consent, and the flag before reading source data.
 Read-only MCP sessions cannot start analysis.
+Runs belong to the canonical parent project; environment routes require user access and credential scope for that parent.
+Discovery, goal context, locking, and generation permissions use the same parent project.
 The model receives aggregate evidence, source metadata, and summaries of existing goals, including goals absent from the recent candidate catalog.
 Summaries include source identity, name, measurement, revenue/customer flags, and whether filters apply; they omit filter values, individual event payloads, and person records.
 Configured action summaries respect action access controls.
