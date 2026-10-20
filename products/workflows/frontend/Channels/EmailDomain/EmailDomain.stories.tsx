@@ -14,6 +14,7 @@ import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 const DOMAIN = 'mail.acme.com'
 const EMAIL = `hello@${DOMAIN}`
+const LONG_DOMAIN = 'updates.hedgebox-mail.com'
 
 const SUGGESTED_WORKFLOWS: DataSuggestionApi[] = [
     {
@@ -56,14 +57,19 @@ type Stage = (backend: FakeEmailDomainBackend, id: string) => void
 
 interface DomainPageArgs {
     host: FakeDnsHost
+    email?: string
     seed?: (backend: FakeEmailDomainBackend) => void
     stage?: Stage
 }
 
-const seededBackend = (host: FakeDnsHost, seed?: DomainPageArgs['seed']): FakeEmailDomainBackend => {
+const seededBackend = (
+    host: FakeDnsHost,
+    seed?: DomainPageArgs['seed'],
+    email: string = EMAIL
+): FakeEmailDomainBackend => {
     const backend = new FakeEmailDomainBackend()
     backend.hostDnsAt('acme.com', host)
-    backend.addSender({ email: EMAIL })
+    backend.addSender({ email })
     seed?.(backend)
     return backend
 }
@@ -75,8 +81,8 @@ function Staged({ backend, id, stage }: { backend: FakeEmailDomainBackend; id: s
     return null
 }
 
-function DomainPage({ host, seed, stage }: DomainPageArgs): JSX.Element {
-    const backend = useMemo(() => seededBackend(host, seed), [host, seed])
+function DomainPage({ host, email, seed, stage }: DomainPageArgs): JSX.Element {
+    const backend = useMemo(() => seededBackend(host, seed, email), [host, seed, email])
     const id = String(backend.sender(42)?.id)
     useStorybookMocks(backend.mocks())
     return (
@@ -200,6 +206,14 @@ export const VerifyingFailed: Story = {
 }
 
 export const Ready: Story = { args: { host: 'cloudflare', seed: (backend) => backend.verifyDomain(DOMAIN) } }
+
+export const ReadyLongDomain: Story = {
+    args: {
+        host: 'cloudflare',
+        email: `hello@${LONG_DOMAIN}`,
+        seed: (backend) => backend.verifyDomain(LONG_DOMAIN),
+    },
+}
 
 export const ReadyWithSuggestions: Story = {
     args: {
