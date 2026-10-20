@@ -49,6 +49,7 @@ export function BIToolbar(): JSX.Element {
                         type="secondary"
                         active={fieldsPaneOpen}
                         onClick={toggleFieldsPane}
+                        aria-label="Fields"
                         aria-pressed={fieldsPaneOpen}
                         tooltip={fieldsPaneOpen ? 'Hide fields panel' : 'Show fields panel'}
                         data-attr="bi-editor-toggle-fields"
