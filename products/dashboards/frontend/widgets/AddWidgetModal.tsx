@@ -74,11 +74,17 @@ function AddWidgetCatalogPicker({
 }
 
 export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetModalProps): JSX.Element {
-    const { addWidgetSelectedTypes, addWidgetCollapsedGroups } = useValues(dashboardLogic)
-    const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup } = useActions(dashboardLogic)
+    const { addWidgetSelectedTypes, addWidgetCollapsedGroups, addWidgetFilteredGroups } = useValues(dashboardLogic)
+    const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup, toggleAddWidgetFilteredGroup } =
+        useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
     const selectedTypes = new Set(addWidgetSelectedTypes)
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
+    const filteredGroups = new Set(addWidgetFilteredGroups)
+    const visibleGroups =
+        filteredGroups.size > 0
+            ? DASHBOARD_WIDGET_CATALOG_GROUPS.filter((group) => filteredGroups.has(group.groupId))
+            : DASHBOARD_WIDGET_CATALOG_GROUPS
 
     const selectedCount = selectedTypes.size
 
@@ -112,9 +118,22 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                             .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
                             .map((group) => {
                                 const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
+                                const isFiltered = filteredGroups.has(group.groupId)
 
                                 return (
-                                    <LemonTag key={group.groupId} type="muted">
+                                    <LemonTag
+                                        key={group.groupId}
+                                        type={isFiltered ? 'primary' : 'muted'}
+                                        tabIndex={0}
+                                        aria-pressed={isFiltered}
+                                        onClick={() => toggleAddWidgetFilteredGroup(group.groupId)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault()
+                                                toggleAddWidgetFilteredGroup(group.groupId)
+                                            }
+                                        }}
+                                    >
                                         <span className="flex items-center gap-1.5">
                                             {GroupIcon ? <GroupIcon className="size-4" /> : null}
                                             {group.groupLabel}
@@ -157,7 +176,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                     className="grid grid-cols-1 @min-[56rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
-                    {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
+                    {visibleGroups.map((group, groupIndex) => {
                         const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
                         // Nudge only when the product's setup requirement (a project setting) is unmet.
                         const showProductIntro =
