@@ -8,7 +8,7 @@ from posthog.models.scoping import team_scope
 
 from products.posthog_ai.backend.turn_suggestions.offer_ledger import STATE_KEY, OfferRecord, OfferStatus, read_ledger
 from products.tasks.backend.facade.contracts import StreamNotificationDelivery
-from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 SERVICE = "products.posthog_ai.backend.turn_suggestions.service"
 
@@ -57,6 +57,7 @@ class TestResolveTurnSuggestion(APIBaseTest):
     ):
         run_ids = {str(self.task_run.id)}
         if with_successor:
+            TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
             run_ids.add(str(self.task.create_run(mode="interactive").id))
 
         response, publish = self._resolve(str(self.task.id), 0, "dismissed", live=live)
