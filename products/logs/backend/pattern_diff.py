@@ -214,25 +214,13 @@ def run_patterns_diff(
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 
+    versions = {runner.stored_version() for runner in (current_runner, baseline_runner)}
+    version = versions.pop() if len(versions) == 1 else None
+    if version is None:
+        current_runner.use_stored_patterns = baseline_runner.use_stored_patterns = False
     results = [
         runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results for runner in (current_runner, baseline_runner)
     ]
-    versions = {
-        result.get("pattern_version") if result.get("source") == "stored_patterns" else None for result in results
-    }
-    version = versions.pop() if len(versions) == 1 else None
-    if version is None:
-        pinned = [
-            query.model_copy(
-                update={"dateRange": DateRange(date_from=start.isoformat(), date_to=end.isoformat(), explicitDate=True)}
-            )
-            for start, end in ((current_from, current_to), (baseline_from, baseline_to))
-        ]
-        for index, window_query in enumerate(pinned):
-            if results[index].get("source") == "stored_patterns":
-                runner = PatternsQueryRunner(team=team, query=window_query, user=user)
-                runner.use_stored_patterns = False
-                results[index] = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
     current_results, baseline_results = results
 
     entries = diff_patterns(

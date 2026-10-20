@@ -30,6 +30,7 @@ from products.logs.backend.pattern_diff import (
     run_patterns_diff,
     stored_pattern_keys,
 )
+from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 
 _HOUR = (dt.datetime(2026, 6, 23, 12, 0), dt.datetime(2026, 6, 23, 13, 0))
 _BASELINE_HOUR = (dt.datetime(2026, 6, 16, 12, 0), dt.datetime(2026, 6, 16, 13, 0))
@@ -457,7 +458,10 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
     def test_partial_coverage_falls_back_to_body_mining_in_both_windows(self) -> None:
         self._seed_stored(stamp_baseline=False)
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.object(PatternsQueryRunner, "_calculate_stored_patterns", side_effect=AssertionError),
+        ):
             results = run_patterns_diff(self.team, self._query(), None)
 
         assert results["source"] == "body_mining"
