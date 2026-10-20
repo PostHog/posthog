@@ -14,6 +14,7 @@ from products.workflows.backend.presentation.views import (
     workflow_classifications,
     workflow_data_suggestions,
     workflow_scout_runs,
+    workflow_sending_rules,
     workflow_setup,
     workflow_tasks,
     workflow_vision_requests,
@@ -44,6 +45,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"broadcast_audience_suggestions",
         broadcast_audience_suggestions.BroadcastAudienceSuggestionsViewSet,
         "project_broadcast_audience_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_sending_rules",
+        workflow_sending_rules.WorkflowSendingRulesViewSet,
+        "project_workflow_sending_rules",
         ["team_id"],
     )
     routers.projects.register(
