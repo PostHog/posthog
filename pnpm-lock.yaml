@@ -3186,6 +3186,9 @@ importers:
 
   products/dashboards:
     dependencies:
+      '@floating-ui/react':
+        specifier: ^0.27.19
+        version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
         version: 0.12.3(react@18.3.1)
@@ -3231,6 +3234,9 @@ importers:
       react-grid-layout:
         specifier: ^2.2.4
         version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-intersection-observer:
+        specifier: ^9.5.3
+        version: 9.5.3(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'

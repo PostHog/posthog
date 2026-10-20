@@ -31,13 +31,13 @@ The browser viewport was 1504 by 1575 pixels at a device pixel ratio of 2, with 
 Each run entered and exited edit mode six times, scrolled through the dashboard, then repeated the mode change three times.
 The table uses the median of those final three changes. The current implementation ranged from 156 to 179 ms to enter and 139 to 166 ms to exit across reference runs.
 
-| Change removed for one run                  | Edit entry | Edit exit | Finding                                                                                                                                          |
-| ------------------------------------------- | ---------: | --------: | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Local edit-mode state change                |     311 ms |    273 ms | State changes through the async dashboard loader caused the largest transition cost.                                                             |
-| Stable tile callbacks and decorations       |     280 ms |    242 ms | New references spread a mode change into card renders.                                                                                           |
-| SVG grid background                         |     278 ms |    162 ms | Thousands of grid-cell elements mainly delayed entry.                                                                                            |
-| Skip save work when the layout is unchanged |     230 ms |    286 ms | Local save work delayed exit even when neither version sent a dashboard PATCH request.                                                           |
-| Mount insight cards near the viewport       |     240 ms |    225 ms | Mounted insight cards rose from 2 to 49 without this limit. The current version kept at most 5 during a full scroll and returned to 2 afterward. |
+| Change removed for one run                  | Edit entry | Edit exit | Finding                                                                                                                         |
+| ------------------------------------------- | ---------: | --------: | ------------------------------------------------------------------------------------------------------------------------------- |
+| Local edit-mode state change                |     311 ms |    273 ms | State changes through the async dashboard loader caused the largest transition cost.                                            |
+| Stable tile callbacks and decorations       |     280 ms |    242 ms | New references spread a mode change into card renders.                                                                          |
+| SVG grid background                         |     278 ms |    162 ms | Thousands of grid-cell elements mainly delayed entry.                                                                           |
+| Skip save work when the layout is unchanged |     230 ms |    286 ms | Local save work delayed exit even when neither version sent a dashboard PATCH request.                                          |
+| Mount insight cards near the viewport       |     240 ms |    225 ms | Mounted insight cards rose from 2 to 49 without this limit. This run used an earlier version that unmounted cards after scroll. |
 
 These results measure each group's contribution to the current branch. They are not additive or a comparison against `master`.
 Fresh-load timing varied, so small differences need more evidence. At normal CPU speed, drag and resize had a median frame interval near 16.7 ms with every measured variant. The changes above mainly improved mode transitions and retained work; they did not establish a continuous-frame-rate gain.
@@ -107,13 +107,14 @@ In a vertically compacted grid, shrinking a tile from its top edge opens space a
 
 ## Bound mounted content and retained resources
 
-A long dashboard should not require every expensive card to stay active after the user visits it.
+A long dashboard should avoid mounting every expensive card at initial load.
 Track DOM nodes, chart instances, observers, timers, decoded images, and memory after a full scroll and return.
 
 - Mount expensive content near the viewport when the surface permits it.
 - Apply that limit to widget bodies as well as insight charts. Offscreen list widgets can retain thousands of DOM nodes.
 - Keep live widget bodies mounted because their data streams update in the component.
-- Release offscreen resources after they are no longer needed.
+- Keep a card mounted after its first display if it owns saves, query results, refresh polling, or mutation recovery.
+- Release offscreen resources only after their work and state have a durable owner elsewhere.
 - Preserve active gestures, open dialogs or details, and export rendering.
 - Keep enough layout information to preserve tile positions while content is absent.
 - Render a cheap placeholder for an unmounted tile so a fast scroll never exposes an empty grid cell.

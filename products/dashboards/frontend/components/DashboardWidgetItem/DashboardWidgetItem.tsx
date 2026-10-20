@@ -421,6 +421,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         const exportPlacement = placement === DashboardPlacement.Export
         const { ref: visibilityRef, inView } = useInView({
             rootMargin: '500px',
+            triggerOnce: true,
             initialInView: exportPlacement,
             skip: exportPlacement,
         })

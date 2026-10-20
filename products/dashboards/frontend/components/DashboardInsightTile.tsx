@@ -49,6 +49,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     const exportPlacement = cardProps.placement === DashboardPlacement.Export
     const { ref: visibilityRef, inView } = useInView({
         rootMargin: '500px',
+        triggerOnce: true,
         initialInView: exportPlacement,
         skip: exportPlacement,
     })
