@@ -77,7 +77,7 @@ class ScarfSource(ResumableSource[ScarfSourceConfig, ScarfResumeConfig], CursorS
 Copy your API token from your [Scarf account settings](https://app.scarf.sh/account). The owner is your Scarf user name or organization name. Event exports need a Scarf Basic or Premium plan, and each day synced uses one export run. A full refresh of an event table exports the whole history window again on every sync, so prefer incremental syncs for those tables.""",
             iconPath="/static/services/scarf.png",
             docsUrl="https://posthog.com/docs/cdp/sources/scarf",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

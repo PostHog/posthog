@@ -57,7 +57,7 @@ class NewsDataSource(ResumableSource[NewsDataSourceConfig, NewsDataResumeConfig]
             name=ExternalDataSourceType.NEWSDATA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="NewsData.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your NewsData.io API key to pull news articles into the PostHog Data warehouse.
 
 You can find your API key on your [NewsData.io dashboard](https://newsdata.io/dashboard).
