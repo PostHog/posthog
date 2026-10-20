@@ -447,11 +447,6 @@ class SignalReport(UUIDModel):
     # receivers.py keep them current. NULL means the report has no parseable judgment.
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
-    # False when every scout that fed this report opted out of the shared inbox (see
-    # `scout_lists_reports_in_inbox`). The inbox list hides such reports unless asked to show them.
-    # Once True it stays True, so a scout that wants the inbox never loses a report it fed.
-    # `db_default` keeps inserts from pre-deploy workers valid during a rolling rollout.
-    listed_in_inbox = models.BooleanField(default=True, db_default=True)
 
     class Meta:
         indexes = [
@@ -3111,10 +3106,6 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
-
-    @property
-    def lists_reports_in_inbox(self) -> bool:
-        return scout_lists_reports_in_inbox(self.output_destinations)
 
     @property
     def tag_list(self) -> list[str]:

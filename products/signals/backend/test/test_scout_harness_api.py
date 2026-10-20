@@ -3978,7 +3978,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
-        assert config.lists_reports_in_inbox is True
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [

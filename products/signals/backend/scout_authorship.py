@@ -8,7 +8,7 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
@@ -128,3 +128,26 @@ def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> di
 
 def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
     return report_id in resolve_background_authoring_runs(team_id, [report_id])
+
+
+def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
+    # Matches `scout_lists_reports_in_inbox`: only an explicit `inbox: false` opts a scout out.
+    return SignalScoutRun.objects.for_team(team_id).filter(scout_config__output_destinations__inbox=False)
+
+
+def resolve_inbox_hidden_report_ids(team_id: int) -> set[str]:
+    """Reports kept out of the inbox because the scout that authored them turned off its inbox destination.
+
+    Only authorship counts, read from the config's current setting: an opted-out scout that edits
+    another source's report does not hide it, and turning the scout back on lists its reports again.
+    """
+    hidden: set[str] = set()
+    for emitted_ids in (
+        _inbox_opted_out_runs(team_id).exclude(emitted_report_ids=[]).values_list("emitted_report_ids", flat=True)
+    ):
+        hidden.update(emitted_ids or [])
+    return hidden
+
+
+def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:
+    return _inbox_opted_out_runs(team_id).filter(emitted_report_ids__contains=[report_id]).exists()

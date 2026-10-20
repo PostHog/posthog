@@ -1940,8 +1940,8 @@ class SignalReportListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Include reports kept out of the shared inbox. A report is kept out when every scout that "
-            "fed it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
             "by id always works, whatever this value is."
         ),
     )

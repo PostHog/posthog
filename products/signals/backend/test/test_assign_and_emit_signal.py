@@ -11,14 +11,13 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
-from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.spend import record_llm_spend
@@ -39,7 +38,6 @@ from products.signals.backend.temporal.types import (
     NoMatchMetadata,
     next_research_bucket,
 )
-from products.tasks.backend.models import Task, TaskRun
 
 GROUPING_MODULE_PATH = "products.signals.backend.temporal.grouping"
 
@@ -208,57 +206,6 @@ async def test_exempt_source_signal_joining_existing_report_never_flips_it(ateam
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
     assert refreshed.billing_exempt_reason is None
     assert refreshed.signal_count == 2
-
-
-def _create_scout_run(team: Team, *, inbox: bool) -> SignalScoutRun:
-    task = Task.objects.create(
-        team=team, title="scout run", description="scout run", origin_product=Task.OriginProduct.SIGNALS_SCOUT
-    )
-    with team_scope(team.id):
-        config = SignalScoutConfig.objects.create(
-            team=team, skill_name=f"signals-scout-{uuid.uuid4().hex[:8]}", output_destinations={"inbox": inbox}
-        )
-        return SignalScoutRun.objects.create(
-            task_run=TaskRun.objects.create(task=task, team=team),
-            team=team,
-            scout_config=config,
-            skill_name=config.skill_name,
-            skill_version=1,
-        )
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "existing_listed,scout_wants_inbox,expected_listed",
-    [
-        (None, False, False),
-        (None, True, True),
-        (True, False, True),
-        (False, True, True),
-        (False, False, False),
-    ],
-)
-async def test_scout_signal_sets_inbox_listing_one_way(ateam, existing_listed, scout_wants_inbox, expected_listed):
-    run = await database_sync_to_async(_create_scout_run)(ateam, inbox=scout_wants_inbox)
-    if existing_listed is None:
-        match: ExistingReportMatch | NewReportMatch = _new_match()
-    else:
-        report = await database_sync_to_async(SignalReport.objects.create)(
-            team=ateam,
-            status=SignalReport.Status.POTENTIAL,
-            total_weight=0.2,
-            signal_count=1,
-            listed_in_inbox=existing_listed,
-        )
-        match = _existing_match(str(report.id))
-    input_ = _build_input(ateam.id, match, source_product="signals_scout")
-    input_.extra = {"scout_run_id": str(run.id)}
-
-    result = await assign_and_emit_signal_activity(input_)
-
-    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert refreshed.listed_in_inbox is expected_listed
 
 
 # ---------------------------------------------------------------------------

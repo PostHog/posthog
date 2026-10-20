@@ -256,7 +256,6 @@ def create_scout_report(
                 charts=[chart.model_dump(mode="json") for chart in charts],
                 metrics=[metric.model_dump(mode="json") for metric in metrics],
                 suggested_prompts=prompts,
-                listed_in_inbox=run is None or run.scout_config is None or run.scout_config.lists_reports_in_inbox,
                 # Born directly in a user-visible status without passing through transition_to (which
                 # stamps this for pipeline reports), so the daily report limit counts it from creation.
                 first_visible_at=(

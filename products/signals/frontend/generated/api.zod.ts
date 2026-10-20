@@ -1399,7 +1399,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                             .boolean()
                             .optional()
                             .describe(
-                                "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep reports only in the other destinations, such as Slack. A report that another scout also feeds still appears if that scout lists its reports in the inbox. An update that omits this key keeps the stored value."
+                                "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                             ),
                     })
                     .optional()
@@ -1655,7 +1655,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep reports only in the other destinations, such as Slack. A report that another scout also feeds still appears if that scout lists its reports in the inbox. An update that omits this key keeps the stored value."
+                        "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                     ),
             })
             .optional()
@@ -1831,7 +1831,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep reports only in the other destinations, such as Slack. A report that another scout also feeds still appears if that scout lists its reports in the inbox. An update that omits this key keeps the stored value."
+                        "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                     ),
             })
             .optional()

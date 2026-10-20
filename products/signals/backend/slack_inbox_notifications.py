@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
@@ -794,6 +795,13 @@ def dispatch_inbox_item_notifications(
     except SignalReport.DoesNotExist:
         logger.warning(
             "dispatch_inbox_item_notifications: report not found",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
+        return 0
+
+    if report_is_hidden_from_inbox(team_id, report_id):
+        logger.info(
+            "dispatch_inbox_item_notifications: authoring scout keeps reports out of the inbox, skipping",
             extra={"report_id": report_id, "team_id": team_id},
         )
         return 0

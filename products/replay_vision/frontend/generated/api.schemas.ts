@@ -2080,7 +2080,7 @@ export interface SignalScoutOutputDestinationsApi {
     slack?: SignalScoutSlackDestinationApi | null
     /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
     webhook?: SignalScoutWebhookDestinationApi | null
-    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep reports only in the other destinations, such as Slack. A report that another scout also feeds still appears if that scout lists its reports in the inbox. An update that omits this key keeps the stored value. */
+    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
     inbox?: boolean
 }
 
